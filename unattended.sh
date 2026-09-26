@@ -9,11 +9,12 @@
 # Electron apps that crash, and takes screenshots to show a change working, and
 # every one of those is a thing that stops dead at a modal or at a locked screen.
 #
-# Two of them cannot be arranged from here at all, so this checks and says so
-# rather than pretending. Auto-login needs the account password written to
-# /etc/kcpassword, obfuscated rather than encrypted. Screen Sharing needs a click
-# that macOS will not take from a script — see the README, which says where each
-# one lives and what it is for.
+# Three of them cannot be arranged from here at all, so this says so rather than
+# pretending. Auto-login needs the account password written to /etc/kcpassword,
+# obfuscated rather than encrypted. Screen Sharing needs a click that macOS will
+# not take from a script. The screen lock is a pane setting this macOS neither
+# reads back nor writes — see the README, which says where each one lives and
+# what it is for.
 #
 # Not fatal, any of it. A Mac that sleeps, locks or comes up at the login window
 # is still a Mac.
@@ -120,9 +121,15 @@ set_user_default com.apple.CrashReporter DialogType -string none
 #
 # Two separate settings, and only one of them can be written. idleTime is the
 # screensaver's, still in the ByHost domain even though Sonoma moved the engine
-# that reads it into a sandbox — 0 is never. askForPassword next to it is the key
-# this used to be and macOS has ignored it since Sonoma; sysadminctl is the
-# switch now, and it wants an admin password it will only take from a prompt.
+# that reads it into a sandbox — 0 is never.
+#
+# The lock itself is only the Lock Screen pane's, on macOS 27. It lives in no
+# preference domain — com.apple.screensaver has no askForPassword any more, and
+# ByHost holds idleTime and nothing else — `sysadminctl -screenLock status` still
+# answers "delay is immediate" with the pane set to Never, and
+# `sudo sysadminctl -screenLock off -password -` over SSH fails with
+# MKBDeviceSetGracePeriod error -17 and changes nothing. So it is named here and
+# neither written nor read back.
 set_host_default() {
   local domain="$1" key="$2" type="$3" value="$4"
 
@@ -140,41 +147,10 @@ set_host_default() {
 
 set_host_default com.apple.screensaver idleTime -int 0
 
-# sysadminctl answers on stderr, behind a timestamp, in one of three forms:
-# "screenLock is off", "screenLock delay is immediate", "screenLock delay is N
-# seconds". Reading it needs neither sudo nor a password.
-screen_lock() {
-  sysadminctl -screenLock status 2>&1 | sed -n 's/.*\(screenLock .*\)/\1/p'
-}
-
-if screen_lock | grep -q 'screenLock is off'; then
-  echo "the screen lock is off"
-elif [ -t 0 ]; then
-  echo
-  echo "Turning the screen lock off. sysadminctl asks for this account's own"
-  echo "password, not sudo's, and there is no way to hand it one that was not"
-  echo "typed in."
-  # `-password -` makes it prompt rather than take a password from a command line
-  # every process on the machine can read. It exits 0 on a wrong one, so the
-  # status is read back rather than the exit status trusted.
-  sudo sysadminctl -screenLock off -password - || true
-
-  if screen_lock | grep -q 'screenLock is off'; then
-    echo "the screen lock is off"
-  else
-    echo "could not turn the screen lock off" >&2
-  fi
-else
-  echo
-  echo "warning: $(screen_lock). A locked session keeps" >&2
-  echo "running, but every screenshot and recording taken over SSH comes out" >&2
-  echo "black, so a session cannot show that what it changed works. Run:" >&2
-  echo >&2
-  echo "  sudo sysadminctl -screenLock off -password -" >&2
-  echo >&2
-  echo "It asks for this account's password, which is why it is not done here:" >&2
-  echo "there is no terminal to type one at." >&2
-fi
+echo
+echo "Set System Settings > Lock Screen > \"Require password after screen saver"
+echo "begins or display is turned off\" to Never, over Screen Sharing. Nothing"
+echo "here can set it or tell you whether it is already set."
 
 # macOS updates
 

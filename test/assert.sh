@@ -301,21 +301,10 @@ else
   echo "  --    sudo wants a password, so unattended.sh was not re-run"
 fi
 
-# askForPassword in com.apple.screensaver is the key this used to be and macOS has
-# ignored it since Sonoma. sysadminctl is the switch now and it wants the account's
-# own password, which nothing can hand it that was not typed in — so on a runner
-# what can be said is where the setting stands.
-screen_lock() {
-  sysadminctl -screenLock status 2>&1
-}
-export -f screen_lock
-
-if screen_lock | grep -q 'screenLock is off'; then
-  check "the screen lock is off" 'screen_lock | grep -q "screenLock is off"'
-else
-  echo "  --    the screen lock is on, and sysadminctl will not turn it off"
-  echo "        without this account's password typed in"
-fi
+# The lock itself is nowhere here. It is the Lock Screen pane's alone on macOS 27:
+# in no preference domain, and `sysadminctl -screenLock status` answers "delay is
+# immediate" with the pane set to Never — so a check on it would be a check on a
+# reading known to be wrong. idleTime above is the half that can be asserted.
 
 # The port rather than launchd's opinion of the job: `launchctl enable` clears the
 # Disabled flag without registering the screen recording rights the sharing agent

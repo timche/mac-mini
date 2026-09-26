@@ -327,28 +327,11 @@ else
   echo "        Sharing can change that"
 fi
 
-# The Spotlight privacy list, which is the folders mds is told to walk past. Root
-# can read it and nothing can usefully write it, so this names what is still being
-# indexed rather than asserting a state no script could have produced. The paths
-# are repeated rather than sourced, because what is being checked is the list
-# unattended.sh works from.
-exclusions=/System/Volumes/Data/.Spotlight-V100/VolumeConfiguration.plist
-
-if ! sudo -n true 2>/dev/null; then
-  echo "  --    sudo wants a password, so the Spotlight privacy list was not read"
-else
-  excluded="$(sudo -n plutil -extract Exclusions json -o - "$exclusions" 2>/dev/null || true)"
-
-  for folder in "$HOME/projects" "$HOME/.herdr/worktrees" \
-                "$HOME/.mac-mini-dotfiles/.claude/worktrees"; do
-    if printf '%s' "$excluded" | grep -qF "\"$folder\""; then
-      echo "  ok    Spotlight is out of $folder"
-    else
-      echo "  --    Spotlight still indexes $folder, which only System Settings >"
-      echo "        Spotlight > Search Privacy can change"
-    fi
-  done
-fi
+# Asserted rather than reported, unlike the privacy list this replaced: mdutil
+# turns indexing off from a script, and `mdutil -s` reads the result back without
+# sudo.
+check "Spotlight indexing is off" \
+  'mdutil -s /System/Volumes/Data | grep -qi "indexing.*disabled"'
 
 # Reading the system domain needs root, and a Mac being provisioned by hand should
 # not have this script sitting on a password prompt.

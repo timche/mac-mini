@@ -9,11 +9,11 @@
 # Electron apps that crash, and takes screenshots to show a change working, and
 # every one of those is a thing that stops dead at a modal or at a locked screen.
 #
-# Three of them cannot be arranged from here at all, so this checks and says so
+# Two of them cannot be arranged from here at all, so this checks and says so
 # rather than pretending. Auto-login needs the account password written to
-# /etc/kcpassword, obfuscated rather than encrypted. Screen Sharing and the
-# Spotlight privacy list both need a click that macOS will not take from a
-# script — see the README, which says where each one lives and what it is for.
+# /etc/kcpassword, obfuscated rather than encrypted. Screen Sharing needs a click
+# that macOS will not take from a script — see the README, which says where each
+# one lives and what it is for.
 #
 # Not fatal, any of it. A Mac that sleeps, locks or comes up at the login window
 # is still a Mac.
@@ -295,67 +295,42 @@ fi
 
 # Spotlight
 
-# Kept out of the folders the sessions work in. A checkout is a few thousand
-# files; the same checkout with node_modules in it is a few hundred thousand, and
-# every worktree is another copy — so mds spends a core walking files nobody will
-# ever search for by name, again after every install.
+# Off altogether, rather than a privacy list holding the folders the sessions work
+# in. A checkout is a few thousand files; the same checkout with node_modules in
+# it is a few hundred thousand, and every worktree is another copy — so mds spends
+# a core walking files nobody on a headless Mac will ever search for by name,
+# again after every install.
 #
-# Checked, not set, because on current macOS nothing scriptable is honoured:
+# The privacy list was the old approach and needed a click: only the Spotlight
+# pane hands the list to the running mds, and a write to the Exclusions array
+# underneath it is ignored. `mdutil -i off` is scriptable, and `mdutil -s` reads
+# the result back without sudo, so this is a step rather than a report.
 #
-#   - `.metadata_never_index` in the folder is read at a volume root only. Put in
-#     an ordinary directory it is inert, and a file created under one is indexed
-#     within the minute exactly as if it were not there.
-#   - `mdutil -i off` takes a volume or a store, not a path, and turning
-#     indexing off for the whole data volume is not what is wanted — Spotlight
-#     still has to find an app.
-#   - The Exclusions array in VolumeConfiguration.plist, below, is the privacy
-#     list itself, and root can write it. It changes nothing: mds holds its own
-#     copy and only the Sharing pane's IPC makes it re-read, where
-#     `launchctl kickstart -k system/com.apple.metadata.mds` is refused outright
-#     while SIP is on.
-#   - Renaming a folder to end in `.noindex` does work, and is the one thing that
-#     does. It is also not available here: every session, every worktree and
-#     every launchd job names ~/projects.
+# What goes with it: ⌘Space and Finder search at the Mac itself, `mdfind`, and the
+# dSYM lookup that symbolicates a native crash report — none of which anybody
+# reaches a headless Mac for.
 #
-# So the list is read back and the folders missing from it are named. Reading it
-# needs root, and a Mac being provisioned by hand should not meet a second
-# password prompt inside a check.
-exclusions=/System/Volumes/Data/.Spotlight-V100/VolumeConfiguration.plist
+# Matched loosely because mdutil says "Indexing disabled." for a volume it has a
+# store for and "Indexing and searching disabled." for one it does not.
+indexing_off() {
+  mdutil -s /System/Volumes/Data 2>/dev/null | grep -qi 'indexing.*disabled'
+}
 
-# ~/projects covers Claude Code's worktrees, which it keeps in
-# <repo>/.claude/worktrees inside the checkout they belong to. The two outside it
-# are herdr's, which collects them per machine rather than per repo, and
-# ~/.mac-mini-dotfiles, a checkout like any other but hidden because it is what
-# makes the account rather than work done in it.
-spotlight_folders="$HOME/projects
-$HOME/.herdr/worktrees
-$HOME/.mac-mini-dotfiles/.claude/worktrees"
+if indexing_off; then
+  echo "Spotlight indexing is off"
+elif sudo -n true 2>/dev/null || [ -t 0 ]; then
+  sudo mdutil -a -i off >/dev/null 2>&1 || true
 
-if ! sudo -n true 2>/dev/null; then
-  echo "sudo wants a password, so the Spotlight privacy list was not read"
-else
-  excluded="$(sudo -n plutil -extract Exclusions json -o - "$exclusions" 2>/dev/null || true)"
-  missing=""
-
-  while IFS= read -r folder; do
-    if ! printf '%s' "$excluded" | grep -qF "\"$folder\""; then
-      missing="$missing  $folder
-"
-    fi
-  done <<EOF
-$spotlight_folders
-EOF
-
-  if [ -z "$missing" ]; then
-    echo "Spotlight is out of the project folders"
+  if indexing_off; then
+    echo "Spotlight indexing is now off"
   else
-    echo
-    echo "warning: Spotlight still indexes these:" >&2
-    printf '%s' "$missing" >&2
-    echo >&2
-    echo "Add them in System Settings > Spotlight > Search Privacy, over Screen" >&2
-    echo "Sharing. Only that pane can: it hands the list to the running mds," >&2
-    echo "where a write to the file underneath it is ignored and the reload that" >&2
-    echo "would fix that is refused while SIP is on." >&2
+    echo "could not turn Spotlight indexing off" >&2
   fi
+else
+  echo
+  echo "warning: Spotlight is indexing, which costs a core walking every" >&2
+  echo "worktree's node_modules. sudo wants a password and there is no terminal" >&2
+  echo "to type one at, so run:" >&2
+  echo >&2
+  echo "  sudo mdutil -a -i off" >&2
 fi

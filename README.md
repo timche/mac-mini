@@ -244,14 +244,21 @@ tart-runner --build-image
 
 It generates `~/.ssh/tart-runner` if there is none, clones the base image, seeds the public half into the guest through Tart's guest agent — `tart exec`, because the base image answers SSH only for the password it ships with and there is no `sshpass` on this Mac — then installs the tools over SSH and shuts the VM down. Refresh it when the actions runner release the job needs has moved far enough that the runner refuses to start, when Homebrew's bootstrap changes, or when a new macOS base image is worth moving to; nothing about it expires on a schedule. The first build pulls tens of gigabytes, at about ten minutes per 5 GB on this connection.
 
-**Switching it on for a repository.** The list at `~/.config/tart-runner/repos` ships empty and the LaunchAgent ships unloaded, which is what "off" means here. To point it at a private repository: add the `owner/name` as a line in `home/.config/tart-runner/repos`, put `runs-on: [self-hosted, macOS, tart]` in that repository's workflow, build the image if there is none, and load the agent.
+**Switching it on for a repository.** The list at `~/.config/tart-runner/repos` ships empty and the LaunchAgent ships unloaded, which is what "off" means here. To point it at a private repository:
+
+1. In 1Password, in the `Mac Mini` vault the service account can read, make an item named `GitHub - tart-runner <owner>` with a field called `token`. It holds a fine-grained personal access token whose **resource owner** is that owner, whose **repository access** is *Only select repositories* — the ones in the list and no others — and whose permissions are the three in the table above. Give it the shortest expiry you are willing to renew; a runner that stops answering because a token expired says so in its log. If the owner is an organization (`zoidsh`, `repeekgg`), the organization has to allow fine-grained tokens at all, under Settings → Personal access tokens → Fine-grained tokens, and by default an owner must approve each one a member creates.
+2. Add the reference to `home/.config/op/tart-runner.env` as `TART_RUNNER_TOKEN_<OWNER>="op://Mac Mini/GitHub - tart-runner <owner>/token"`, a reference and never a value.
+3. Add the `owner/name` as a line in `home/.config/tart-runner/repos`, and put `runs-on: [self-hosted, macOS, tart]` in that repository's workflow.
+4. Give softnet the setuid bit if it has none, build the image if there is none, and load the agent.
 
 ```sh
+sudo chown root /opt/homebrew/Cellar/softnet/*/bin/softnet
+sudo chmod u+s /opt/homebrew/Cellar/softnet/*/bin/softnet
 tart-runner --build-image
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.github.timche.tart-runner.plist
 ```
 
-`launchctl bootout gui/$(id -u)/io.github.timche.tart-runner` switches it off again, and emptying the list stops it answering a repository without stopping the agent. `tart-runner --dry-run` says what it can see queued without starting anything, and `tart-runner --once` takes a single job in the foreground, which is the way to watch one go through. The token doing the registering is the `gh` login's, which has to be able to administer the repository. Only ever a private one.
+`launchctl bootout gui/$(id -u)/io.github.timche.tart-runner` switches it off again, and emptying the list stops it answering a repository without stopping the agent. `tart-runner --dry-run` says what it can see queued without starting anything, and `tart-runner --once` takes a single job in the foreground, which is the way to watch one go through. Only ever a private repository.
 
 ## Testing
 

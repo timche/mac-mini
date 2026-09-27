@@ -3,15 +3,14 @@
 # The first command a Mac has, and the only one that works before this repo is
 # on it:
 #
-#   curl -fsSL https://raw.githubusercontent.com/timche/mac-mini-setup/main/bootstrap.sh | bash
-#   curl -fsSL https://raw.githubusercontent.com/timche/mac-mini-setup/main/bootstrap.sh | bash -s claude
+#   curl -fsSL https://raw.githubusercontent.com/timche/mac-mini/main/bootstrap.sh | bash
 #
 # A fresh Mac has no git — it comes with the Xcode command line tools — and no
 # package manager at all, so there is nothing here to clone with. Homebrew's own
 # installer is what fixes both: it installs the tools through softwareupdate
 # rather than the dialog nobody is in front of, and this repo needs Homebrew
-# anyway. Then the git that arrived clones, and machine.sh takes over — followed
-# by claude.sh, if that is what was asked for.
+# anyway. Then the git that arrived clones, machine.sh builds the Mac and
+# claude.sh makes it the one Claude Code runs on.
 #
 # The second entry point is the clone itself: once it is there, machine.sh and
 # claude.sh are run directly and this script has nothing left to do.
@@ -26,20 +25,12 @@ set -euo pipefail
 repo_url="${MAC_MINI_SETUP_REPO:-https://github.com/timche/mac-mini-setup.git}"
 homebrew_install=https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh
 
-# The overlay is opt-in, and the argument is the whole of the interface to it.
-# Anything else is refused rather than ignored: a typo that quietly provisions a
-# machine without the half you asked for is worse than one that stops.
-overlay=false
-
+# There is one Mac to provision and one shape for it, so there is nothing to
+# choose: an argument is a misunderstanding rather than a request, and refusing
+# it says so.
 if [ "$#" -gt 0 ]; then
-  if [ "$#" -eq 1 ] && [ "$1" = claude ]; then
-    overlay=true
-  else
-    echo "usage: bootstrap.sh [claude]" >&2
-    echo "'claude' asks for the Claude Code overlay on top of the machine;" >&2
-    echo "there is no other argument." >&2
-    exit 1
-  fi
+  echo "usage: bootstrap.sh — it takes no arguments." >&2
+  exit 1
 fi
 
 if [ "$(uname -s)" != Darwin ]; then
@@ -115,15 +106,12 @@ run() {
   fi
 }
 
-# A fumbled paste or a refused sudo is enough to make either half exit non-zero,
+# A fumbled paste or a refused sudo is enough to make a half exit non-zero,
 # and the closing message is worth more than the exit status is.
 run_failed=0
 
 run "$target/machine.sh" || run_failed=1
-
-if [ "$overlay" = true ]; then
-  run "$target/claude.sh" || run_failed=1
-fi
+run "$target/claude.sh" || run_failed=1
 
 cat <<EOF
 
@@ -131,6 +119,7 @@ Bootstrapped from $target. Pull it and re-run either half to pick up a change:
 
     git -C $target pull
     $target/machine.sh
+    $target/claude.sh
 EOF
 
 if [ "$run_failed" -ne 0 ]; then

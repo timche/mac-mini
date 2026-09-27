@@ -341,8 +341,13 @@ if ssh-keygen -l -f "$HOME/.ssh/authorized_keys" >/dev/null 2>&1; then
     '[ "$(stat -f "%Su %Lp" /etc/ssh/sshd_config.d/10-hardening.conf)" = "root 644" ]'
   # macOS reads the config per connection rather than holding it in a running
   # daemon, so a drop-in it cannot parse breaks every login rather than waiting
-  # for a restart.
-  check "sshd accepts the drop-in" 'sudo -n /usr/sbin/sshd -t'
+  # for a restart. Only sshd can be asked, and only as root, so a Mac whose sudo
+  # wants a password is told what was skipped — as the reads above are.
+  if sudo -n true 2>/dev/null; then
+    check "sshd accepts the drop-in" 'sudo -n /usr/sbin/sshd -t'
+  else
+    echo "  --    sudo wants a password, so the drop-in was not parsed"
+  fi
 else
   check "no drop-in until there is a key to log in with" \
     '[ ! -f /etc/ssh/sshd_config.d/10-hardening.conf ]'

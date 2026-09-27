@@ -9,12 +9,13 @@
 # is never written to disk and never imported into a keychain: electron-builder
 # makes a temporary keychain of its own from those two values and deletes it when
 # the build ends. That is the same trade the commit-signing key already makes on
-# this machine — mac-mini-setup reads the private half into an ssh-agent and writes
-# only the public half — and it is why a .p12 in ~/Downloads is not the route.
+# this machine — claude/signing-key.sh reads the private half into an ssh-agent
+# and writes only the public half — and it is why a .p12 in ~/Downloads is not
+# the route.
 #
 # The references are in ~/.config/op/apple-signing.env, which holds `op://` paths
 # rather than values; APPLE_SIGNING_ENV_FILE points at another file when an item or
-# a field label moves. The service-account token is read from the file mac-mini-setup's
+# a field label moves. The service-account token is read from the file
 # claude/signing-key.sh stored, into the environment of `op run` alone: it is not
 # exported here, and `env -u` takes it back off before the build sees it, so a
 # build script cannot read the vault it was signed from.
@@ -49,7 +50,7 @@ fi
   die "no secret references at $env_file (mise bootstrap dotfiles apply installs it)"
 
 [ -r "$token_file" ] ||
-  die "no 1Password service-account token at $token_file — mac-mini-setup's claude/signing-key.sh stores one"
+  die "no 1Password service-account token at $token_file — claude/signing-key.sh stores one"
 
 # electron-builder adds its temporary keychain to the login keychain's search list
 # and puts the list back when it is done, so two builds overlapping can each

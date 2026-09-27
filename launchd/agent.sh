@@ -2,7 +2,7 @@
 
 # The ssh-agent that holds the commit-signing key, and the only place the private
 # half of that key ever exists on this Mac: it comes out of 1Password down a pipe
-# into ssh-add and is never written anywhere. mac-mini-dotfiles' .gitconfig names no
+# into ssh-add and is never written anywhere. home/.gitconfig names no
 # key of its own and asks this agent for one through gpg.ssh.defaultKeyCommand — so
 # this process is the whole of what makes a commit signable, and losing it costs
 # nothing but a re-read.
@@ -16,7 +16,7 @@
 # The socket path is fixed rather than the one ssh-agent would print, because
 # launchd hands every login session an SSH_AUTH_SOCK of its own pointing at the
 # agent macOS starts, which holds nothing of this. .zshenv and the LaunchAgents in
-# mac-mini-dotfiles name this path instead — and it is read from AGENT_SOCKET rather
+# the rc files name this path instead — and it is read from AGENT_SOCKET rather
 # than SSH_AUTH_SOCK so that a hand-run never rm's the socket of the agent macOS
 # had already put in the environment.
 #

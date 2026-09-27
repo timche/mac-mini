@@ -18,7 +18,7 @@
 
        The PATH the shell exports is for boswell's children: git's credential
        helper is gh, and boswell asks gh for a token when it files an issue. The
-       socket is the ssh-agent mac-mini-setup keeps the signing key in — boswell's own
+       socket is the ssh-agent claude/ssh-agent.sh keeps the signing key in — boswell's own
        commits are signed, and the SSH_AUTH_SOCK launchd hands out holds nothing.
        exec, so the exit status launchd sees is boswell's rather than sh's and
        KeepAlive below still reads it. -->

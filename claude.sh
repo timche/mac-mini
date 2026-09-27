@@ -22,7 +22,7 @@ set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ "$(uname -s)" != Darwin ]; then
-  echo "mac-mini-setup is for a Mac; this is $(uname -s)." >&2
+  echo "mac-mini is for a Mac; this is $(uname -s)." >&2
   exit 1
 fi
 

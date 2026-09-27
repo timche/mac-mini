@@ -7,7 +7,7 @@
 #   tart-runner --build-image  # build or refresh the runner image
 #
 # GitHub's free allowance is the reason any of this exists: a private
-# repository's macOS minutes count tenfold, and the dotfiles suite is a macOS
+# repository's macOS minutes count tenfold, and this suite is a macOS
 # suite with nowhere else to run. Running it on the Mac itself is not an option
 # either — install.sh rewrites the account it runs as. A VM cloned per job is
 # both: free, and a closer reading of what the suite claims to prove, which is

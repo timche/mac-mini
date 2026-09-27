@@ -12,7 +12,7 @@
 # remembers the file behind it — and it hands a gui-domain agent a HOME, so the
 # plist needs no rendering: a shell in ProgramArguments expands $HOME, and the
 # wrapper derives the socket, the log and the token file from the same one. The
-# second link is what makes that work wherever MAC_MINI_SETUP_DIR put the checkout:
+# second link is what makes that work wherever MAC_MINI_DIR put the checkout:
 # ~/.ssh/agent.sh is a fixed path that reaches whatever the checkout's is.
 #
 # launchd reads a plist only at bootstrap, so a plist that changed is a bootout and

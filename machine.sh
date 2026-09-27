@@ -17,7 +17,7 @@
 set -euo pipefail
 
 if [ "$(uname -s)" != Darwin ]; then
-  echo "mac-mini-setup is for a Mac; this is $(uname -s)." >&2
+  echo "mac-mini is for a Mac; this is $(uname -s)." >&2
   exit 1
 fi
 

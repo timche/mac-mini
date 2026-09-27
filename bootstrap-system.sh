@@ -29,7 +29,7 @@ if ! command -v brew >/dev/null 2>&1 && [ ! -x /opt/homebrew/bin/brew ]; then
 fi
 
 # The installer only prints the line that would do this, and the shell that reads
-# that line is mac-mini-dotfiles'. Skipped when brew is already reachable: a PATH that
+# that line is install.sh's. Skipped when brew is already reachable: a PATH that
 # reaches it has an order somebody chose, and prepending the prefix again steps over
 # it.
 if ! command -v brew >/dev/null 2>&1 && [ -x /opt/homebrew/bin/brew ]; then

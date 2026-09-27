@@ -40,17 +40,17 @@ check() {
 # job for a HOME that is not the account's — but signing-key.sh also calls
 # register-signing-key.sh, and on a Mac with gh logged in that would put a throwaway
 # key on the real GitHub account.
-if [ "${CI:-}" != true ] && [ "${MAC_MINI_SETUP_TEST_ANYWAY:-}" != 1 ]; then
+if [ "${CI:-}" != true ] && [ "${MAC_MINI_TEST_ANYWAY:-}" != 1 ]; then
   echo "signing-agent.sh runs the real signing-key.sh, which would register its" >&2
   echo "throwaway key on whatever GitHub account gh is logged in to — run it on a" >&2
-  echo "throwaway machine, or set MAC_MINI_SETUP_TEST_ANYWAY=1 if you are certain." >&2
+  echo "throwaway machine, or set MAC_MINI_TEST_ANYWAY=1 if you are certain." >&2
   exit 1
 fi
 
 # Outside TMPDIR and short, because the agent socket lives inside this directory
 # and a unix socket path runs out at about a hundred characters — the per-user
 # TMPDIR macOS hands out is long enough for that to matter.
-work="$(mktemp -d /tmp/mac-mini-setup-test.XXXXXX)"
+work="$(mktemp -d /tmp/mac-mini-test.XXXXXX)"
 home="$work/home"
 socket="$home/.ssh/agent.sock"
 agent_log="$home/Library/Logs/ssh-agent.log"
@@ -111,7 +111,7 @@ install -d -m 700 "$home/.config/op"
 printf 'ops_stub_token' >"$home/.config/op/service-account-token"
 chmod 600 "$home/.config/op/service-account-token"
 
-# What mac-mini-dotfiles' .gitconfig carries on the real machine: no key named at
+# What home/.gitconfig carries on the real machine: no key named at
 # all, git asking the agent for one instead, and a principal in allowed_signers that
 # has to be the address the commits are authored under.
 HOME="$home" git config --global user.name "Test Signer"

@@ -10,7 +10,7 @@
 set -uo pipefail
 
 if [ "$(uname -s)" != Darwin ]; then
-  echo "mac-mini-dotfiles is for a Mac; this is $(uname -s)." >&2
+  echo "mac-mini is for a Mac; this is $(uname -s)." >&2
   exit 1
 fi
 
@@ -201,7 +201,7 @@ check "~/Library is not hidden from Finder" \
 # mean it runs again.
 check "the Dock holds none of the icons macOS ships with, recorded as done once" \
   '[ "$(defaults read com.apple.dock persistent-apps | tr -d "[:space:]")" = "()" ] &&
-   [ -e "${XDG_STATE_HOME:-$HOME/.local/state}/mac-mini-dotfiles/dock-emptied" ]'
+   [ -e "${XDG_STATE_HOME:-$HOME/.local/state}/mac-mini/dock-emptied" ]'
 
 # Safe to re-run, which for a preference means the second pass finds nothing to
 # write and so has no reason to restart Finder, the Dock or SystemUIServer.
@@ -250,12 +250,12 @@ check "non-interactive zsh finds the shims before Homebrew before /usr/bin" \
 check "login zsh keeps that order through path_helper" 'zsh_path_order -l'
 check "interactive zsh keeps that order" 'zsh_path_order -i'
 
-# The signing key lives in the agent mac-mini-setup keeps at that socket, and
+# The signing key lives in the agent claude/ssh-agent.sh keeps at that socket, and
 # nothing finds it without this: launchd hands every session an SSH_AUTH_SOCK
 # of its own whose agent holds nothing. Unguarded in .zshenv, so it is set
 # whether or not the agent happens to be up — which is what makes it
 # assertable on a runner that has no agent at all.
-check "zsh points at the agent socket mac-mini-setup keeps" \
+check "zsh points at the agent socket claude/ssh-agent.sh keeps" \
   '[ "$(PATH=$stock_path zsh -c "print -r -- \$SSH_AUTH_SOCK")" = \
      "$HOME/.ssh/agent.sock" ]'
 
@@ -439,7 +439,7 @@ check "the agent names no key launchd leaves unexpanded" \
 # runs from.
 check "the config lists both repositories" \
   'grep -q "^path = \"~/projects/docs\"$" "$HOME/.config/boswell/config.toml" &&
-   grep -q "^path = \"~/.mac-mini-dotfiles\"$" "$HOME/.config/boswell/config.toml"'
+   grep -q "^path = \"~/.mac-mini\"$" "$HOME/.config/boswell/config.toml"'
 
 # Homebrew's, from a tap of its own rather than from homebrew/core — so that the
 # formula landed and runs is worth proving rather than assuming.
@@ -826,7 +826,7 @@ export -f tart_runner_home
 
 check "the dispatcher resolves the owner's token from 1Password and spends it on gh alone" \
   'h="$(tart_runner_home)" &&
-   HOME="$h" PATH="$h/bin:$PATH" TART_RUNNER_REPOS=timche/mac-mini-dotfiles \
+   HOME="$h" PATH="$h/bin:$PATH" TART_RUNNER_REPOS=timche/mac-mini \
      "$repo/home/.local/bin/tart-runner" --dry-run &&
    grep -q "^op saw stub-service-account for op://Mac Mini/GitHub - tart-runner timche/token$" \
      "$h/op-calls" &&
@@ -836,7 +836,7 @@ check "the dispatcher resolves the owner's token from 1Password and spends it on
 # carries on with whatever `gh` is logged in as.
 check "a repository whose owner has no token reference stops the dispatcher" \
   'h="$(tart_runner_home)" && rm -f "$h/.config/op/tart-runner.env" &&
-   out="$(HOME="$h" PATH="$h/bin:$PATH" TART_RUNNER_REPOS=timche/mac-mini-dotfiles \
+   out="$(HOME="$h" PATH="$h/bin:$PATH" TART_RUNNER_REPOS=timche/mac-mini \
           "$repo/home/.local/bin/tart-runner" --dry-run 2>&1)"; rc=$?;
    [ "$rc" -ne 0 ] && [ ! -e "$h/gh-tokens" ] &&
    printf "%s" "$out" | grep -q TART_RUNNER_TOKEN_TIMCHE'

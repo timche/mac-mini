@@ -84,7 +84,7 @@ plist="$HOME/Library/LaunchAgents/$boswell_label.plist"
 # last loaded from is kept instead, and compared against. Beside the Dock marker
 # rather than in ~/Library/LaunchAgents, which launchd reads at login and is for
 # plists.
-state="${XDG_STATE_HOME:-$HOME/.local/state}/mac-mini-dotfiles"
+state="${XDG_STATE_HOME:-$HOME/.local/state}/mac-mini"
 boswell_loaded="$state/$(basename "$plist").loaded"
 
 # Written only once the daemon is running the definition it is a copy of, so a load

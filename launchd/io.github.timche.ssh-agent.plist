@@ -14,7 +14,7 @@
   <key>Label</key>
   <string>io.github.timche.ssh-agent</string>
   <!-- ~/.ssh/agent.sh is itself a link to launchd/agent.sh in the checkout, which
-       is what lets this path be both fixed and wherever MAC_MINI_SETUP_DIR put it. -->
+       is what lets this path be both fixed and wherever MAC_MINI_DIR put it. -->
   <key>ProgramArguments</key>
   <array>
     <string>/bin/sh</string>

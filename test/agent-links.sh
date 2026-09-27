@@ -10,7 +10,7 @@
 # accepts a plist that is a symlink into the checkout, and that a wrapper which
 # changed in the checkout restarts the job rather than being ignored.
 #
-# It refuses to run outside CI unless MAC_MINI_SETUP_TEST_ANYWAY=1, for the same reason
+# It refuses to run outside CI unless MAC_MINI_TEST_ANYWAY=1, for the same reason
 # signing-agent.sh does — launchd keys a job by label per account, so this bounces
 # the agent holding the real key — and because it edits launchd/agent.sh in the
 # checkout to make the restart happen.
@@ -44,10 +44,10 @@ check() {
   fi
 }
 
-if [ "${CI:-}" != true ] && [ "${MAC_MINI_SETUP_TEST_ANYWAY:-}" != 1 ]; then
+if [ "${CI:-}" != true ] && [ "${MAC_MINI_TEST_ANYWAY:-}" != 1 ]; then
   echo "agent-links.sh loads the LaunchAgent labelled $label, which is the label" >&2
   echo "the real agent uses, and edits launchd/agent.sh while it does — run it on" >&2
-  echo "a throwaway machine, or set MAC_MINI_SETUP_TEST_ANYWAY=1 if you are certain." >&2
+  echo "a throwaway machine, or set MAC_MINI_TEST_ANYWAY=1 if you are certain." >&2
   exit 1
 fi
 

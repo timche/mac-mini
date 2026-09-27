@@ -2,7 +2,7 @@
 
 # Install the commit-signing key. Claude-side rather than part of the machine,
 # because it is not how the Mac is reached but how it signs as the person whose
-# accounts it works from: mac-mini-dotfiles' .gitconfig names no key at all and
+# accounts it works from: home/.gitconfig names no key at all and
 # asks the agent for one, and register-signing-key.sh puts the same key on the
 # GitHub account that has to accept the signature.
 #

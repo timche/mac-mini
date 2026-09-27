@@ -19,14 +19,14 @@
 set -uo pipefail
 
 if [ "$(uname -s)" != Darwin ]; then
-  echo "mac-mini-dotfiles is for a Mac; this is $(uname -s)." >&2
+  echo "mac-mini is for a Mac; this is $(uname -s)." >&2
   exit 1
 fi
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # The dispatcher's image rather than the bare macOS one: install.sh starts from
-# what mac-mini-setup owes it — Homebrew, git, curl, jq — and stops with a
+# what the machine phase owes it — Homebrew, git, curl, jq — and stops with a
 # message rather than carrying on without them, so a vanilla guest would only
 # ever prove that.
 image="${TART_TEST_IMAGE:-gha-runner-base}"
@@ -34,7 +34,7 @@ ssh_key="${TART_RUNNER_SSH_KEY:-$HOME/.ssh/tart-runner}"
 vm_user="${TART_RUNNER_USER:-admin}"
 cpu="${TART_TEST_CPU:-4}"
 memory="${TART_TEST_MEMORY:-8192}"
-vm_prefix=dotfiles-test
+vm_prefix=mac-mini-test
 
 keep=false
 
@@ -176,7 +176,7 @@ say "copying the working tree in"
   echo .git
   git -C "$repo" ls-files -co --exclude-standard
 } | tar -cf - -C "$repo" -T - |
-  ssh_vm 'rm -rf ~/mac-mini-dotfiles && mkdir -p ~/mac-mini-dotfiles && tar -xf - -C ~/mac-mini-dotfiles' ||
+  ssh_vm 'rm -rf ~/mac-mini && mkdir -p ~/mac-mini && tar -xf - -C ~/mac-mini' ||
   die "could not copy the working tree into $vm"
 
 say "running the suite in $vm"
@@ -187,9 +187,9 @@ echo
 # running it, so any child that touches stdin eats the rest of it — which is how
 # a `tar` in the image build once stopped a third of the way through an archive
 # and still reported success. install.sh runs plenty that reads stdin.
-ssh_vm 'cat >/tmp/dotfiles-suite.sh' <<'SUITE'
+ssh_vm 'cat >/tmp/suite.sh' <<'SUITE'
 set -uo pipefail
-cd "$HOME/mac-mini-dotfiles"
+cd "$HOME/mac-mini"
 chmod +x install.sh test/*.sh
 
 status=0
@@ -208,7 +208,7 @@ SUITE
 # -l, because `ssh host cmd` runs a non-login shell whose PATH is four system
 # directories: the image keeps Homebrew and the rest in .zprofile, and a run that
 # starts without them fails on the first `brew` install.sh reaches.
-ssh_vm 'bash -l /tmp/dotfiles-suite.sh' </dev/null
+ssh_vm 'bash -l /tmp/suite.sh' </dev/null
 status=$?
 
 echo

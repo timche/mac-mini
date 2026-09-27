@@ -18,7 +18,7 @@
 # moves with it.
 
 # jq, for the hook's own input and for package.json, comes from the machine repo
-# rather than from here: it is in mac-mini-setup's Brewfile, which that repo needs
+# rather than from here: it is in the Brewfile, which the machine phase needs
 # for itself. Without it this says nothing at all, which is the same as a project
 # with none of the three.
 

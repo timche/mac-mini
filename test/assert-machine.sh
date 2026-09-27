@@ -34,13 +34,13 @@ check "no hardcoded home directory in the scripts" \
   '! grep -rhoE --include="*.sh" --include="*.plist" "/Users/[A-Za-z0-9_.-]+" "$root" |
      grep -q .'
 
-# The clone is ~/.mac-mini-setup, hidden because it is machinery rather than work, and
+# The clone is ~/.mac-mini, hidden because it is machinery rather than work, and
 # the LaunchAgent the Claude half installs is a link into it — so where it lands is
 # also where launchd reads the agent from. bootstrap.sh is the only thing that
 # decides that, and a runner's clone is the workspace, so the default is what there
 # is to assert here.
 check "the clone defaults to the hidden path" \
-  'grep -q "MAC_MINI_SETUP_DIR:-\$HOME/\.mac-mini-setup" "$root/bootstrap.sh"'
+  'grep -q "MAC_MINI_DIR:-\$HOME/\.mac-mini" "$root/bootstrap.sh"'
 
 # Homebrew and its packages, which is all the machine half installs.
 check "brew is the Apple Silicon prefix" '[ -x /opt/homebrew/bin/brew ]'
@@ -219,12 +219,6 @@ if [ -n "$xcode_app" ]; then
 else
   echo "  --    there is no Xcode on this Mac, so xcode.sh's half was not checked"
 fi
-
-# Nothing in the generic half has an opinion about the shell or the dotfiles: both
-# are mac-mini-dotfiles', which installs them as symlinks out of its own checkout.
-# A runner may well arrive with rc files of its own, so the link is the assertion
-# rather than the file.
-check "no rc file was linked" '[ ! -L "$HOME/.zshrc" ] && [ ! -L "$HOME/.gitconfig" ]'
 
 # What a Mac's hardware supports varies, and an unsupported setting is absent from
 # what pmset reports rather than wrong — a virtualised runner has no power supply

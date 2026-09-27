@@ -22,7 +22,7 @@
 
 set -euo pipefail
 
-repo_url="${MAC_MINI_SETUP_REPO:-https://github.com/timche/mac-mini-setup.git}"
+repo_url="${MAC_MINI_REPO:-https://github.com/timche/mac-mini.git}"
 homebrew_install=https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh
 
 # There is one Mac to provision and one shape for it, so there is nothing to
@@ -34,17 +34,18 @@ if [ "$#" -gt 0 ]; then
 fi
 
 if [ "$(uname -s)" != Darwin ]; then
-  echo "mac-mini-setup is for a Mac; this is $(uname -s)." >&2
+  echo "mac-mini is for a Mac; this is $(uname -s)." >&2
   exit 1
 fi
 
-# /opt/homebrew is the Apple Silicon prefix, and it is written into mac-mini-dotfiles'
-# PATH and into the agents launchd loads. An Intel Mac puts Homebrew in
-# /usr/local and would come out of this half working with nothing saying why.
+# /opt/homebrew is the Apple Silicon prefix, and it is written into the PATH
+# this repo installs and into the agents launchd loads. An Intel Mac puts
+# Homebrew in /usr/local and would come out of this half working with nothing
+# saying why.
 if [ "$(uname -m)" != arm64 ]; then
-  echo "mac-mini-setup is for an Apple Silicon Mac; this is $(uname -m), where" >&2
+  echo "mac-mini is for an Apple Silicon Mac; this is $(uname -m), where" >&2
   echo "Homebrew lives in /usr/local rather than the /opt/homebrew everything" >&2
-  echo "here and in mac-mini-dotfiles expects." >&2
+  echo "here expects." >&2
   exit 1
 fi
 
@@ -72,7 +73,7 @@ if ! command -v brew >/dev/null 2>&1 && [ ! -x /opt/homebrew/bin/brew ]; then
 fi
 
 # The installer puts nothing on PATH — that is what it prints instructions for —
-# and the shell that would read them is mac-mini-dotfiles' business rather than this
+# and the shell that would read them is install.sh's business rather than this
 # script's. Skipped when brew is already reachable: a PATH that reaches it has an
 # order somebody chose, and prepending the prefix again steps over it.
 if ! command -v brew >/dev/null 2>&1 && [ -x /opt/homebrew/bin/brew ]; then
@@ -81,11 +82,11 @@ fi
 
 # The repo
 
-# Hidden, like mac-mini-dotfiles beside it, because it is machinery rather than work:
-# $HOME holds what is worked on, and this is what makes the machine. It stays for
+# Hidden, because it is machinery rather than work: $HOME holds what is worked
+# on, and this is what makes the machine and the account on it. It stays for
 # good — a Mac is pulled and re-run rather than reprovisioned from a URL, and the
-# LaunchAgent the Claude half installs is a link into it. MAC_MINI_SETUP_DIR moves it.
-target="${MAC_MINI_SETUP_DIR:-$HOME/.mac-mini-setup}"
+# LaunchAgent the Claude half installs is a link into it. MAC_MINI_DIR moves it.
+target="${MAC_MINI_DIR:-$HOME/.mac-mini}"
 
 if [ -d "$target/.git" ]; then
   git -C "$target" pull --ff-only

@@ -91,7 +91,7 @@ _compose_project_name
 typeset -gaU chpwd_functions
 chpwd_functions+=(_compose_project_name)
 
-# The signing key lives in an agent mac-mini-setup keeps at this fixed path,
+# The signing key lives in an agent claude/ssh-agent.sh keeps at this fixed path,
 # because the socket launchd's own agent hands out is invisible to an SSH
 # session and to a LaunchAgent — and this Mac is only ever reached over SSH.
 # Unguarded: pointing at a socket that is momentarily missing costs an error

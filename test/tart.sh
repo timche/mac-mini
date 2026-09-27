@@ -167,15 +167,18 @@ until ssh_vm true >/dev/null 2>&1; do
 done
 
 # The tree as it stands rather than a clone of the branch: a change is worth
-# trying before it is pushed, and boswell pushes everything here within seconds
-# anyway. `.git` goes too, because install.sh asks whether the checkout is a work
-# tree before it starts boswell, which is one of the things being tested.
+# trying before it is pushed. `.git` goes too, because install.sh asks whether
+# the checkout is a work tree before it starts boswell, and the asserts read the
+# linked .gitconfig through git — both of which need one. A linked worktree's
+# `.git` is a file naming a path on this Mac, which is nothing in the guest, so
+# the copy is made a work tree of its own there instead.
 say "copying the working tree in"
 {
   echo .git
   git -C "$repo" ls-files -co --exclude-standard
 } | tar -cf - -C "$repo" -T - |
-  ssh_vm 'rm -rf ~/mac-mini && mkdir -p ~/mac-mini && tar -xf - -C ~/mac-mini' ||
+  ssh_vm 'rm -rf ~/mac-mini && mkdir -p ~/mac-mini && tar -xf - -C ~/mac-mini &&
+          if [ ! -d ~/mac-mini/.git ]; then rm -f ~/mac-mini/.git; git -C ~/mac-mini init -q; fi' ||
   die "could not copy the working tree into $vm"
 
 say "running the suite in $vm"

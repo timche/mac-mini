@@ -58,6 +58,13 @@ ssh_key="${TART_RUNNER_SSH_KEY:-$HOME/.ssh/tart-runner}"
 vm_user="${TART_RUNNER_USER:-admin}"
 vm_log="${TART_RUNNER_VM_LOG:-$HOME/Library/Logs/tart-runner-vm.log}"
 job_timeout="${TART_RUNNER_JOB_TIMEOUT:-5400}"
+env_file="${TART_RUNNER_ENV_FILE:-$HOME/.config/op/tart-runner.env}"
+op_token_file="${OP_SERVICE_ACCOUNT_TOKEN_FILE:-$HOME/.config/op/service-account-token}"
+# Softnet already refuses everything that is not a globally routable IPv4
+# address, which covers the LAN. The tailnet is 100.64.0.0/10, carrier-grade NAT
+# rather than a private range, and Softnet's rule is written the other way round
+# — so it is named here rather than inferred from a phrase in `tart run --help`.
+softnet_block="${TART_RUNNER_SOFTNET_BLOCK:-100.64.0.0/10}"
 # Every VM this starts is named for it, which is what lets a run that was killed
 # outright be swept by the next one.
 vm_prefix=gha-runner-job
@@ -75,7 +82,8 @@ the job ends, and none exists while nothing is queued.
   --dry-run      report what is queued and start nothing
   --build-image  build or refresh the runner image from the macOS base image
 
-Repositories are one `owner/name` per line in ~/.config/tart-runner/repos.
+Repositories are one `owner/name` per line in ~/.config/tart-runner/repos, and
+each owner's GitHub token is an `op://` reference in ~/.config/op/tart-runner.env.
 USAGE
 }
 
@@ -110,6 +118,11 @@ warn_once() {
   say "$1" >&2
 }
 clear_warning() { last_warning=; }
+
+die() {
+  say "$1" >&2
+  exit 1
+}
 
 have() { command -v "$1" >/dev/null 2>&1; }
 

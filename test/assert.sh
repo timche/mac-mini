@@ -1092,7 +1092,8 @@ check "the project-docs hook reads ~/projects/docs/<repo>, not the checkout's do
    git -C "$d" remote add origin https://example.com/nobody/has-docs.git &&
    mkdir "$d/docs" && : > "$d/docs/README.md" &&
    mkdir -p "$h/projects/docs/has-docs" && : > "$h/projects/docs/has-docs/decisions.md" &&
-   [ "$(cd "$d" && HOME="$h" bash "$hook" | head -1)" = "Working docs for has-docs: $h/projects/docs/has-docs" ]'
+   [ "$(cd "$d" && HOME="$h" PROJECT_DOCS_DIR="$h/projects/docs" bash "$hook" | head -1)" = \
+     "Working docs for has-docs: $h/projects/docs/has-docs" ]'
 
 # The name comes from the remote, not the directory: a worktree is named for
 # its branch, and every branch of a repository shares one docs folder.

@@ -675,11 +675,11 @@ check "the dispatcher waits rather than crowding UTM's Windows VM" \
 # need. The tailnet is named outright because 100.64.0.0/10 is carrier-grade NAT
 # rather than a private range, and Softnet's rule is phrased the other way round.
 check "a job's VM is boxed in by softnet rather than Tart's default NAT" \
-  'grep -q -- "--net-softnet --net-softnet-block=\\\$softnet_block" \
+  'grep -qF -- "--net-softnet --net-softnet-block=" \
      "$repo/home/.local/bin/tart-runner" &&
-   grep -q "softnet_block=\"\${TART_RUNNER_SOFTNET_BLOCK:-100.64.0.0/10}\"" \
+   grep -qF -- "softnet_block=\"\${TART_RUNNER_SOFTNET_BLOCK:-100.64.0.0/10}\"" \
      "$repo/home/.local/bin/tart-runner" &&
-   grep -q -- "--net-softnet" "$repo/README.md"'
+   grep -qF -- "--net-softnet" "$repo/README.md"'
 
 # The references the dispatcher hands to `op`, read off the repo for the reason
 # the signing ones are: a reference pointing at the wrong vault is wrong before
@@ -738,7 +738,7 @@ export -f tart_runner_home
 
 check "the dispatcher resolves the owner's token from 1Password and spends it on gh alone" \
   'h="$(tart_runner_home)" &&
-   HOME="$h" PATH="$h/bin:$stock_path" TART_RUNNER_REPOS=timche/mac-mini-dotfiles \
+   HOME="$h" PATH="$h/bin:$PATH" TART_RUNNER_REPOS=timche/mac-mini-dotfiles \
      "$repo/home/.local/bin/tart-runner" --dry-run &&
    grep -q "^op saw stub-service-account for op://Mac Mini/GitHub - tart-runner timche/token$" \
      "$h/op-calls" &&
@@ -748,7 +748,7 @@ check "the dispatcher resolves the owner's token from 1Password and spends it on
 # carries on with whatever `gh` is logged in as.
 check "a repository whose owner has no token reference stops the dispatcher" \
   'h="$(tart_runner_home)" && rm -f "$h/.config/op/tart-runner.env" &&
-   out="$(HOME="$h" PATH="$h/bin:$stock_path" TART_RUNNER_REPOS=timche/mac-mini-dotfiles \
+   out="$(HOME="$h" PATH="$h/bin:$PATH" TART_RUNNER_REPOS=timche/mac-mini-dotfiles \
           "$repo/home/.local/bin/tart-runner" --dry-run 2>&1)"; rc=$?;
    [ "$rc" -ne 0 ] && [ ! -e "$h/gh-tokens" ] &&
    printf "%s" "$out" | grep -q TART_RUNNER_TOKEN_TIMCHE'

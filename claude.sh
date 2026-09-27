@@ -10,7 +10,7 @@
 #
 # It installs nothing: every package either half needs is brew's, and brew is the
 # machine's. What is here is accounts and keys — and the handover to
-# mac-mini-dotfiles, which is the private half that brings the shell, the runtimes
+# mac-mini-dotfiles, which is the personal half that brings the shell, the runtimes
 # and Claude Code itself.
 #
 # Safe to re-run: logins already in place are left alone, and the dotfiles clone

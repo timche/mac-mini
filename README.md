@@ -163,7 +163,7 @@ Nothing here installs the Developer ID certificate, and nothing should: electron
 
 ## The Claude Code overlay
 
-`claude.sh` installs nothing — every package is Homebrew's and Homebrew is the machine's. What it does is the part that needs an account: it logs in to GitHub and to Claude Code, installs the commit-signing key, and hands over to the private `mac-mini-dotfiles` for everything after that — the shell, the prompt, the runtimes and `~/.claude`. Run it against a Mac `machine.sh` has already built, and rerun it when a token expires.
+`claude.sh` installs nothing — every package is Homebrew's and Homebrew is the machine's. What it does is the part that needs an account: it logs in to GitHub and to Claude Code, installs the commit-signing key, and hands over to `mac-mini-dotfiles` for everything after that — the shell, the prompt, the runtimes and `~/.claude`. Run it against a Mac `machine.sh` has already built, and rerun it when a token expires.
 
 The GitHub token goes in a file rather than the login keychain (`gh auth login --insecure-storage`). This Mac is reached over SSH and does its work from LaunchAgents, and both of those meet a keychain that will not answer with a prompt nobody sees. Claude Code keeps its own credential in the keychain and falls back to `~/.claude/.credentials.json` when the write is refused, which is what an SSH session usually gets; if the login does not take, `claude setup-token` prints a token that lasts a year and `CLAUDE_CODE_OAUTH_TOKEN` carries it instead.
 

@@ -47,7 +47,7 @@ EOF
   # write:ssh_signing_key is not in the default set and the interactive flow never
   # offers it, so asking here is what saves a later 'gh auth refresh' before
   # register-signing-key.sh can do anything. https because that is how this repo
-  # and its private half are cloned; asking also skips the prompt.
+  # and its personal half are cloned; asking also skips the prompt.
   gh auth login --hostname github.com --git-protocol https --web \
     --insecure-storage --scopes write:ssh_signing_key ||
     echo "gh login did not finish — rerun $repo/login.sh to try again" >&2

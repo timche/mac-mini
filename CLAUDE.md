@@ -2,7 +2,7 @@
 
 Machine provisioning for a headless Apple Silicon Mac, with an optional overlay that turns it into the one Claude Code runs on. Shell scripts and one `Brewfile` — no build, no lint, nothing to compile. Every script opens with a comment explaining why it exists and what would break if it ran elsewhere in the order, so read the script rather than looking for a second copy of it here.
 
-The sibling is [timche/debian-setup](https://github.com/timche/debian-setup), which does the same for a VM and which this repo mirrors deliberately: the same two-entry-point shape, the same split between what works before you can authenticate and what needs an account, the same handover to the private `mac-mini-dotfiles`. Where the two differ, the difference is macOS's rather than a preference, and the script says so.
+The sibling is [timche/debian-setup](https://github.com/timche/debian-setup), which does the same for a VM and which this repo mirrors deliberately: the same two-entry-point shape, the same split between what works before you can authenticate and what needs an account, the same handover to `mac-mini-dotfiles`. Where the two differ, the difference is macOS's rather than a preference, and the script says so.
 
 Two entry points. `bootstrap.sh` is the one a Mac with nothing on it has: a fresh Mac has no git to clone with, so it installs Homebrew — which brings the Xcode command line tools through `softwareupdate` rather than the dialog — clones the repo and hands to `machine.sh`, then to `claude.sh` if it was given the one argument it takes, `claude`. Anything else is an error, so a typo cannot quietly produce a generic Mac. Unlike `provision.sh` on the VM it never runs as root: there is no account to create, and Homebrew refuses root outright.
 
@@ -10,7 +10,7 @@ Two entry points. `bootstrap.sh` is the one a Mac with nothing on it has: a fres
 
 `claude.sh` is the overlay and the second entry point. It installs nothing — every package is `bootstrap-system.sh`'s — and calls `claude/install.sh`, `claude/login.sh` and `claude/signing-key.sh` in that order: the dotfiles need a token, the token comes from the login, and the signing key needs the `user.email` the dotfiles carry. `claude/signing-key.sh` calls `claude/ssh-agent.sh` for the agent that holds the private half and then `claude/register-signing-key.sh`, which takes the public half from that agent — or from 1Password when the agent is not up yet — and puts it on the GitHub account. Nothing else calls it: `claude/install.sh` used to, and being ahead of `signing-key.sh` it only ever reported a key that did not exist yet.
 
-Public, and holds nothing personal — the shell, the runtimes and `~/.claude` come from the private `mac-mini-dotfiles`, which `claude/install.sh` clones once `gh` is logged in.
+Public, and holds nothing personal — the shell, the runtimes and `~/.claude` come from `mac-mini-dotfiles`, which `claude/install.sh` clones once `gh` is logged in.
 
 ## Committing
 

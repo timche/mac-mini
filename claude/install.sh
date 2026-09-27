@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Fetch the private half and let it take over. Everything personal — the shell,
+# Fetch the personal half and let it take over. Everything personal — the shell,
 # the prompt, the runtimes, the Claude Code configuration — lives in
 # mac-mini-dotfiles, so all this script does is get it onto the machine and run its
 # installer.
@@ -26,7 +26,7 @@ fi
 # on, and this is what makes the account itself. DOTFILES_DIR moves it.
 dotfiles="${DOTFILES_DIR:-$HOME/.mac-mini-dotfiles}"
 
-# gh clones a private repo by injecting the token itself, but the git that pulls
+# gh clones with the token it holds, which a private repo would need, but the git that pulls
 # it afterwards has no idea where to find one, and a clone that cannot be updated
 # is worse than no clone: the installer below would run from it and fail on
 # whatever the old version expected. So the pull is handed gh's helper for that

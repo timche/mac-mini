@@ -26,6 +26,6 @@ A sync that cannot push opens a GitHub issue titled `Auto-sync failed`, on which
 
 `./install.sh` then `test/assert.sh`, on the Mac. The `macos` job in CI runs that pair twice on a `macos-latest` runner, which is what proves it is safe to re-run, and it runs on every branch push — so a change is pushed and read there rather than reasoned about. There is no container to test in: there is no macOS container, and the suite changes the machine it runs on.
 
-`~/.local/bin/tart-runner` is a self-hosted runner for a private repository that runs out of macOS minutes, built 2026-09-27 and deliberately switched off: empty repository list, unloaded LaunchAgent. Never point it at a public repository. README has the rest.
+`~/.local/bin/tart-runner` is a self-hosted runner for a private repository that runs out of macOS minutes, built 2026-09-27 and deliberately switched off: empty repository list, and a LaunchAgent whose plist is neither linked into `~/Library/LaunchAgents` nor loaded — the link is the switch, made by hand rather than by `mise.toml`, and `install.sh` reads it. Never point it at a public repository. README has the rest.
 
 `test/run.sh` and its Debian container were removed with the VM on 2026-09-26.

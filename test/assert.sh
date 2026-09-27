@@ -700,7 +700,8 @@ check "the tart-runner token file is a live symlink holding op references and no
 # repository there is, handed to the thing that runs whatever a workflow asks
 # for. The public actions-runner release is curl's for the same reason.
 check "every GitHub call the dispatcher makes goes through the owner's own token" \
-  '! grep -qE "(^|[^_])gh api" "$repo/home/.local/bin/tart-runner" &&
+  '! grep -vE "^[[:space:]]*#" "$repo/home/.local/bin/tart-runner" |
+     grep -qE "(^|[^_])gh api" &&
    grep -q "GH_TOKEN=\"\${!var}\" gh" "$repo/home/.local/bin/tart-runner"'
 
 # A HOME of its own, with stubs for the three things that reach outside it: a

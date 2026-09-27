@@ -2,7 +2,7 @@
 lockfile = true
 minimum_release_age = "0"
 
-# Language runtimes, and the two npm packages that run on the node beside them.
+# Language runtimes, and the npm packages that run on the node beside them.
 # Every other CLI tool is Homebrew's, in the Brewfile at the repo root; mise and
 # Claude Code come from their authors' own installers. CLAUDE.md has the rule.
 [tools]
@@ -17,3 +17,7 @@ python = "latest"
 # package lands in mise's install directory instead of inside whichever node is
 # current, so a node upgrade does not take it along.
 "npm:portless" = "latest"
+# The browser every Claude Code session drives and inspects, registered by
+# install.sh as a user-scope MCP server. Installed rather than `npx -y …@latest`
+# for the same reason as ccstatusline, and so the lockfile says which version runs.
+"npm:chrome-devtools-mcp" = "latest"

@@ -27,13 +27,12 @@ brew "jq"
 # root system daemon that is up before anybody logs in.
 brew "tailscale"
 
-# docker on a Mac is a Linux VM and a CLI pointed into it. docker is the CLI alone —
-# the daemon lives inside colima's VM — and Homebrew packages the two plugins
-# separately from the CLI that loads them.
-brew "colima"
-brew "docker"
-brew "docker-buildx"
-brew "docker-compose"
+# docker on a Mac is a Linux VM and a CLI pointed into it, and OrbStack is both: the
+# VM, the docker CLI, compose and buildx all come out of the one app, which is why no
+# docker formula is declared beside it. A cask because it is an app — colima, which
+# this replaced, was a CLI whose VM held on to every byte of memory it ever touched
+# until it was restarted, where OrbStack's hands what it is not using back to macOS.
+cask "orbstack"
 
 # op, and the cask rather than a formula because 1Password ships the CLI itself. It is
 # a zip with a binary in it these days, so nothing here needs sudo for it. Nothing

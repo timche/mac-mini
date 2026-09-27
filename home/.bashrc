@@ -55,4 +55,7 @@ fi
 # the one mise's installer put there.
 export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
 
+# The same opt-out .zshenv makes, for the bash that claude.sh and CI run under.
+export VARLOCK_TELEMETRY_DISABLED=true
+
 eval "$(mise activate bash)"

@@ -963,6 +963,14 @@ check "with-apple-signing is a live symlink and runs" \
    [ -x "$HOME/.local/bin/with-apple-signing" ] &&
    with-apple-signing --help | grep -q CSC_LINK'
 
+check ".env.1password is a live symlink that names the token file, not the token" \
+  '[ -L "$HOME/.env.1password" ] && [ -e "$HOME/.env.1password" ] &&
+   grep -q "^OP_TOKEN=exec(\`cat ~/.config/op/service-account-token\`)$" "$HOME/.env.1password"'
+
+check "varlock telemetry is off in every shell" \
+  '[ "$(zsh -c "print -r -- \$VARLOCK_TELEMETRY_DISABLED")" = true ] &&
+   [ "$(bash -ic "printf %s \"\$VARLOCK_TELEMETRY_DISABLED\"" 2>/dev/null)" = true ]'
+
 check ".config/op/apple-signing.env is a live symlink" \
   '[ -L "$HOME/.config/op/apple-signing.env" ] &&
    [ -e "$HOME/.config/op/apple-signing.env" ]'

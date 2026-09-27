@@ -35,6 +35,10 @@ export PROJECT_DOCS_DIR="$HOME/projects/docs"
 # so the daemon install.sh names is installed from this same list.
 export PORTLESS_TLD=localhost,timche.dev
 
+# varlock sends anonymous usage analytics unless told not to, and writes an id to
+# ~/.config/varlock/config.json for any project that has not opted out itself.
+export VARLOCK_TELEMETRY_DISABLED=true
+
 # Compose names a project after the directory it was started from, which for a
 # worktree at ~/.herdr/worktrees/<repo>/<branch> is the branch alone — so the
 # same branch name in two repositories would share one project, and with it one

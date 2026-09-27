@@ -85,6 +85,10 @@
 "~/.config/betterleaks/betterleaks.toml" = { source = "home/.config/betterleaks/betterleaks.toml", mode = "symlink" }
 "~/.config/op/apple-signing.d/meru.env" = { source = "home/.config/op/apple-signing.d/meru.env", mode = "symlink" }
 
+# The secret-zero for a project's varlock schema: a reference to the token file,
+# not the token, so tracked and linked like the op:// files above.
+"~/.env.1password" = { source = "home/.env.1password", mode = "symlink" }
+
 "~/.claude/CLAUDE.md" = { source = "home/.claude/CLAUDE.md", mode = "symlink" }
 "~/.claude/settings.json" = { source = "home/.claude/settings.json", mode = "symlink" }
 "~/.claude/agents" = { source = "home/.claude/agents", mode = "symlink" }

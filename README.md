@@ -331,7 +331,7 @@ The certificate never lands on disk and never enters a keychain. electron-builde
 
 The service-account token is the one `claude/signing-key.sh` stored at `~/.config/op/service-account-token`, read into the environment of `op run` alone — not exported by the wrapper, and taken back off with `env -u` before the build is exec'd, so a build script cannot read the vault it was signed from. Masking stays on: electron-builder is verbose, and `op run` replaces a resolved value with a placeholder wherever the build prints one.
 
-One signed build at a time. electron-builder adds its temporary keychain to the login keychain's search list and restores the list afterwards, so two builds overlapping can each put back a list the other had already changed and lose the login keychain from it. The wrapper therefore takes a `mkdir` lock in the cache directory, says out loud that it is waiting rather than looking hung, releases it on exit or interrupt, and takes over a lock whose holding process is gone — by pid, since a build that was killed outright reached no trap and would otherwise block every build after it.
+One signed build at a time. electron-builder puts its temporary keychain at the front of the user keychain search list by reading the list and writing it back, never restores it, and deletes the keychain at the end, so two builds overlapping can write back a list without the other's keychain in it and leave that build unable to find its identity. The wrapper therefore takes a `mkdir` lock in the cache directory, says out loud that it is waiting rather than looking hung, releases it on exit or interrupt, and takes over a lock whose holding process is gone — by pid, since a build that was killed outright reached no trap and would otherwise block every build after it.
 
 Check the reference once on the Mac, with the token in the environment for that one command:
 
@@ -339,6 +339,8 @@ Check the reference once on the Mac, with the token in the environment for that 
 OP_SERVICE_ACCOUNT_TOKEN="$(cat ~/.config/op/service-account-token)" \
   op read "op://Development/Apple Developer ID Application Certificate/password" >/dev/null && echo ok
 ```
+
+A project that loads its environment through varlock gets the same token from `~/.env.1password`, linked from `home/.env.1password`: one `OP_TOKEN` item of type `opServiceAccountToken`, marked `@internal`, whose value is an `exec()` that reads the token file at each load. The project's schema imports it with `allowMissing=true`, so on a Mac with the 1Password app, where the file is absent, the plugin's `allowAppAuth` signs in through the app instead. `@internal` keeps the token out of every process varlock starts and out of the environment blob it injects. `.zshenv` and `.bashrc` set `VARLOCK_TELEMETRY_DISABLED=true`, since varlock otherwise sends anonymous usage analytics and writes an id to `~/.config/varlock/config.json` for any project without an opt-out of its own.
 
 `APPLE_TEAM_ID` is in the same file as a plain value, because a team ID is public — every signed app carries it.
 

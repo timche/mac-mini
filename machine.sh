@@ -85,14 +85,10 @@ fi
 # the Mac itself and that message scrolls a long way up. The prefix is spelled out
 # because this shell can predate Homebrew being on any PATH — bootstrap-system.sh
 # put it on its own, not on this one.
-if ! /opt/homebrew/bin/orb status >/dev/null 2>&1; then
-  if [ -d "$HOME/.orbstack" ]; then
-    echo "  - $repo/docker.sh — OrbStack is not running."
-  else
-    echo "  - OrbStack, which has never been set up: open it over Screen Sharing,"
-    echo "    click through the welcome screen and choose Docker. Nothing here can"
-    echo "    click that."
-  fi
+if [ "$(/opt/homebrew/bin/orb status 2>/dev/null || true)" != Running ]; then
+  echo "  - $repo/docker.sh — OrbStack is not running. If it has never been set up,"
+  echo "    that is a click nothing here can make: open it over Screen Sharing,"
+  echo "    click through the welcome screen and choose Docker."
 fi
 
 # tailscale.sh prints both of these with the URLs, and by the end of a run that

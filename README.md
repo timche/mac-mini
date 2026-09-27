@@ -121,7 +121,7 @@ OrbStack rather than colima, which this replaced on 2026-09-27. A colima VM rare
 
 The one thing it costs: OrbStack is free for personal use, and commercial use needs a paid licence bought per seat from OrbStack. A Mac that builds anything sold from it needs one, and nothing in this repo can buy or apply it — an unlicensed install runs on a Pro trial and then asks.
 
-The first run is the app's own and needs somebody at the screen, which on this Mac means Screen Sharing: a welcome screen whose Next accepts OrbStack's terms, then a choice between Docker and Linux machines. `docker.sh` says so and stops rather than failing, and `machine.sh` lists it under what is left. Everything OrbStack links — the CLIs, the plugins, the `orbstack` docker context, the `Include ~/.orbstack/ssh/config` in `~/.ssh/config` — it does for itself at that first run, and it touches no shell rc file.
+The first run is the app's own and needs somebody at the screen, which on this Mac means Screen Sharing: a welcome screen whose Next accepts OrbStack's terms, then a choice between Docker and Linux machines. `docker.sh` stops at `orb status` — the only thing it asks of OrbStack until that answers `Running`, since an install with no first run behind it has no settings to read and `orb config show` against one hangs rather than failing — and says what to click; `machine.sh` lists it under what is left. Everything OrbStack links — the CLIs, the plugins, the `orbstack` docker context, the `Include ~/.orbstack/ssh/config` in `~/.ssh/config` — it does for itself at that first run, and it touches no shell rc file.
 
 After it, `docker.sh` settles two settings and only where `orb config show` disagrees: **start at login**, and **every core but two**, read from the hardware so that a different Mac needs no edit. It restarts the VM with `orb stop && orb start` only when the core count changed, since that is the one of the two the VM reads when it boots. A re-run on a settled Mac prints where it stands and touches nothing.
 
@@ -137,7 +137,7 @@ docker run --rm hello-world
 docker compose version           # the plugins OrbStack links into ~/.docker/cli-plugins
 ```
 
-The VM, its disk, its images and its volumes are all under `~/.orbstack`, and its absence is also how `docker.sh` knows the first run has not happened. `orb config set cpu <n>` and `orb config set memory_mib <n>` change the shape of it, and take effect at the next `orb stop && orb start`; re-running `docker.sh` puts the core count back to what this Mac works out to.
+The VM, its disk, its images and its volumes are all under `~/.orbstack`. `orb config set cpu <n>` and `orb config set memory_mib <n>` change the shape of it, and take effect at the next `orb stop && orb start`; re-running `docker.sh` puts the core count back to what this Mac works out to.
 
 ## Xcode
 

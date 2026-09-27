@@ -115,21 +115,29 @@ fi
 
 # The first run, which needs a person
 
-# OrbStack writes ~/.orbstack the first time it is set up and never before, so its
-# absence is the one reading that tells a fresh install from a stopped VM. Said and
-# skipped rather than failed: this is a click on the Mac's own screen, which on a
-# headless Mac means Screen Sharing, and the rest of the provision has nothing to
-# do with it.
-if [ ! -d "$HOME/.orbstack" ]; then
+# `orb status` is the only thing asked of OrbStack until it answers Running, and
+# everything below waits on that: an install that has never been set up has no
+# settings to read, and `orb config show` against one does not fail so much as sit
+# there. ~/.orbstack is no use as the reading either — `orb status` creates it on a
+# machine that has never been set up at all.
+#
+# Said and skipped rather than failed: the first run is a click on the Mac's own
+# screen, which on a headless Mac means Screen Sharing, and the rest of the
+# provision has nothing to do with it.
+status="$(orb status 2>/dev/null || true)"
+
+if [ "$status" != Running ]; then
   cat <<EOF
 
-OrbStack is installed but has never been set up, which is a step no script can do:
-its first run puts a welcome screen on the Mac's own screen, and Next there is what
-accepts OrbStack's terms.
+OrbStack is installed but is not running${status:+ ($status)}, so its settings were left alone.
 
-Over Screen Sharing: open OrbStack, click through the welcome screen, and choose
-Docker when it asks what to use. Then rerun $repo/docker.sh, which settles the
-settings that first run leaves at OrbStack's defaults.
+If it has never been set up, that is a step no script can do: its first run puts a
+welcome screen on the Mac's own screen, and Next there is what accepts OrbStack's
+terms. Over Screen Sharing, open OrbStack, click through it, and choose Docker when
+it asks what to use. If it is set up already, 'orb start' is the whole of it.
+
+Then rerun $repo/docker.sh, which settles the settings that first run leaves at
+OrbStack's defaults.
 EOF
   exit 0
 fi
@@ -150,6 +158,9 @@ if [ "$cpu" -lt 2 ]; then
   cpu=2
 fi
 
+# `|| true` at the call sites rather than here, because the pipeline's own failure
+# is what pipefail would hand to an assignment, and an assignment that fails ends
+# the script with set -e and nothing printed.
 orb_config() {
   orb config show 2>/dev/null | sed -n "s/^$1: *//p" | head -1
 }
@@ -161,7 +172,7 @@ restart=false
 for pair in "app.start_at_login true" "cpu $cpu"; do
   key="${pair%% *}"
   want="${pair##* }"
-  have="$(orb_config "$key")"
+  have="$(orb_config "$key" || true)"
 
   if [ "$have" = "$want" ]; then
     continue

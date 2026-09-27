@@ -175,10 +175,10 @@ want_cpu=$(($(sysctl -n hw.ncpu) - 2))
 # The VM itself, which a runner cannot have: GitHub's macOS machines are VMs
 # already and Virtualization.framework inside one refuses outright with
 # "Virtualization is not available on this hardware". Nor can a runner click
-# through OrbStack's first run, which is what writes ~/.orbstack and what every
-# setting below is read out of. Said out loud, because a suite that quietly
-# asserted nothing here would read the same on a Mac where docker is broken.
-if orb status >/dev/null 2>&1; then
+# through OrbStack's first run, and an install that has not had one has no settings
+# to read. Said out loud, because a suite that quietly asserted nothing here would
+# read the same on a Mac where docker is broken.
+if [ "$(orb status 2>/dev/null || true)" = Running ]; then
   check "OrbStack starts with the login session" \
     '[ "$(orb_value app.start_at_login)" = true ]'
   check "OrbStack's VM is every core but two" \
@@ -193,11 +193,9 @@ if orb status >/dev/null 2>&1; then
      running="$(docker compose -f "$root/test/compose.yaml" ps -q | grep -c .)";
      docker compose -f "$root/test/compose.yaml" down &&
      [ "$running" = 2 ]'
-elif [ ! -d "$HOME/.orbstack" ]; then
-  echo "  --    OrbStack has never been set up, which needs a click at the Mac"
-  echo "        itself, so docker itself was not checked"
 else
-  echo "  --    OrbStack is not running, so docker itself was not checked"
+  echo "  --    OrbStack is not running — a first run needs a click at the Mac"
+  echo "        itself — so docker itself was not checked"
 fi
 
 # Xcode is xcode.sh's, which machine.sh only runs where there is a terminal to

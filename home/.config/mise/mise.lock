@@ -108,6 +108,7 @@ specifiers = ["latest"]
 
 [[tools."npm:chrome-devtools-mcp"]]
 version = "1.10.1"
+aube = { path = "locks/npm-chrome-devtools-mcp/1.10.1", digest = "sha256:d0ad9551fb0928d247af33705d0cf1ea01382aa6691da825a4480ae9505dcf70" }
 backend = "npm:chrome-devtools-mcp"
 specifiers = ["latest"]
 

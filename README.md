@@ -33,15 +33,15 @@ What the scripts cannot do happens at the Mac itself, with a screen and a keyboa
 
 Then, over SSH on the LAN, the `bash -s claude` form above. It asks, in order, for the sudo password, a tailnet login URL, the Apple ID and a 2FA code for Xcode, then a GitHub device code, a Claude Code login and the 1Password service-account token.
 
-Afterwards, over Screen Sharing: the [privacy permissions](#privacy-permissions) below, and System Settings > Lock Screen > "Require password after screen saver begins or display is turned off" set to Never. `machine.sh` names both every time it runs, so a Mac that is missing either says so rather than being quietly unable to take a screenshot.
+Afterwards, over Screen Sharing: the [privacy permissions](#privacy-permissions) below, System Settings > Lock Screen > "Require password after screen saver begins or display is turned off" set to Never, and OrbStack opened once — its welcome screen is where OrbStack's terms are accepted and where Docker is chosen, and no script can click either. `machine.sh` names all three every time it runs, so a Mac that is missing one says so rather than being quietly unable to take a screenshot or start a container.
 
 And in the Tailscale admin console: approve the advertised subnet and exit node, add an `ssh` rule for whoever should reach the Mac, and disable key expiry for it, since a node whose key expires drops off the tailnet after 180 days until somebody logs in at it again.
 
 ## The machine
 
-`machine.sh` installs Homebrew and the `Brewfile`'s packages, turns Remote Login on if it is off, brings tailscale up as a system daemon serving Tailscale SSH, puts docker on the Mac as a colima VM, hardens sshd down to keys only, no root, one user, and — only where there is a terminal to type an Apple ID at — installs Xcode.
+`machine.sh` installs Homebrew and the `Brewfile`'s packages, turns Remote Login on if it is off, brings tailscale up as a system daemon serving Tailscale SSH, puts docker on the Mac as OrbStack, hardens sshd down to keys only, no root, one user, and — only where there is a terminal to type an Apple ID at — installs Xcode.
 
-Every package is in the `Brewfile` at the repo root, applied by `bootstrap-system.sh` with `brew bundle --no-upgrade`. One declarative list, including the three the Claude overlay is the only caller of and the four `docker.sh` used to install for itself: Homebrew is the machine, so `docker.sh` and `tailscale.sh` are left with the decision only they can make — about the VM, the plugin directory and the system daemon — and say what is missing rather than installing it. `--no-upgrade` because this Mac is re-run in place over the very sshd and tailnet a run touches, and `brew upgrade tailscale` restarts the daemon carrying the SSH session; `brew bundle upgrade` is the deliberate version of that. A failed package is not fatal, the same trade `docker.sh` always made — the exception is `gh`, `jq` and `op`, which `bootstrap-system.sh` stops on, since nothing after it works at all without them.
+Every package is in the `Brewfile` at the repo root, applied by `bootstrap-system.sh` with `brew bundle --no-upgrade`. One declarative list, including the three the Claude overlay is the only caller of and the OrbStack cask `docker.sh` configures: Homebrew is the machine, so `docker.sh` and `tailscale.sh` are left with the decision only they can make — about the VM's settings and the system daemon — and say what is missing rather than installing it. `--no-upgrade` because this Mac is re-run in place over the very sshd and tailnet a run touches, and `brew upgrade tailscale` restarts the daemon carrying the SSH session; `brew bundle upgrade` is the deliberate version of that. A failed package is not fatal, the same trade `docker.sh` always made — the exception is `gh`, `jq` and `op`, which `bootstrap-system.sh` stops on, since nothing after it works at all without them.
 
 `xcodes` and `aria2` are the two packages the `Brewfile` deliberately leaves out. Both exist only for the Xcode download, which happens only where there is a terminal, so declaring them would install them on every unattended provision for a step it is never going to run — and `aria2` is optional even there, a faster download rather than a dependency. `xcode.sh` installs both itself, once it has decided it is going ahead.
 
@@ -115,25 +115,29 @@ scutil --dns | grep -B2 -A2 100.100.100.100   # the resolver file, as macOS read
 
 ## Docker
 
-`docker.sh` writes the shape of a Linux VM into colima's profile config and hands the starting of that VM to `brew services` so that it comes back with the machine; colima, the docker CLI and the compose and buildx plugins are the `Brewfile`'s. There is no Docker Desktop here: that is an app, with an installer that expects somebody at the screen and a licence to go with it, where colima is a CLI that starts a VM and gets out of the way.
+Docker here is OrbStack, the one cask in the `Brewfile`: it runs the Linux VM under Virtualization.framework and links its own `docker`, `docker compose` and `docker buildx` into `/usr/local/bin` and `~/.docker/cli-plugins`, so no docker formula is installed beside it. `docker.sh` does what is left — the settings, and saying what it cannot do itself.
 
-The VM is Virtualization.framework — `vmType: vz` — with Rosetta on, which is what runs an amd64 image at close to native speed. It gets every core but two and a quarter of the memory — the rest is for the parallel sessions running browsers and Electron outside it, since a VM rarely hands memory back — both read from the hardware so that a different Mac needs no edit, and a 100GiB disk, which is a ceiling rather than a reservation because the image is sparse.
+OrbStack rather than colima, which this replaced on 2026-09-27. A colima VM rarely handed memory back: whatever a build or a test suite made it touch stayed taken until somebody restarted it, on a Mac whose parallel sessions run browsers and Electron *outside* the VM and want that memory for themselves. OrbStack's memory is dynamic and returns to macOS as the VM stops using it, which is the whole reason for the switch — so its `memory_mib` is a ceiling rather than a reservation and `docker.sh` leaves it at OrbStack's default of half the machine. Not Docker Desktop, which is heavier again for the same licence terms.
 
-`brew services` means a LaunchAgent, and a LaunchAgent lives in the `gui/<uid>` domain — so docker is running only once the Mac has logged itself in, exactly like the agent holding the signing key. A Mac at its login window has no docker.
+The one thing it costs: OrbStack is free for personal use, and commercial use needs a paid licence bought per seat from OrbStack. A Mac that builds anything sold from it needs one, and nothing in this repo can buy or apply it — an unlicensed install runs on a Pro trial and then asks.
+
+The first run is the app's own and needs somebody at the screen, which on this Mac means Screen Sharing: a welcome screen whose Next accepts OrbStack's terms, then a choice between Docker and Linux machines. `docker.sh` says so and stops rather than failing, and `machine.sh` lists it under what is left. Everything OrbStack links — the CLIs, the plugins, the `orbstack` docker context, the `Include ~/.orbstack/ssh/config` in `~/.ssh/config` — it does for itself at that first run, and it touches no shell rc file.
+
+After it, `docker.sh` settles two settings and only where `orb config show` disagrees: **start at login**, and **every core but two**, read from the hardware so that a different Mac needs no edit. It restarts the VM with `orb stop && orb start` only when the core count changed, since that is the one of the two the VM reads when it boots. A re-run on a settled Mac prints where it stands and touches nothing.
+
+Start at login means a login item, and a login item lives in the GUI session — so docker is running only once the Mac has logged itself in, exactly like the agent holding the signing key. A Mac at its login window has no docker.
 
 To see where it is:
 
 ```sh
-colima status                                # the VM, and the socket docker talks to
-docker context show                          # colima, the context colima sets when it starts
+orb status                       # whether the VM is up
+orb config show                  # every setting, including the two docker.sh sets
+docker context show              # orbstack, the context OrbStack sets for itself
 docker run --rm hello-world
-brew services list                           # whether the LaunchAgent is loaded
-tail -f /opt/homebrew/var/log/colima.log     # why the VM did not come up
+docker compose version           # the plugins OrbStack links into ~/.docker/cli-plugins
 ```
 
-The VM, its disk, its images and its volumes are all under `~/.colima`, and nothing outside it belongs to docker. `colima delete` starts over, and is also how all of that is lost.
-
-To resize it, edit `~/.colima/default/colima.yaml` and restart — `colima stop && colima start --edit` does both. That file is the one `docker.sh` writes, and colima rewrites it in its own fully commented form on the first start. `cpu` and `memory` take effect at the next start and a disk can grow, but a disk cannot shrink and `vmType` and `mountType` are fixed when the VM is created, so changing either of those means deleting the VM. Re-running `docker.sh` resizes nothing: it reports where the config and the hardware disagree and leaves whatever is there alone.
+The VM, its disk, its images and its volumes are all under `~/.orbstack`, and its absence is also how `docker.sh` knows the first run has not happened. `orb config set cpu <n>` and `orb config set memory_mib <n>` change the shape of it, and take effect at the next `orb stop && orb start`; re-running `docker.sh` puts the core count back to what this Mac works out to.
 
 ## Xcode
 

@@ -731,10 +731,12 @@ check "a job's VM is deleted when the job ends" \
 
 # The local run of the suite on a Mac nothing has touched. Read rather than run,
 # for the reason above: this is one of the things running inside such a VM.
-check "test/tart.sh runs the five steps the workflow runs, in a VM it deletes" \
-  '[ -x "$repo/test/tart.sh" ] && "$repo/test/tart.sh" --help | grep -q boswell-agent &&
-   grep -q "for step in \"./install.sh\" \"test/assert.sh\" \"./install.sh\" \"test/assert.sh\" \"test/boswell-agent.sh\"" \
-     "$repo/test/tart.sh" &&
+check "test/tart.sh runs both phases and every assert, in a VM it deletes" \
+  '[ -x "$repo/test/tart.sh" ] && "$repo/test/tart.sh" --help | grep -q machine.sh &&
+   grep -qF -- "\"./machine.sh\" \"test/assert-machine.sh\"" "$repo/test/tart.sh" &&
+   grep -qF -- "\"./claude.sh\" \"test/assert-claude.sh\" \"test/assert.sh\"" "$repo/test/tart.sh" &&
+   grep -qF -- "\"./install.sh\" \"test/assert.sh\"" "$repo/test/tart.sh" &&
+   grep -qF -- "\"test/boswell-agent.sh\"" "$repo/test/tart.sh" &&
    grep -q "trap cleanup EXIT" "$repo/test/tart.sh" &&
    grep -q "tart delete \"\$vm\"" "$repo/test/tart.sh"'
 

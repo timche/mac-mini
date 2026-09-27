@@ -94,8 +94,8 @@ if [ -z "\${OP_SERVICE_ACCOUNT_TOKEN:-}" ]; then
 fi
 
 case "\${1:-} \${2:-}" in
-  "read op://Mac Mini/SSH Key/private key?ssh-format=openssh") exec cat "$work/key" ;;
-  "read op://Mac Mini/SSH Key/public key") exec cat "$work/key.pub" ;;
+  "read op://Development/SSH Key/private key?ssh-format=openssh") exec cat "$work/key" ;;
+  "read op://Development/SSH Key/public key") exec cat "$work/key.pub" ;;
 esac
 
 echo "stub op: unexpected: \$*" >&2

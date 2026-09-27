@@ -48,7 +48,7 @@ uid="$(id -u)"
 
 # The wrapper's defaults, and the agent gets no others: the plist carries no
 # environment, which is what lets it be a link. A run by hand takes the overrides.
-item="${SIGNING_KEY_OP_ITEM:-op://Mac Mini/SSH Key}"
+item="${SIGNING_KEY_OP_ITEM:-op://Development/SSH Key}"
 token_file="${OP_SERVICE_ACCOUNT_TOKEN_FILE:-$HOME/.config/op/service-account-token}"
 
 if ! command -v op >/dev/null 2>&1; then
@@ -57,7 +57,7 @@ if ! command -v op >/dev/null 2>&1; then
   exit 0
 fi
 
-if [ "$item" != "op://Mac Mini/SSH Key" ] ||
+if [ "$item" != "op://Development/SSH Key" ] ||
    [ "$token_file" != "$HOME/.config/op/service-account-token" ]; then
   echo "note: the agent launchd starts reads the default 1Password item and token" >&2
   echo "file, since its plist carries no environment — change the defaults in" >&2

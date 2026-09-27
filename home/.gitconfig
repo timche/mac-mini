@@ -24,5 +24,11 @@
 [hook "betterleaks"]
 	event = pre-commit
 	command = "command -v betterleaks >/dev/null 2>&1 || { echo 'betterleaks is not installed, so this commit was not scanned for secrets' >&2; exit 0; }; betterleaks git --pre-commit --staged --redact --no-banner --verbose --config \"$HOME/.config/betterleaks/betterleaks.toml\""
+# A new worktree of a JS project has no node_modules until someone installs it,
+# and the repository's own pre-commit hook looks for its linter there. git passes
+# the previous HEAD, the new one and the branch flag on to the script.
+[hook "worktree-install"]
+	event = post-checkout
+	command = "\"$HOME/.config/git/worktree-install\""
 [include]
 	path = ~/.gitconfig.local

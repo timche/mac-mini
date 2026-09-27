@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The herdr server, started by launchd inside the logged-in GUI session rather
+     than by the first `herdr` a remote client runs over SSH. Every Claude Code
+     session is a pane of this server, and Claude Code offers computer use only to
+     a session that is not an SSH one; started here, a pane is genuinely local,
+     with no SSH_* in its environment and herdr, not tailscaled, as the app macOS
+     asks its privacy grants of. Tim still attaches from the MacBook with
+     `herdr remote-client-bridge` over Tailscale SSH, which only talks to the
+     socket. Linked like boswell's agent, and for the same reason it names no path
+     launchd would have to expand. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.github.timche.herdr</string>
+  <!-- A pane's shell reads .zshenv and .zprofile for its PATH and agent socket, so
+       the server itself needs only enough PATH to find them, a UTF-8 locale that
+       launchd does not hand a job, and exec so KeepAlive watches herdr. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"; export LANG=en_US.UTF-8; export SSH_AUTH_SOCK="$HOME/.ssh/agent.sock"; exec /opt/homebrew/bin/herdr server >>"$HOME/Library/Logs/herdr.log" 2>&amp;1</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <!-- Unconditionally, unlike boswell's: a server missing for any reason, even a
+       deliberate `herdr server stop`, would otherwise be replaced by the next
+       remote client starting one of its own over SSH, which is exactly the server
+       this agent exists to avoid. -->
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <!-- Panes run builds, dev servers and agents; launchd would otherwise throttle
+       them as background work. -->
+  <key>ProcessType</key>
+  <string>Interactive</string>
+</dict>
+</plist>

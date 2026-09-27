@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Temporary: a memory sample every five minutes while Tim decides within the
+     M6's return window whether 32 GB is enough; see ~/.local/bin/memlog. Linked
+     like boswell's agent, and for the same reason it names no path of its own. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.github.timche.memlog</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>export PATH="/usr/bin:/bin:/usr/sbin:/sbin"; exec "$HOME/.local/bin/memlog"</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StartInterval</key>
+  <integer>300</integer>
+</dict>
+</plist>

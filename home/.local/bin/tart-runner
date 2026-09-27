@@ -1,0 +1,739 @@
+#!/usr/bin/env bash
+# Answers this machine's private CI with a macOS VM that exists for one job.
+#
+#   tart-runner                # poll forever; what the LaunchAgent runs
+#   tart-runner --once         # take at most one job, then exit
+#   tart-runner --dry-run      # say what is queued and start nothing
+#   tart-runner --build-image  # build or refresh the runner image
+#
+# GitHub's free allowance is the reason any of this exists: a private
+# repository's macOS minutes count tenfold, and the dotfiles suite is a macOS
+# suite with nowhere else to run. Running it on the Mac itself is not an option
+# either — install.sh rewrites the account it runs as. A VM cloned per job is
+# both: free, and a closer reading of what the suite claims to prove, which is
+# that a brand-new Mac comes out of it built.
+#
+# Tart's own documentation points at Cirrus Runners for GitHub Actions, which is
+# a paid hosted service and closed to new customers since the acquisition, and
+# its GitLab executor has no Actions equivalent. So the dispatching is ours.
+#
+# Nothing idles. A VM exists only between a job being queued and that job
+# finishing, because 8 GB of the Mac's 32 GB is not something to hold overnight
+# for a repository that sees a handful of pushes a week. The same arithmetic is
+# why this refuses to start while UTM's Windows VM is up, and why it runs one VM
+# at a time — Apple's licence caps a host at two macOS guests in any case, and
+# the Virtualization framework enforces it.
+#
+# The runner is registered just-in-time and ephemeral: the config is minted per
+# job, is good for that one job, and the registration removes itself when the
+# job ends. So a VM destroyed mid-job leaves no runner behind to sit offline in
+# the repository's settings, and nothing on this disk holds a registration
+# token.
+#
+# Everything it asks GitHub is asked with a fine-grained token of its own, kept
+# in 1Password and resolved on first use into a shell variable rather than the
+# environment, so no child process — the ssh that carries the job included — can
+# read one. A fine-grained token has exactly one resource owner, so there is one
+# per owner rather than one for the dispatcher, and it can administer those
+# repositories' runners and read their runs and nothing else. The account's own
+# `gh` login is never the fallback: it can reach every private repository Tim
+# has, and a runner is the last thing that should hold that.
+#
+# The VM runs behind Softnet rather than Tart's default NAT, which leaves it the
+# internet and takes away this Mac, the LAN and the tailnet — a job is arbitrary
+# code from a repository's default branch, and on NAT it would reach everything
+# this Mac can. Softnet runs as root, and the one-time setup for that is in the
+# repository README.
+
+set -uo pipefail
+
+image="${TART_RUNNER_IMAGE:-gha-runner-base}"
+base_image="${TART_RUNNER_BASE_IMAGE:-ghcr.io/cirruslabs/macos-golden-gate-base:latest}"
+repos_file="${TART_RUNNER_REPOS_FILE:-$HOME/.config/tart-runner/repos}"
+labels="${TART_RUNNER_LABELS:-self-hosted,macOS,tart}"
+interval="${TART_RUNNER_INTERVAL:-45}"
+cpu="${TART_RUNNER_CPU:-4}"
+memory="${TART_RUNNER_MEMORY:-8192}"
+ssh_key="${TART_RUNNER_SSH_KEY:-$HOME/.ssh/tart-runner}"
+vm_user="${TART_RUNNER_USER:-admin}"
+vm_log="${TART_RUNNER_VM_LOG:-$HOME/Library/Logs/tart-runner-vm.log}"
+job_timeout="${TART_RUNNER_JOB_TIMEOUT:-5400}"
+env_file="${TART_RUNNER_ENV_FILE:-$HOME/.config/op/tart-runner.env}"
+op_token_file="${OP_SERVICE_ACCOUNT_TOKEN_FILE:-$HOME/.config/op/service-account-token}"
+# Softnet already refuses everything that is not a globally routable IPv4
+# address, which covers the LAN. The tailnet is 100.64.0.0/10, carrier-grade NAT
+# rather than a private range, and Softnet's rule is written the other way round
+# — so it is named here rather than inferred from a phrase in `tart run --help`.
+softnet_block="${TART_RUNNER_SOFTNET_BLOCK:-100.64.0.0/10}"
+# Every VM this starts is named for it, which is what lets a run that was killed
+# outright be swept by the next one.
+vm_prefix=gha-runner-job
+
+usage() {
+  cat <<'USAGE'
+usage: tart-runner [--once | --dry-run | --build-image]
+
+Polls GitHub for queued jobs labelled for this Mac and runs each one in a Tart
+macOS VM cloned from the runner image, registered just-in-time so that
+`run.sh --jitconfig` takes exactly one job and exits. The VM is deleted when
+the job ends, and none exists while nothing is queued.
+
+  --once         take at most one job, then exit
+  --dry-run      report what is queued and start nothing
+  --build-image  build or refresh the runner image from the macOS base image
+
+Repositories are one `owner/name` per line in ~/.config/tart-runner/repos, and
+each owner's GitHub token is an `op://` reference in ~/.config/op/tart-runner.env.
+USAGE
+}
+
+mode=poll
+
+for arg in "$@"; do
+  case "$arg" in
+    --once) mode=once ;;
+    --dry-run) mode=dry-run ;;
+    --build-image) mode=build-image ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "tart-runner: unknown option $arg" >&2
+      exit 2
+      ;;
+  esac
+done
+
+say() { printf '%s tart-runner: %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$1"; }
+
+# This polls forever into a log nobody reads until something is wrong, and the
+# two things most likely to be wrong — no image, no GitHub token — stay wrong on
+# every poll once they are wrong at all. Saying each one once keeps a week of
+# idling from burying the line that mattered.
+last_warning=
+warn_once() {
+  [ "$1" = "$last_warning" ] && return 0
+  last_warning="$1"
+  say "$1" >&2
+}
+clear_warning() { last_warning=; }
+
+die() {
+  say "$1" >&2
+  exit 1
+}
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+for tool in tart gh jq; do
+  have "$tool" || {
+    echo "tart-runner: $tool is missing — it is Homebrew's, and the Brewfile has it" >&2
+    exit 1
+  }
+done
+
+# mkdir rather than flock, which macOS does not have, and the takeover rule
+# with-apple-signing uses: a dispatcher killed outright reached no trap, and its
+# lock would otherwise stop every one after it. By pid, since the holder is a
+# poller that is meant to be long-lived and so cannot be timed out.
+cache="${XDG_CACHE_HOME:-$HOME/.cache}"
+[ -d "$HOME/Library/Caches" ] && cache="$HOME/Library/Caches"
+lock="$cache/tart-runner.lock"
+mkdir -p "$cache"
+
+take_lock() {
+  local holder
+
+  while ! mkdir "$lock" 2>/dev/null; do
+    holder="$(cat "$lock/pid" 2>/dev/null)"
+
+    if { [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; } ||
+      { [ -z "$holder" ] && [ -n "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ]; }; then
+      say "taking over the lock left behind by ${holder:+pid }${holder:-an earlier run}"
+      rm -rf "$lock"
+      continue
+    fi
+
+    say "waiting for the tart-runner already running${holder:+ as pid $holder}"
+    sleep 30
+  done
+
+  echo $$ >"$lock/pid"
+}
+
+# The VM is the one thing here that outlives a crash, so it is torn down from a
+# trap as well as from the happy path.
+current_vm=
+vm_pid=
+vm_ip=
+
+teardown() {
+  [ -n "$current_vm" ] || return 0
+  say "deleting $current_vm"
+  tart stop "$current_vm" >/dev/null 2>&1
+  tart delete "$current_vm" >/dev/null 2>&1
+  current_vm=
+}
+
+release() {
+  teardown
+  rm -rf "$lock"
+}
+
+repos() {
+  if [ -n "${TART_RUNNER_REPOS:-}" ]; then
+    # shellcheck disable=SC2086 # the split into one repository per line is the point
+    printf '%s\n' ${TART_RUNNER_REPOS//,/ }
+    return 0
+  fi
+
+  [ -f "$repos_file" ] || return 0
+  sed -e 's/#.*//' -e 's/[[:space:]]//g' "$repos_file" | grep .
+}
+
+# `TART_RUNNER_TOKEN_<OWNER>` in the env file, uppercased with everything but a
+# letter or a digit turned into an underscore, because an owner may hold a hyphen
+# and a shell variable may not.
+token_key() {
+  printf '%s' "$1" | tr '[:lower:]' '[:upper:]' | tr -c 'A-Z0-9' '_'
+}
+
+token_reference() {
+  local key="$1" line
+
+  [ -f "$env_file" ] || return 1
+
+  while IFS= read -r line; do
+    case "$line" in
+      "TART_RUNNER_TOKEN_$key="*) ;;
+      *) continue ;;
+    esac
+
+    line="${line#*=}"
+    line="${line%\"}"
+    line="${line#\"}"
+
+    [ -n "$line" ] && {
+      printf '%s' "$line"
+      return 0
+    }
+  done <"$env_file"
+
+  return 1
+}
+
+# Resolved on first use rather than at startup, so a Mac whose repository list is
+# empty — which is what switched off means — wants no 1Password item at all. Into
+# a shell variable rather than the environment: ssh forwards nothing by default,
+# but a variable that no child can read even by accident is one fewer thing to
+# have been right about.
+#
+# Every way of not having a token ends here, because the alternative is falling
+# back to whatever `gh` is logged in as, which on this Mac is an OAuth token with
+# `repo` — every private repository Tim has, handed to a dispatcher that answers
+# whatever a workflow file asks for.
+ensure_token() {
+  local owner="$1" key var ref value
+
+  key="$(token_key "$owner")"
+  var="tart_runner_token_$key"
+
+  [ -n "${!var-}" ] && return 0
+
+  ref="$(token_reference "$key")" ||
+    die "nothing in $env_file says which token $owner's repositories are polled with; the README has the TART_RUNNER_TOKEN_$key line and the item to make"
+
+  have op ||
+    die "op is not installed, so $ref cannot be resolved — it is Homebrew's: brew install --cask 1password-cli"
+
+  [ -r "$op_token_file" ] ||
+    die "no 1Password service-account token at $op_token_file, so $ref cannot be resolved"
+
+  value="$(OP_SERVICE_ACCOUNT_TOKEN="$(cat "$op_token_file")" op read "$ref")" ||
+    die "1Password would not resolve $ref; the line above says why"
+
+  [ -n "$value" ] || die "$ref resolved to nothing"
+
+  printf -v "$var" '%s' "$value"
+}
+
+# The one place a token is spent. GH_TOKEN takes precedence over the login in
+# ~/.config/gh/hosts.yml, and it is set for this one command rather than
+# exported, so the surrounding process never holds it.
+gh_as() {
+  local repo="$1" var
+  shift
+
+  var="tart_runner_token_$(token_key "${repo%%/*}")"
+  [ -n "${!var-}" ] || return 1
+
+  GH_TOKEN="${!var}" gh "$@"
+}
+
+# Softnet is a userspace packet filter that Tart runs as a sub-process and that
+# has to be root. Tart sets the setuid bit for it on first use by asking for a
+# sudo password, which it only does from a terminal — a LaunchAgent has none. So
+# a dispatcher with no terminal says which one thing to do, rather than starting
+# a `tart run` that exits and leaving three minutes of waiting for an address
+# that never comes.
+softnet_root() {
+  local bin
+  bin="$(command -v softnet)" || return 1
+  bin="$(stat -Lf %R "$bin" 2>/dev/null)" || return 1
+  [ -u "$bin" ] && [ "$(stat -f %Su "$bin" 2>/dev/null)" = root ]
+}
+
+softnet_advice() {
+  local bin
+
+  bin="$(command -v softnet)" || {
+    printf 'softnet is not on the PATH, and it comes with tart from the Brewfile'
+    return 0
+  }
+
+  bin="$(stat -Lf %R "$bin")"
+  printf 'softnet has no way to reach root, so no VM can start: run, once, sudo chown root %s && sudo chmod u+s %s — or start one from a terminal, where Tart asks for the password and sets the bit itself' \
+    "$bin" "$bin"
+}
+
+# A job's labels are matched the way GitHub matches them: every label the job
+# asks for has to be one this runner carries, case ignored.
+runner_labels_json() {
+  printf '%s' "$labels" | tr ',' '\n' | grep . | jq -R 'ascii_downcase' | jq -s .
+}
+
+# There is no endpoint listing a repository's queued jobs, so it is runs and then
+# each run's jobs. Every run that is not completed is asked, rather than the ones
+# GitHub calls queued: a run waiting for a runner reports `pending`, one whose
+# first job has started reports `in_progress` while its later jobs are still
+# waiting, and `requested` and `waiting` are two more spellings of not-yet-run.
+# Asking for the absence of one status outlasts a list of the others.
+queued_job() {
+  local repo="$1" want run_ids id hit
+
+  want="$(runner_labels_json)"
+
+  run_ids="$(
+    gh_as "$repo" api "repos/$repo/actions/runs?per_page=20" \
+      --jq '.workflow_runs[] | select(.status != "completed") | .id' 2>/dev/null
+  )"
+
+  [ -n "$run_ids" ] || return 1
+
+  for id in $run_ids; do
+    hit="$(
+      gh_as "$repo" api "repos/$repo/actions/runs/$id/jobs?per_page=50" 2>/dev/null |
+        jq -r --argjson want "$want" '
+          .jobs[]
+          | select(.status == "queued")
+          | select(([.labels[] | ascii_downcase]) as $have | ($want - $have) == [])
+          | .name' | head -1
+    )"
+
+    if [ -n "$hit" ]; then
+      printf '%s\n' "$hit"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+# Memory rather than politeness: UTM's Windows guest holds 8 GB while it runs,
+# and a macOS guest wanting another 8 on a 32 GB Mac that is also somebody's
+# working machine is how both end up swapping. utmctl reports every VM it knows,
+# so a renamed Windows VM is still seen.
+utm_busy() {
+  local utmctl=/Applications/UTM.app/Contents/MacOS/utmctl
+  [ -x "$utmctl" ] || return 1
+  "$utmctl" list 2>/dev/null | tail -n +2 | grep -qi '^started'
+}
+
+# `tart list` is no use for either of these. Tart 2.38 answers it by reading
+# every VM's disk image, and a running VM holds its own — so the whole listing
+# fails with "Resource temporarily unavailable" for exactly as long as there is
+# something to notice. The host's own process table and Tart's VM directory
+# answer both questions and cannot be taken out by the thing being asked about.
+vms_dir="${TART_HOME:-$HOME/.tart}/vms"
+
+tart_busy() { pgrep -qf "tart run "; }
+
+image_exists() { [ -d "$vms_dir/$1" ]; }
+
+sweep_stale() {
+  local dir vm
+  for dir in "$vms_dir/$vm_prefix-"*; do
+    [ -d "$dir" ] || continue
+    vm="$(basename "$dir")"
+    say "sweeping the VM $vm left behind by an earlier run"
+    tart stop "$vm" >/dev/null 2>&1
+    tart delete "$vm" >/dev/null 2>&1
+  done
+}
+
+ssh_vm() {
+  local ip="$1"
+  shift
+  ssh -i "$ssh_key" \
+    -o IdentitiesOnly=yes \
+    -o StrictHostKeyChecking=no \
+    -o UserKnownHostsFile=/dev/null \
+    -o LogLevel=ERROR \
+    -o ConnectTimeout=10 \
+    -o ServerAliveInterval=30 \
+    "$vm_user@$ip" "$@"
+}
+
+wait_for_ssh() {
+  local ip="$1" deadline=$((SECONDS + 300))
+
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    ssh_vm "$ip" true >/dev/null 2>&1 && return 0
+    sleep 5
+  done
+
+  return 1
+}
+
+# Boots headless and comes back once the VM has an address. Whether anything is
+# listening on it is the caller's question, because the image build has to reach
+# the guest before it has a key to reach it with.
+boot_vm() {
+  local vm="$1"
+
+  if ! softnet_root && [ ! -t 0 ]; then
+    say "$(softnet_advice)" >&2
+    return 1
+  fi
+
+  mkdir -p "$(dirname "$vm_log")"
+  tart run --no-graphics \
+    --net-softnet --net-softnet-block="$softnet_block" \
+    "$vm" >>"$vm_log" 2>&1 &
+  vm_pid=$!
+
+  vm_ip="$(tart ip "$vm" --wait 180 2>/dev/null)"
+
+  [ -n "$vm_ip" ] || {
+    say "no IP from $vm after three minutes" >&2
+    return 1
+  }
+}
+
+# The config is minted here and handed over on stdin, so the one credential in
+# the whole arrangement never reaches an argument list on this Mac. Inside the
+# guest it does, which is a guest deleted minutes later holding a config good
+# for a single job that has already been claimed.
+run_job() {
+  local repo="$1" name="$2" jit vm ip status runner_id job_pid deadline
+  local -a label_args=()
+
+  vm="$vm_prefix-$(date +%s)"
+
+  say "$repo: taking \"$name\" in $vm"
+
+  tart clone "$image" "$vm" || return 1
+  current_vm="$vm"
+
+  # A fresh MAC on every clone, or `tart ip` answers from the DHCP lease the
+  # last clone of this image left behind and hands back an address before the
+  # VM has booted — which looks exactly like a VM that came up instantly.
+  tart set "$vm" --cpu "$cpu" --memory "$memory" --random-mac || return 1
+  boot_vm "$vm" || return 1
+  ip="$vm_ip"
+
+  wait_for_ssh "$ip" || {
+    say "no SSH on $vm at $ip after five minutes" >&2
+    return 1
+  }
+
+  local label
+  while IFS= read -r label; do
+    label_args+=(-f "labels[]=$label")
+  done < <(printf '%s' "$labels" | tr ',' '\n' | grep .)
+
+  jit="$(
+    gh_as "$repo" api -X POST "repos/$repo/actions/runners/generate-jitconfig" \
+      -f "name=$vm" -F runner_group_id=1 "${label_args[@]}" \
+      --jq .encoded_jit_config
+  )" || {
+    say "$repo: GitHub refused a just-in-time runner config" >&2
+    return 1
+  }
+
+  say "$repo: runner registered, job starting on $ip"
+
+  # run.sh with a JIT config takes exactly one job and exits, so this returns
+  # when the job is over. Its status is the runner's, not the job's — how the
+  # job went is GitHub's to report.
+  # Through the launcher the image carries, which is a login shell: `ssh host cmd`
+  # runs a non-login shell, whose PATH is four system directories, and a job that
+  # starts without /opt/homebrew/bin fails on the first `brew` it reaches. The
+  # config goes down its stdin rather than into its arguments.
+  # shellcheck disable=SC2016 # expanded by the shell in the guest, not by this one
+  printf '%s\n' "$jit" | ssh_vm "$ip" '$HOME/run-jit.sh' &
+  job_pid=$!
+
+  deadline=$((SECONDS + job_timeout))
+  while kill -0 "$job_pid" 2>/dev/null; do
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      say "$repo: the job passed $job_timeout seconds; tearing the VM down" >&2
+      kill "$job_pid" 2>/dev/null
+      break
+    fi
+    sleep 5
+  done
+
+  wait "$job_pid"
+  status=$?
+
+  say "$repo: the runner exited with $status"
+  teardown
+
+  # An ephemeral runner removes its own registration when it finishes. One that
+  # never got that far would sit in the repository's settings forever, so it is
+  # removed by name here.
+  runner_id="$(
+    gh_as "$repo" api "repos/$repo/actions/runners?per_page=100" \
+      --jq ".runners[] | select(.name == \"$vm\") | .id" 2>/dev/null
+  )"
+
+  if [ -n "$runner_id" ]; then
+    gh_as "$repo" api -X DELETE "repos/$repo/actions/runners/$runner_id" >/dev/null 2>&1 &&
+      say "$repo: removed the registration $vm left behind"
+  fi
+
+  return "$status"
+}
+
+poll_once() {
+  local repo name
+
+  for repo in $(repos); do
+    # Before the first question is asked of GitHub, and outside any command
+    # substitution: this is the call that refuses to carry on without a token,
+    # and an exit inside a `$( )` would only end the subshell.
+    ensure_token "${repo%%/*}"
+
+    name="$(queued_job "$repo")" || continue
+
+    if [ "$mode" = dry-run ]; then
+      say "$repo: \"$name\" is queued for the labels $labels"
+      return 0
+    fi
+
+    if utm_busy; then
+      warn_once "waiting: UTM has a VM running, and two guests do not fit in 32 GB"
+      return 1
+    fi
+
+    if tart_busy; then
+      warn_once "waiting: another Tart VM is already running"
+      return 1
+    fi
+
+    if ! image_exists "$image"; then
+      warn_once "no runner image called $image — build one with: tart-runner --build-image"
+      return 1
+    fi
+
+    if ! softnet_root && [ ! -t 0 ]; then
+      warn_once "$(softnet_advice)"
+      return 1
+    fi
+
+    clear_warning
+    run_job "$repo" "$name"
+    return 0
+  done
+
+  return 1
+}
+
+# The image, and the one part of this that is not disposable: the macOS base
+# image plus what a GitHub-hosted macOS runner has and a vanilla Mac does not —
+# the command line tools, Homebrew, the CLI tools install.sh reaches for, and the
+# runner software. The Brewfile is deliberately not applied: `brew bundle` doing
+# its work inside the job is a third of what the suite is for, and an image that
+# came with the packages would prove the re-run rather than the install.
+build_image() {
+  local ip version
+
+  have ssh-keygen || return 1
+
+  if [ ! -f "$ssh_key" ]; then
+    say "generating the key this Mac reaches its runner VMs with, at $ssh_key"
+    mkdir -p "$(dirname "$ssh_key")"
+    ssh-keygen -t ed25519 -N '' -C tart-runner -f "$ssh_key" >/dev/null || return 1
+  fi
+
+  if image_exists "$image"; then
+    say "replacing the existing $image"
+    tart stop "$image" >/dev/null 2>&1
+    tart delete "$image" || return 1
+  fi
+
+  say "cloning $base_image — the first time, this pulls tens of gigabytes"
+  tart clone "$base_image" "$image" || return 1
+  tart set "$image" --cpu "$cpu" --memory "$memory" --random-mac || return 1
+
+  boot_vm "$image" || return 1
+  ip="$vm_ip"
+
+  # The key has to be inside the image before SSH can carry anything, and the
+  # base image answers SSH only for the password it ships with. `tart exec`
+  # talks to the guest agent every non-vanilla Cirrus Labs image already runs,
+  # which is one fewer thing than a password client this Mac does not have.
+  say "waiting for the guest agent"
+  local deadline=$((SECONDS + 300))
+  until tart exec "$image" /usr/bin/true >/dev/null 2>&1; do
+    [ "$SECONDS" -lt "$deadline" ] || {
+      say "the guest agent in $image never answered" >&2
+      return 1
+    }
+    sleep 5
+  done
+
+  say "seeding the SSH key through the guest agent"
+  tart exec "$image" /bin/sh -c \
+    "mkdir -p ~/.ssh && chmod 700 ~/.ssh && printf '%s\n' '$(cat "$ssh_key.pub")' >>~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys" ||
+    return 1
+
+  wait_for_ssh "$ip" || {
+    say "the seeded key does not open SSH on $ip" >&2
+    return 1
+  }
+
+  # curl rather than `gh api`, which would want a token: the actions runner is a
+  # public repository, and the tokens this holds are scoped to the repositories
+  # it answers for and have no business anywhere else.
+  version="$(
+    curl -fsSL https://api.github.com/repos/actions/runner/releases/latest |
+      jq -r '.tag_name // empty'
+  )"
+  [ -n "$version" ] || {
+    say "GitHub did not say which actions runner release is the latest" >&2
+    return 1
+  }
+  version="${version#v}"
+
+  say "provisioning with the command line tools, Homebrew and actions runner $version"
+
+  # The script goes over as a file and is then run from that file, rather than
+  # down ssh's stdin as `bash -s`. bash reads a piped script a block at a time
+  # and interleaves running it, so any child that touches stdin eats the rest of
+  # it — which is how a `tar` here once stopped a third of the way through an
+  # archive and still reported success. From a file, bash has the whole thing
+  # before it runs a line of it.
+  if ! ssh_vm "$ip" "cat >/tmp/tart-runner-provision.sh" <<PROVISION
+set -euo pipefail
+export NONINTERACTIVE=1
+
+# softwareupdate offers the command line tools only when something claims to
+# have asked for them on demand, which is all this empty file is. The label it
+# then offers carries the version, so it is read back rather than spelled out.
+if ! /usr/bin/xcode-select -p >/dev/null 2>&1; then
+  sudo touch /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
+  label="\$(softwareupdate -l 2>/dev/null |
+    grep -E 'Label: Command Line Tools' | tail -1 | sed 's/^.*Label: //')"
+  [ -n "\$label" ] && sudo softwareupdate -i "\$label"
+  sudo rm -f /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
+fi
+
+if [ ! -x /opt/homebrew/bin/brew ]; then
+  /bin/bash -c "\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  echo 'eval "\$(/opt/homebrew/bin/brew shellenv)"' >>"\$HOME/.zprofile"
+fi
+
+eval "\$(/opt/homebrew/bin/brew shellenv)"
+
+# What a GitHub-hosted macOS image has that install.sh and the suite reach for.
+# Everything else is the Brewfile's, and a job installs that itself.
+brew install gh jq
+
+rm -rf "\$HOME/actions-runner"
+mkdir -p "\$HOME/actions-runner"
+cd "\$HOME/actions-runner"
+curl -fsSL -o runner.tar.gz \
+  "https://github.com/actions/runner/releases/download/v$version/actions-runner-osx-arm64-$version.tar.gz"
+tar xzf runner.tar.gz
+rm -f runner.tar.gz
+
+# The one thing worth asserting here: an actions runner that cannot start is a
+# job that fails with "You must install .NET to run this application" and an
+# image that looks built.
+./bin/Runner.Listener --version
+
+# A login shell, because that is where this image's PATH comes from — Homebrew,
+# node and the rest are in .zprofile, and a job started over ssh would otherwise
+# run with the four system directories and nothing else.
+cat >"\$HOME/run-jit.sh" <<'LAUNCHER'
+#!/bin/bash -l
+read -r jit
+cd "\$HOME/actions-runner" || exit 1
+exec ./run.sh --jitconfig "\$jit"
+LAUNCHER
+chmod +x "\$HOME/run-jit.sh"
+PROVISION
+  then
+    say "could not copy the provisioning script into $image" >&2
+    return 1
+  fi
+
+  if ! ssh_vm "$ip" "bash /tmp/tart-runner-provision.sh && rm -f /tmp/tart-runner-provision.sh" </dev/null; then
+    say "provisioning failed; $image is left running so it can be looked at" >&2
+    return 1
+  fi
+
+  # Shut down from inside and wait for the VM process to go. `tart stop` sends
+  # the guest an ACPI request and kills it thirty seconds later, which a macOS
+  # guest does not finish in; what came out the first time was an image whose
+  # actions-runner directory existed, whose bin/ was empty, and which reported
+  # itself built — the guest's writes never reached the disk image.
+  say "shutting $image down"
+  ssh_vm "$ip" 'sync; sudo shutdown -h now' >/dev/null 2>&1
+
+  local deadline=$((SECONDS + 300))
+  while kill -0 "$vm_pid" 2>/dev/null; do
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      say "$image did not shut down in five minutes; stopping it" >&2
+      tart stop "$image" -t 120
+      break
+    fi
+    sleep 3
+  done
+
+  wait "$vm_pid" 2>/dev/null
+
+  say "$image is ready; a job clones it and throws the clone away"
+}
+
+case "$mode" in
+  build-image)
+    take_lock
+    trap 'rm -rf "$lock"' EXIT
+    build_image
+    exit $?
+    ;;
+  dry-run)
+    poll_once
+    exit 0
+    ;;
+esac
+
+take_lock
+trap release EXIT
+trap 'release; exit 130' INT TERM
+
+sweep_stale
+
+say "polling $(repos | tr '\n' ' ')for jobs labelled $labels"
+
+while :; do
+  if poll_once && [ "$mode" = once ]; then
+    break
+  fi
+
+  sleep "$interval"
+done

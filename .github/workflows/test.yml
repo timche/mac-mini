@@ -1,60 +1,110 @@
 name: test
 
+# On GitHub's hosted macOS runners, which are free to a public repository — and
+# being free to this one is why it is public. A private repository's macOS
+# minutes count tenfold against the free allowance, and boswell pushes every edit
+# to main on its own. The README, under "A macOS runner of last resort", has what
+# a private repository would fall back to instead.
+#
+# The paths filter is for the same reason: only a change the suite can catch
+# starts a run, and a burst of them ends as one.
 on:
   push:
-    branches: [main]
+    paths: &code
+      - "*.sh"
+      - Brewfile
+      - mise.toml
+      - claude/**
+      - launchd/**
+      - system/**
+      - test/**
+      - .github/**
+      - home/**
+      - "!home/**/*.md"
+      - "!home/.claude/skills/**"
   pull_request:
+    paths: *code
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
-  # On the runner itself rather than in a container: there is no macOS container to
-  # put any of this in. The runner's account is called `runner`, which is what
-  # proves nothing here is written for the one Mac it is aimed at — and it arrives
-  # with Homebrew and passwordless sudo, so what is exercised is the second run of
-  # every step rather than the first.
-  setup:
+  # On the runner itself rather than in a container: there is no macOS container
+  # to put any of this in, and the suite changes the machine it runs on. The
+  # runner's account is called `runner`, which is what proves nothing here is
+  # written for the one Mac it is aimed at — and it arrives with Homebrew and
+  # passwordless sudo, so what is exercised is the second run of every step as
+  # much as the first.
+  #
+  # Nothing is logged in and there is no service account, which is the state every
+  # fresh Mac is in: every step that needs one has to skip rather than fail. The
+  # docs clone fails for want of a token, so boswell stays unloaded and
+  # boswell-agent.sh is what proves its wiring against launchd instead.
+  macos:
     runs-on: macos-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v7
 
-      # Twice, and asserted after each: the repeat is what keeps the whole of it
-      # honest about being safe to re-run, which is the only way a change ever
-      # reaches a Mac that is already built.
+      # The fresh-Mac path first, which is the only one that clones: the
+      # repository under test stands in for GitHub, so what runs is this branch
+      # rather than main. It ends with $HOME linked into that clone, which the
+      # steps below then move back to the workspace, the way a Mac re-run in place
+      # does.
+      - name: bootstrap.sh from a clone of this branch
+        env:
+          MAC_MINI_REPO: ${{ github.workspace }}
+          MAC_MINI_DIR: ${{ runner.temp }}/mac-mini
+        run: ./bootstrap.sh
+      - run: ${{ runner.temp }}/mac-mini/test/assert-machine.sh
+      - run: ${{ runner.temp }}/mac-mini/test/assert.sh
+
+      # Then each phase by hand, twice and asserted after each: the repeat is what
+      # keeps the whole of it honest about being safe to re-run, which is the only
+      # way a change ever reaches a Mac that is already built.
       - run: ./machine.sh
-      - run: test/assert.sh
+      - run: test/assert-machine.sh
       - run: ./machine.sh
-      - run: test/assert.sh
+      - run: test/assert-machine.sh
 
       # Xcode itself, which machine.sh leaves to a run that has a terminal to type
-      # an Apple ID at, so the workflow is what calls it here. A runner arrives with
-      # several Xcodes already, which is the half this can exercise: select one,
-      # accept the licence, finish the first launch, and reach for no download.
-      # Twice, for the same reason as above.
+      # an Apple ID at, so the workflow is what calls it here. A runner arrives
+      # with several Xcodes already, which is the half this can exercise: select
+      # one, accept the licence, finish the first launch, and reach for no
+      # download. Twice, for the same reason as above.
       - run: ./xcode.sh
       - run: ./xcode.sh
-      - run: test/assert.sh
+      - run: test/assert-machine.sh
 
-      # The overlay with nothing logged in and no service account, which is the
-      # state every fresh Mac is in: every step of it has to skip rather than fail.
+      # The account phase, whose last step is install.sh.
       - run: ./claude.sh
       - run: test/assert-claude.sh
+      - run: test/assert.sh
+      - run: ./install.sh
+      - run: test/assert.sh
 
-      # The signing key and the agent that holds it, with a stub op standing in for
-      # 1Password. The one thing here that cannot be checked without a vault.
+      # The signing key and the agent that holds it, with a stub op standing in
+      # for 1Password. The one thing here that cannot be checked without a vault.
       - run: test/signing-agent.sh
 
       # The same agent as launchd loads it for the account itself, which is what
       # proves the two links: a symlinked plist bootstraps, and a wrapper that
       # changed in the checkout restarts the job. A runner has a gui domain, which
-      # is the one thing this cannot do without.
+      # is the one thing this cannot do without — and the same is what
+      # boswell-agent.sh needs.
       - run: test/agent-links.sh
+      - run: test/boswell-agent.sh
 
-      # machine.sh left the sshd drop-in out for want of a key to log in with, which
-      # is the refusal that keeps a Mac nobody can walk up to reachable. Seed a key
-      # the way a real one has and it should land. Last, because a runner has
-      # nothing after this that needs to log in.
+      # machine.sh left the sshd drop-in out for want of a key to log in with,
+      # which is the refusal that keeps a Mac nobody can walk up to reachable.
+      # Seed a key the way a real one has and it should land. Last, because a
+      # runner has nothing after this that needs to log in.
       - name: harden-ssh.sh with a key installed
         run: |
           mkdir -p ~/.ssh
@@ -62,4 +112,4 @@ jobs:
           ssh-keygen -q -t ed25519 -N '' -C ci -f /tmp/ci
           install -m 600 /tmp/ci.pub ~/.ssh/authorized_keys
           ./harden-ssh.sh
-      - run: test/assert.sh
+      - run: test/assert-machine.sh

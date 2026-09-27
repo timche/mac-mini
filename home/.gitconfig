@@ -1,0 +1,34 @@
+[user]
+	name = Tim Cheung
+	email = tim@cheung.io
+[credential "https://github.com"]
+	helper = 
+	helper = !gh auth git-credential
+[credential "https://gist.github.com"]
+	helper = 
+	helper = !gh auth git-credential
+[gpg]
+	format = ssh
+[commit]
+	gpgsign = true
+[gpg "ssh"]
+	defaultKeyCommand = ssh-add -L
+	allowedSignersFile = ~/.ssh/allowed_signers
+[url "https://github.com/"]
+	insteadOf = git@github.com:
+# Every repository on this Mac, beside its own hooks rather than instead of them:
+# a hook defined in config (git 2.54) runs alongside .git/hooks and a repository's
+# core.hooksPath, where a global core.hooksPath would have switched those off.
+# Staged changes only, redacted, so a finding never prints the value. A Mac
+# without betterleaks warns instead of refusing every commit, boswell's included.
+[hook "betterleaks"]
+	event = pre-commit
+	command = "command -v betterleaks >/dev/null 2>&1 || { echo 'betterleaks is not installed, so this commit was not scanned for secrets' >&2; exit 0; }; betterleaks git --pre-commit --staged --redact --no-banner --verbose --config \"$HOME/.config/betterleaks/betterleaks.toml\""
+# A new worktree of a JS project has no node_modules until someone installs it,
+# and the repository's own pre-commit hook looks for its linter there. git passes
+# the previous HEAD, the new one and the branch flag on to the script.
+[hook "worktree-install"]
+	event = post-checkout
+	command = "\"$HOME/.config/git/worktree-install\""
+[include]
+	path = ~/.gitconfig.local

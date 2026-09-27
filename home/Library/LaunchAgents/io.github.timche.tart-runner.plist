@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Symlinked into ~/Library/LaunchAgents from the [dotfiles] entry in mise.toml,
+     and shaped like boswell's for the reason given there: launchd expands neither
+     ~ nor $HOME in a plist, so the PATH and the log move into a shell, which is
+     the one thing here that can expand one, and the file names no account.
+
+     gui domain rather than a LaunchDaemon: Tart needs the Virtualization
+     entitlement and a session to run a VM in, gh reads the token out of this
+     account's config, and a runner VM has no business existing while nobody is
+     logged in. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.github.timche.tart-runner</string>
+  <!-- Homebrew's tart, gh and jq, spelled onto the PATH because launchd hands a
+       job almost no PATH at all; ~/.local/bin is where the dispatcher itself is
+       linked. exec, so the status launchd sees is the dispatcher's rather than
+       sh's and KeepAlive below reads it. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>export PATH="$HOME/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin:/bin:/usr/sbin:/sbin"; exec "$HOME/.local/bin/tart-runner" >>"$HOME/Library/Logs/tart-runner.log" 2>&amp;1</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <!-- Unconditional, as herdr's is: the dispatcher polls forever and has no
+       successful exit to speak of, so any exit at all is one to come back from.
+       A deliberate stop is a bootout. -->
+  <key>KeepAlive</key>
+  <true/>
+  <!-- Long enough that a dispatcher failing on every start — no gh token, no
+       tart — paces itself rather than spinning against GitHub's rate limit. -->
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+</dict>
+</plist>

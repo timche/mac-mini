@@ -1,0 +1,54 @@
+name: test
+
+# On GitHub's hosted macOS runners, which are free to a public repository — and
+# being free to this one is why it is public. A private repository's macOS minutes
+# count tenfold against the free allowance, and boswell pushes every edit to main
+# within seconds, so September 2026 spent the month's 300 on 247 auto-sync
+# commits. The repository README, under "A macOS runner of last resort", has what
+# a private repository would fall back to instead.
+#
+# The paths filter is from those same weeks and stays: only a change the suite can
+# catch starts a run, a burst of them ends as one, and a local
+# `./install.sh && test/assert.sh` is still the check after each change.
+on:
+  push:
+    paths: &code
+      - install.sh
+      - Brewfile
+      - mise.toml
+      - test/**
+      - .github/**
+      - home/**
+      - "!home/**/*.md"
+      - "!home/.claude/skills/**"
+  pull_request:
+    paths: *code
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # On the runner itself, there being no macOS container to put it in, and the
+  # runner's account is called `runner`, which is the check that nothing here
+  # assumes an account name. Twice, because the promise install.sh makes is that a
+  # re-run installs what is missing and moves nothing else.
+  #
+  # No token, so the docs clone fails and boswell stays unloaded — the runner's
+  # token cannot read timche/docs anyway. Which is what boswell-agent.sh is for:
+  # the runner has the console login an agent needs, so it loads boswell's plist
+  # under a label of its own with a stand-in for boswell, and launchd is the one
+  # thing no assert against the file can stand in for.
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./install.sh
+      - run: test/assert.sh
+      - run: ./install.sh
+      - run: test/assert.sh
+      - run: test/boswell-agent.sh

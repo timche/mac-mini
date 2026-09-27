@@ -1,0 +1,19 @@
+[settings]
+lockfile = true
+minimum_release_age = "0"
+
+# Language runtimes, and the two npm packages that run on the node beside them.
+# Every other CLI tool is Homebrew's, in the Brewfile at the repo root; mise and
+# Claude Code come from their authors' own installers. CLAUDE.md has the rule.
+[tools]
+bun = "latest"
+node = "lts"
+python = "latest"
+# Installed once rather than fetched per draw: npx paid for npm starting node twice
+# on every status line.
+"npm:ccstatusline" = "latest"
+# mise's npm backend rather than Homebrew's formula, which would bring a second node
+# of its own. portless's README asks for a global install, and this is one: the
+# package lands in mise's install directory instead of inside whichever node is
+# current, so a node upgrade does not take it along.
+"npm:portless" = "latest"

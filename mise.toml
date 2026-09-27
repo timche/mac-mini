@@ -1,0 +1,122 @@
+# The machine this repo expects, and the dotfiles it installs. install.sh runs
+# `mise bootstrap` over it, which applies these in order: the oh-my-zsh clone, then
+# the dotfiles below, then the macOS preferences at the end.
+#
+# No packages phase. Every Homebrew package is in the Brewfile at the repo root,
+# which install.sh applies with `brew bundle`: mise's bootstrap has no
+# --no-upgrade, nothing to assert an installed set against, and no way to fetch a
+# formula from a plain tap. mise's job here is the language runtimes.
+
+# oh-my-zsh's own installer does nothing here that a clone does not: it is only
+# told not to run zsh, not to chsh, and not to write a .zshrc, all of which this
+# repo owns.
+[bootstrap.repos]
+"~/.oh-my-zsh" = { url = "https://github.com/ohmyzsh/ohmyzsh.git" }
+
+# The dotfiles this repo installs. Declared here rather than in the global
+# config because a source path relative to the config file is only allowed in a
+# project one, and every source below is a path inside this checkout.
+#
+# install.sh applies them; the shapes are the same ones it used to symlink by
+# hand, directories included.
+
+[dotfiles]
+"~/.bashrc" = { source = "home/.bashrc", mode = "symlink" }
+"~/.gitconfig" = { source = "home/.gitconfig", mode = "symlink" }
+"~/.zprofile" = { source = "home/.zprofile", mode = "symlink" }
+"~/.zshenv" = { source = "home/.zshenv", mode = "symlink" }
+"~/.zshrc" = { source = "home/.zshrc", mode = "symlink" }
+
+"~/.config/boswell/config.toml" = { source = "home/.config/boswell/config.toml", mode = "symlink" }
+"~/.config/ccstatusline/settings.json" = { source = "home/.config/ccstatusline/settings.json", mode = "symlink" }
+"~/.config/herdr/config.toml" = { source = "home/.config/herdr/config.toml", mode = "symlink" }
+"~/.config/starship.toml" = { source = "home/.config/starship.toml", mode = "symlink" }
+"~/.config/mise/config.toml" = { source = "home/.config/mise/config.toml", mode = "symlink" }
+"~/.config/mise/mise.lock" = { source = "home/.config/mise/mise.lock", mode = "symlink" }
+"~/.config/mise/locks" = { source = "home/.config/mise/locks", mode = "symlink" }
+"~/.terminfo/x/xterm-ghostty" = { source = "home/.terminfo/x/xterm-ghostty", mode = "symlink" }
+# macOS's ncurses hashes the first letter rather than using it, so it looks the
+# entry up under 78, which is the link that does the work. The `x` spelling is
+# linked too, at no cost, so anything expecting the conventional layout finds it.
+"~/.terminfo/78/xterm-ghostty" = { source = "home/.terminfo/x/xterm-ghostty", mode = "symlink" }
+
+# Linked like everything above it: launchd resolves the link at bootstrap, and the
+# plist leaves every path it needs to a shell that expands $HOME for itself.
+# install.sh is what loads it, and only once ~/projects/docs is a clone: boswell refuses a
+# config naming a path that is not a work tree.
+"~/Library/LaunchAgents/io.github.timche.boswell.plist" = { source = "home/Library/LaunchAgents/io.github.timche.boswell.plist", mode = "symlink" }
+"~/Library/LaunchAgents/io.github.timche.herdr.plist" = { source = "home/Library/LaunchAgents/io.github.timche.herdr.plist", mode = "symlink" }
+"~/Library/LaunchAgents/io.github.timche.tart-runner.plist" = { source = "home/Library/LaunchAgents/io.github.timche.tart-runner.plist", mode = "symlink" }
+
+# The one plist still rendered rather than linked: launchd reads WatchPaths itself
+# and expands no $HOME in it, so that path has to arrive already absolute.
+"~/Library/LaunchAgents/io.github.timche.worktree-gc.plist" = { source = "home/Library/LaunchAgents/io.github.timche.worktree-gc.plist", mode = "template" }
+
+
+# The sweep that follows a removed worktree. In ~/.local/bin rather than under
+# ~/.claude, because it is the machine's rather than Claude Code's: the
+# LaunchAgent runs it on a timer whether or not a session is up.
+"~/.local/bin/worktree-gc" = { source = "home/.local/bin/worktree-gc", mode = "symlink" }
+
+# A signed macOS build: the wrapper resolves an Apple Developer ID certificate out
+# of 1Password into one build's environment, and the env file beside the
+# service-account token holds the `op://` references it resolves. The file is
+# references rather than values, so it is tracked here like any other config.
+"~/.local/bin/with-apple-signing" = { source = "home/.local/bin/with-apple-signing", mode = "symlink" }
+"~/.local/bin/memlog" = { source = "home/.local/bin/memlog", mode = "symlink" }
+
+# This repository's own CI, in a macOS VM cloned per job and deleted after it,
+# because a private repository's macOS minutes are GitHub's most expensive and
+# install.sh cannot be let near the real account. The repository list is a file so
+# that adding one is a line rather than a change to the dispatcher or its plist.
+"~/.local/bin/tart-runner" = { source = "home/.local/bin/tart-runner", mode = "symlink" }
+"~/.config/tart-runner/repos" = { source = "home/.config/tart-runner/repos", mode = "symlink" }
+"~/Library/LaunchAgents/io.github.timche.memlog.plist" = { source = "home/Library/LaunchAgents/io.github.timche.memlog.plist", mode = "symlink" }
+"~/.config/op/apple-signing.env" = { source = "home/.config/op/apple-signing.env", mode = "symlink" }
+"~/.config/betterleaks/betterleaks.toml" = { source = "home/.config/betterleaks/betterleaks.toml", mode = "symlink" }
+"~/.config/op/apple-signing.d/meru.env" = { source = "home/.config/op/apple-signing.d/meru.env", mode = "symlink" }
+
+"~/.claude/CLAUDE.md" = { source = "home/.claude/CLAUDE.md", mode = "symlink" }
+"~/.claude/settings.json" = { source = "home/.claude/settings.json", mode = "symlink" }
+"~/.claude/agents" = { source = "home/.claude/agents", mode = "symlink" }
+"~/.claude/hooks" = { source = "home/.claude/hooks", mode = "symlink" }
+"~/.claude/skills" = { source = "home/.claude/skills", mode = "symlink" }
+
+# Tim's preferences, the half of them that is a plain user default.
+#
+# The rest of them are in install.sh, each for a reason mise states outright: a
+# system domain written with sudo is not supported here, a value holding the home
+# directory cannot be written because these values are not templated, an empty
+# Dock has to happen once rather than on every bootstrap, and mise deliberately
+# restarts no application, while a `post-defaults` hook would restart one on
+# every run whether or not a preference changed.
+
+# One friendly key writes both Clicking domains — the built-in trackpad's and the
+# Bluetooth one's, which is the Magic Trackpad this Mac mini actually has.
+[bootstrap.macos.trackpad]
+tap_to_click = true
+
+[bootstrap.macos.finder]
+show_all_files = true
+show_pathbar = true
+show_status_bar = true
+# FXEnableExtensionChangeWarning, inverted by the friendly name: false is the
+# warning gone.
+show_extensions_warning = false
+
+# The one Finder preference with no friendly key, and it is global rather than
+# Finder's own.
+[bootstrap.macos.defaults]
+NSGlobalDomain = { AppleShowAllExtensions = true }
+
+# The one that actually does anything on macOS 26 — per machine rather than per
+# account, which is what `defaults -currentHost` means and what the shorthand
+# table above cannot say, so it takes an explicit entry. The two Clicking domains
+# look to be a mirror System Settings keeps rather than what the input stack
+# reads: forcing them to 0 and this to 1 still taps to click. They are written
+# anyway, being what System Settings shows and free to set.
+[[bootstrap.macos.defaults_entries]]
+domain = "NSGlobalDomain"
+key = "com.apple.mouse.tapBehavior"
+host = "current"
+value = 1

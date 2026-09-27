@@ -1,0 +1,73 @@
+#!/bin/bash
+# One CSV line of memory state, appended every five minutes by the
+# io.github.timche.memlog LaunchAgent while Tim decides within the M6's return
+# window (to 2026-10-11) whether 32 GB is enough; `memlog report` summarises it.
+# Temporary: remove it, its agent and its mise.toml links once that is decided.
+#
+# Pressure is the kernel's own level (1 normal, 2 warning, 4 critical), not
+# Activity Monitor's "memory used", which counts file cache macOS gives back on
+# demand. Processes are summed by name from RSS, which counts a QEMU guest's RAM
+# twice, so the VM column reads the guest's footprint instead.
+
+set -uo pipefail
+
+log="$HOME/Library/Logs/memlog.csv"
+
+if [ "${1:-}" = report ]; then
+  [ -f "$log" ] || { echo "no samples yet in $log" >&2; exit 1; }
+  awk -F, 'NR > 1 {
+      n++; lvl[$2]++
+      if ($4 > maxswap) { maxswap = $4; swapat = $1; swaptop = $9 }
+      if ($5 > maxcomp) maxcomp = $5
+      if ($2 > 1 && !(worst)) { worst = $1 " " $9 }
+      if ($8 > 0) vm++
+      if ($10 > maxdocker) maxdocker = $10
+    }
+    END {
+      if (!n) { print "no samples"; exit }
+      printf "samples: %d (%.1f days)\n", n, n * 5 / 1440
+      printf "pressure normal/warning/critical: %.1f%% / %.1f%% / %.1f%%\n",
+        100 * lvl[1] / n, 100 * lvl[2] / n, 100 * lvl[4] / n
+      printf "max swap used: %d MB at %s — %s\n", maxswap, swapat, swaptop
+      printf "max compressed: %d MB\n", maxcomp
+      printf "Windows VM running in %.1f%% of samples\n", 100 * vm / n
+      printf "max docker VM footprint: %d MB\n", maxdocker
+      if (worst) printf "first non-normal pressure: %s\n", worst
+    }' "$log"
+  exit 0
+fi
+
+[ -f "$log" ] || echo "time,pressure,free_pct,swap_mb,compressed_mb,wired_mb,claude_sessions,vm_mb,top,docker_mb" >"$log"
+
+page="$(sysctl -n hw.pagesize)"
+pages() { vm_stat | awk -v k="$1" 'index($0, k) { gsub(/\./, "", $NF); print $NF }'; }
+
+pressure="$(sysctl -n kern.memorystatus_vm_pressure_level)"
+free_pct="$(memory_pressure | awk '/free percentage/ { sub(/%/, "", $NF); print $NF }')"
+swap_mb="$(sysctl -n vm.swapusage | awk '{ for (i = 1; i <= NF; i++) if ($i == "used") { sub(/M/, "", $(i+2)); print int($(i+2)) } }')"
+compressed_mb=$(( $(pages "occupied by compressor") * page / 1048576 ))
+wired_mb=$(( $(pages "Pages wired down") * page / 1048576 ))
+# Not pgrep -x: Claude Code runs from a versioned binary, so the kernel's process
+# name is the version and only the path ps prints ends in "claude".
+# shellcheck disable=SC2009
+sessions="$(ps -axo comm= | grep -cE '(^|/)claude$')"
+
+vm_mb=0
+vm_pid="$(pgrep -f 'QEMULauncher' | tail -1)"
+if [ -n "$vm_pid" ]; then
+  vm_mb="$(footprint -p "$vm_pid" 2>/dev/null | awk '{ for (i = 1; i < NF; i++) if ($i == "Footprint:") { print $(i+1); exit } }')"
+fi
+
+# OrbStack's VM lives in its helper's vmgr process, whose footprint leaves the
+# guest's memory out, so resident size is the honest number there.
+docker_mb=0
+docker_pid="$(pgrep -f 'OrbStack Helper vmgr' | head -1)"
+if [ -n "$docker_pid" ]; then
+  docker_mb=$(( $(ps -o rss= -p "$docker_pid") / 1024 ))
+fi
+
+top="$(ps -axo rss=,comm= | awk '{ sub(".*/", "", $2); m[$2] += $1 } END { for (k in m) printf "%d %s\n", m[k] / 1024, k }' |
+  grep -v QEMULauncher | sort -rn | head -5 | awk '{ printf "%s%s:%dMB", (NR > 1 ? " " : ""), $2, $1 }')"
+
+printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' "$(date '+%Y-%m-%dT%H:%M')" "$pressure" "$free_pct" \
+  "${swap_mb:-0}" "$compressed_mb" "$wired_mb" "$sessions" "${vm_mb:-0}" "$top" "${docker_mb:-0}" >>"$log"

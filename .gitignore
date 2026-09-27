@@ -1,0 +1,7 @@
+.DS_Store
+# Claude Code's worktrees of this repository, which boswell would otherwise commit
+# within seconds as an embedded repository.
+.claude/worktrees/
+# Synced onto every machine from the claude.ai account, so there is nothing to
+# version, and the folder name carries the account's organisation id.
+home/.claude/skills/synced/

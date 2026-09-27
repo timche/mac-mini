@@ -1,0 +1,7 @@
+# Both repositories stay at every default, the five-second debounce included: a longer one would only buy the chance that a half-finished edit is finished before it lands, and Tim already took that trade at a minute on 2026-09-06.
+
+[[repo]]
+path = "~/projects/docs"
+
+[[repo]]
+path = "~/.mac-mini-dotfiles"

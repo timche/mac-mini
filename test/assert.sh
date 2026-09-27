@@ -44,6 +44,7 @@ for path in .zshrc .zshenv .zprofile .bashrc .gitconfig \
             .config/mise/config.toml .config/mise/mise.lock \
             .config/mise/locks \
             .config/ccstatusline/settings.json \
+            .config/git/worktree-install \
             .config/herdr/config.toml .config/starship.toml \
             .terminfo/x/xterm-ghostty .terminfo/78/xterm-ghostty \
             .config/boswell/config.toml; do
@@ -293,6 +294,78 @@ check "the tracked config includes the machine-local override" \
 # written by hand: a key named there would be signed with in place of the agent's.
 check "nothing outside the agent names a signing key" \
   '! git config --get user.signingkey'
+
+# A new worktree of a JS project, installed from config rather than remembered.
+# The fixture is a repository with a bun lockfile and a bun of its own on PATH
+# that records where it ran and with what, so the checks below read what the hook
+# did rather than whether a real install happened to succeed.
+worktree_install_fixture() {
+  local dir="$1" status="${2-0}"
+
+  mkdir -p "$dir/bin"
+  cat > "$dir/bin/bun" <<EOF
+#!/bin/sh
+echo "\$(pwd) \$*" >> "$dir/bun.log"
+[ $status -eq 0 ] || exit $status
+mkdir -p node_modules
+EOF
+  chmod +x "$dir/bin/bun"
+
+  git init -q -b main "$dir/app"
+  printf '{ "name": "app" }\n' > "$dir/app/package.json"
+  : > "$dir/app/bun.lock"
+  git -C "$dir/app" add -A
+  git -C "$dir/app" -c user.email=t@example.com -c user.name=t \
+    -c commit.gpgsign=false commit -qm init
+}
+export -f worktree_install_fixture
+
+# mktemp's path goes through /var, and the hook reports the worktree as git
+# resolves it, so the fixture root is resolved once and compared against that.
+check "the tracked config installs a new worktree's dependencies" \
+  '[ "$(git config --file "$tracked" --get hook.worktree-install.event)" = post-checkout ] &&
+   git config --file "$tracked" --get hook.worktree-install.command |
+     grep -q "config/git/worktree-install" &&
+   [ -x "$HOME/.config/git/worktree-install" ]'
+
+check "git worktree add installs when the main worktree is already installed" \
+  'd="$(cd "$(mktemp -d)" && pwd -P)" && worktree_install_fixture "$d" &&
+   mkdir "$d/app/node_modules" &&
+   PATH="$d/bin:$PATH" git -C "$d/app" worktree add -q -b feat "$d/wt" &&
+   [ -d "$d/wt/node_modules" ] &&
+   grep -qx "$d/wt install --frozen-lockfile" "$d/bun.log"'
+
+# An uninstalled main worktree is a project nobody has run the install for by
+# hand, so nothing here decides to run its lifecycle scripts for the first time.
+check "git worktree add installs nothing when the main worktree has not been" \
+  'd="$(cd "$(mktemp -d)" && pwd -P)" && worktree_install_fixture "$d" &&
+   PATH="$d/bin:$PATH" git -C "$d/app" worktree add -q -b feat "$d/wt" &&
+   [ ! -e "$d/wt/node_modules" ] && [ ! -f "$d/bun.log" ]'
+
+check "git clone installs nothing" \
+  'd="$(cd "$(mktemp -d)" && pwd -P)" && worktree_install_fixture "$d" &&
+   mkdir "$d/app/node_modules" &&
+   PATH="$d/bin:$PATH" git clone -q "$d/app" "$d/cloned" &&
+   [ ! -e "$d/cloned/node_modules" ] && [ ! -f "$d/bun.log" ]'
+
+# Everything else the hook asks for holds here — a linked worktree of an
+# installed project with no node_modules — so the previous HEAD is the only
+# thing left saying this is not a worktree being added.
+check "a branch checkout in a worktree installs nothing" \
+  'd="$(cd "$(mktemp -d)" && pwd -P)" && worktree_install_fixture "$d" &&
+   export PATH="$d/bin:$PATH" &&
+   mkdir "$d/app/node_modules" &&
+   git -C "$d/app" worktree add -q -b feat "$d/wt" &&
+   rm -rf "$d/wt/node_modules" "$d/bun.log" &&
+   git -C "$d/wt" checkout -q -b feat2 &&
+   [ ! -e "$d/wt/node_modules" ] && [ ! -f "$d/bun.log" ]'
+
+check "an install that fails leaves the worktree added and says what to run" \
+  'd="$(cd "$(mktemp -d)" && pwd -P)" && worktree_install_fixture "$d" 1 &&
+   mkdir "$d/app/node_modules" &&
+   out="$(PATH="$d/bin:$PATH" git -C "$d/app" worktree add -b feat "$d/wt" 2>&1)" &&
+   [ -d "$d/wt" ] &&
+   printf "%s" "$out" | grep -q "cd \"$d/wt\" && bun install --frozen-lockfile"'
 
 # Auto-sync is one boswell daemon watching every repository its config lists. A
 # runner has no docs clone and so cannot start it, which is why the wiring is what

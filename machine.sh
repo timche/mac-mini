@@ -32,9 +32,10 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Asked for once, up front, rather than partway through a long brew run. The
 # timestamp lasts five minutes, so a slow download can still cost a second
-# password — there is no root account here to lend this one a passwordless sudo
-# the way provision.sh does on a VM.
-if ! sudo -v; then
+# password. `sudo -n true` first, because `sudo -v` demands a password even where
+# sudoers says NOPASSWD for everything, and a machine with passwordless sudo — a
+# CI runner, a test VM — has nothing to ask for.
+if ! sudo -n true 2>/dev/null && ! sudo -v; then
   echo "machine.sh needs sudo — the account has to be an administrator." >&2
   exit 1
 fi

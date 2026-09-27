@@ -68,7 +68,7 @@ fi
 # which under `curl | bash` is the pipe.
 if ! command -v brew >/dev/null 2>&1 && [ ! -x /opt/homebrew/bin/brew ]; then
   echo "Installing Homebrew, and the Xcode command line tools with it."
-  sudo -v </dev/tty
+  sudo -n true 2>/dev/null || sudo -v </dev/tty
   NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL "$homebrew_install")"
 fi
 

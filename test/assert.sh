@@ -681,6 +681,20 @@ check "a job's VM is boxed in by softnet rather than Tart's default NAT" \
      "$repo/home/.local/bin/tart-runner" &&
    grep -qF -- "--net-softnet" "$repo/README.md"'
 
+# Softnet has to be root, and Tart sets the setuid bit for it only when it has a
+# terminal to ask for a sudo password at. A LaunchAgent has none, so the
+# dispatcher says which command to run rather than clone a VM that `tart run`
+# then refuses to start — and rather than quietly going back to NAT. The stub
+# softnet is what makes this answer the same on a Mac where the real one has
+# already been given the bit.
+check "no VM starts while softnet cannot reach root" \
+  'h="$(mktemp -d)" && mkdir -p "$h/bin" &&
+   printf "#!/bin/bash\nexit 0\n" | tee "$h/bin/tart" >"$h/bin/softnet" &&
+   chmod +x "$h/bin/tart" "$h/bin/softnet" &&
+   out="$(HOME="$h" PATH="$h/bin:$PATH" \
+          "$repo/home/.local/bin/tart-runner" --build-image </dev/null 2>&1)"; rc=$?;
+   [ "$rc" -ne 0 ] && printf "%s" "$out" | grep -q "chmod u+s"'
+
 # The references the dispatcher hands to `op`, read off the repo for the reason
 # the signing ones are: a reference pointing at the wrong vault is wrong before
 # it is ever installed, and a value here would be a GitHub token in public

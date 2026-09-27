@@ -29,6 +29,21 @@
 # job ends. So a VM destroyed mid-job leaves no runner behind to sit offline in
 # the repository's settings, and nothing on this disk holds a registration
 # token.
+#
+# Everything it asks GitHub is asked with a fine-grained token of its own, kept
+# in 1Password and resolved on first use into a shell variable rather than the
+# environment, so no child process — the ssh that carries the job included — can
+# read one. A fine-grained token has exactly one resource owner, so there is one
+# per owner rather than one for the dispatcher, and it can administer those
+# repositories' runners and read their runs and nothing else. The account's own
+# `gh` login is never the fallback: it can reach every private repository Tim
+# has, and a runner is the last thing that should hold that.
+#
+# The VM runs behind Softnet rather than Tart's default NAT, which leaves it the
+# internet and takes away this Mac, the LAN and the tailnet — a job is arbitrary
+# code from a repository's default branch, and on NAT it would reach everything
+# this Mac can. Softnet runs as root, and the one-time setup for that is in the
+# repository README.
 
 set -uo pipefail
 

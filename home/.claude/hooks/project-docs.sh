@@ -8,7 +8,7 @@
 # between an instruction and a mechanism: stdout from a SessionStart hook is
 # injected into the session context whether or not anything reads the rule.
 #
-# Only $HOME/projects/docs/<project>, one folder per project in the separate docs
+# Only $PROJECT_DOCS_DIR/<project>, one folder per project in the separate docs
 # repository. A checkout's own docs/ is the project's published documentation,
 # not its working docs, so it is never looked at.
 #
@@ -27,7 +27,7 @@
 
 set -uo pipefail
 
-DOCS_ROOT="$HOME/projects/docs"
+DOCS_ROOT="${PROJECT_DOCS_DIR:-$HOME/projects/docs}"
 
 cwd="${CLAUDE_PROJECT_DIR:-$PWD}"
 

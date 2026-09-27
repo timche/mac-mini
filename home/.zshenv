@@ -23,6 +23,10 @@ export PATH
 # verbatim — a $HOME in one would be taken as a directory called `$HOME`.
 export CLAUDE_CODE_TMPDIR="$HOME/.cache/claude-tmp"
 
+# Where the project docs are, so a repository's own CLAUDE.md can name
+# $PROJECT_DOCS_DIR/<repo> without knowing this machine's layout.
+export PROJECT_DOCS_DIR="$HOME/projects/docs"
+
 # One proxy serves every app under both. .localhost first, because PORTLESS_URL
 # takes the first TLD and a dev server talking to itself should stay on this
 # Mac; the second is how Tim's MacBook reaches it over the tailnet, through a

@@ -325,7 +325,7 @@ mkdir -p "$HOME/projects"
 # and Claude reads and writes them during a session — so the clone has to be
 # here before any work starts rather than on first use. Private, like this
 # repo, because the folder names alone say which projects exist.
-docs="$HOME/projects/docs"
+docs="${PROJECT_DOCS_DIR:-$HOME/projects/docs}"
 if [ ! -d "$docs/.git" ]; then
   if ! gh auth status >/dev/null 2>&1; then
     echo "gh is not authenticated — $docs not cloned" >&2

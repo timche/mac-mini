@@ -63,8 +63,8 @@ check "bootstrap-system.sh installs the Brewfile and moves no version" \
 # xcodes and aria2 are xcode.sh's, because that step only runs where there is a
 # terminal — so nothing else may install a package and the Brewfile may not declare
 # those two. Both halves, or the decision holds in one direction only.
-# A word boundary in front, or "Homebrew installs them in its own prefix" in
-# docker.sh's prose reads as a package install.
+# A word boundary in front, or a sentence of prose about what Homebrew installs
+# reads as a package install.
 check "every package is the Brewfile's, bar the Xcode download's two" \
   '! grep -qE "^(brew|cask) \"(xcodes|aria2)\"" "$root/Brewfile" &&
    for script in "$root"/*.sh; do
@@ -134,63 +134,70 @@ sys.exit(0 if ipaddress.ip_address(address) in ipaddress.ip_network(route) else 
 " "$(default_address)" "$(lan_route)"'
 fi
 
-# docker, which on a Mac is a Linux VM and a CLI pointed into it.
-check "colima installed"         'command -v colima'
-check "docker installed"         'command -v docker'
-check "docker-compose installed" 'brew list --formula -1 | grep -qx docker-compose'
-check "docker-buildx installed"  'brew list --formula -1 | grep -qx docker-buildx'
+# docker, which on a Mac is a Linux VM and a CLI pointed into it — here the one
+# OrbStack app, which brings the VM, the docker CLI, compose and buildx together.
+# The app bundle as well as the CLI, since the cask links orb into Homebrew's prefix
+# and a link outliving its app would pass a check on the name alone.
+check "OrbStack installed"    '[ -d /Applications/OrbStack.app ]'
+check "the orb CLI answers"   'command -v orb'
 
-# Homebrew puts the plugins in its own prefix rather than the ~/.docker/cli-plugins
-# the CLI searches by itself, so a docker that cannot find them has compose and
-# buildx as nothing at all. Exactly once, because the merge runs on every provision.
-plugin_dirs() {
-  jq -r '.cliPluginsExtraDirs // [] | .[]' "$HOME/.docker/config.json"
-}
-export -f plugin_dirs
+# colima and Homebrew's docker are gone, and the assertion is on what this repo
+# installs rather than on what is on the machine: a runner image may ship either,
+# and nothing here uninstalls a package — the Brewfile is the whole of what this Mac
+# is told to have.
+check "no colima or Homebrew docker is declared any more" \
+  '! grep -qE "^brew \"(colima|docker|docker-buildx|docker-compose)\"" "$root/Brewfile"'
+check "no colima VM state is left behind" '[ ! -d "$HOME/.colima" ]'
+check "docker.sh clears a colima left by an older run" \
+  'grep -q "colima delete --force" "$root/docker.sh"'
 
-check "docker's config names Homebrew's plugin directory exactly once" \
-  '[ "$(plugin_dirs | grep -cxF /opt/homebrew/lib/docker/cli-plugins)" = 1 ]'
-check "docker compose resolves as a plugin" 'docker compose version'
-check "docker buildx resolves as a plugin"  'docker buildx version'
+# The plugin directory the old script wrote into docker's config, which points at
+# nothing now that Homebrew's docker formulae are gone. OrbStack's plugins are in
+# ~/.docker/cli-plugins, which the CLI searches by itself.
+check "docker's config names no Homebrew plugin directory" \
+  '[ ! -f "$HOME/.docker/config.json" ] ||
+   ! jq -e ".cliPluginsExtraDirs // [] |
+            index(\"/opt/homebrew/lib/docker/cli-plugins\")" \
+       "$HOME/.docker/config.json"'
 
 # The VM's shape, which is the machine's rather than a number in the script. The
 # arithmetic is spelled out again instead of sourced, because what this asserts is
-# that docker.sh read the hardware at all.
-colima_value() {
-  sed -n "s/^$1: *//p" "$HOME/.colima/default/colima.yaml" | head -1
+# that docker.sh read the hardware at all. Memory is not in it: OrbStack's is
+# dynamic and its default is a ceiling, so docker.sh sets none.
+orb_value() {
+  orb config show 2>/dev/null | sed -n "s/^$1: *//p" | head -1
 }
-export -f colima_value
+export -f orb_value
 
 want_cpu=$(($(sysctl -n hw.ncpu) - 2))
 [ "$want_cpu" -lt 2 ] && want_cpu=2
 
-want_memory=$(($(sysctl -n hw.memsize) / 1073741824 / 4))
-[ "$want_memory" -lt 2 ] && want_memory=2
-
-check "colima has a profile config" '[ -f "$HOME/.colima/default/colima.yaml" ]'
-check "colima's VM is every core but two" \
-  "[ \"\$(colima_value cpu)\" = $want_cpu ]"
-check "colima's VM is a quarter of the memory" \
-  "[ \"\$(colima_value memory)\" = $want_memory ]"
-check "colima's VM has a 100GiB disk" '[ "$(colima_value disk)" = 100 ]'
-check "colima's VM is vz with rosetta" \
-  '[ "$(colima_value vmType)" = vz ] && [ "$(colima_value rosetta)" = true ]'
-
 # The VM itself, which a runner cannot have: GitHub's macOS machines are VMs
 # already and Virtualization.framework inside one refuses outright with
-# "Virtualization is not available on this hardware", with or without rosetta. Said
-# out loud, because a suite that quietly asserted nothing here would read the same
-# on a Mac where docker is broken.
-if colima status >/dev/null 2>&1; then
-  check "docker's context is colima" '[ "$(docker context show)" = colima ]'
+# "Virtualization is not available on this hardware". Nor can a runner click
+# through OrbStack's first run, which is what writes ~/.orbstack and what every
+# setting below is read out of. Said out loud, because a suite that quietly
+# asserted nothing here would read the same on a Mac where docker is broken.
+if orb status >/dev/null 2>&1; then
+  check "OrbStack starts with the login session" \
+    '[ "$(orb_value app.start_at_login)" = true ]'
+  check "OrbStack's VM is every core but two" \
+    "[ \"\$(orb_value cpu)\" = $want_cpu ]"
+  check "docker's context is orbstack" '[ "$(docker context show)" = orbstack ]'
+  check "docker talks to a daemon" 'docker info'
   check "a container runs" 'docker run --rm hello-world'
+  check "docker compose resolves as a plugin" 'docker compose version'
+  check "docker buildx resolves as a plugin"  'docker buildx version'
   check "a two-service compose file comes up and goes down" \
     'docker compose -f "$root/test/compose.yaml" up -d &&
      running="$(docker compose -f "$root/test/compose.yaml" ps -q | grep -c .)";
      docker compose -f "$root/test/compose.yaml" down &&
      [ "$running" = 2 ]'
+elif [ ! -d "$HOME/.orbstack" ]; then
+  echo "  --    OrbStack has never been set up, which needs a click at the Mac"
+  echo "        itself, so docker itself was not checked"
 else
-  echo "  --    the colima VM is not running, so docker itself was not checked"
+  echo "  --    OrbStack is not running, so docker itself was not checked"
 fi
 
 # Xcode is xcode.sh's, which machine.sh only runs where there is a terminal to

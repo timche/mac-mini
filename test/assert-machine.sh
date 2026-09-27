@@ -229,7 +229,7 @@ power_setting() {
 }
 export -f power_setting
 
-for pair in autorestart:1 sleep:0 disksleep:0; do
+for pair in autorestart:1 sleep:0 disksleep:0 displaysleep:0; do
   setting="${pair%%:*}"
   want="${pair##*:}"
 
@@ -240,7 +240,7 @@ for pair in autorestart:1 sleep:0 disksleep:0; do
   fi
 done
 
-# Nothing on this Mac may stop and wait for a click. Three of those settings a
+# Nothing on this Mac may stop and wait for a click. Four of those settings a
 # script can write, and they are asserted. Three need somebody at the screen, and
 # they are reported rather than asserted: a suite that failed on them would fail
 # on every runner and on every Mac nobody has been at yet, which is not a

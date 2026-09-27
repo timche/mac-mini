@@ -47,11 +47,8 @@ as_read() {
 
 # One at a time rather than in a single call: what a Mac's hardware supports
 # varies, an unsupported setting is simply absent from what pmset reports back,
-# and a call that took three settings would be one warning about which of them
+# and a call that took four settings would be one warning about which of them
 # did not land.
-#
-# displaysleep is deliberately not among them. There is no display, and a Mac
-# blanking one it does not have costs nothing.
 power_setting() {
   pmset -g custom | awk -v s="$1" '$1 == s { print $2; exit }'
 }
@@ -86,6 +83,12 @@ set_power autorestart 1
 # machine waits on.
 set_power sleep 0
 set_power disksleep 0
+
+# displaysleep too, headless though this Mac is: a capture taken while the
+# display is asleep comes back a black frame, which reads exactly like a missing
+# Screen Recording grant, and showing a change working is what a session takes
+# screenshots for.
+set_power displaysleep 0
 
 # Crash dialogs
 

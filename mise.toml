@@ -46,7 +46,6 @@
 # config naming a path that is not a work tree.
 "~/Library/LaunchAgents/io.github.timche.boswell.plist" = { source = "home/Library/LaunchAgents/io.github.timche.boswell.plist", mode = "symlink" }
 "~/Library/LaunchAgents/io.github.timche.herdr.plist" = { source = "home/Library/LaunchAgents/io.github.timche.herdr.plist", mode = "symlink" }
-"~/Library/LaunchAgents/io.github.timche.tart-runner.plist" = { source = "home/Library/LaunchAgents/io.github.timche.tart-runner.plist", mode = "symlink" }
 
 # The one plist still rendered rather than linked: launchd reads WatchPaths itself
 # and expands no $HOME in it, so that path has to arrive already absolute.
@@ -71,6 +70,12 @@
 # that adding one is a line rather than a change to the dispatcher or its plist,
 # and the env file beside it names the fine-grained GitHub token each owner's
 # repositories are polled with — references, like the signing one above.
+#
+# Its LaunchAgent is the one plist here deliberately not linked. launchd loads
+# whatever is in ~/Library/LaunchAgents at login and that job has RunAtLoad and
+# KeepAlive, so the link is the switch and linking it here would switch the
+# runner on with every install. Tim makes the link when he wants it; install.sh
+# reads it. The README has both steps.
 "~/.local/bin/tart-runner" = { source = "home/.local/bin/tart-runner", mode = "symlink" }
 "~/.config/tart-runner/repos" = { source = "home/.config/tart-runner/repos", mode = "symlink" }
 "~/.config/op/tart-runner.env" = { source = "home/.config/op/tart-runner.env", mode = "symlink" }

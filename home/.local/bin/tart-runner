@@ -192,6 +192,111 @@ repos() {
   sed -e 's/#.*//' -e 's/[[:space:]]//g' "$repos_file" | grep .
 }
 
+# `TART_RUNNER_TOKEN_<OWNER>` in the env file, uppercased with everything but a
+# letter or a digit turned into an underscore, because an owner may hold a hyphen
+# and a shell variable may not.
+token_key() {
+  printf '%s' "$1" | tr '[:lower:]' '[:upper:]' | tr -c 'A-Z0-9' '_'
+}
+
+token_reference() {
+  local key="$1" line
+
+  [ -f "$env_file" ] || return 1
+
+  while IFS= read -r line; do
+    case "$line" in
+      "TART_RUNNER_TOKEN_$key="*) ;;
+      *) continue ;;
+    esac
+
+    line="${line#*=}"
+    line="${line%\"}"
+    line="${line#\"}"
+
+    [ -n "$line" ] && {
+      printf '%s' "$line"
+      return 0
+    }
+  done <"$env_file"
+
+  return 1
+}
+
+# Resolved on first use rather than at startup, so a Mac whose repository list is
+# empty — which is what switched off means — wants no 1Password item at all. Into
+# a shell variable rather than the environment: ssh forwards nothing by default,
+# but a variable that no child can read even by accident is one fewer thing to
+# have been right about.
+#
+# Every way of not having a token ends here, because the alternative is falling
+# back to whatever `gh` is logged in as, which on this Mac is an OAuth token with
+# `repo` — every private repository Tim has, handed to a dispatcher that answers
+# whatever a workflow file asks for.
+ensure_token() {
+  local owner="$1" key var ref value
+
+  key="$(token_key "$owner")"
+  var="tart_runner_token_$key"
+
+  [ -n "${!var-}" ] && return 0
+
+  ref="$(token_reference "$key")" ||
+    die "nothing in $env_file says which token $owner's repositories are polled with; the README has the TART_RUNNER_TOKEN_$key line and the item to make"
+
+  have op ||
+    die "op is not installed, so $ref cannot be resolved — it is Homebrew's: brew install --cask 1password-cli"
+
+  [ -r "$op_token_file" ] ||
+    die "no 1Password service-account token at $op_token_file, so $ref cannot be resolved"
+
+  value="$(OP_SERVICE_ACCOUNT_TOKEN="$(cat "$op_token_file")" op read "$ref")" ||
+    die "1Password would not resolve $ref; the line above says why"
+
+  [ -n "$value" ] || die "$ref resolved to nothing"
+
+  printf -v "$var" '%s' "$value"
+}
+
+# The one place a token is spent. GH_TOKEN takes precedence over the login in
+# ~/.config/gh/hosts.yml, and it is set for this one command rather than
+# exported, so the surrounding process never holds it.
+gh_as() {
+  local repo="$1" var
+  shift
+
+  var="tart_runner_token_$(token_key "${repo%%/*}")"
+  [ -n "${!var-}" ] || return 1
+
+  GH_TOKEN="${!var}" gh "$@"
+}
+
+# Softnet is a userspace packet filter that Tart runs as a sub-process and that
+# has to be root. Tart sets the setuid bit for it on first use by asking for a
+# sudo password, which it only does from a terminal — a LaunchAgent has none. So
+# a dispatcher with no terminal says which one thing to do, rather than starting
+# a `tart run` that exits and leaving three minutes of waiting for an address
+# that never comes.
+softnet_root() {
+  local bin
+  bin="$(command -v softnet)" || return 1
+  bin="$(stat -Lf %R "$bin" 2>/dev/null)" || return 1
+  [ -u "$bin" ] && [ "$(stat -f %Su "$bin" 2>/dev/null)" = root ]
+}
+
+softnet_advice() {
+  local bin
+
+  bin="$(command -v softnet)" || {
+    printf 'softnet is not on the PATH, and it comes with tart from the Brewfile'
+    return 0
+  }
+
+  bin="$(stat -Lf %R "$bin")"
+  printf 'softnet has no way to reach root, so no VM can start: run `sudo chown root %s && sudo chmod u+s %s` once. From a terminal, `tart-runner --build-image` asks for the password and sets the bit itself.' \
+    "$bin" "$bin"
+}
+
 # A job's labels are matched the way GitHub matches them: every label the job
 # asks for has to be one this runner carries, case ignored.
 runner_labels_json() {
@@ -210,7 +315,7 @@ queued_job() {
   want="$(runner_labels_json)"
 
   run_ids="$(
-    gh api "repos/$repo/actions/runs?per_page=20" \
+    gh_as "$repo" api "repos/$repo/actions/runs?per_page=20" \
       --jq '.workflow_runs[] | select(.status != "completed") | .id' 2>/dev/null
   )"
 
@@ -218,7 +323,7 @@ queued_job() {
 
   for id in $run_ids; do
     hit="$(
-      gh api "repos/$repo/actions/runs/$id/jobs?per_page=50" 2>/dev/null |
+      gh_as "$repo" api "repos/$repo/actions/runs/$id/jobs?per_page=50" 2>/dev/null |
         jq -r --argjson want "$want" '
           .jobs[]
           | select(.status == "queued")

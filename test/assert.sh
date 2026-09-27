@@ -768,11 +768,28 @@ check "a repository whose owner has no token reference stops the dispatcher" \
    [ "$rc" -ne 0 ] && [ ! -e "$h/gh-tokens" ] &&
    printf "%s" "$out" | grep -q TART_RUNNER_TOKEN_TIMCHE'
 
-export tart_plist="$HOME/Library/LaunchAgents/io.github.timche.tart-runner.plist"
+# The one LaunchAgent that stays in the checkout. launchd loads everything in
+# ~/Library/LaunchAgents at login and this job has RunAtLoad and KeepAlive, so
+# the link is the switch: mise.toml must not make it, and install.sh reads it.
+# The plist is read where it lives, since on a Mac that is off there is nothing
+# in ~/Library/LaunchAgents to read.
+export tart_plist="$repo/home/Library/LaunchAgents/io.github.timche.tart-runner.plist"
+export tart_link="$HOME/Library/LaunchAgents/io.github.timche.tart-runner.plist"
+export tart_label=io.github.timche.tart-runner
 
-check "the tart-runner agent is a live symlink and a valid plist" \
-  '[ -L "$tart_plist" ] && [ -e "$tart_plist" ] && plutil -lint "$tart_plist" &&
+check "the tart-runner agent is a valid plist in the checkout" \
+  '[ -f "$tart_plist" ] && plutil -lint "$tart_plist" &&
    [ "$(plutil -extract Label raw "$tart_plist")" = io.github.timche.tart-runner ]'
+check "nothing links the tart-runner agent into ~/Library/LaunchAgents" \
+  '! grep -q "LaunchAgents/io.github.timche.tart-runner.plist" "$repo/mise.toml"'
+# Both directions, so this passes on a Mac Tim has switched on as well as on the
+# default one and on a runner, where there is no gui domain to load anything in.
+check "the tart-runner agent is loaded exactly when its plist is linked" \
+  'if [ -e "$tart_link" ]; then
+     launchctl print "gui/$(id -u)/$tart_label" >/dev/null 2>&1
+   else
+     ! launchctl print "gui/$(id -u)/$tart_label" >/dev/null 2>&1
+   fi'
 check "the tart-runner agent leaves its paths to a shell" \
   '[ "$(plutil -extract ProgramArguments.0 raw -o - "$tart_plist")" = "/bin/sh" ] &&
    [ "$(plutil -extract ProgramArguments.1 raw -o - "$tart_plist")" = "-c" ]'
@@ -786,10 +803,12 @@ check "the tart-runner agent polls from load and is always kept alive" \
    [ "$(plutil -extract KeepAlive raw -o - "$tart_plist")" = true ] &&
    [ "$(plutil -extract ThrottleInterval raw -o - "$tart_plist")" = 60 ]'
 
-check "install.sh loads the tart-runner agent and spares a running job" \
+check "install.sh loads the tart-runner agent only when its plist is linked, and spares a running job" \
   'grep -q "launchctl bootstrap \"gui/\$uid\" \"\$tart_plist\"" "$repo/install.sh" &&
    grep -q "cmp -s \"\$tart_plist\" \"\$tart_loaded\"" "$repo/install.sh" &&
-   grep -q "would kill the CI job it is running" "$repo/install.sh"'
+   grep -q "would kill the CI job it is running" "$repo/install.sh" &&
+   grep -qF "nothing answers a queued CI job until its plist is" "$repo/install.sh" &&
+   grep -qF "whose plist is no longer linked" "$repo/install.sh"'
 
 # The signing references are read off the repo, because a reference pointing at the
 # wrong vault is wrong before it is ever installed. A value here rather than a

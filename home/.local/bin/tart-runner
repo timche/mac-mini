@@ -293,7 +293,7 @@ softnet_advice() {
   }
 
   bin="$(stat -Lf %R "$bin")"
-  printf 'softnet has no way to reach root, so no VM can start: run `sudo chown root %s && sudo chmod u+s %s` once. From a terminal, `tart-runner --build-image` asks for the password and sets the bit itself.' \
+  printf 'softnet has no way to reach root, so no VM can start: run, once, sudo chown root %s && sudo chmod u+s %s — or start one from a terminal, where Tart asks for the password and sets the bit itself' \
     "$bin" "$bin"
 }
 

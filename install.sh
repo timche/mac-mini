@@ -477,9 +477,16 @@ else
 fi
 
 # This repository's CI dispatcher, which answers a queued job with a macOS VM
-# cloned for it and deleted after it. Loaded here like boswell's agent, with the
-# same copy-of-what-launchd-read comparison, because its plist is a symlink into
-# this checkout and so says nothing about what the running job was started from.
+# cloned for it and deleted after it. Every other LaunchAgent here is linked by
+# mise.toml and loaded below; this one is not linked at all, because launchd
+# loads whatever is in ~/Library/LaunchAgents at login and the job has RunAtLoad
+# and KeepAlive — the link is the switch. So this makes no decision about whether
+# the runner is on, it applies the one Tim already made. The README has both
+# steps.
+#
+# Once it is on, the load is boswell's shape above, with the same
+# copy-of-what-launchd-read comparison, because the plist is a symlink into this
+# checkout and so says nothing about what the running job was started from.
 #
 # The one difference is what a reload costs: booting the dispatcher out while it
 # is running a job takes the VM down with it and the job fails on GitHub with
@@ -489,15 +496,33 @@ tart_label=io.github.timche.tart-runner
 tart_plist="$HOME/Library/LaunchAgents/$tart_label.plist"
 tart_loaded="$state/$tart_label.plist.loaded"
 
-if [ ! -f "$tart_plist" ]; then
-  echo "$tart_plist is missing — mise links it from mise.toml" >&2
-else
-  tart_running=false
-  if command -v tart >/dev/null 2>&1 &&
-     tart list -q --source local 2>/dev/null | grep -q '^gha-runner-job-'; then
-    tart_running=true
+tart_running=false
+if command -v tart >/dev/null 2>&1 &&
+   tart list -q --source local 2>/dev/null | grep -q '^gha-runner-job-'; then
+  tart_running=true
+fi
+
+if [ ! -e "$tart_plist" ]; then
+  # A job still loaded from before the link went is still polling GitHub and
+  # still able to start a VM, so it is booted out rather than reported: the
+  # missing link is the instruction.
+  if launchctl print "gui/$uid/$tart_label" >/dev/null 2>&1; then
+    if [ "$tart_running" = true ]; then
+      echo "$tart_label is loaded with its plist no longer linked, and booting it" \
+           "out now would kill the CI job it is running; once the job is done," \
+           "run: launchctl bootout gui/$uid/$tart_label" >&2
+    elif launchctl bootout "gui/$uid/$tart_label"; then
+      echo "unloaded $tart_label, whose plist is no longer linked"
+    else
+      echo "could not unload $tart_label, whose plist is no longer linked; run:" \
+           "launchctl bootout gui/$uid/$tart_label" >&2
+    fi
   fi
 
+  echo "$tart_label is off — nothing answers a queued CI job until its plist is" \
+       "linked into ~/Library/LaunchAgents; README.md, \"A macOS runner of last" \
+       "resort\", has the switch"
+else
   if launchctl print "gui/$uid/$tart_label" >/dev/null 2>&1; then
     if [ -f "$tart_loaded" ] && cmp -s "$tart_plist" "$tart_loaded"; then
       echo "$tart_label is already loaded"

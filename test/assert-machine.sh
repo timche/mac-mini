@@ -1,8 +1,9 @@
 #!/bin/bash
 
-# Assertions against a Mac that machine.sh has just finished with — the generic
-# half only, with assert-claude.sh covering the overlay. Runs on the machine
-# itself, which is a CI runner: there is no macOS container to put any of this in.
+# Assertions against a Mac that machine.sh has just finished with — the machine
+# alone, with assert.sh covering the account on top of it and assert-claude.sh
+# the logins and the signing key. Runs on the machine itself, which is a CI
+# runner: there is no macOS container to put any of this in.
 #
 # To add a case, add a check line: a description and a shell snippet that exits
 # non-zero when the expectation is not met.
@@ -24,12 +25,6 @@ check() {
     failures=$((failures + 1))
   fi
 }
-
-# This repo is public and holds no personal configuration at all — the shell, the
-# runtimes and ~/.claude all come from the private one. A stray dot directory here
-# would be a leak.
-check "no personal config in this repo" \
-  '! find "$root" \( -name .claude -o -name home \) -not -path "*/.git/*" | grep -q .'
 
 # Nothing may be written for one account: the Mac's is timche and a runner's is
 # runner, and a path hardcoded for either is a script that silently does nothing

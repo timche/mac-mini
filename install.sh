@@ -1,11 +1,12 @@
 #!/bin/bash
 
-# Install the tooling and link this repo into $HOME and ~/.claude.
+# Install the tooling and link this repo into $HOME and ~/.claude: the shell, the
+# prompt, the runtimes and the Claude Code configuration.
 #
-# mac-mini-setup builds the Mac and gets as far as an authenticated gh — the
-# earliest anything here can be reached, the repo being private. So
-# this half owns everything that is personal rather than structural — the
-# shell, the prompt, the runtimes, and the Claude Code configuration.
+# The first phase of claude.sh, and run by hand after a pull to put a changed
+# link or a new tool in place. It wants the Mac machine.sh built — Homebrew above
+# all — and the half of it that clones the project docs wants an authenticated
+# gh, which login.sh is what arranges.
 #
 # Safe to re-run. Tools already present are skipped, existing symlinks are
 # replaced, and anything real found at a target is moved aside to
@@ -14,7 +15,7 @@
 set -euo pipefail
 
 if [ "$(uname -s)" != Darwin ]; then
-  echo "mac-mini-dotfiles is for a Mac; this is $(uname -s)." >&2
+  echo "mac-mini is for a Mac; this is $(uname -s)." >&2
   exit 1
 fi
 
@@ -23,8 +24,8 @@ user="$(id -un)"
 
 # Tooling
 
-# A Mac that has just run mac-mini-setup has Homebrew installed and nothing on
-# PATH pointing at it, since the .zprofile that would is one of the links below.
+# A Mac that has just run machine.sh has Homebrew installed and nothing on PATH
+# pointing at it, since the .zprofile that would is one of the links below.
 if [ -x /opt/homebrew/bin/brew ]; then
   export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
 fi
@@ -33,7 +34,7 @@ fi
 # would come out of here without its syntax highlighting and nothing would say
 # why.
 if ! command -v brew >/dev/null 2>&1; then
-  echo "Homebrew is missing — run mac-mini-setup first, which installs it along" \
+  echo "Homebrew is missing — run machine.sh first, which installs it along" \
        "with gh, git and tailscale, then re-run this" >&2
   exit 1
 fi
@@ -175,8 +176,8 @@ if command -v portless >/dev/null 2>&1; then
   # outright. It records the absolute paths of the node and the portless that
   # installed it, both under mise's versioned install directories, so a `mise up`
   # of either leaves launchd pointing at a file that is gone.
-  # From zsh, because .zshenv is where the list is and mac-mini-setup runs this
-  # from a bash that never read it.
+  # From zsh, because .zshenv is where the list is and claude.sh runs this from a
+  # bash that never read it.
   portless_tlds="$(zsh -c 'print -r -- $PORTLESS_TLD' 2>/dev/null)"
   portless_tlds="${portless_tlds:-localhost}"
   portless_install="sudo portless service install --tld ${portless_tlds//,/ --tld }"
@@ -323,8 +324,8 @@ mkdir -p "$HOME/projects"
 
 # The project docs. They live outside every checkout, one folder per project,
 # and Claude reads and writes them during a session — so the clone has to be
-# here before any work starts rather than on first use. Private, like this
-# repo, because the folder names alone say which projects exist.
+# here before any work starts rather than on first use. Private, because the
+# folder names alone say which projects exist.
 docs="${PROJECT_DOCS_DIR:-$HOME/projects/docs}"
 if [ ! -d "$docs/.git" ]; then
   if ! gh auth status >/dev/null 2>&1; then
@@ -344,7 +345,7 @@ fi
 # The daemon that carries edits upstream, watching both repositories from one
 # process. It replaced a per-repository timer, which replaced a Claude Code
 # hook, so it has to survive a machine with no session attached — which is what
-# the GUI login mac-mini-setup arranges is for. A runner may have no GUI session,
+# the GUI login unattended.sh arranges is for. A runner may have no GUI session,
 # so none of this is fatal: the links are already made and a real machine starts
 # the daemon on its next install.
 #
@@ -378,8 +379,8 @@ else
   # kickstart restarts the process from that copy — so a plist that has changed
   # is a bootout and a fresh bootstrap or it is nothing at all until the Mac
   # reboots. The link still pointing where it did says nothing about the file
-  # behind it, which is what the copy taken above is for. mac-mini-setup's
-  # claude/ssh-agent.sh keeps a hash beside its wrapper for the same reason.
+  # behind it, which is what the copy taken above is for. claude/ssh-agent.sh
+  # keeps a hash beside its wrapper for the same reason.
   reloading=false
   if [ "$loaded" = true ] && ! cmp -s "$plist" "$boswell_loaded"; then
     launchctl bootout "gui/$uid/$boswell_label" || true

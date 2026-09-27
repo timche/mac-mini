@@ -14,6 +14,7 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+root="$(cd "$repo/.." && pwd)"
 
 if [ ! -t 0 ]; then
   echo "login.sh needs a terminal for the browser flows — run it directly." >&2
@@ -21,7 +22,7 @@ if [ ! -t 0 ]; then
 fi
 
 # Whether the gh login happened here is what decides if install.sh has anything
-# new to pick up at the end, so it has to be sampled before the attempt.
+# new to pick up, so it has to be sampled before the attempt.
 gh_was_authenticated=false
 if gh auth status >/dev/null 2>&1; then
   gh_was_authenticated=true
@@ -53,29 +54,28 @@ EOF
     echo "gh login did not finish — rerun $repo/login.sh to try again" >&2
 fi
 
-# install.sh skipped its gh-authenticated half on the way here — the private
-# dotfiles. It is idempotent, and this is the pass that picks them up. Only worth
-# it if this run is what logged in; otherwise the earlier pass already had
+# install.sh skipped its gh-authenticated half on the way here — the project
+# docs. It is idempotent, and this is the pass that picks them up. Only worth it
+# if this run is what logged in; otherwise the earlier pass already had
 # everything it needed.
 if [ "$gh_was_authenticated" = false ] && gh auth status >/dev/null 2>&1; then
   echo
   echo "gh is logged in now — rerunning install.sh for the parts that needed it."
   echo
 
-  "$repo/install.sh"
+  "$root/install.sh"
 fi
 
 # Claude Code
 
-# Last, because claude arrives with the dotfiles the rerun above fetches: from
-# Anthropic's own installer into ~/.local/bin, ahead of which the dotfiles put
-# the mise shims that carry the runtimes. This shell has a reason for neither
-# directory until now.
+# Last, because claude is install.sh's: from Anthropic's own installer into
+# ~/.local/bin, ahead of which .zshenv puts the mise shims that carry the
+# runtimes. This shell has a reason for neither directory until now.
 export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$PATH"
 
 if ! command -v claude >/dev/null 2>&1; then
-  echo "claude is not installed, so it was not logged in — it comes with the" >&2
-  echo "dotfiles, so sort those out and rerun $repo/login.sh" >&2
+  echo "claude is not installed, so it was not logged in — install.sh is what" >&2
+  echo "installs it; run $root/install.sh and rerun $repo/login.sh" >&2
 elif claude auth status >/dev/null 2>&1; then
   echo "claude is already authenticated"
 else

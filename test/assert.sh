@@ -669,6 +669,90 @@ check "the dispatcher waits rather than crowding UTM's Windows VM" \
   'grep -q "utmctl" "$repo/home/.local/bin/tart-runner" &&
    grep -q "utm_busy" "$repo/home/.local/bin/tart-runner"'
 
+# Tart's default is NAT, where a job — arbitrary code from somebody's default
+# branch — reaches this Mac, the LAN and the tailnet. Softnet takes all three
+# away and leaves the internet, which is what a checkout and a `brew install`
+# need. The tailnet is named outright because 100.64.0.0/10 is carrier-grade NAT
+# rather than a private range, and Softnet's rule is phrased the other way round.
+check "a job's VM is boxed in by softnet rather than Tart's default NAT" \
+  'grep -q -- "--net-softnet --net-softnet-block=\\\$softnet_block" \
+     "$repo/home/.local/bin/tart-runner" &&
+   grep -q "softnet_block=\"\${TART_RUNNER_SOFTNET_BLOCK:-100.64.0.0/10}\"" \
+     "$repo/home/.local/bin/tart-runner" &&
+   grep -q -- "--net-softnet" "$repo/README.md"'
+
+# The references the dispatcher hands to `op`, read off the repo for the reason
+# the signing ones are: a reference pointing at the wrong vault is wrong before
+# it is ever installed, and a value here would be a GitHub token in public
+# history. One line per owner, since a fine-grained token has exactly one
+# resource owner.
+check "the tart-runner token file is a live symlink holding op references and no secret" \
+  '[ -L "$HOME/.config/op/tart-runner.env" ] &&
+   [ -e "$HOME/.config/op/tart-runner.env" ] &&
+   env_file="$repo/home/.config/op/tart-runner.env" &&
+   grep -q "^TART_RUNNER_TOKEN_TIMCHE=\"op://Mac Mini/GitHub - tart-runner timche/token\"$" \
+     "$env_file" &&
+   ! grep -vE "^#|^$|^TART_RUNNER_TOKEN_[A-Z0-9_]+=\"op://" "$env_file"'
+
+# Every question put to GitHub goes through the owner's own fine-grained token.
+# A bare `gh api` anywhere in the dispatcher would answer from ~/.config/gh,
+# which on this Mac is an OAuth token carrying the `repo` scope — every private
+# repository there is, handed to the thing that runs whatever a workflow asks
+# for. The public actions-runner release is curl's for the same reason.
+check "every GitHub call the dispatcher makes goes through the owner's own token" \
+  '! grep -qE "(^|[^_])gh api" "$repo/home/.local/bin/tart-runner" &&
+   grep -q "GH_TOKEN=\"\${!var}\" gh" "$repo/home/.local/bin/tart-runner"'
+
+# A HOME of its own, with stubs for the three things that reach outside it: a
+# runner has no vault, no Tart and no business asking GitHub anything. What is
+# being checked is the wiring — that the reference is resolved with the
+# service-account token in op's environment, and that what comes back reaches
+# `gh` and only `gh`.
+tart_runner_home() {
+  local h
+  h="$(mktemp -d)"
+
+  mkdir -p "$h/.config/op" "$h/bin"
+  printf 'stub-service-account\n' >"$h/.config/op/service-account-token"
+  printf '%s\n' \
+    'TART_RUNNER_TOKEN_TIMCHE="op://Mac Mini/GitHub - tart-runner timche/token"' \
+    >"$h/.config/op/tart-runner.env"
+
+  cat >"$h/bin/op" <<'STUB'
+#!/bin/bash
+printf 'op saw %s for %s\n' "${OP_SERVICE_ACCOUNT_TOKEN-unset}" "$2" >>"$HOME/op-calls"
+printf 'stub-pat-for-%s\n' "$2"
+STUB
+
+  cat >"$h/bin/gh" <<'STUB'
+#!/bin/bash
+printf '%s\n' "${GH_TOKEN-unset}" >>"$HOME/gh-tokens"
+STUB
+
+  printf '#!/bin/bash\nexit 0\n' >"$h/bin/tart"
+
+  chmod +x "$h/bin/op" "$h/bin/gh" "$h/bin/tart"
+  printf '%s\n' "$h"
+}
+export -f tart_runner_home
+
+check "the dispatcher resolves the owner's token from 1Password and spends it on gh alone" \
+  'h="$(tart_runner_home)" &&
+   HOME="$h" PATH="$h/bin:$stock_path" TART_RUNNER_REPOS=timche/mac-mini-dotfiles \
+     "$repo/home/.local/bin/tart-runner" --dry-run &&
+   grep -q "^op saw stub-service-account for op://Mac Mini/GitHub - tart-runner timche/token$" \
+     "$h/op-calls" &&
+   [ "$(sort -u "$h/gh-tokens")" = "stub-pat-for-op://Mac Mini/GitHub - tart-runner timche/token" ]'
+
+# The one thing that must never happen quietly: no reference, and the dispatcher
+# carries on with whatever `gh` is logged in as.
+check "a repository whose owner has no token reference stops the dispatcher" \
+  'h="$(tart_runner_home)" && rm -f "$h/.config/op/tart-runner.env" &&
+   out="$(HOME="$h" PATH="$h/bin:$stock_path" TART_RUNNER_REPOS=timche/mac-mini-dotfiles \
+          "$repo/home/.local/bin/tart-runner" --dry-run 2>&1)"; rc=$?;
+   [ "$rc" -ne 0 ] && [ ! -e "$h/gh-tokens" ] &&
+   printf "%s" "$out" | grep -q TART_RUNNER_TOKEN_TIMCHE'
+
 export tart_plist="$HOME/Library/LaunchAgents/io.github.timche.tart-runner.plist"
 
 check "the tart-runner agent is a live symlink and a valid plist" \

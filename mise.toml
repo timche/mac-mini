@@ -30,6 +30,7 @@
 "~/.config/boswell/config.toml" = { source = "home/.config/boswell/config.toml", mode = "symlink" }
 "~/.config/ccstatusline/settings.json" = { source = "home/.config/ccstatusline/settings.json", mode = "symlink" }
 "~/.config/herdr/config.toml" = { source = "home/.config/herdr/config.toml", mode = "symlink" }
+"~/.config/git/worktree-install" = { source = "home/.config/git/worktree-install", mode = "symlink" }
 "~/.config/starship.toml" = { source = "home/.config/starship.toml", mode = "symlink" }
 "~/.config/mise/config.toml" = { source = "home/.config/mise/config.toml", mode = "symlink" }
 "~/.config/mise/mise.lock" = { source = "home/.config/mise/mise.lock", mode = "symlink" }

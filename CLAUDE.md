@@ -6,9 +6,9 @@ Two files here are named CLAUDE.md. This one is guidance for working in the repo
 
 ## Edits here publish themselves
 
-The boswell daemon commits and pushes anything dirty in this repo five seconds after the last write, through the `$HOME` and `~/.claude` symlinks too since git sees the realpaths. Nothing about it is yours to trigger: never offer to commit or push here, and never run `boswell once` to hurry it along. It watches the project docs the same way; see README.
+The boswell daemon commits anything dirty in this repo five seconds after the last write, through the `$HOME` and `~/.claude` symlinks too since git sees the realpaths, and pushes within the hour, when the oldest unpushed commit is an hour old. Nothing about it is yours to trigger: never offer to commit or push here, and never run `boswell once` to hurry it along. It watches the project docs the same way, pushing those within a minute; see README.
 
-Five seconds is short, so a half-finished edit can be upstream before the next write finishes it, and what lands is main with no review step. Make an edit whole in one write where it matters.
+Five seconds is short, so a half-finished edit can be committed before the next write finishes it, and what lands is main with no review step. Make an edit whole in one write where it matters.
 
 Commit and push to main yourself when something must land now, no branch and no PR. Standing permission, and an exception to the global rules on branching and asking before a push.
 

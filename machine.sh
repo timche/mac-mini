@@ -71,7 +71,7 @@ echo
 # tailscale's own answer, which the Homebrew CLI gives: it exits non-zero while
 # the node is logged out as well as while there is no daemon at all, and either
 # means the same thing here. The prefix is spelled out for the same reason as
-# colima below.
+# OrbStack below.
 if ! /opt/homebrew/bin/tailscale status >/dev/null 2>&1; then
   echo "  - $repo/tailscale.sh — this Mac is not on the tailnet."
 fi
@@ -81,12 +81,18 @@ if [ "$xcode_left" = true ]; then
   echo "    terminal, an Apple ID and an hour."
 fi
 
-# Reported here as well as by docker.sh, because the VM's first boot is the
-# longest thing in a run and its failure scrolls a long way up. The prefix is
-# spelled out because this shell can predate Homebrew being on any PATH —
-# bootstrap-system.sh put it on its own, not on this one.
-if ! /opt/homebrew/bin/colima status >/dev/null 2>&1; then
-  echo "  - $repo/docker.sh — the colima VM is not running."
+# Reported here as well as by docker.sh, because a fresh OrbStack needs a click at
+# the Mac itself and that message scrolls a long way up. The prefix is spelled out
+# because this shell can predate Homebrew being on any PATH — bootstrap-system.sh
+# put it on its own, not on this one.
+if ! /opt/homebrew/bin/orb status >/dev/null 2>&1; then
+  if [ -d "$HOME/.orbstack" ]; then
+    echo "  - $repo/docker.sh — OrbStack is not running."
+  else
+    echo "  - OrbStack, which has never been set up: open it over Screen Sharing,"
+    echo "    click through the welcome screen and choose Docker. Nothing here can"
+    echo "    click that."
+  fi
 fi
 
 # tailscale.sh prints both of these with the URLs, and by the end of a run that

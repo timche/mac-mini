@@ -1,27 +1,37 @@
 #!/bin/bash
 
-# Docker on a Mac, which means a Linux VM and a CLI that talks into it: colima
+# Docker on a Mac, which means a Linux VM and a CLI that talks into it: OrbStack
 # runs the VM under Virtualization.framework with a docker daemon inside it, and
-# the docker command on this side reaches that daemon over a socket colima
-# publishes. Every part of it is Homebrew's.
+# links its own docker, compose and buildx into /usr/local/bin and ~/.docker so the
+# CLI on this side reaches that daemon. All of it is the one cask.
 #
-# colima rather than Docker Desktop. Desktop is an app — an installer that
-# expects somebody at the screen, a menu bar item to log in to, and a licence
-# whoever owns the Mac would have to buy — where colima is a CLI that starts a
-# VM and gets out of the way.
+# OrbStack rather than colima, which this replaced. A colima VM rarely handed
+# memory back: whatever a build or a test suite made it touch stayed taken until
+# somebody restarted it, on a Mac whose parallel sessions run browsers and Electron
+# outside the VM and want that memory. OrbStack's memory is dynamic and returns to
+# macOS, so its memory setting is a ceiling rather than a reservation and the
+# default is left alone. Not Docker Desktop, which is heavier again and whose
+# licence costs the same as this one's.
 #
-# The VM is started by `brew services`, which means a LaunchAgent, which lives in
-# the gui/<uid> domain — so docker here is only running once the Mac has logged
-# itself in. That is the auto-login unattended.sh checks for and will not turn on,
-# and it is the same thing the agent holding the signing key depends on.
+# OrbStack is free for personal use and needs a paid licence for commercial work.
+# Nothing here can buy or apply one, and a Mac without one still runs containers.
 #
-# Not fatal. Every step says what it could not do, and a Mac with no VM running
-# is still the machine the rest of this repo built.
+# The first run is the app's own, and it needs somebody at the screen: a welcome
+# screen whose Next accepts OrbStack's terms, then a choice between Docker and
+# Linux machines. Nothing in a script can click either, so this one says so and
+# stops rather than failing.
 #
-# Safe to re-run: packages are compared before they are installed, the docker
-# config is merged rather than rewritten, and a VM that already exists is reported
-# on rather than resized — colima can grow a disk but never shrink one, and
-# recreating a VM loses every image and volume in it.
+# Start at login means a login item, so docker here is only running once the Mac
+# has logged itself in. That is the auto-login unattended.sh checks for and will
+# not turn on, and it is the same thing the agent holding the signing key depends
+# on.
+#
+# Not fatal. Every step says what it could not do, and a Mac with no VM running is
+# still the machine the rest of this repo built.
+#
+# Safe to re-run: the settings are compared before they are set, the VM is
+# restarted only when something changed, and what colima left behind is removed
+# only where it is still there.
 
 set -euo pipefail
 
@@ -36,53 +46,48 @@ if ! command -v brew >/dev/null 2>&1 && [ -x /opt/homebrew/bin/brew ]; then
   eval "$(/opt/homebrew/bin/brew shellenv)"
 fi
 
-# The packages
+# What colima left
 
-# The Brewfile's, installed by bootstrap-system.sh: Homebrew is the machine, so one
-# declarative list holds every package and what is left here is the decision this
-# script is the only one that can make — about the VM and the plugin directory.
-# Checked rather than assumed, because everything below is about commands that are
-# no use missing, and reporting that beats a `colima start` that fails obscurely.
-for cli in colima docker; do
-  if command -v "$cli" >/dev/null 2>&1; then
-    continue
+# Only where it is still there, so this is a no-op on every Mac but the one that
+# ran the old version of this script. The VM is deleted before the state directory
+# goes, because colima's delete is what tells its own lima layer to let go of the
+# VM rather than leaving a stopped one registered.
+if command -v colima >/dev/null 2>&1; then
+  case "$(brew services list | awk '$1 == "colima" { print $2 }')" in
+  started | scheduled | error)
+    echo "stopping the colima LaunchAgent OrbStack replaces"
+    brew services stop colima || true
+    ;;
+  esac
+
+  if colima list 2>/dev/null | grep -q .; then
+    echo "deleting the colima VM OrbStack replaces"
+    colima delete --force || true
   fi
-
-  echo "$cli is not installed — it is declared in $repo/Brewfile, which" >&2
-  echo "$repo/bootstrap-system.sh installs; rerun that, then $repo/docker.sh." >&2
-  exit 0
-done
-
-# The plugins
-
-# `docker compose` and `docker buildx` are subcommands only where the CLI can
-# find the plugin binaries, and Homebrew installs them in its own prefix rather
-# than the ~/.docker/cli-plugins the CLI searches by itself. Both formulae print
-# the same caveat, and this is it.
-plugin_dir=/opt/homebrew/lib/docker/cli-plugins
-docker_config="$HOME/.docker/config.json"
-
-mkdir -p "$(dirname "$docker_config")"
-
-if [ ! -f "$docker_config" ]; then
-  echo '{}' >"$docker_config"
 fi
 
-# Merged rather than written: this is also the file docker keeps the current
-# context in — colima sets one — and whatever credential helper a registry login
-# left behind.
-if ! jq -e . "$docker_config" >/dev/null 2>&1; then
-  echo "warning: $docker_config is not JSON jq can read, so it was left alone." >&2
-  echo "Until it lists $plugin_dir in cliPluginsExtraDirs," >&2
-  echo "docker compose and docker buildx are not subcommands." >&2
-else
-  # Appended when it is missing rather than added and deduplicated, because the
-  # order of those directories is the order the CLI searches them in.
+if [ -d "$HOME/.colima" ]; then
+  echo "removing what colima kept in $HOME/.colima"
+  rm -rf "$HOME/.colima"
+fi
+
+# The plugin directory the old script wrote into docker's config. OrbStack puts its
+# compose and buildx plugins in ~/.docker/cli-plugins, which the CLI searches by
+# itself, and Homebrew's prefix no longer holds any — so the entry left there points
+# at nothing.
+docker_config="$HOME/.docker/config.json"
+stale_plugin_dir=/opt/homebrew/lib/docker/cli-plugins
+
+if [ -f "$docker_config" ] && jq -e . "$docker_config" >/dev/null 2>&1; then
+  # Merged rather than written: this is also the file docker keeps the current
+  # context in — OrbStack sets one — and whatever credential helper a registry
+  # login left behind.
   merged="$(
-    jq --arg dir "$plugin_dir" '
-      .cliPluginsExtraDirs = (
-        (.cliPluginsExtraDirs // []) | if index($dir) then . else . + [$dir] end
-      )
+    jq --arg dir "$stale_plugin_dir" '
+      if (.cliPluginsExtraDirs // []) | index($dir) then
+        .cliPluginsExtraDirs -= [$dir]
+        | if (.cliPluginsExtraDirs | length) == 0 then del(.cliPluginsExtraDirs) else . end
+      else . end
     ' "$docker_config"
   )"
 
@@ -90,177 +95,114 @@ else
     tmp="$(mktemp "$docker_config.XXXXXX")"
     printf '%s\n' "$merged" >"$tmp"
     mv "$tmp" "$docker_config"
-    echo "docker's config now names Homebrew's plugin directory"
+    echo "docker's config no longer names Homebrew's empty plugin directory"
   fi
 fi
 
-# The VM's shape
+# The app
+
+# The Brewfile's, installed by bootstrap-system.sh: Homebrew is the machine, so one
+# declarative list holds every package and what is left here is the decision this
+# script is the only one that can make — about the VM's shape and what the first run
+# needs a person for. The app bundle as well as the CLI, because the cask links orb
+# into Homebrew's prefix and a link outliving the app it points at is exactly the
+# state worth naming.
+if [ ! -d /Applications/OrbStack.app ] || ! command -v orb >/dev/null 2>&1; then
+  echo "OrbStack is not installed — it is declared in $repo/Brewfile, which" >&2
+  echo "$repo/bootstrap-system.sh installs; rerun that, then $repo/docker.sh." >&2
+  exit 0
+fi
+
+# The first run, which needs a person
+
+# OrbStack writes ~/.orbstack the first time it is set up and never before, so its
+# absence is the one reading that tells a fresh install from a stopped VM. Said and
+# skipped rather than failed: this is a click on the Mac's own screen, which on a
+# headless Mac means Screen Sharing, and the rest of the provision has nothing to
+# do with it.
+if [ ! -d "$HOME/.orbstack" ]; then
+  cat <<EOF
+
+OrbStack is installed but has never been set up, which is a step no script can do:
+its first run puts a welcome screen on the Mac's own screen, and Next there is what
+accepts OrbStack's terms.
+
+Over Screen Sharing: open OrbStack, click through the welcome screen, and choose
+Docker when it asks what to use. Then rerun $repo/docker.sh, which settles the
+settings that first run leaves at OrbStack's defaults.
+EOF
+  exit 0
+fi
+
+# The settings
 
 # All the cores but two, so that macOS and whatever is watching the machine keep
-# somewhere to run, and a quarter of the memory: a VM rarely hands memory back to
-# macOS, and the parallel sessions running browsers and Electron outside it are
-# what the rest is for. Cores are shared rather than reserved, so they need no
-# such cap. Read from the hardware rather than
-# written down: this repo is aimed at one Mac, but nothing in it should have to be
-# edited to suit the next one.
+# somewhere to run. Read from the hardware rather than written down: this repo is
+# aimed at one Mac, but nothing in it should have to be edited to suit the next one.
+#
+# Memory is deliberately not here. OrbStack's is dynamic — the VM gives back what it
+# stops using — so its memory_mib is a ceiling that costs nothing until it is
+# reached, and the default is half the machine's. That is the difference from colima
+# that this whole step exists for.
 cores="$(sysctl -n hw.ncpu)"
 cpu=$((cores - 2))
 if [ "$cpu" -lt 2 ]; then
   cpu=2
 fi
 
-memory=$(($(sysctl -n hw.memsize) / 1073741824 / 4))
-if [ "$memory" -lt 2 ]; then
-  memory=2
-fi
+orb_config() {
+  orb config show 2>/dev/null | sed -n "s/^$1: *//p" | head -1
+}
 
-# colima's own default, and a ceiling rather than a reservation: the image is
-# sparse, so it costs what the images and volumes in it actually take. Worth
-# having generous, because growing a disk needs a restart and shrinking one is not
-# possible at all.
-disk=100
+# Set one at a time and only where they differ, so a re-run prints nothing and
+# leaves a running VM alone.
+restart=false
 
-config="$HOME/.colima/default/colima.yaml"
+for pair in "app.start_at_login true" "cpu $cpu"; do
+  key="${pair%% *}"
+  want="${pair##* }"
+  have="$(orb_config "$key")"
 
-# vz is Virtualization.framework, macOS's own hypervisor: on Apple Silicon it is
-# faster than the qemu colima otherwise defaults to, and it is what virtiofs and
-# Rosetta both need. Rosetta is what runs an amd64 image at close to native speed,
-# which matters because plenty of what a registry holds is amd64 only.
-#
-# Written to the profile config rather than passed as flags to a start, because
-# from here on the thing that starts this VM is the LaunchAgent below, and it runs
-# `colima start` with no arguments at all. colima rewrites this file in its own
-# fully commented form on the first start and keeps these values.
-#
-# runtime is in it because a config with no runtime is one colima reads as absent:
-# it would fall back to its defaults, which are two cores and two GiB.
-if [ ! -f "$config" ]; then
-  mkdir -p "$(dirname "$config")"
-
-  cat >"$config" <<EOF
-cpu: $cpu
-memory: $memory
-disk: $disk
-vmType: vz
-rosetta: true
-mountType: virtiofs
-runtime: docker
-EOF
-
-  echo "colima will build a VM of $cpu CPUs, ${memory}GiB of memory and ${disk}GiB of disk"
-else
-  differences=""
-
-  for pair in "cpu $cpu" "memory $memory" "disk $disk" "vmType vz" "rosetta true"; do
-    key="${pair%% *}"
-    want="${pair##* }"
-    have="$(sed -n "s/^$key: *//p" "$config" | head -1)"
-
-    if [ "$have" != "$want" ]; then
-      differences="$differences
-  $key is ${have:-unset}, where this Mac works out to $want"
-    fi
-  done
-
-  if [ -z "$differences" ]; then
-    echo "colima's VM is $cpu CPUs, ${memory}GiB of memory and ${disk}GiB of disk"
-  else
-    echo
-    echo "colima's config asks for a different VM than this Mac works out to:$differences"
-
-    cat <<EOF
-
-Left as it is, since somebody chose it and rebuilding a VM is not free. To move
-to the numbers above, edit them in and restart:
-
-  colima stop && colima start --edit
-
-cpu and memory take effect at that start and a disk can grow, but vmType and
-mountType are fixed when the VM is created — changing either means deleting it,
-which loses every image and volume in it:
-
-  colima delete && $repo/docker.sh
-EOF
-  fi
-fi
-
-# Start at login
-
-log=/opt/homebrew/var/log/colima.log
-started=false
-
-# brew's own list rather than looking for the plist, whose label has changed name
-# between Homebrew versions.
-case "$(brew services list | awk '$1 == "colima" { print $2 }')" in
-started | scheduled)
-  echo "colima's LaunchAgent is already loaded"
-  ;;
-error)
-  # Loaded, and its last start failed — which the report at the end of this
-  # script is about to explain. Asking brew to start it again only prints brew's
-  # own refusal, since launchd has it either way.
-  echo "colima's LaunchAgent is loaded, and its last start did not take"
-  ;;
-*)
-  log_mark=0
-  if [ -f "$log" ]; then
-    log_mark="$(wc -l <"$log" | tr -d ' ')"
+  if [ "$have" = "$want" ]; then
+    continue
   fi
 
-  if brew services start colima; then
-    started=true
-  else
-    # launchd answers a bootstrap of a job it already has with "Bootstrap failed:
-    # 5: Input/output error" and brew hands that straight on, which is what a
-    # re-run after a start that did not take looks like.
-    echo "warning: brew would not load colima's LaunchAgent. If launchd has it" >&2
-    echo "already, 'brew services restart colima' is the way to try again." >&2
+  if ! orb config set "$key" "$want"; then
+    echo "warning: OrbStack would not take $key=$want, so it is ${have:-unset}." >&2
+    continue
   fi
-  ;;
-esac
 
-# Waited on only when this run is what asked for the start. The first boot takes
-# about a minute, longer while it is still pulling the VM image, and the log is
-# what says the attempt is over — without reading it a Mac where the VM cannot
-# start at all would sit here for the whole timeout before saying so.
-if [ "$started" = true ]; then
-  waited=0
+  echo "OrbStack's $key is now $want"
 
-  while [ "$waited" -lt 90 ]; do
-    if colima status >/dev/null 2>&1; then
-      break
-    fi
+  # The VM reads its CPU count when it boots, where the login item is the app's own
+  # and takes immediately. So only this one is worth bouncing a VM for.
+  if [ "$key" = cpu ]; then
+    restart=true
+  fi
+done
 
-    if tail -n "+$((log_mark + 1))" "$log" 2>/dev/null | grep -q 'level=fatal'; then
-      break
-    fi
-
-    sleep 3
-    waited=$((waited + 3))
-  done
+if [ "$restart" = true ]; then
+  echo "restarting OrbStack, which is when the VM reads its new CPU count"
+  orb stop || true
+  orb start || true
 fi
 
-if colima status >/dev/null 2>&1; then
-  echo "the colima VM is running"
+# Where it stands
 
-  # colima points docker at the VM by setting a context, and the context is the
+if orb status >/dev/null 2>&1; then
+  echo "OrbStack is running with $(orb_config cpu) CPUs and $(orb_config memory_mib)MiB of memory"
+
+  # OrbStack points docker at its VM by setting a context, and the context is the
   # only way the CLI knows where the daemon is.
   context="$(docker context show 2>/dev/null || true)"
 
-  if [ "$context" != colima ]; then
-    echo "warning: docker's context is ${context:-unset} rather than colima, so" >&2
-    echo "the CLI is not pointed at this VM. 'docker context use colima' settles" >&2
+  if [ "$context" != orbstack ]; then
+    echo "warning: docker's context is ${context:-unset} rather than orbstack, so" >&2
+    echo "the CLI is not pointed at this VM. 'docker context use orbstack' settles" >&2
     echo "it." >&2
   fi
 else
   echo
-  echo "warning: the colima VM is not running." >&2
-
-  fatal="$(tail -n 40 "$log" 2>/dev/null | grep 'level=fatal' | tail -1 || true)"
-  if [ -n "$fatal" ]; then
-    echo "  $fatal" >&2
-  fi
-
-  echo "It may still be pulling its image. 'colima status' and $log" >&2
-  echo "say where it is." >&2
+  echo "warning: OrbStack is not running." >&2
+  echo "'orb start' starts it, and 'orb status' says where it got to." >&2
 fi

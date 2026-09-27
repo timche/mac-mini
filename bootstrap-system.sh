@@ -42,7 +42,7 @@ fi
 # that. `brew bundle upgrade` is the deliberate version of it.
 #
 # Not fatal, which is the same trade docker.sh and tailscale.sh have always made for
-# their own packages: a colima that will not install is no reason to leave the Mac
+# their own packages: an OrbStack that will not install is no reason to leave the Mac
 # without its hardened sshd. brew bundle names what it could not do.
 if ! brew bundle --no-upgrade --file="$repo/Brewfile"; then
   echo "some of the Brewfile did not install — rerun $repo/bootstrap-system.sh" >&2

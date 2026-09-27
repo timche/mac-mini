@@ -6,8 +6,8 @@
 #   test/tart.sh --keep     # leave the VM running afterwards to look at
 #
 # `./install.sh && test/assert.sh` on this Mac is the quick check and stays that,
-# but it is a check against an account that is already built, and install.sh
-# rewrites the account it runs as. What it cannot answer is the promise the suite
+# but it is a check against a Mac that is already built, and both phases rewrite
+# the machine they run on. What it cannot answer is the promise the suite
 # actually makes: that a Mac with none of this on it comes out of a run with all
 # of it. A VM cloned for the run and deleted after it answers exactly that, and
 # it is the same image `tart-runner` gives a CI job, so a failure here is a
@@ -25,10 +25,9 @@ fi
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# The dispatcher's image rather than the bare macOS one: install.sh starts from
-# what the machine phase owes it — Homebrew, git, curl, jq — and stops with a
-# message rather than carrying on without them, so a vanilla guest would only
-# ever prove that.
+# The dispatcher's image rather than the bare macOS one: it is what a
+# GitHub-hosted runner has, so a failure here is a failure in CI and the other
+# way round.
 image="${TART_TEST_IMAGE:-gha-runner-base}"
 ssh_key="${TART_RUNNER_SSH_KEY:-$HOME/.ssh/tart-runner}"
 vm_user="${TART_RUNNER_USER:-admin}"
@@ -44,8 +43,8 @@ for arg in "$@"; do
     -h | --help)
       echo "usage: test/tart.sh [--keep]"
       echo
-      echo "Runs install.sh and test/assert.sh twice, then test/boswell-agent.sh,"
-      echo "in a Tart macOS VM cloned from $image and deleted afterwards."
+      echo "Runs machine.sh, claude.sh and install.sh with the asserts after"
+      echo "each, in a Tart macOS VM cloned from $image and deleted afterwards."
       echo "--keep leaves the VM running so a failure can be looked at."
       exit 0
       ;;
@@ -190,10 +189,14 @@ echo
 ssh_vm 'cat >/tmp/suite.sh' <<'SUITE'
 set -uo pipefail
 cd "$HOME/mac-mini"
-chmod +x install.sh test/*.sh
+chmod +x ./*.sh claude/*.sh launchd/*.sh test/*.sh
 
 status=0
-for step in "./install.sh" "test/assert.sh" "./install.sh" "test/assert.sh" "test/boswell-agent.sh"; do
+for step in \
+  "./machine.sh" "test/assert-machine.sh" \
+  "./claude.sh" "test/assert-claude.sh" "test/assert.sh" \
+  "./install.sh" "test/assert.sh" \
+  "test/boswell-agent.sh"; do
   printf '\n===== %s =====\n\n' "$step"
   if ! $step; then
     printf '\n===== %s FAILED =====\n' "$step"

@@ -402,8 +402,15 @@ wait_for_ssh() {
 boot_vm() {
   local vm="$1"
 
+  if ! softnet_root && [ ! -t 0 ]; then
+    say "$(softnet_advice)" >&2
+    return 1
+  fi
+
   mkdir -p "$(dirname "$vm_log")"
-  tart run --no-graphics "$vm" >>"$vm_log" 2>&1 &
+  tart run --no-graphics \
+    --net-softnet --net-softnet-block="$softnet_block" \
+    "$vm" >>"$vm_log" 2>&1 &
   vm_pid=$!
 
   vm_ip="$(tart ip "$vm" --wait 180 2>/dev/null)"
@@ -447,7 +454,7 @@ run_job() {
   done < <(printf '%s' "$labels" | tr ',' '\n' | grep .)
 
   jit="$(
-    gh api -X POST "repos/$repo/actions/runners/generate-jitconfig" \
+    gh_as "$repo" api -X POST "repos/$repo/actions/runners/generate-jitconfig" \
       -f "name=$vm" -F runner_group_id=1 "${label_args[@]}" \
       --jq .encoded_jit_config
   )" || {
@@ -488,12 +495,12 @@ run_job() {
   # never got that far would sit in the repository's settings forever, so it is
   # removed by name here.
   runner_id="$(
-    gh api "repos/$repo/actions/runners?per_page=100" \
+    gh_as "$repo" api "repos/$repo/actions/runners?per_page=100" \
       --jq ".runners[] | select(.name == \"$vm\") | .id" 2>/dev/null
   )"
 
   if [ -n "$runner_id" ]; then
-    gh api -X DELETE "repos/$repo/actions/runners/$runner_id" >/dev/null 2>&1 &&
+    gh_as "$repo" api -X DELETE "repos/$repo/actions/runners/$runner_id" >/dev/null 2>&1 &&
       say "$repo: removed the registration $vm left behind"
   fi
 
@@ -504,6 +511,11 @@ poll_once() {
   local repo name
 
   for repo in $(repos); do
+    # Before the first question is asked of GitHub, and outside any command
+    # substitution: this is the call that refuses to carry on without a token,
+    # and an exit inside a `$( )` would only end the subshell.
+    ensure_token "${repo%%/*}"
+
     name="$(queued_job "$repo")" || continue
 
     if [ "$mode" = dry-run ]; then
@@ -523,6 +535,11 @@ poll_once() {
 
     if ! image_exists "$image"; then
       warn_once "no runner image called $image — build one with: tart-runner --build-image"
+      return 1
+    fi
+
+    if ! softnet_root && [ ! -t 0 ]; then
+      warn_once "$(softnet_advice)"
       return 1
     fi
 
@@ -588,7 +605,17 @@ build_image() {
     return 1
   }
 
-  version="$(gh api repos/actions/runner/releases/latest --jq .tag_name)" || return 1
+  # curl rather than `gh api`, which would want a token: the actions runner is a
+  # public repository, and the tokens this holds are scoped to the repositories
+  # it answers for and have no business anywhere else.
+  version="$(
+    curl -fsSL https://api.github.com/repos/actions/runner/releases/latest |
+      jq -r '.tag_name // empty'
+  )"
+  [ -n "$version" ] || {
+    say "GitHub did not say which actions runner release is the latest" >&2
+    return 1
+  }
   version="${version#v}"
 
   say "provisioning with the command line tools, Homebrew and actions runner $version"

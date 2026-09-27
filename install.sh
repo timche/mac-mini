@@ -197,6 +197,40 @@ if command -v portless >/dev/null 2>&1; then
   fi
 fi
 
+# The MCP servers every session has, whichever project it is in. Claude Code keeps
+# user-scope servers in ~/.claude.json, which is its own state as much as config
+# and so cannot be a link into this checkout the way settings.json is: they go in
+# through its CLI, and only when the definition here differs from what is there.
+mcp_server() {
+  local name="$1" want current
+  want="$(jq -cS . <<<"$2")"
+  current="$(jq -cS --arg name "$name" '.mcpServers[$name] // empty' "$HOME/.claude.json" 2>/dev/null || true)"
+  if [ "$current" = "$want" ]; then
+    echo "MCP server $name is already registered"
+    return
+  fi
+  if [ -n "$current" ]; then
+    "$HOME/.local/bin/claude" mcp remove -s user "$name" >/dev/null || true
+  fi
+  if "$HOME/.local/bin/claude" mcp add-json -s user "$name" "$want" >/dev/null; then
+    echo "registered MCP server $name"
+  else
+    echo "could not register MCP server $name" >&2
+  fi
+}
+
+# Headless and isolated, so parallel sessions each get a throwaway browser rather
+# than sharing one profile in windows on the Mac's screen. Google collects usage
+# statistics unless told not to, and the update check is noise for a version
+# mise.lock pins.
+mcp_server chrome-devtools "{
+  \"type\": \"stdio\",
+  \"command\": \"$HOME/.local/share/mise/shims/chrome-devtools-mcp\",
+  \"args\": [\"--headless\", \"--isolated\", \"--no-usage-statistics\"],
+  \"env\": {\"CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS\": \"1\"}
+}"
+mcp_server context7 '{"type": "http", "url": "https://mcp.context7.com/mcp"}'
+
 # A worktree's dev server reaches Tim's MacBook as https://<branch>.<app>.<tld>
 # for the second TLD in PORTLESS_TLD, whose wildcard DNS record points at this
 # Mac's tailnet address. Tailscale Serve hands the tailnet's port 443 to portless

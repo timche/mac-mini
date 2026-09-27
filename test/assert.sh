@@ -493,6 +493,15 @@ check "the statusLine draws a line with mise's ccstatusline" \
    mise which ccstatusline | grep -q "/installs/npm-ccstatusline/" &&
    printf "{}" | "$HOME/.local/share/mise/shims/ccstatusline" | grep -q .'
 
+# Asked of ~/.claude.json rather than `claude mcp list`, which starts every server
+# to report its health.
+check "chrome-devtools-mcp is mise's npm install" \
+  'mise which chrome-devtools-mcp | grep -q "/installs/npm-chrome-devtools-mcp/"'
+check "every session has the chrome-devtools MCP server, headless and isolated" \
+  'jq -e ".mcpServers[\"chrome-devtools\"] | (.command | endswith(\"mise/shims/chrome-devtools-mcp\")) and (.args | index(\"--headless\") and index(\"--isolated\"))" "$HOME/.claude.json"'
+check "every session has the context7 MCP server" \
+  'jq -e ".mcpServers.context7.url == \"https://mcp.context7.com/mcp\"" "$HOME/.claude.json"'
+
 # The PostToolUse hook both of these replaced fired on every write, which put
 # half-finished edits upstream and made syncing Claude's job. Nothing should
 # wire it back up.

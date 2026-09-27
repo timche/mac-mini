@@ -249,16 +249,27 @@ It generates `~/.ssh/tart-runner` if there is none, clones the base image, seeds
 1. In 1Password, in the `Mac Mini` vault the service account can read, make an item named `GitHub - tart-runner <owner>` with a field called `token`. It holds a fine-grained personal access token whose **resource owner** is that owner, whose **repository access** is *Only select repositories* — the ones in the list and no others — and whose permissions are the three in the table above. Give it the shortest expiry you are willing to renew; a runner that stops answering because a token expired says so in its log. If the owner is an organization (`zoidsh`, `repeekgg`), the organization has to allow fine-grained tokens at all, under Settings → Personal access tokens → Fine-grained tokens, and by default an owner must approve each one a member creates.
 2. Add the reference to `home/.config/op/tart-runner.env` as `TART_RUNNER_TOKEN_<OWNER>="op://Mac Mini/GitHub - tart-runner <owner>/token"`, a reference and never a value.
 3. Add the `owner/name` as a line in `home/.config/tart-runner/repos`, and put `runs-on: [self-hosted, macOS, tart]` in that repository's workflow.
-4. Give softnet the setuid bit if it has none, build the image if there is none, and load the agent.
+4. Give softnet the setuid bit if it has none, build the image if there is none, make the link, and let `install.sh` load it.
 
 ```sh
 sudo chown root /opt/homebrew/Cellar/softnet/*/bin/softnet
 sudo chmod u+s /opt/homebrew/Cellar/softnet/*/bin/softnet
 tart-runner --build-image
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.github.timche.tart-runner.plist
+ln -s ~/.mac-mini-dotfiles/home/Library/LaunchAgents/io.github.timche.tart-runner.plist \
+  ~/Library/LaunchAgents/io.github.timche.tart-runner.plist
+./install.sh
 ```
 
-`launchctl bootout gui/$(id -u)/io.github.timche.tart-runner` switches it off again, and emptying the list stops it answering a repository without stopping the agent. `tart-runner --dry-run` says what it can see queued without starting anything, and `tart-runner --once` takes a single job in the foreground, which is the way to watch one go through. Only ever a private repository.
+`launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.github.timche.tart-runner.plist` starts it there and then if the rest of an install is not wanted; the link is what makes the next login and the next install keep it on.
+
+Switching it off is the two halves back:
+
+```sh
+launchctl bootout gui/$(id -u)/io.github.timche.tart-runner
+rm ~/Library/LaunchAgents/io.github.timche.tart-runner.plist
+```
+
+The bootout stops the dispatcher now and the removed link is what keeps it stopped; removing the link alone leaves a running dispatcher until the next login or the next `install.sh`, which boots it out. Emptying the repository list stops it answering a repository without stopping the agent at all. `tart-runner --dry-run` says what it can see queued without starting anything, and `tart-runner --once` takes a single job in the foreground, which is the way to watch one go through. Only ever a private repository.
 
 ## Testing
 

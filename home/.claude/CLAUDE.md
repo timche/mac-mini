@@ -9,6 +9,7 @@
 - A screenshot proves a state: a layout, a label, a setting, what a screen looks like once it settles. A recording proves a sequence: focus, order, timing, a transition, a hover or drag, what follows a click. The test is whether one frame could look right while the bug is still there; if it could, record. On the Mac, `screencapture -v -k -x -V <seconds> out.mov` records the screen with clicks shown, and `ffmpeg -i out.mov -vf scale=1280:-2 -c:v libx264 -crf 26 -pix_fmt yuv420p out.mp4` makes it small enough to attach. A video takes no alt text, so the body says above it what it shows.
 - When the design changes while a pull request is open, the title and body change with it in the same step as the push, since a squash merge takes the title as the commit message and a stale one lands in history for good. Before merging, reread the title against the final diff.
 - The design changing under an open pull request also invalidates any published brief for it; republish the brief when the body changes.
+- An issue, comment or pull request on someone else's repository shows none of our code: no snippets, file paths, package, variable or project names, or counts from our repositories. Reproduce with a minimal example under neutral names (`@acme/db`, `FEATURE_X`), written and run fresh.
 
 # Installing and privileged commands
 

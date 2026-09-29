@@ -95,6 +95,5 @@
   "theme": "dark",
   "preferredNotifChannel": "ghostty",
   "remoteControlAtStartup": false,
-  "agentPushNotifEnabled": true,
-  "advisorModel": "fable"
+  "agentPushNotifEnabled": true
 }

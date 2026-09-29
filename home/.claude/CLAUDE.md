@@ -10,6 +10,7 @@
 - When the design changes while a pull request is open, the title and body change with it in the same step as the push, since a squash merge takes the title as the commit message and a stale one lands in history for good. Before merging, reread the title against the final diff.
 - The design changing under an open pull request also invalidates any published brief for it; republish the brief when the body changes.
 - An issue, comment or pull request on someone else's repository shows none of our code: no snippets, file paths, package, variable or project names, or counts from our repositories. Reproduce with a minimal example under neutral names (`@acme/db`, `FEATURE_X`), written and run fresh.
+- A repository may have its own pre-commit hooks (lefthook, husky, `vp hooks`); they run beside the global Betterleaks scan, which is a config-defined git hook, so never avoid or remove them on that account.
 
 # Installing and privileged commands
 

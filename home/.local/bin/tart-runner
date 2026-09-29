@@ -133,9 +133,9 @@ for tool in tart gh jq; do
   }
 done
 
-# mkdir rather than flock, which macOS does not have, and the takeover rule
-# with-apple-signing uses: a dispatcher killed outright reached no trap, and its
-# lock would otherwise stop every one after it. By pid, since the holder is a
+# mkdir rather than flock, which macOS does not have, and taken over when its
+# holder is gone: a dispatcher killed outright reached no trap, and its lock
+# would otherwise stop every one after it. By pid, since the holder is a
 # poller that is meant to be long-lived and so cannot be timed out.
 cache="${XDG_CACHE_HOME:-$HOME/.cache}"
 [ -d "$HOME/Library/Caches" ] && cache="$HOME/Library/Caches"

@@ -58,11 +58,6 @@
 # LaunchAgent runs it on a timer whether or not a session is up.
 "~/.local/bin/worktree-gc" = { source = "home/.local/bin/worktree-gc", mode = "symlink" }
 
-# A signed macOS build: the wrapper resolves an Apple Developer ID certificate out
-# of 1Password into one build's environment, and the env file beside the
-# service-account token holds the `op://` references it resolves. The file is
-# references rather than values, so it is tracked here like any other config.
-"~/.local/bin/with-apple-signing" = { source = "home/.local/bin/with-apple-signing", mode = "symlink" }
 "~/.local/bin/memlog" = { source = "home/.local/bin/memlog", mode = "symlink" }
 
 # This repository's own CI, in a macOS VM cloned per job and deleted after it,
@@ -70,7 +65,8 @@
 # install.sh cannot be let near the real account. The repository list is a file so
 # that adding one is a line rather than a change to the dispatcher or its plist,
 # and the env file beside it names the fine-grained GitHub token each owner's
-# repositories are polled with — references, like the signing one above.
+# repositories are polled with — `op://` references rather than values, so it is
+# tracked here like any other config.
 #
 # Its LaunchAgent is the one plist here deliberately not linked. launchd loads
 # whatever is in ~/Library/LaunchAgents at login and that job has RunAtLoad and
@@ -81,9 +77,7 @@
 "~/.config/tart-runner/repos" = { source = "home/.config/tart-runner/repos", mode = "symlink" }
 "~/.config/op/tart-runner.env" = { source = "home/.config/op/tart-runner.env", mode = "symlink" }
 "~/Library/LaunchAgents/io.github.timche.memlog.plist" = { source = "home/Library/LaunchAgents/io.github.timche.memlog.plist", mode = "symlink" }
-"~/.config/op/apple-signing.env" = { source = "home/.config/op/apple-signing.env", mode = "symlink" }
 "~/.config/betterleaks/betterleaks.toml" = { source = "home/.config/betterleaks/betterleaks.toml", mode = "symlink" }
-"~/.config/op/apple-signing.d/meru.env" = { source = "home/.config/op/apple-signing.d/meru.env", mode = "symlink" }
 
 # The secret-zero for a project's varlock schema: a reference to the token file,
 # not the token, so tracked and linked like the op:// files above.

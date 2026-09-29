@@ -155,7 +155,7 @@ xcodebuild -version
 xcodes installed       # every Xcode on the Mac, and which one is selected
 ```
 
-Nothing here installs the Developer ID certificate, and nothing should: electron-builder takes it from `CSC_LINK` and `CSC_KEY_PASSWORD` and imports it into a keychain of its own for the length of a build. It comes out of 1Password at that point, through `with-apple-signing` below, so the login keychain never holds it and a Mac reprovisioned from here has nothing to re-import.
+Nothing here installs the Developer ID certificate, and nothing should: electron-builder takes it from `CSC_LINK` and `CSC_KEY_PASSWORD` and imports it into a keychain of its own for the length of a build. A project resolves both from 1Password through varlock at that point, as below, so the login keychain never holds it and a Mac reprovisioned from here has nothing to re-import.
 
 ## The account
 
@@ -319,34 +319,11 @@ Every Claude Code session is a pane of one herdr server, and that server is star
 
 What stays unsolved either way is approval: computer use asks for each app once per session, in the session's own terminal, and nothing pre-approves apps for a session nobody is watching ([anthropics/claude-code#47796](https://github.com/anthropics/claude-code/issues/47796), closed without it).
 
-## Signed macOS builds
-
-A signed test build of an Electron app runs through `~/.local/bin/with-apple-signing`, which resolves the Apple Developer ID certificate out of 1Password into the environment of that one build:
-
-```sh
-with-apple-signing bun run build:mac
-```
-
-The certificate never lands on disk and never enters a keychain. electron-builder reads a base64 `.p12` from `CSC_LINK` and its password from `CSC_KEY_PASSWORD`, builds a temporary keychain of its own and deletes it when the build ends, so a `.p12` in `~/Downloads` and a `security import` into the login keychain buy nothing that a secret reference does not — and the same trade is already how this machine signs commits. `~/.config/op/apple-signing.env` holds the two references rather than two values, which is why it is tracked here like any other config: `op://Development/Apple Developer ID Application Certificate/base64` and `.../password`, quoted because the vault name has a space in it. `APPLE_SIGNING_ENV_FILE` points the wrapper at another file when an item or a field label moves.
-
-The service-account token is the one `claude/signing-key.sh` stored at `~/.config/op/service-account-token`, read into the environment of `op run` alone — not exported by the wrapper, and taken back off with `env -u` before the build is exec'd, so a build script cannot read the vault it was signed from. Masking stays on: electron-builder is verbose, and `op run` replaces a resolved value with a placeholder wherever the build prints one.
-
-One signed build at a time. electron-builder puts its temporary keychain at the front of the user keychain search list by reading the list and writing it back, never restores it, and deletes the keychain at the end, so two builds overlapping can write back a list without the other's keychain in it and leave that build unable to find its identity. The wrapper therefore takes a `mkdir` lock in the cache directory, says out loud that it is waiting rather than looking hung, releases it on exit or interrupt, and takes over a lock whose holding process is gone — by pid, since a build that was killed outright reached no trap and would otherwise block every build after it.
-
-Check the reference once on the Mac, with the token in the environment for that one command:
-
-```sh
-OP_SERVICE_ACCOUNT_TOKEN="$(cat ~/.config/op/service-account-token)" \
-  op read "op://Development/Apple Developer ID Application Certificate/password" >/dev/null && echo ok
-```
+## varlock
 
 A project that loads its environment through varlock gets the same token from `~/.env.1password`, linked from `home/.env.1password`: one `OP_TOKEN` item of type `opServiceAccountToken`, marked `@internal`, whose value is an `exec()` that reads the token file at each load. The project's schema imports it with `allowMissing=true`, so on a Mac with the 1Password app, where the file is absent, the plugin's `allowAppAuth` signs in through the app instead. `@internal` keeps the token out of every process varlock starts and out of the environment blob it injects. `.zshenv` and `.bashrc` set `DO_NOT_TRACK=1`, the cross-tool opt-out at donottrack.sh that varlock honours, since varlock otherwise sends anonymous usage analytics and writes an id to `~/.config/varlock/config.json` for any project without an opt-out of its own.
 
-`APPLE_TEAM_ID` is in the same file as a plain value, because a team ID is public — every signed app carries it.
-
-What one app alone needs is in a file of its own, `~/.config/op/apple-signing.d/<repo>.env`, which the wrapper adds to `op run` when the checkout's `origin` remote names that repository — the remote rather than the directory, for the reason `project-docs.sh` gives, so every worktree of it gets the file. meru's holds `APPLE_PROVISIONING_PROFILE`, a reference to its provisioning profile in the Meru vault. electron-builder wants the profile as a file, and a project keeps that file out of git, so a fresh checkout has none: inside `op run`, where the resolved value exists, the wrapper decodes it to the path `package.json`'s `build.mac.provisioningProfile` names, only when nothing is there yet. The profile is not a secret — every signed build carries a copy — so the file is left in place for the next build. The service account reads both the Development and the Meru vault; 1Password cannot add a vault to a service account after it is made, so one that needs another vault is a new service account and a new token.
-
-Notarisation is two more references in the same file, `APPLE_ID` and `APPLE_APP_SPECIFIC_PASSWORD`, both from the Development vault's "Apple App Specific Password" item, since the password belongs to that Apple ID; the team ID is a field of the certificate item instead, because it names the certificate's team. electron-builder notarises a signed macOS build whenever the three are set.
+Signing and notarising a macOS build is the project's own configuration, in its `.env.schema`, rather than a wrapper here: meru resolves its Developer ID certificate, its notarisation credentials and its provisioning profile that way.
 
 ## Preferences
 
@@ -405,7 +382,7 @@ sudo chmod u+s /opt/homebrew/Cellar/softnet/*/bin/softnet
 
 That is the Cellar path rather than the `/opt/homebrew/bin/softnet` symlink, and it is what Tart itself runs; a `brew upgrade` that moves softnet to a new version directory undoes it, and the dispatcher will say so. Until it is done the dispatcher refuses to start a VM and logs the exact command rather than quietly falling back to NAT — `tart run` would fail anyway, with `root privileges are required to run and passwordless sudo was not available` in the VM log.
 
-**What it refuses to do.** One VM at a time, and none at all while nothing is queued: 8 GB of a 32 GB Mac is not something to hold overnight for a repository that sees a handful of pushes a week. It also waits while UTM has a guest running, since the Windows VM holds 8 GB of its own and two guests plus a working machine is how everything starts swapping. Apple's licence caps a host at two macOS guests in any case, and the Virtualization framework enforces it. A dispatcher that was killed outright leaves a VM behind, which the next one sweeps by name at startup; the lock is `with-apple-signing`'s, taken over by pid when its holder is gone.
+**What it refuses to do.** One VM at a time, and none at all while nothing is queued: 8 GB of a 32 GB Mac is not something to hold overnight for a repository that sees a handful of pushes a week. It also waits while UTM has a guest running, since the Windows VM holds 8 GB of its own and two guests plus a working machine is how everything starts swapping. Apple's licence caps a host at two macOS guests in any case, and the Virtualization framework enforces it. A dispatcher that was killed outright leaves a VM behind, which the next one sweeps by name at startup; the lock is a `mkdir` in the cache directory, taken over by pid when its holder is gone.
 
 The cost of all this is that a run waits for the Mac. Nothing answers a queued job while the Mac is off or already running one, and a job that queues at night sits there until morning.
 
@@ -470,6 +447,6 @@ What CI cannot reach: anything that needs a click. Screen Sharing needs the Shar
 
 ## Environment knobs
 
-`MAC_MINI_REPO`, `MAC_MINI_DIR` (the clone, `~/.mac-mini` by default), `PROJECT_DOCS_DIR`, `SIGNING_KEY_OP_ITEM`, `OP_SERVICE_ACCOUNT_TOKEN_FILE`, `APPLE_SIGNING_ENV_FILE`, `FORCE_HARDEN`, `TS_ADVERTISE_ROUTES`, `MAC_MINI_TEST_ANYWAY`.
+`MAC_MINI_REPO`, `MAC_MINI_DIR` (the clone, `~/.mac-mini` by default), `PROJECT_DOCS_DIR`, `SIGNING_KEY_OP_ITEM`, `OP_SERVICE_ACCOUNT_TOKEN_FILE`, `FORCE_HARDEN`, `TS_ADVERTISE_ROUTES`, `MAC_MINI_TEST_ANYWAY`.
 
 `CLAUDE.md` has the rest: the order the scripts run in, the constraints that are not obvious from reading them, and how to work in this repo.

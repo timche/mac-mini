@@ -4,9 +4,8 @@
 #
 # An op:// reference names where a secret lives in 1Password; the value only
 # exists once `op run` or `op read` resolves it, so a file of references is safe
-# to commit and is how every signing and notarisation secret here is wired.
-# `stub-` values are test doubles, such as the one assert.sh hands to
-# with-apple-signing in place of a certificate password.
+# to commit and is how every secret here is wired. `stub-` values are test
+# doubles, such as the ones assert.sh hands to tart-runner in place of a token.
 filter = '''
 filter.matchesAny(finding["secret"], [`^op://`]) ||
 filter.matchesAny(finding["secret"], [`^stub-`])

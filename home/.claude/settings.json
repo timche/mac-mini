@@ -10,7 +10,6 @@
   "permissions": {
     "defaultMode": "bypassPermissions"
   },
-  "model": "sonnet",
   "skillOverrides": {
     "postgres-schema": "off"
   },

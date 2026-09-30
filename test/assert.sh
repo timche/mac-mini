@@ -517,14 +517,19 @@ check "no auto-sync hook is left in settings.json" \
   '[ -f "$HOME/.claude/settings.json" ] &&
    ! grep -qE "git-sync|dotfiles-sync|boswell" "$HOME/.claude/settings.json"'
 
-# Nothing under home/ spells a home directory out. The account differs between this
-# Mac and a runner, and a path written for one is a hook that never fires for the
-# other, silently.
-check "no absolute home paths under home/" \
-  '! grep -rhoE "/(home|Users)/[A-Za-z0-9_.-]+" "$repo/home" | grep -q .'
+# Nothing under home/ spells a home directory out, and mise.toml is in it because
+# the one plist launchd reads a path out of itself is rendered from there. The
+# account differs between this Mac and a runner, and a path written for one is a
+# hook that never fires for the other, silently. The synced skills are the
+# account's claude.ai copies rather than this repo's, and gitignored.
+check "no absolute home paths under home/ or in mise.toml" \
+  '[ -d "$repo/home" ] && [ -f "$repo/mise.toml" ] &&
+   ! grep -rhoE --exclude-dir=synced "/(home|Users)/[A-Za-z0-9_.-]+" \
+       "$repo/home" "$repo/mise.toml" | grep -q .'
 
 check "the scripts the hooks call are executable" \
   '[ -x "$HOME/.claude/hooks/herdr-agent-state.sh" ] &&
+   [ -x "$HOME/.claude/hooks/herdr-tab-reset.sh" ] &&
    [ -x "$HOME/.claude/hooks/project-docs.sh" ] &&
    [ -x "$HOME/.claude/hooks/worktree-info.sh" ]'
 
@@ -815,7 +820,8 @@ export loaded_words="$(
 )"
 
 check "the always-loaded instructions stay under 2,400 words" \
-  '[ "$loaded_words" -lt 2400 ]'
+  '[ -f "$HOME/.claude/CLAUDE.md" ] && [ "$loaded_words" -gt 0 ] &&
+   [ "$loaded_words" -lt 2400 ]'
 
 # Markdown prose is never hard-wrapped: a paragraph or list item is one line.
 # Reports each line that continues the one before it, which is exactly what an

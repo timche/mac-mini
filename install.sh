@@ -230,8 +230,6 @@ mcp_server chrome-devtools "{
   \"env\": {\"CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS\": \"1\"}
 }"
 mcp_server context7 '{"type": "http", "url": "https://mcp.context7.com/mcp"}'
-mcp_server planetscale '{"type": "http", "url": "https://mcp.pscale.dev/mcp/planetscale"}'
-
 # A worktree's dev server reaches Tim's MacBook as https://<branch>.<app>.<tld>
 # for the second TLD in PORTLESS_TLD, whose wildcard DNS record points at this
 # Mac's tailnet address. Tailscale Serve hands the tailnet's port 443 to portless

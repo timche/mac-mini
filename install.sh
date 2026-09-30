@@ -494,7 +494,9 @@ fi
 herdr_label=io.github.timche.herdr
 herdr_plist="$HOME/Library/LaunchAgents/$herdr_label.plist"
 herdr_loaded="$state/$herdr_label.plist.loaded"
-herdr_switch="herdr server stop; launchctl bootout gui/$uid/$herdr_label; launchctl bootstrap gui/$uid $herdr_plist"
+# bootout ahead of stop: KeepAlive restarts a server stopped under launchd at
+# once, so stop alone times out on a new server. stop is for one outside it.
+herdr_switch="launchctl bootout gui/$uid/$herdr_label; herdr server stop; launchctl bootstrap gui/$uid $herdr_plist"
 
 if [ ! -f "$herdr_plist" ]; then
   echo "$herdr_plist is missing — mise links it from mise.toml" >&2

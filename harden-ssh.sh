@@ -39,19 +39,59 @@ if [ -z "$home" ]; then
   exit 1
 fi
 
+# sshd's StrictModes, which is on by default: it refuses to read authorized_keys
+# when the home directory, .ssh or the file itself belongs to somebody else or is
+# writable by anyone but its owner, and it says so in its own log rather than to
+# the client. The first path that fails, or nothing.
+strict_modes_offender() {
+  local uid path owner mode
+
+  uid="$(id -u "$user" 2>/dev/null || true)"
+  if [ -z "$uid" ]; then
+    return 0
+  fi
+
+  for path in "$home" "$home/.ssh" "$home/.ssh/authorized_keys"; do
+    owner="$(stat -f '%u' "$path" 2>/dev/null || true)"
+    mode="$(stat -f '%OLp' "$path" 2>/dev/null || true)"
+
+    # A path that is not there is the no-key case below rather than this one.
+    if [ -z "$owner" ] || [ -z "$mode" ]; then
+      continue
+    fi
+
+    if [ "$owner" != "$uid" ] || [ $((8#$mode & 8#022)) -ne 0 ]; then
+      echo "$path"
+      return 0
+    fi
+  done
+}
+
+offender="$(strict_modes_offender)"
+
 # A file with something in it is not a file sshd can let you in with: a wrapped
-# or truncated key leaves lines that parse as nothing. ssh-keygen -l reads the
-# whole file and succeeds if any one line is a key, which is the question worth
-# asking before turning password logins off.
+# or truncated key leaves lines that parse as nothing, and a key under a
+# world-writable directory is one sshd never reads. ssh-keygen -l reads the whole
+# file and succeeds if any one line is a key, which together with the modes above
+# is the question worth asking before turning password logins off.
 has_usable_key() {
-  ssh-keygen -l -f "$home/.ssh/authorized_keys" >/dev/null 2>&1
+  [ -z "$offender" ] &&
+    ssh-keygen -l -f "$home/.ssh/authorized_keys" >/dev/null 2>&1
 }
 
 if ! has_usable_key && [ "${FORCE_HARDEN:-false}" != true ]; then
   echo
-  echo "Skipped ssh hardening: $user has no key sshd could use, so disabling" >&2
-  echo "password logins now would leave Screen Sharing as the only way in." >&2
-  echo "Add the key you connect with to $home/.ssh/authorized_keys, then run" >&2
+  if [ -n "$offender" ]; then
+    echo "Skipped ssh hardening: sshd's StrictModes will not read $user's" >&2
+    echo "authorized_keys while $offender is group- or world-writable or owned by" >&2
+    echo "another account, so no key there is a way in. Take the write bits off it" >&2
+    echo "with 'chmod go-w $offender', give it to $user if it is somebody else's," >&2
+    echo "then run" >&2
+  else
+    echo "Skipped ssh hardening: $user has no key sshd could use, so disabling" >&2
+    echo "password logins now would leave Screen Sharing as the only way in." >&2
+    echo "Add the key you connect with to $home/.ssh/authorized_keys, then run" >&2
+  fi
   echo "  $repo/harden-ssh.sh $user" >&2
   exit 0
 fi

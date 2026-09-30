@@ -25,6 +25,9 @@
 # it is rewritten.
 
 set -euo pipefail
+# The service-account token is expanded into commands below, where a trace would
+# print it.
+set +x
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 

@@ -13,6 +13,9 @@
 # Homebrew's; ~/.local/bin comes first so that this one answers.
 
 set -uo pipefail
+# The service-account token is expanded into commands below, where a trace would
+# print it.
+set +x
 
 self="${BASH_SOURCE[0]}"
 real=""

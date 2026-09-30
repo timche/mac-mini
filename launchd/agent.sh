@@ -24,6 +24,9 @@
 # when there is one and to ~/Library/Logs/ssh-agent.log when launchd is the caller.
 
 set -uo pipefail
+# The service-account token is expanded into commands below, where a trace would
+# print it.
+set +x
 
 # Every path here comes from $HOME, which is what keeps the plist a static file with
 # nothing to render: launchd expands nothing itself, but it does hand a gui-domain

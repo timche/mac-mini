@@ -498,13 +498,22 @@ herdr_label=io.github.timche.herdr
 herdr_plist="$HOME/Library/LaunchAgents/$herdr_label.plist"
 herdr_loaded="$state/$herdr_label.plist.loaded"
 # bootout ahead of stop: KeepAlive restarts a server stopped under launchd at
-# once, so stop alone times out on a new server. stop is for one outside it.
-herdr_switch="launchctl bootout gui/$uid/$herdr_label; herdr server stop; launchctl bootstrap gui/$uid $herdr_plist"
+# once, so stop alone times out on a new server. stop is for one outside it. The
+# record of what launchd read is written by that command rather than here,
+# because this script never reloads the job: a restart by hand is the only thing
+# that knows which plist the running server came from.
+herdr_switch="launchctl bootout gui/$uid/$herdr_label; herdr server stop; launchctl bootstrap gui/$uid $herdr_plist && mkdir -p $state && cp $herdr_plist $herdr_loaded"
 
 if [ ! -f "$herdr_plist" ]; then
   echo "$herdr_plist is missing — mise links it from mise.toml" >&2
 elif launchctl print "gui/$uid/$herdr_label" >/dev/null 2>&1; then
-  if [ -f "$herdr_loaded" ] && ! cmp -s "$herdr_plist" "$herdr_loaded"; then
+  # boswell reloads on a missing record, treating it as changed. Here a reload
+  # ends every session, so a missing record is said out loud and nothing else.
+  if [ ! -f "$herdr_loaded" ]; then
+    echo "no record of which $herdr_label plist launchd loaded — restart herdr" \
+         "when convenient, from a shell outside herdr (a plain ssh" \
+         "timche@mac-mini), with: $herdr_switch" >&2
+  elif ! cmp -s "$herdr_plist" "$herdr_loaded"; then
     echo "$herdr_label changed since launchd loaded it, and reloading ends every" \
          "herdr session; when none is needed, from a shell outside herdr" \
          "(a plain ssh timche@mac-mini), run: $herdr_switch" >&2

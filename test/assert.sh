@@ -629,31 +629,18 @@ check "the worktree-info hook prints the tailnet URL for every TLD after the fir
 check "PORTLESS_TLD serves .localhost first and the tailnet name after it" \
   '[ "$(zsh -c "echo \$PORTLESS_TLD")" = "localhost,timche.dev" ]'
 
-# The proxy binds 443, so no URL on this Mac carries a port and nothing here may
-# name one. The tailnet end is 443 as well, which is what Tailscale Serve hands
-# to it as raw TCP.
-check "install.sh forwards the tailnet's port 443 to portless" \
-  'grep -q "tailscale serve --bg --tcp 443 tcp://127.0.0.1:443" "$repo/install.sh"'
+check "install.sh forwards the tailnet's port 443 to portless and names its daemon" \
+  'grep -q "tailscale serve --bg --tcp 443 tcp://127.0.0.1:443" "$repo/install.sh" &&
+   grep -q "sudo portless service install --tld" "$repo/install.sh"'
 
-# install.sh has no sudo to install the daemon with, so it checks and prints the
-# command instead — portless-root.sh answering for both the plist and the copy,
-# so the paths live in one file rather than two that can drift.
-check "install.sh checks the root daemon and names the script that installs it" \
-  '! grep -qE "^[^#]*portless service install" "$repo/install.sh" &&
-   grep -q "portless-root.sh\" --check" "$repo/install.sh" &&
-   grep -q "run: \$repo/portless-root.sh" "$repo/install.sh"'
-
-# The agent this replaced ran the proxy as the account, and one left loaded would
-# hold a second proxy and a second ~/.portless/proxy.port. Its plist and its
-# mise.toml link are gone, so nothing may put either back.
-check "the unprivileged proxy agent is gone, and install.sh removes a loaded one" \
+# A proxy of this account's own would hold a second ~/.portless/proxy.port, which
+# is where every client looks, so the URLs would reach whichever of the two won.
+# Nothing here may declare one, and install.sh takes out the agent that did.
+check "no proxy agent is declared, and install.sh removes one left loaded" \
   '[ ! -e "$repo/home/Library/LaunchAgents/io.github.timche.portless.plist" ] &&
    ! grep -q "io.github.timche.portless" "$repo/mise.toml" &&
    ! grep -q "PORTLESS_PORT" "$repo/home/.zshenv" &&
    grep -q "launchctl bootout \"gui/\$uid/\$portless_label\"" "$repo/install.sh"'
-
-check "no proxy agent is loaded" \
-  '! launchctl print "gui/$(id -u)/io.github.timche.portless"'
 
 check "the worktree-info hook prints the Electron profile rule" \
   'd="$(mktemp -d)" &&

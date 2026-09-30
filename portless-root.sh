@@ -204,7 +204,9 @@ else
   echo "No terminal to confirm at, so it goes ahead."
 fi
 
-for dir in "$root_lib" "$root_lib/bin" "$root_lib/lib"; do
+# /usr/local/lib does not exist on a Mac that has never had one, and a directory
+# install created on the way would take whatever mode it felt like.
+for dir in /usr/local/lib "$root_lib" "$root_lib/bin" "$root_lib/lib"; do
   [ -d "$dir" ] || sudo install -d -m 0755 -o root -g wheel "$dir"
 done
 

@@ -44,8 +44,8 @@ herdr_root="$HOME/.herdr/worktrees"
 say() { printf '%s worktree-gc: %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$1"; }
 
 # mkdir rather than flock, which macOS does not have. A lock left by a killed run
-# would otherwise stop every sweep after it, so one older than the interval is
-# taken over.
+# would otherwise stop every sweep after it, so one older than the ten-minute
+# interval the LaunchAgent runs on is taken over.
 cache="${XDG_CACHE_HOME:-$HOME/.cache}"
 [ -d "$HOME/Library/Caches" ] && cache="$HOME/Library/Caches"
 lock="$cache/worktree-gc.lock"
@@ -53,7 +53,7 @@ lock="$cache/worktree-gc.lock"
 mkdir -p "$cache"
 
 if ! mkdir "$lock" 2>/dev/null; then
-  if [ -n "$(find "$lock" -maxdepth 0 -mmin +30 2>/dev/null)" ]; then
+  if [ -n "$(find "$lock" -maxdepth 0 -mmin +10 2>/dev/null)" ]; then
     say "taking over a lock left behind by $(cat "$lock/pid" 2>/dev/null || echo "an earlier run")"
     rm -rf "$lock"
     mkdir "$lock" 2>/dev/null || exit 0

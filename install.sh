@@ -506,44 +506,34 @@ else
   fi
 fi
 
-# The one proxy every dev server routes through, as the account. portless starts
-# a proxy of its own the first time a dev server finds none, so what this agent
-# buys is a proxy that is already up, on the port Tailscale Serve points at, and
-# owned by launchd rather than by whichever session happened to be first.
-#
-# The shape is boswell's above, and the reason is the same: launchd keeps the
-# copy of the plist it read at load, so a changed one reaches a running job only
-# through a bootout and a fresh bootstrap, and the link still pointing where it
-# did says nothing about the file behind it.
+# The unprivileged proxy agent this repo no longer makes. The proxy is root's
+# daemon on 443 again, from the root-owned copy portless-root.sh installs, and an
+# agent left loaded would hold a second proxy on a port nothing points at — while
+# the two fight over ~/.portless/proxy.port, which is where every client looks.
+# It is this account's own job and this account's own link, so no sudo: the
+# bootout, then the link mise no longer declares and so no longer replaces.
 portless_label=io.github.timche.portless
 portless_plist="$HOME/Library/LaunchAgents/$portless_label.plist"
-portless_loaded="$state/$portless_label.plist.loaded"
 
-if [ ! -f "$portless_plist" ]; then
-  echo "$portless_plist is missing — mise links it from mise.toml" >&2
-else
-  portless_agent_loaded=false
-  if launchctl print "gui/$uid/$portless_label" >/dev/null 2>&1; then
-    portless_agent_loaded=true
-  fi
-
-  if [ "$portless_agent_loaded" = true ] &&
-     ! cmp -s "$portless_plist" "$portless_loaded"; then
-    launchctl bootout "gui/$uid/$portless_label" || true
-    portless_agent_loaded=false
-  fi
-
-  if [ "$portless_agent_loaded" = true ]; then
-    echo "$portless_label is already loaded"
-  elif launchctl bootstrap "gui/$uid" "$portless_plist"; then
-    mkdir -p "$state" && cp "$portless_plist" "$portless_loaded"
-    echo "loaded $portless_label"
+if launchctl print "gui/$uid/$portless_label" >/dev/null 2>&1; then
+  if launchctl bootout "gui/$uid/$portless_label"; then
+    echo "removed $portless_label, the unprivileged proxy agent"
   else
-    echo "could not load $portless_label — the gui/$uid domain needs a GUI" \
-         "session logged in on the Mac; until it is loaded, the first dev" \
-         "server of a session starts a proxy of its own" >&2
+    echo "could not remove $portless_label — it holds a proxy on the port the" \
+         "root daemon wants; run: launchctl bootout gui/$uid/$portless_label" >&2
   fi
 fi
+
+if [ -L "$portless_plist" ] && [ ! -e "$portless_plist" ]; then
+  case "$(readlink "$portless_plist")" in
+    "$repo"/*)
+      rm "$portless_plist"
+      echo "removed $portless_plist, a link this repo no longer makes"
+      ;;
+  esac
+fi
+
+rm -f "$state/$portless_label.plist.loaded"
 
 # The herdr server, from launchd in the GUI session so its panes are local
 # sessions rather than SSH ones. Never booted out or restarted from here: this

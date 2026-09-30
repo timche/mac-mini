@@ -17,6 +17,10 @@
 - Never install software or change the machine outside the project without being asked, even into a user path. Recommend, then wait.
 - sudo on this Mac asks for Tim's password, and a session has no terminal to type it at. When a step needs it, print the exact command in a code block and ask Tim to run it; he reviews it first and can run it himself. A change to the system trust store or to a privacy permission also puts a dialog on the Mac's own screen, which only Screen Sharing reaches, so say that as well.
 
+# Secrets
+
+- A repository that commits `.env.op` files keeps its secrets in 1Password as `op://` references. A command that needs them runs as `op run --env-file <path> -- <cmd>`, with the `.env.op` beside the code it runs, and one `--env-file` per file when it needs several; a command that needs none runs without it, since every run counts against the service account's daily limit. Never `op read` a value into the shell, a file or an argument, and never write a resolved value anywhere. A reference that does not resolve is a question for Tim, not a `.env` to fill in.
+
 # Blockers
 
 - When a verification or a step cannot be done from this machine (a site behind a login or bot protection, a device, a display, a credential), do not report it as unverified and move on. Say what is missing, propose the concrete ways to get it with a recommendation, and ask Tim for the one thing only he can supply, such as a login, a port forward or a cookie export. Once it works, write the procedure into the project's docs so the next session starts unblocked.

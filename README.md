@@ -99,7 +99,7 @@ Homebrew is where the binaries come from and what root executes is a copy of the
 
 The plist is `system/launchd/io.github.timche.tailscaled.plist` in this repo, installed as a root-owned *copy* in `/Library/LaunchDaemons` rather than a symlink into the checkout, for the same reason as the sshd drop-in: it is root's job description, and a link would leave it in a directory the account can write. It is `KeepAlive`, `RunAtLoad`, logs to `/var/log/tailscaled.log`, and passes no arguments, which is what the `brew services` plist did too — so tailscaled keeps its macOS defaults, the state in `/Library/Tailscale` and the socket at `/var/run/tailscaled.socket`. Naming either would move it, and moving the state logs this Mac out of the tailnet.
 
-Upgrading is `brew upgrade tailscale` and then `tailscale.sh` again, which copies the new binaries and restarts the daemon. **Run it from the LAN**, `ssh timche@$(ipconfig getifaddr en0)` on the Mac's `192.168.x.x` address, because the restart drops every tailnet connection including an SSH session over one; the script says so and asks first where there is a terminal to answer at. `tailscale.sh` also migrates a Mac still on the `brew services` daemon: it stops `sh.brew.tailscale` and bootstraps this one in the same step, so the gap is seconds.
+Upgrading is `brew upgrade tailscale` and then `tailscale.sh` again, which copies the new binaries and restarts the daemon. **Run it from the LAN**, `ssh timche@<the Mac's 192.168.x.x address>` rather than over the tailnet, because the restart drops every tailnet connection including an SSH session over one; the script says so and asks first where there is a terminal to answer at. `tailscale.sh` also migrates a Mac still on the `brew services` daemon: it stops `sh.brew.tailscale` and bootstraps this one in the same step, so the gap is seconds.
 
 The subnet comes from the interface the default route leaves by — its address and netmask, turned into a network and a prefix — so a Mac moved to another LAN needs a re-run rather than an edit. `TS_ADVERTISE_ROUTES` overrides it, and set-but-empty advertises no subnet at all. Nothing here touches IP forwarding: on macOS Tailscale enables it itself when routes are advertised. An exit node on macOS routes in userspace and only while the machine is awake, which is what `unattended.sh`'s `pmset sleep 0` is for.
 
@@ -114,7 +114,8 @@ To see where it is:
 ```sh
 tailscale status                       # the node, the tailnet, and who else is on it
 sudo tailscale debug prefs             # RunSSH, and AdvertiseRoutes with the subnet and 0.0.0.0/0, ::/0
-sudo brew services list                # whether the daemon is loaded
+sudo launchctl print system/io.github.timche.tailscaled   # whether the daemon is loaded, and on what
+tail -f /var/log/tailscaled.log        # what it has to say
 sysctl net.inet.ip.forwarding          # 1 once routes are advertised, and Tailscale's doing
 scutil --dns | grep -B2 -A2 100.100.100.100   # tailscaled's resolver files, as macOS reads them
 ```

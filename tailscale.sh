@@ -271,7 +271,7 @@ if [ "$ours_loaded" = false ]; then
   fi
 elif [ -n "$stale" ]; then
   sudo launchctl kickstart -k "system/$daemon_label"
-  echo "tailscaled restarted on the copy Homebrew's $brew_prefix just moved"
+  echo "tailscaled restarted on a fresh copy of Homebrew's binaries"
 else
   echo "tailscaled is already $daemon_label on a root-owned binary, left alone"
 fi

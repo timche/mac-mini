@@ -58,6 +58,9 @@
 # LaunchAgent runs it on a timer whether or not a session is up.
 "~/.local/bin/worktree-gc" = { source = "home/.local/bin/worktree-gc", mode = "symlink" }
 
+# `screencapture -l` of one app's window, by owner name rather than window id.
+"~/.local/bin/window-shot" = { source = "home/.local/bin/window-shot", mode = "symlink" }
+
 "~/.local/bin/memlog" = { source = "home/.local/bin/memlog", mode = "symlink" }
 
 # Ahead of Homebrew's op on PATH, so a project's `op run` is signed in with the

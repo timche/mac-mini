@@ -642,6 +642,17 @@ check "worktree-gc is a live symlink and runs" \
   '[ -L "$HOME/.local/bin/worktree-gc" ] && [ -x "$HOME/.local/bin/worktree-gc" ] &&
    worktree-gc --help | grep -q "dry-run"'
 
+check "window-shot is a live symlink and prints its usage" \
+  '[ -L "$HOME/.local/bin/window-shot" ] && [ -x "$HOME/.local/bin/window-shot" ] &&
+   window-shot --help 2>&1 | grep -q "usage: window-shot <owner> <out.png>"'
+check "window-shot refuses a missing output path" \
+  'window-shot Finder; [ $? -eq 2 ]'
+check "window-shot exits 1 and says so when the owner has no window, writing nothing" \
+  'out="$(mktemp -d)/shot.png" &&
+   ! err="$(window-shot "no-such-owner-$$" "$out" 2>&1)" &&
+   printf "%s" "$err" | grep -q "no on-screen window owned by no-such-owner-$$" &&
+   [ ! -e "$out" ]'
+
 # A machine with neither docker nor a daemon cannot answer this one either way,
 # and saying so is better than a check that passes because nothing happened.
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then

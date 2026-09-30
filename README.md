@@ -87,6 +87,8 @@ Accessibility: a count means the grant is there, and `-25211 osascript is not al
 
 macOS also puts up a "requesting to bypass the system private window picker" dialog every so often, even with the grant in place. It is the one modal this repo cannot switch off, and it needs Screen Sharing and a click — worth knowing about when screenshots start coming back wrong for no reason.
 
+A session shows its own app rather than the display, which carries every other session's windows: `window-shot <owner> <out.png> [title]` captures one window without its shadow, Electron's child views included. It is `screencapture -x -o -l <window id>`, and the id is the part macOS has no command for, so the script asks `CGWindowListCopyWindowInfo` through the Command Line Tools' `swift`, about a quarter of a second with nothing to compile or install. The owner is the process name the window list uses — `Electron` for an unpackaged Electron app, the product name for a packaged one — and the list comes front to back, so the frontmost of that owner's on-screen windows wins unless a title substring picks another. No match exits 1 and names what is on screen instead.
+
 ## Tailscale
 
 `tailscale.sh` starts the open-source `tailscaled` the `Brewfile` installed as a root system daemon with `sudo brew services start tailscale`, and sets the three prefs this Mac is on the tailnet for: Tailscale SSH, its LAN advertised as a subnet, and itself offered as an exit node.
@@ -184,7 +186,7 @@ The GitHub token goes in a file rather than the login keychain (`gh auth login -
 | `home/.config/herdr/config.toml` `home/.terminfo/x/xterm-ghostty` | herdr config, Ghostty terminfo |
 | `home/.config/mise/config.toml` | Every runtime mise installs globally |
 | `home/.config/boswell/config.toml` `home/Library/LaunchAgents/` | The repositories boswell watches, and the agents launchd runs |
-| `home/.local/bin/` | The machine's own scripts: the worktree sweep, the signed-build wrapper, the `op` wrapper, the memory log |
+| `home/.local/bin/` | The machine's own scripts: the worktree sweep, the signed-build wrapper, the `op` wrapper, the memory log, the window screenshot |
 
 `.claude` sits under `home/` rather than at the repo root because a `.claude` directory at a repo root is *project* configuration to Claude Code — this repo would load its own global settings and skills a second time whenever it was the working directory.
 

@@ -8,7 +8,13 @@
     "pr": ""
   },
   "permissions": {
-    "defaultMode": "bypassPermissions"
+    "defaultMode": "bypassPermissions",
+    "deny": [
+      "Read(~/.config/op/service-account-token)",
+      "Edit(~/.config/op/service-account-token)",
+      "Read(~/.claude/.credentials.json)",
+      "Edit(~/.claude/.credentials.json)"
+    ]
   },
   "skillOverrides": {
     "postgres-schema": "off"

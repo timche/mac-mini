@@ -289,7 +289,7 @@ check "commit signing stays on"     'git config --get commit.gpgsign | grep -q t
 export tracked="$repo/home/.gitconfig"
 
 check "the tracked config names no signing key" \
-  '! git config --file "$tracked" --get user.signingkey'
+  '[ -f "$tracked" ] && ! git config --file "$tracked" --get user.signingkey'
 check "the tracked config asks the agent for one" \
   '[ "$(git config --file "$tracked" --get gpg.ssh.defaultKeyCommand)" = "ssh-add -L" ]'
 check "the tracked config includes the machine-local override" \
@@ -388,7 +388,8 @@ check "boswell's LaunchAgent is a link into the checkout" \
 # Through the link, which is what launchd reads: a plist it cannot parse is a job
 # rejected at load with nothing in it to say why.
 check "the agent lints through the link" 'plutil -lint "$plist"'
-check "nothing in the agent is left to render" '! grep -q "{{" "$plist"'
+check "nothing in the agent is left to render" \
+  '[ -f "$plist" ] && ! grep -q "{{" "$plist"'
 
 # launchd expands neither ~ nor $HOME in a plist, so every path this job needs
 # belongs to a shell — the one thing it hands a HOME to. That is what lets the
@@ -435,7 +436,8 @@ check "the agent appends to the log in ~/Library/Logs" \
 # anywhere naming the key that was wrong, and EnvironmentVariables are not
 # expanded either — which is why both moved into the command above.
 check "the agent names no key launchd leaves unexpanded" \
-  '! plutil -extract StandardOutPath raw -o - "$plist" &&
+  '[ -f "$plist" ] &&
+   ! plutil -extract StandardOutPath raw -o - "$plist" &&
    ! plutil -extract StandardErrorPath raw -o - "$plist" &&
    ! plutil -extract EnvironmentVariables xml1 -o - "$plist"'
 
@@ -487,7 +489,8 @@ check "install.sh reloads boswell when the definition it loaded changed" \
 # something that pinned it would have to turn the updater off, and then the pin
 # would be the only thing keeping it current.
 check "nothing disables Claude Code's updater" \
-  '! grep -q DISABLE_AUTOUPDATER "$HOME/.claude/settings.json"'
+  '[ -f "$HOME/.claude/settings.json" ] &&
+   ! grep -q DISABLE_AUTOUPDATER "$HOME/.claude/settings.json"'
 
 # ccstatusline is an npm package in mise's tool list, run through its shim, so a
 # draw pays for neither a registry lookup nor npx starting node twice. Run rather
@@ -511,7 +514,8 @@ check "every session has the context7 MCP server" \
 # half-finished edits upstream and made syncing Claude's job. Nothing should
 # wire it back up.
 check "no auto-sync hook is left in settings.json" \
-  '! grep -qE "git-sync|dotfiles-sync|boswell" "$HOME/.claude/settings.json"'
+  '[ -f "$HOME/.claude/settings.json" ] &&
+   ! grep -qE "git-sync|dotfiles-sync|boswell" "$HOME/.claude/settings.json"'
 
 # Nothing under home/ spells a home directory out. The account differs between this
 # Mac and a runner, and a path written for one is a hook that never fires for the
@@ -696,7 +700,8 @@ export gc_plist="$HOME/Library/LaunchAgents/io.github.timche.worktree-gc.plist"
 
 check "worktree-gc's LaunchAgent is rendered" '[ -f "$gc_plist" ]'
 check "the gc agent is a valid plist" 'plutil -lint "$gc_plist"'
-check "the gc agent has the home directory filled in" '! grep -q "{{" "$gc_plist"'
+check "the gc agent has the home directory filled in" \
+  '[ -f "$gc_plist" ] && ! grep -q "{{" "$gc_plist"'
 check "the gc agent runs worktree-gc" \
   '[ "$(plutil -extract ProgramArguments.0 raw -o - "$gc_plist")" = \
      "$HOME/.local/bin/worktree-gc" ]'

@@ -10,7 +10,7 @@
 - When the design changes while a pull request is open, the title and body change with it in the same step as the push, since a squash merge takes the title as the commit message and a stale one lands in history for good. Before merging, reread the title against the final diff.
 - The design changing under an open pull request also invalidates any published brief for it; republish the brief when the body changes.
 - An issue, comment or pull request on someone else's repository shows none of our code: no snippets, file paths, package, variable or project names, or counts from our repositories. Reproduce with a minimal example under neutral names (`@acme/db`, `FEATURE_X`), written and run fresh.
-- A repository may have its own pre-commit hooks (lefthook, husky, `vp hooks`); they run beside the global Betterleaks scan, which is a config-defined git hook, so never avoid or remove them on that account.
+- A repository may have its own pre-commit hooks (lefthook, husky); they run beside the global Betterleaks scan, which is a config-defined git hook, so never avoid or remove them on that account.
 
 # Installing and privileged commands
 
@@ -28,7 +28,7 @@
 # Where things live
 
 - Edit anything under `~/projects/docs` with Read, Edit and Write, never with shell redirection or `sed -i`. Several sessions share that one folder, and the file tools refuse a write to a file that changed since the session read it — a shell command has no such check and silently drops the other session's paragraph.
-- Project checkouts go in `~/projects`, and `~/projects/docs` holds the project documentation; `$PROJECT_DOCS_DIR` names it, and a repository's own files refer to `$PROJECT_DOCS_DIR/<repo>` rather than a path. This repo is cloned to `~/.mac-mini`, hidden because it is what makes the machine and the account rather than work done in them. Both `~/projects/docs` and `~/.mac-mini` are watched by boswell, which commits, pushes and pulls them automatically, so never commit in them and never ask Tim to; a docs edit is on GitHub within a minute, an edit here within the hour.
+- Project checkouts go in `~/projects`, and `~/projects/docs` holds the project documentation; `$PROJECT_DOCS_DIR` names it, and a repository's own files refer to `$PROJECT_DOCS_DIR/<repo>` rather than a path. This repo is cloned to `~/.mac-mini`, hidden because it is what makes the machine and the account rather than work done in them. Both `~/projects/docs` and `~/.mac-mini` are watched by boswell, which commits, pushes and pulls them automatically, so never commit in them and never ask Tim to, unless the repository's own CLAUDE.md says a change must land now; a docs edit is on GitHub within a minute, an edit here within the hour.
 - A project's docs in `~/projects/docs/<repo>` carry its settled decisions, and a session-start hook prints what is there. Read what bears on the task before starting, so a decision already recorded is not argued again.
 - A repository's README, CLAUDE.md and code comments describe how it works now: no dates, no history, no "since" or "until", no alternative that lost; a constraint the code obeys can still say why. The decision behind it, and when it changed, goes in `~/projects/docs/<repo>`. When touching one that carries history, move it there rather than delete it.
 - Tim reaches this Mac with Tailscale SSH as `timche@mac-mini` and attaches to herdr, whose server launchd runs in the GUI session, so a session's macOS privacy grants (Screen Recording, Accessibility, Full Disk Access) are the ones given to herdr.

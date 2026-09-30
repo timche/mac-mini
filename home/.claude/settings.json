@@ -16,9 +16,6 @@
       "Edit(~/.claude/.credentials.json)"
     ]
   },
-  "skillOverrides": {
-    "postgres-schema": "off"
-  },
   "hooks": {
     "SessionStart": [
       {
@@ -58,9 +55,6 @@
       }
     ]
   },
-  "worktree": {
-    "baseRef": "fresh"
-  },
   "statusLine": {
     "type": "command",
     "command": "\"$HOME/.local/share/mise/shims/ccstatusline\"",
@@ -70,7 +64,7 @@
   "enabledPlugins": {
     "claude-md-management@claude-plugins-official": true,
     "frontend-design@claude-plugins-official": true,
-    "skill-creator@claude-plugins-official": true
+    "skill-creator@claude-plugins-official": false
   },
   "outputStyle": "Concise",
   "feedbackDrafts": "off",

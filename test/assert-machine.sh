@@ -80,11 +80,62 @@ check "git came with the command line tools" \
 check "tailscaled installed"      'command -v tailscaled'
 check "the tailscale CLI answers" 'tailscale version'
 
+tailscale_daemon=io.github.timche.tailscaled
+tailscale_plist="/Library/LaunchDaemons/$tailscale_daemon.plist"
+export tailscale_daemon tailscale_plist
+
+# Every component of a path root executes, the path itself included: owned by root
+# and writable by nobody else. Homebrew's prefix fails this — its Cellar and opt
+# directories are the account's — which is the whole reason the daemon runs a copy
+# in /usr/local/bin rather than the formula's own binary.
+root_owned_path() {
+  local path="$1" owner mode
+
+  while :; do
+    owner="$(stat -f '%Su' "$path" 2>/dev/null)" || return 1
+    mode="$(stat -f '%OLp' "$path" 2>/dev/null)" || return 1
+
+    [ "$owner" = root ] || return 1
+    [ $((8#$mode & 8#022)) -eq 0 ] || return 1
+
+    case "$path" in /) return 0 ;; esac
+    path="$(dirname "$path")"
+  done
+}
+export -f root_owned_path
+
+daemon_program() {
+  plutil -extract ProgramArguments.0 raw -o - "$tailscale_plist" 2>/dev/null
+}
+export -f daemon_program
+
+# The plist is a root-owned copy rather than a link into the checkout: launchd
+# reads it as root, and a link would put root's job description in a directory the
+# account can write.
+check "the daemon's plist is this repo's, byte for byte" \
+  'cmp -s "$root/system/launchd/$tailscale_daemon.plist" "$tailscale_plist"'
+check "the daemon's plist belongs to root" \
+  '[ "$(stat -f "%Su %Lp" "$tailscale_plist")" = "root 644" ]'
+check "the binary the daemon runs is root-owned all the way up" \
+  'root_owned_path "$(daemon_program)"'
+check "the CLI this repo runs under sudo is root-owned all the way up" \
+  'root_owned_path /usr/local/bin/tailscale'
+
+# Which is also what says tailscale.sh has been re-run since the last `brew
+# upgrade tailscale`: the copies are Homebrew's exact bytes or they are stale.
+check "the copies are the formula's current binaries" \
+  'cmp -s "$(brew --prefix tailscale)/bin/tailscaled" "$(daemon_program)" &&
+   cmp -s "$(brew --prefix tailscale)/bin/tailscale" /usr/local/bin/tailscale'
+
 # The daemon is in the system domain, which needs root to read — and a Mac being
 # provisioned by hand should not meet a password prompt inside a test.
 if sudo -n true 2>/dev/null; then
   check "tailscaled is a loaded system daemon" \
-    'sudo -n launchctl print system/sh.brew.tailscale'
+    'sudo -n launchctl print "system/$tailscale_daemon"'
+  # Two tailscaled cannot share one tunnel, and brew services' one runs the
+  # account-writable binary this replaced.
+  check "brew services' tailscale daemon is gone" \
+    '! sudo -n launchctl print system/sh.brew.tailscale'
 else
   echo "  --    sudo wants a password, so tailscaled's daemon was not checked"
 fi

@@ -81,7 +81,8 @@ jobs:
       - run: ./xcode.sh
       - run: test/assert-machine.sh
 
-      # The account phase, whose last step is install.sh.
+      # The account phase, which starts with install.sh — so the bare install.sh
+      # after it is the second pass over that half.
       - run: ./claude.sh
       - run: test/assert-claude.sh
       - run: test/assert.sh

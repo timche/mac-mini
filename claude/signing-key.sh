@@ -32,7 +32,7 @@ allowed_signers="$HOME/.ssh/allowed_signers"
 
 # The item, not the fields: both halves of one key are two fields of one 1Password
 # item by definition, and the agent is handed the same override.
-item="${SIGNING_KEY_OP_ITEM:-op://Development/SSH Key}"
+item="${SIGNING_KEY_OP_ITEM:-op://dev/ssh-commit-signing}"
 token_file="${OP_SERVICE_ACCOUNT_TOKEN_FILE:-$HOME/.config/op/service-account-token}"
 
 if [ "$(uname -s)" != Darwin ]; then

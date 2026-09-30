@@ -31,7 +31,7 @@ set -uo pipefail
 # plist carries no environment, so they never reach the job launchd starts.
 sock="${AGENT_SOCKET:-$HOME/.ssh/agent.sock}"
 token_file="${OP_SERVICE_ACCOUNT_TOKEN_FILE:-$HOME/.config/op/service-account-token}"
-item="${SIGNING_KEY_OP_ITEM:-op://Development/SSH Key}"
+item="${SIGNING_KEY_OP_ITEM:-op://dev/ssh-commit-signing}"
 log="$HOME/Library/Logs/ssh-agent.log"
 
 # launchd hands a job /usr/bin:/bin:/usr/sbin:/sbin and nothing else, and op is

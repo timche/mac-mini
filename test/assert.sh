@@ -788,7 +788,7 @@ check "the tart-runner token file is a live symlink holding op references and no
   '[ -L "$HOME/.config/op/tart-runner.env" ] &&
    [ -e "$HOME/.config/op/tart-runner.env" ] &&
    env_file="$repo/home/.config/op/tart-runner.env" &&
-   grep -q "^TART_RUNNER_TOKEN_TIMCHE=\"op://Development/GitHub - tart-runner timche/token\"$" \
+   grep -q "^TART_RUNNER_TOKEN_TIMCHE=\"op://dev/github-tart-runner-timche/token\"$" \
      "$env_file" &&
    ! grep -vE "^#|^$|^TART_RUNNER_TOKEN_[A-Z0-9_]+=\"op://" "$env_file"'
 
@@ -814,7 +814,7 @@ tart_runner_home() {
   mkdir -p "$h/.config/op" "$h/bin"
   printf 'stub-service-account\n' >"$h/.config/op/service-account-token"
   printf '%s\n' \
-    'TART_RUNNER_TOKEN_TIMCHE="op://Development/GitHub - tart-runner timche/token"' \
+    'TART_RUNNER_TOKEN_TIMCHE="op://dev/github-tart-runner-timche/token"' \
     >"$h/.config/op/tart-runner.env"
 
   cat >"$h/bin/op" <<'STUB'
@@ -839,9 +839,9 @@ check "the dispatcher resolves the owner's token from 1Password and spends it on
   'h="$(tart_runner_home)" &&
    HOME="$h" PATH="$h/bin:$PATH" TART_RUNNER_REPOS=timche/mac-mini \
      "$repo/home/.local/bin/tart-runner" --dry-run &&
-   grep -q "^op saw stub-service-account for op://Development/GitHub - tart-runner timche/token$" \
+   grep -q "^op saw stub-service-account for op://dev/github-tart-runner-timche/token$" \
      "$h/op-calls" &&
-   [ "$(sort -u "$h/gh-tokens")" = "stub-pat-for-op://Development/GitHub - tart-runner timche/token" ]'
+   [ "$(sort -u "$h/gh-tokens")" = "stub-pat-for-op://dev/github-tart-runner-timche/token" ]'
 
 # The one thing that must never happen quietly: no reference, and the dispatcher
 # carries on with whatever `gh` is logged in as.

@@ -23,7 +23,7 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # hands every session a socket of its own whose agent holds nothing of this.
 socket="$HOME/.ssh/agent.sock"
 
-item="${SIGNING_KEY_OP_ITEM:-op://Development/SSH Key}"
+item="${SIGNING_KEY_OP_ITEM:-op://dev/ssh-commit-signing}"
 token_file="${OP_SERVICE_ACCOUNT_TOKEN_FILE:-$HOME/.config/op/service-account-token}"
 
 public=""

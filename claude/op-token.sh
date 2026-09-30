@@ -2,8 +2,8 @@
 
 # Store the 1Password service-account token this Mac signs in with, since it has
 # no 1Password app to do it. One file, ~/.config/op/service-account-token, read by
-# the signing agent at every start, by the op wrapper in ~/.local/bin for every
-# project's `op run`, and by a project's varlock schema through .env.1password.
+# the signing agent at every start and by the op wrapper in ~/.local/bin for every
+# project's `op run`.
 #
 # Run it with --replace after rotating the token in 1Password. Without it, a stored
 # token that still works is left alone, and one that no longer does is offered for

@@ -165,37 +165,52 @@ orb_config() {
   orb config show 2>/dev/null | sed -n "s/^$1: *//p" | head -1
 }
 
-# Set one at a time and only where they differ, so a re-run prints nothing and
-# leaves a running VM alone.
-restart=false
+# Set only where it differs, so a re-run prints nothing and leaves a running VM
+# alone.
+have_cpu="$(orb_config cpu || true)"
 
-for pair in "app.start_at_login true" "cpu $cpu"; do
-  key="${pair%% *}"
-  want="${pair##* }"
-  have="$(orb_config "$key" || true)"
+if [ "$have_cpu" != "$cpu" ]; then
+  if orb config set cpu "$cpu"; then
+    echo "OrbStack's cpu is now $cpu"
 
-  if [ "$have" = "$want" ]; then
-    continue
+    # The VM reads its CPU count when it boots, so this is the setting a running VM
+    # is worth bouncing for.
+    echo "restarting OrbStack, which is when the VM reads its new CPU count"
+    orb stop || true
+    orb start || true
+  else
+    echo "warning: OrbStack would not take cpu=$cpu, so it is ${have_cpu:-unset}." >&2
   fi
+fi
 
-  if ! orb config set "$key" "$want"; then
-    echo "warning: OrbStack would not take $key=$want, so it is ${have:-unset}." >&2
-    continue
+# Starting with the login session
+
+# macOS's own list of login items rather than OrbStack's app.start_at_login, which
+# is not a record of it: `orb config show` reports that false on a Mac where
+# OrbStack is in Login Items and does start with the session. Setting the key would
+# announce a change on every run and still leave the question open, where System
+# Events' list is the one System Settings shows and the one the Mac acts on.
+#
+# Reading it is the check for a GUI session as well: with nobody logged in — a
+# runner, a Mac whose auto-login has not happened — osascript fails rather than
+# answering an empty list, and so does one where this process may not drive System
+# Events. Either is said and skipped, since what a login item decides is whether
+# docker is up after the next reboot rather than whether it is up now.
+orbstack_app=/Applications/OrbStack.app
+login_items_query='tell application "System Events" to get the path of every login item'
+
+if ! login_items="$(osascript -e "$login_items_query" 2>&1)"; then
+  echo "warning: could not read this Mac's login items, so whether OrbStack starts" >&2
+  echo "with the session is unknown: $login_items" >&2
+elif ! printf '%s' "$login_items" | tr ',' '\n' | sed 's/^ *//; s/ *$//' |
+  grep -qxF "$orbstack_app"; then
+  if osascript -e "tell application \"System Events\" to make login item at end with properties {path:\"$orbstack_app\", hidden:false}" >/dev/null 2>&1; then
+    echo "OrbStack now starts with the login session"
+  else
+    echo "warning: OrbStack is not a login item and could not be made one, so the" >&2
+    echo "VM is down until somebody opens it. Adding it by hand is OrbStack's own" >&2
+    echo "settings, or System Settings > General > Login Items." >&2
   fi
-
-  echo "OrbStack's $key is now $want"
-
-  # The VM reads its CPU count when it boots, where the login item is the app's own
-  # and takes immediately. So only this one is worth bouncing a VM for.
-  if [ "$key" = cpu ]; then
-    restart=true
-  fi
-done
-
-if [ "$restart" = true ]; then
-  echo "restarting OrbStack, which is when the VM reads its new CPU count"
-  orb stop || true
-  orb start || true
 fi
 
 # Where it stands

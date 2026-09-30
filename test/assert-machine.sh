@@ -301,14 +301,17 @@ fi
 # immediate" with the pane set to Never — so a check on it would be a check on a
 # reading known to be wrong. idleTime above is the half that can be asserted.
 
-# The port rather than launchd's opinion of the job: `launchctl enable` clears the
-# Disabled flag without registering the screen recording rights the sharing agent
-# needs, so an enabled-from-a-script Mac has the job loaded and nothing listening.
+# Reported either way rather than asserted: nothing but System Settings > General
+# > Sharing can turn Screen Sharing on, since that pane is also what registers the
+# screen recording rights the sharing agent needs, so a runner and a Mac waiting
+# for a click would both fail a check they can do nothing about. The port rather
+# than launchd's opinion of the job, because `launchctl enable` clears the
+# Disabled flag and leaves the job loaded with nothing listening.
 if nc -z -G 1 -w 1 127.0.0.1 5900 >/dev/null 2>&1; then
-  check "Screen Sharing answers VNC" 'nc -z -G 1 -w 1 127.0.0.1 5900'
+  echo "  --    Screen Sharing answers VNC on port 5900"
 else
-  echo "  --    nothing answers VNC here, and only System Settings > General >"
-  echo "        Sharing can change that"
+  echo "  --    nothing answers VNC on port 5900, and only System Settings >"
+  echo "        General > Sharing can change that"
 fi
 
 # Asserted rather than reported, unlike the privacy list this replaced: mdutil

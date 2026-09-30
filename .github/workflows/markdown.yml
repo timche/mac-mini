@@ -1,0 +1,32 @@
+name: markdown
+
+# The markdown rules on their own, because test.yml's paths filter deliberately
+# keeps a markdown-only push off a macOS runner: the always-loaded instruction
+# file's word budget and the no-hard-wrap rule would otherwise be checked by
+# nothing on exactly the commits they are about. Linux and a couple of seconds,
+# where the macOS suite is an hour of the free allowance.
+on:
+  push:
+    paths: &markdown
+      - "**/*.md"
+      - test/assert-markdown.sh
+      - .github/workflows/markdown.yml
+  pull_request:
+    paths: *markdown
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  markdown:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v7
+      - run: test/assert-markdown.sh

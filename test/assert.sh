@@ -264,6 +264,16 @@ check "zsh points at the agent socket claude/ssh-agent.sh keeps" \
   '[ "$(PATH=$stock_path zsh -c "print -r -- \$SSH_AUTH_SOCK")" = \
      "$HOME/.ssh/agent.sock" ]'
 
+# Both hooks in .gitconfig are defined in config rather than in .git/hooks, which
+# git learned to run in 2.54: an older git reads those sections and runs neither,
+# so every commit goes unscanned and every new worktree uninstalled with nothing
+# saying so. Apple's git answers `git version 2.54.0 (Apple Git-157)`, so the
+# number is what is left once the prefix and anything after a space are cut off.
+check "git is new enough to run the hooks defined in config" \
+  'v="$(git --version)"; v="${v#git version }"; v="${v%% *}";
+   major="${v%%.*}"; rest="${v#*.}"; minor="${rest%%.*}";
+   [ "$major" -gt 2 ] || { [ "$major" -eq 2 ] && [ "$minor" -ge 54 ]; }'
+
 # git config survives the $HOME rewrite and stays readable through the symlink.
 check "git reads the linked config" 'git config --get user.email | grep -q "@"'
 # The scan runs from config beside a repository's own hooks, so it has to block a
@@ -795,10 +805,6 @@ check "a command under op run that calls op by name is signed in again" \
   'h="$(op_wrapper_home)" &&
    env -u OP_SERVICE_ACCOUNT_TOKEN HOME="$h" PATH="$h/wrap:$h/real:$PATH" op run -- op whoami |
      grep -c "^token=stub-service-account$" | grep -qx 2'
-
-check ".env.1password is a live symlink that names the token file, not the token" \
-  '[ -L "$HOME/.env.1password" ] && [ -e "$HOME/.env.1password" ] &&
-   grep -q "^OP_TOKEN=exec(\`cat ~/.config/op/service-account-token\`)$" "$HOME/.env.1password"'
 
 check "DO_NOT_TRACK is set in every shell" \
   '[ "$(zsh -c "print -r -- \$DO_NOT_TRACK")" = 1 ] &&

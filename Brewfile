@@ -4,8 +4,7 @@
 #
 # --no-upgrade, so a re-run installs what is missing and moves no version. That
 # matters more here than on a box you throw away: this Mac is reached over the
-# very sshd and tailnet a run touches, and `brew upgrade tailscale` restarts the
-# daemon the SSH session is riding on. `brew bundle upgrade` moves them when that
+# very sshd and tailnet a run touches. `brew bundle upgrade` moves them when that
 # is what is wanted.
 #
 # mise carries language runtimes and the npm packages that run on the node it
@@ -28,6 +27,11 @@ brew "jq"
 # The formula, not the cask of nearly the same name: the cask is the standalone
 # app, and an app is a login item inside a GUI session, where tailscale.sh makes
 # this a root system daemon that is up before anybody logs in.
+#
+# This one is the exception to `brew bundle upgrade` being the whole of an
+# upgrade: root runs a copy of these binaries rather than the formula's own, so
+# `brew upgrade tailscale` moves nothing until tailscale.sh is re-run — which is
+# also the point at which the daemon is restarted, from the LAN.
 brew "tailscale"
 
 # docker on a Mac is a Linux VM and a CLI pointed into it, and OrbStack is both:

@@ -192,32 +192,24 @@ if command -v portless >/dev/null 2>&1; then
          "in a browser until it is; run: portless trust" >&2
   fi
 
-  # Port 443 on 127.0.0.1 is root's on macOS, and a session has no terminal to
-  # sudo from, so without this daemon the first dev server a session starts fails
-  # outright. It records the absolute paths of the node and the portless that
-  # installed it, both under mise's versioned install directories, so a `mise up`
-  # of either leaves launchd pointing at a file that is gone.
-  # From zsh, because .zshenv is where the list is and claude.sh runs this from a
-  # bash that never read it.
-  portless_tlds="$(zsh -c 'print -r -- $PORTLESS_TLD' 2>/dev/null)"
-  portless_tlds="${portless_tlds:-localhost}"
-  portless_install="sudo portless service install --tld ${portless_tlds//,/ --tld }"
+  # `portless service install` only ever writes a root LaunchDaemon, and that
+  # daemon runs the node and the portless under this account's own mise
+  # directory — so any process running as the account could rewrite that
+  # JavaScript and have launchd run it as root. The proxy runs as the account
+  # from the LaunchAgent below instead, and the only thing root ever bought was
+  # binding 127.0.0.1:443, which nothing off this Mac reaches.
+  #
+  # Removing the daemon needs sudo, which a session has no terminal to answer,
+  # so the command to run is printed. The process as well as the plist, since a
+  # daemon booted out of launchd by hand leaves the file and one whose file was
+  # deleted keeps running until the Mac restarts.
   portless_daemon=/Library/LaunchDaemons/sh.portless.proxy.plist
-  if [ ! -f "$portless_daemon" ]; then
-    echo "portless's proxy is not installed as a daemon, so dev servers cannot" \
-         "take port 443; run: $portless_install" >&2
-  else
-    for i in 0 1; do
-      target="$(plutil -extract "ProgramArguments.$i" raw "$portless_daemon" 2>/dev/null)"
-      # An argument that is not there reads back empty, and an empty path is
-      # missing as far as `[ -e ]` is concerned — which would send Tim off to
-      # sudo a reinstall over nothing.
-      if [ -n "$target" ] && [ ! -e "$target" ]; then
-        echo "portless's daemon runs $target, which is gone since a mise" \
-             "upgrade; run: $portless_install" >&2
-        break
-      fi
-    done
+  if [ -f "$portless_daemon" ] ||
+     pgrep -u 0 -qf 'portless/dist/cli.js proxy start' 2>/dev/null; then
+    echo "portless's root proxy daemon is still installed, and it runs" \
+         "JavaScript this account can write — which is a way to run code as" \
+         "root. Remove it with: sudo launchctl bootout system/sh.portless.proxy" \
+         "&& sudo rm -f $portless_daemon" >&2
   fi
 fi
 
@@ -256,18 +248,30 @@ mcp_server chrome-devtools "{
 mcp_server context7 '{"type": "http", "url": "https://mcp.context7.com/mcp"}'
 # A worktree's dev server reaches Tim's MacBook as https://<branch>.<app>.<tld>
 # for the second TLD in PORTLESS_TLD, whose wildcard DNS record points at this
-# Mac's tailnet address. Tailscale Serve hands the tailnet's port 443 to portless
-# as raw TCP, so portless keeps TLS and routes by hostname, and each app keeps a
-# cookie jar of its own — which portless's own --tailscale gives up by putting
-# every app on this node's one name and a port each. Only when the Mac is on a
-# tailnet, and only when the forward differs, since serve rewrites its config on
-# every call.
-if tailscale status >/dev/null 2>&1; then
+# Mac's tailnet address. Tailscale Serve hands the tailnet's port 443 to the
+# proxy as raw TCP, so portless keeps TLS and routes by hostname, and each app
+# keeps a cookie jar of its own — which portless's own --tailscale gives up by
+# putting every app on this node's one name and a port each. The tailnet end
+# stays 443 whatever the proxy binds, so the MacBook's URLs carry no port.
+#
+# The port comes from zsh, because .zshenv is the one file that names it and
+# claude.sh runs this from a bash that never read it. An empty answer leaves the
+# forward alone rather than guessing: a wrong one is a dev URL that reaches
+# nothing.
+#
+# Only when the Mac is on a tailnet, and only when the forward differs, since
+# serve rewrites its config on every call.
+portless_port="$(zsh -c 'print -r -- $PORTLESS_PORT' 2>/dev/null)"
+
+if [ -z "$portless_port" ]; then
+  echo "PORTLESS_PORT is unset, so the tailnet's port 443 was left pointing" \
+       "where it was — .zshenv is what sets it" >&2
+elif tailscale status >/dev/null 2>&1; then
   if tailscale serve status --json 2>/dev/null |
-    jq -e '.TCP["443"].TCPForward == "127.0.0.1:443"' >/dev/null; then
-    echo "the tailnet's port 443 already reaches portless"
-  elif tailscale serve --bg --tcp 443 tcp://127.0.0.1:443 >/dev/null; then
-    echo "forwarded the tailnet's port 443 to portless"
+    jq -e --arg f "127.0.0.1:$portless_port" '.TCP["443"].TCPForward == $f' >/dev/null; then
+    echo "the tailnet's port 443 already reaches portless on $portless_port"
+  elif tailscale serve --bg --tcp 443 "tcp://127.0.0.1:$portless_port" >/dev/null; then
+    echo "forwarded the tailnet's port 443 to portless on $portless_port"
   else
     echo "could not forward the tailnet's port 443 to portless" >&2
   fi

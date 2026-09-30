@@ -151,7 +151,7 @@ check "the Brewfile's dependencies are satisfied" \
 
 # Provenance rather than a version, because a mise-installed copy of the same
 # name runs just as well and the point is which one the Mac has.
-for formula in fd ffmpeg glow ripgrep shellcheck starship zoxide boswell; do
+for formula in fd ffmpeg glow ripgrep shellcheck starship tuicr zoxide boswell; do
   check "$formula is Homebrew's" \
     "brew list --formula --full-name | grep -qxE '(.*/)?$formula'"
 done

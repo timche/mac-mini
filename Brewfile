@@ -62,6 +62,7 @@ brew "pscale"
 brew "ripgrep"
 brew "shellcheck"
 brew "starship"
+brew "tuicr"
 brew "zoxide"
 
 # The secrets scan .gitconfig runs before every commit in every repository here,

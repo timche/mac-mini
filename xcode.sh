@@ -108,11 +108,19 @@ EOF
   fi
 
   # xcodes names the app after the version it installed — Xcode-27.0.0.app — so
-  # the path is whatever it reports rather than something to write down. Versions
-  # come out in order, so the last line is the newest, which is what --latest just
-  # fetched. --no-color because this script does have a terminal, and colour codes
-  # here would be part of the path.
-  app="$(xcodes installed --no-color | awk -F'\t' 'NF > 1 { path = $NF } END { print path }')"
+  # the path is whatever it reports rather than something to write down. The
+  # highest release rather than the last line: the list is in version order but a
+  # beta or release candidate installed alongside sorts after the release it
+  # precedes, and --latest never fetches one. --no-color because this script does
+  # have a terminal, and colour codes here would be part of the path.
+  app="$(xcodes installed --no-color |
+    awk -F'\t' '
+      NF > 1 && $1 !~ /Beta|Release Candidate|RC/ {
+        split($1, field, " ")
+        print field[1] "\t" $NF
+      }' |
+    sort -V |
+    awk -F'\t' 'END { print $2 }')"
 
   if [ -z "$app" ] || [ ! -d "$app" ]; then
     echo "Xcode installed but xcodes does not say where — 'xcodes installed'" >&2

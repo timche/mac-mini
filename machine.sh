@@ -77,6 +77,15 @@ if ! /opt/homebrew/bin/tailscale status >/dev/null 2>&1; then
   echo "  - $repo/tailscale.sh — this Mac is not on the tailnet."
 fi
 
+# harden-ssh.sh skips itself rather than locking a Mac out of its own sshd, and
+# the drop-in it would have installed is the only thing that says whether it did.
+# Read rather than sudoed: the file is root-owned but world-readable, and the
+# directory above it is too.
+if [ ! -f /etc/ssh/sshd_config.d/10-hardening.conf ]; then
+  echo "  - $repo/harden-ssh.sh — ssh still takes a password. Add the key you"
+  echo "    connect with to ~/.ssh/authorized_keys and run it again."
+fi
+
 if [ "$xcode_left" = true ]; then
   echo "  - $repo/xcode.sh — Xcode itself, which signs meru's builds. It wants a"
   echo "    terminal, an Apple ID and an hour."

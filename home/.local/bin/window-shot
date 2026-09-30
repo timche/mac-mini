@@ -44,7 +44,8 @@ if let id = match?[kCGWindowNumber as String] {
 let err = FileHandle.standardError
 if owned.isEmpty {
   let owners = Set(normal.compactMap { $0[kCGWindowOwnerName as String] as? String }).sorted()
-  err.write("window-shot: no on-screen window owned by \(owner); on screen: \(owners.joined(separator: ", "))\n".data(using: .utf8)!)
+  let others = owners.isEmpty ? "no app has a window on screen" : "on screen: \(owners.joined(separator: ", "))"
+  err.write("window-shot: no on-screen window owned by \(owner); \(others)\n".data(using: .utf8)!)
 } else {
   let titles = owned.map { "\"\(($0[kCGWindowName as String] as? String) ?? "")\"" }
   err.write("window-shot: no \(owner) window titled with \"\(title)\"; its windows: \(titles.joined(separator: ", "))\n".data(using: .utf8)!)
@@ -53,9 +54,5 @@ exit(1)
 SWIFT
 )" || exit 1
 
-rm -f "$out"
-if ! screencapture -x -o -l "$id" "$out" || [ ! -s "$out" ]; then
-  echo "window-shot: screencapture wrote nothing for window $id; a missing Screen Recording grant does that" >&2
-  exit 1
-fi
+screencapture -x -o -l "$id" "$out" || exit 1
 echo "$out"

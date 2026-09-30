@@ -894,6 +894,69 @@ check "install.sh loads the tart-runner agent only when its plist is linked, and
    grep -qF "nothing answers a queued CI job until its plist is" "$repo/install.sh" &&
    grep -qF "whose plist is no longer linked" "$repo/install.sh"'
 
+# The wrapper execs the next op on PATH after itself, so a stub placed behind it
+# stands in for Homebrew's: it prints the token it was handed, its arguments,
+# and runs what follows `--` for `op run`, the way the real one does.
+op_wrapper_home() {
+  local h
+  h="$(mktemp -d)"
+
+  mkdir -p "$h/.config/op" "$h/wrap" "$h/real"
+  printf 'stub-service-account\n' >"$h/.config/op/service-account-token"
+  ln -s "$repo/home/.local/bin/op" "$h/wrap/op"
+
+  cat >"$h/real/op" <<'STUB'
+#!/bin/bash
+printf 'token=%s\n' "${OP_SERVICE_ACCOUNT_TOKEN-unset}"
+printf 'args=%s\n' "$*"
+if [ "${1:-}" = run ] || [ "${3:-}" = run ]; then
+  while [ "$#" -gt 0 ] && [ "$1" != -- ]; do shift; done
+  [ "$#" -gt 0 ] && shift && "$@"
+fi
+exit 0
+STUB
+  chmod +x "$h/real/op"
+  printf '%s\n' "$h"
+}
+export -f op_wrapper_home
+
+check "the op wrapper is a live symlink ahead of Homebrew's op" \
+  '[ -L "$HOME/.local/bin/op" ] && [ -x "$HOME/.local/bin/op" ] &&
+   [ "$(PATH="$HOME/.local/bin:/opt/homebrew/bin:$stock_path" command -v op)" = "$HOME/.local/bin/op" ]'
+check "the op wrapper hands op the token from the file" \
+  'h="$(op_wrapper_home)" &&
+   out="$(env -u OP_SERVICE_ACCOUNT_TOKEN HOME="$h" PATH="$h/wrap:$h/real:$PATH" op whoami)" &&
+   printf "%s" "$out" | grep -qx "token=stub-service-account" &&
+   printf "%s" "$out" | grep -qx "args=whoami"'
+check "the op wrapper leaves a token already set alone" \
+  'h="$(op_wrapper_home)" &&
+   HOME="$h" PATH="$h/wrap:$h/real:$PATH" OP_SERVICE_ACCOUNT_TOKEN=caller op whoami |
+     grep -qx "token=caller"'
+check "the op wrapper passes op through untouched without a token file" \
+  'h="$(op_wrapper_home)" && rm "$h/.config/op/service-account-token" &&
+   out="$(env -u OP_SERVICE_ACCOUNT_TOKEN HOME="$h" PATH="$h/wrap:$h/real:$PATH" op run --env-file .env.op -- printenv)" &&
+   printf "%s" "$out" | grep -qx "token=unset" &&
+   ! printf "%s" "$out" | grep -q "^OP_SERVICE_ACCOUNT_TOKEN="'
+check "op run gives op the token and the command none, with flags on either side of --env-file" \
+  'h="$(op_wrapper_home)" &&
+   for flags in "--env-file .env.op" "--no-masking --env-file .env.op" "--env-file .env.op --no-masking"; do
+     out="$(env -u OP_SERVICE_ACCOUNT_TOKEN HOME="$h" PATH="$h/wrap:$h/real:$PATH" op run $flags -- printenv)" &&
+     printf "%s" "$out" | grep -qx "token=stub-service-account" &&
+     printf "%s" "$out" | grep -qx "args=run $flags -- env -u OP_SERVICE_ACCOUNT_TOKEN printenv" &&
+     ! printf "%s" "$out" | grep -q "^OP_SERVICE_ACCOUNT_TOKEN=" || exit 1
+   done'
+check "op run strips the token after the first -- only, and a pre-set one too" \
+  'h="$(op_wrapper_home)" &&
+   HOME="$h" PATH="$h/wrap:$h/real:$PATH" OP_SERVICE_ACCOUNT_TOKEN=caller \
+     op --account x run -- echo -- a | grep -qx "args=--account x run -- env -u OP_SERVICE_ACCOUNT_TOKEN echo -- a"'
+check "op run without -- passes through" \
+  'h="$(op_wrapper_home)" &&
+   HOME="$h" PATH="$h/wrap:$h/real:$PATH" op run --env-file .env.op | grep -qx "args=run --env-file .env.op"'
+check "a command under op run that calls op by name is signed in again" \
+  'h="$(op_wrapper_home)" &&
+   env -u OP_SERVICE_ACCOUNT_TOKEN HOME="$h" PATH="$h/wrap:$h/real:$PATH" op run -- op whoami |
+     grep -c "^token=stub-service-account$" | grep -qx 2'
+
 check ".env.1password is a live symlink that names the token file, not the token" \
   '[ -L "$HOME/.env.1password" ] && [ -e "$HOME/.env.1password" ] &&
    grep -q "^OP_TOKEN=exec(\`cat ~/.config/op/service-account-token\`)$" "$HOME/.env.1password"'

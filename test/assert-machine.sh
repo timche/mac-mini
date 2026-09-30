@@ -146,13 +146,10 @@ portless_program() {
 }
 export -f portless_program
 
-# The agent that ran the proxy as the account is gone, and nothing may bring it
-# back: two proxies would fight over ~/.portless/proxy.port, which is where every
-# client looks. Checked wherever this runs, since the answer is the same on a
-# runner with no GUI session.
-check "no unprivileged proxy agent is loaded" \
-  '! launchctl print "gui/$(id -u)/io.github.timche.portless"'
-
+# The agent that used to run the proxy as the account is assert.sh's, with the
+# rest of this account's LaunchAgents: two proxies would fight over
+# ~/.portless/proxy.port, and it is install.sh that takes the loaded one out.
+#
 # portless is mise's, which the account phase installs, so a runner that has only
 # had machine.sh has no daemon to read — and neither has a Mac before
 # portless-root.sh was first run.

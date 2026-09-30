@@ -137,14 +137,19 @@ echo "--- claude/ssh-agent.sh after the wrapper changed in the checkout"
 printf '\n# changed by test/agent-links.sh\n' >>"$root/launchd/agent.sh"
 "$root/claude/ssh-agent.sh" 2>&1 | sed 's/^/  /'
 
-# kickstart returns before the replacement has a pid of its own.
+# kickstart returns before the replacement has a pid of its own, and between the
+# two the job has none at all — so an empty reading is the restart in progress
+# rather than the end of the wait.
 waited=0
-while [ "$(job_pid)" = "$second_pid" ] && [ "$waited" -lt 20 ]; do
+third_pid="$(job_pid)"
+while { [ -z "$third_pid" ] || [ "$third_pid" = "$second_pid" ]; } &&
+      [ "$waited" -lt 20 ]; do
   sleep 0.5
   waited=$((waited + 1))
+  third_pid="$(job_pid)"
 done
 
-export third_pid="$(job_pid)"
+export third_pid
 
 check "a changed wrapper restarted the job" \
   '[ -n "$third_pid" ] && [ "$third_pid" != "$second_pid" ]'

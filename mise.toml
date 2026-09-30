@@ -64,22 +64,6 @@
 # service-account token without the project knowing how.
 "~/.local/bin/op" = { source = "home/.local/bin/op", mode = "symlink" }
 
-# This repository's own CI, in a macOS VM cloned per job and deleted after it,
-# because a private repository's macOS minutes are GitHub's most expensive and
-# install.sh cannot be let near the real account. The repository list is a file so
-# that adding one is a line rather than a change to the dispatcher or its plist,
-# and the env file beside it names the fine-grained GitHub token each owner's
-# repositories are polled with — `op://` references rather than values, so it is
-# tracked here like any other config.
-#
-# Its LaunchAgent is the one plist here deliberately not linked. launchd loads
-# whatever is in ~/Library/LaunchAgents at login and that job has RunAtLoad and
-# KeepAlive, so the link is the switch and linking it here would switch the
-# runner on with every install. Tim makes the link when he wants it; install.sh
-# reads it. The README has both steps.
-"~/.local/bin/tart-runner" = { source = "home/.local/bin/tart-runner", mode = "symlink" }
-"~/.config/tart-runner/repos" = { source = "home/.config/tart-runner/repos", mode = "symlink" }
-"~/.config/op/tart-runner.env" = { source = "home/.config/op/tart-runner.env", mode = "symlink" }
 "~/Library/LaunchAgents/io.github.timche.memlog.plist" = { source = "home/Library/LaunchAgents/io.github.timche.memlog.plist", mode = "symlink" }
 "~/.config/betterleaks/betterleaks.toml" = { source = "home/.config/betterleaks/betterleaks.toml", mode = "symlink" }
 

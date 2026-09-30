@@ -41,8 +41,6 @@ A sync that cannot push opens a GitHub issue titled `Auto-sync failed`, on which
 
 ## Testing
 
-`./install.sh` then `test/assert.sh`, on the Mac, is the quick check after a change to the account half; `./machine.sh` then `test/assert-machine.sh` for the other one. `test/tart.sh` runs both phases and every assert in a throwaway Tart VM, which is the only way to try the fresh-Mac path without a fresh Mac.
+`./install.sh` then `test/assert.sh`, on the Mac, is the quick check after a change to the account half; `./machine.sh` then `test/assert-machine.sh` for the other one. Both run against a Mac that is already built, so the fresh-Mac path is CI's alone.
 
 CI is `.github/workflows/test.yml` on a hosted `macos-latest` runner, and nowhere else: there is no macOS container, and the suite changes the machine it runs on. It runs `bootstrap.sh` against a clone of the branch, then every phase twice with its asserts, then the three launchd-backed tests, then `harden-ssh.sh`. `.github/workflows/secrets.yml` is the Betterleaks scan of the full history, on every push. What neither can reach is in README under Testing.
-
-`~/.local/bin/tart-runner` is a self-hosted runner for a private repository that runs out of macOS minutes, and it is deliberately switched off: empty repository list, and a LaunchAgent whose plist is neither linked into `~/Library/LaunchAgents` nor loaded — the link is the switch, made by hand rather than by `mise.toml`, and `install.sh` reads it. Never point it at a public repository. README has the rest.

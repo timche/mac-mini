@@ -3,8 +3,7 @@ name: test
 # On GitHub's hosted macOS runners, which are free to a public repository — and
 # being free to this one is why it is public. A private repository's macOS
 # minutes count tenfold against the free allowance, and boswell pushes every edit
-# to main on its own. The README, under "A macOS runner of last resort", has what
-# a private repository would fall back to instead.
+# to main on its own.
 #
 # The paths filter is for the same reason: only a change the suite can catch
 # starts a run, and a burst of them ends as one.

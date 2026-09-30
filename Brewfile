@@ -71,17 +71,8 @@ brew "betterleaks"
 # The browser sessions drive.
 cask "google-chrome"
 
-# Windows on ARM for the Windows half of an Electron app. UTM rather than
-# Parallels, whose command line is its paid edition's, or VMware Fusion, whose
-# download sits behind a Broadcom account Homebrew cannot reach; utmctl starts and
-# stops the VM from an SSH session. Windows only: Tart, below, is the one for
-# macOS and Linux guests.
+# The virtual machines, Windows on ARM for the Windows half of an Electron app
+# among them. UTM rather than Parallels, whose command line is its paid edition's,
+# or VMware Fusion, whose download sits behind a Broadcom account Homebrew cannot
+# reach; utmctl starts and stops a VM from an SSH session.
 cask "utm"
-
-# macOS and Linux guests: a CLI throughout (clone, run --no-graphics, ip, then
-# SSH), images pulled from a registry rather than installed by hand, and clones
-# cheap enough to throw one away per test or CI job. No Windows, which is why UTM
-# stays. From openai/tools, where the project is published, and trusted for the
-# reason given at boswell's.
-tap "openai/tools", trusted: true
-brew "openai/tools/tart"

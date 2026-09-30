@@ -5,7 +5,7 @@
 # An op:// reference names where a secret lives in 1Password; the value only
 # exists once `op run` or `op read` resolves it, so a file of references is safe
 # to commit and is how every secret here is wired. `stub-` values are test
-# doubles, such as the ones assert.sh hands to tart-runner in place of a token.
+# doubles, such as the service-account token assert.sh hands the `op` wrapper.
 # An upper-snake name such as APPLE_APP_SPECIFIC_PASSWORD is an environment
 # variable a doc names, which generic-password reads as the value.
 filter = '''

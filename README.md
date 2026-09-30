@@ -184,8 +184,7 @@ The GitHub token goes in a file rather than the login keychain (`gh auth login -
 | `home/.config/herdr/config.toml` `home/.terminfo/x/xterm-ghostty` | herdr config, Ghostty terminfo |
 | `home/.config/mise/config.toml` | Every runtime mise installs globally |
 | `home/.config/boswell/config.toml` `home/Library/LaunchAgents/` | The repositories boswell watches, and the agents launchd runs |
-| `home/.local/bin/` | The machine's own scripts: the worktree sweep, the signed-build wrapper, the `op` wrapper, the memory log, the CI dispatcher |
-| `home/.config/tart-runner/repos` | The repositories whose CI jobs this Mac answers |
+| `home/.local/bin/` | The machine's own scripts: the worktree sweep, the signed-build wrapper, the `op` wrapper, the memory log |
 
 `.claude` sits under `home/` rather than at the repo root because a `.claude` directory at a repo root is *project* configuration to Claude Code — this repo would load its own global settings and skills a second time whenever it was the working directory.
 
@@ -347,86 +346,6 @@ One of them is believed rather than proven. Tap to click's two `Clicking` domain
 
 CI reads every one of these back on the `macos-latest` runner and asserts that a second pass finds nothing to write, which is what `mise bootstrap macos defaults status --missing` answers.
 
-## A macOS runner of last resort
-
-Built and kept switched off. It answers a queued GitHub Actions job with a macOS VM cloned for that one job and deleted when it ends, and it exists for the day a *private* repository runs out of macOS minutes — a private repository's minutes count tenfold against the free allowance. Nothing uses it today. This repository is public, so its own CI is GitHub's hosted runners and free, and a self-hosted runner must never serve a public repository: anyone who can open a pull request can then run code on the Mac it is attached to.
-
-Running such jobs on the Mac's own account is not on the table either — `install.sh` rewrites the account it runs as, and that account is Tim's. A VM per job is the answer, and it is the better one on its own merits: every job starts on a macOS install nothing has ever touched, which is exactly the claim this suite makes.
-
-Tart runs the VM, installed from the Brewfile as `openai/tools/tart`. It has no GitHub Actions integration of its own to lean on: its documentation points at Cirrus Runners, a hosted service closed to new customers, its one real CI executor is GitLab's, and Orchard is a cluster orchestrator with no Actions support either. So the dispatching is this repository's, in `~/.local/bin/tart-runner`.
-
-**How a job gets answered.** `io.github.timche.tart-runner`, a LaunchAgent in the GUI session, keeps `tart-runner` polling. Every 45 seconds it asks each repository in `~/.config/tart-runner/repos` for its queued and in-progress runs and then those runs' jobs, because GitHub has no endpoint that lists a repository's queued jobs directly. A job whose labels are all labels this Mac registers with — `self-hosted`, `macOS`, `tart` — is one to answer. It then clones `gha-runner-base`, sets the clone to 4 CPUs and 8 GB, boots it with `--no-graphics --net-softnet`, mints a just-in-time runner config with `POST …/actions/runners/generate-jitconfig`, and starts `./run.sh --jitconfig` in the guest over SSH. A JIT runner is ephemeral by construction: it takes exactly one job, exits, and removes its own registration. When it exits, the VM is stopped and deleted.
-
-The config is the only credential the VM is ever handed, and it never reaches an argument list on this Mac — it goes to the guest on stdin. Nothing on this disk holds a registration token, and a VM destroyed mid-job leaves no runner sitting offline in the repository's settings.
-
-**The token it polls with.** Not the account's `gh` login. That is an OAuth token with the `repo` scope, which is every private repository Tim has, and handing it to the thing that runs whatever a workflow file asks for is the wrong way round. Instead each owner gets a fine-grained personal access token of its own, scoped to the repositories in the list and to two permissions:
-
-| Permission | Level | What it is for |
-| --- | --- | --- |
-| Administration | write | `POST /repos/{owner}/{repo}/actions/runners/generate-jitconfig`, `GET …/actions/runners`, `DELETE …/actions/runners/{id}` — minting the per-job registration and removing one the runner failed to remove itself |
-| Actions | read | `GET /repos/{owner}/{repo}/actions/runs` and `GET …/actions/runs/{id}/jobs` — the poll |
-| Metadata | read | mandatory alongside any repository permission; GitHub's token form selects it for you |
-
-Those are the levels GitHub's [permissions required for fine-grained personal access tokens](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens) lists for exactly those five endpoints. Nothing gives read access to a repository's *contents*, because the dispatcher never clones anything — the job does that, inside the VM, with the token GitHub mints for the run.
-
-One token per **owner**, because a fine-grained token is limited to resources owned by a single user or organization: repositories under `timche` and under an organization need one each. `~/.config/op/tart-runner.env` holds one `op://` reference per owner, named `TART_RUNNER_TOKEN_<OWNER>` with the owner uppercased and anything but a letter or a digit turned into an underscore, and the owner half of a line in the repository list picks the one to use. The reference is resolved from 1Password at the moment it is first needed, with the service-account token in `op`'s environment and nowhere else, into a shell variable that is set for a single `gh` call rather than exported — so it is not in the dispatcher's environment, not in a file, not in an argument list, and not in anything the VM can see. If a reference is missing or will not resolve, the dispatcher says so and stops. It never falls back.
-
-**What the VM can reach.** Tart's default is NAT, where a guest has the run of whatever the host does: this Mac's own services, the LAN, and the tailnet. `--net-softnet` puts [Softnet](https://github.com/openai/softnet), a userspace packet filter that comes with Tart as a Brewfile dependency, between the VM and the bridge instead. A VM behind it may send only from its own MAC and its own DHCP address, and only to globally routable IPv4 addresses — so GitHub, Homebrew and everything else a job checks out or installs still works, while every private range is gone. The tailnet is `100.64.0.0/10`, which is carrier-grade NAT rather than a private range and so not obviously covered by a rule phrased the other way round, so the dispatcher names it in `--net-softnet-block` rather than trusting the inference.
-
-What stays reachable is the vmnet bridge's gateway address, which is this Mac's own address on that bridge and also the VM's DNS server — blocking it would leave the guest unable to resolve anything. So a service bound to `0.0.0.0` on this Mac is still reachable from a job. Nothing here binds one (portless is on loopback, Tailscale on the tailnet address), and the way to close it for good would be a guest pointed at a public resolver and the gateway blocked too.
-
-Softnet runs as root. Tart sets the setuid bit for it the first time `--net-softnet` is used **from a terminal**, by asking for a sudo password — a LaunchAgent has nowhere to ask, so on this Mac it is one command, once:
-
-```sh
-sudo chown root /opt/homebrew/Cellar/softnet/*/bin/softnet
-sudo chmod u+s /opt/homebrew/Cellar/softnet/*/bin/softnet
-```
-
-That is the Cellar path rather than the `/opt/homebrew/bin/softnet` symlink, and it is what Tart itself runs; a `brew upgrade` that moves softnet to a new version directory undoes it, and the dispatcher will say so. Until it is done the dispatcher refuses to start a VM and logs the exact command rather than quietly falling back to NAT — `tart run` would fail anyway, with `root privileges are required to run and passwordless sudo was not available` in the VM log.
-
-**What it refuses to do.** One VM at a time, and none at all while nothing is queued: 8 GB of a 32 GB Mac is not something to hold overnight for a repository that sees a handful of pushes a week. It also waits while UTM has a guest running, since the Windows VM holds 8 GB of its own and two guests plus a working machine is how everything starts swapping. Apple's licence caps a host at two macOS guests in any case, and the Virtualization framework enforces it. A dispatcher that was killed outright leaves a VM behind, which the next one sweeps by name at startup; the lock is a `mkdir` in the cache directory, taken over by pid when its holder is gone.
-
-The cost of all this is that a run waits for the Mac. Nothing answers a queued job while the Mac is off or already running one, and a job that queues at night sits there until morning.
-
-**The image.** `gha-runner-base` is `ghcr.io/cirruslabs/macos-golden-gate-base` — macOS 27, the release this Mac runs — plus what a GitHub-hosted macOS image has and a bare Mac does not: the command line tools, Homebrew, `gh` and `jq`, and the actions runner itself. The Brewfile is deliberately *not* baked in. `brew bundle` doing its work inside the job is a third of what the suite proves, and an image that arrived with the packages would only ever prove the re-run.
-
-Building or refreshing it is one command, which is idempotent and replaces whatever is there:
-
-```sh
-tart-runner --build-image
-```
-
-It generates `~/.ssh/tart-runner` if there is none, clones the base image, seeds the public half into the guest through Tart's guest agent — `tart exec`, because the base image answers SSH only for the password it ships with and there is no `sshpass` on this Mac — then installs the tools over SSH and shuts the VM down. Refresh it when the actions runner release the job needs has moved far enough that the runner refuses to start, when Homebrew's bootstrap changes, or when a new macOS base image is worth moving to; nothing about it expires on a schedule. The first build pulls tens of gigabytes.
-
-Two things about that base image are not a clean Mac and matter for anything Gatekeeper-shaped: **SIP is disabled** and **Gatekeeper assessments are off**. `sudo spctl --global-enable` turns assessments back on but leaves the policy at App Store only, and `spctl --enable --label "Developer ID"` is refused on macOS 27, so restoring the default is `sudo sqlite3 /var/db/SystemPolicyConfiguration/SystemPolicy "update authority set disabled=0 where id in (6,11);"` and then `sudo killall syspolicyd`, until `spctl --status --verbose` says `developer id enabled` as the host does. SIP cannot be turned back on without Recovery.
-
-**Switching it on for a repository.** The list at `~/.config/tart-runner/repos` ships empty, and the LaunchAgent's plist stays in the checkout: it is the one plist `mise.toml` deliberately does not link into `~/Library/LaunchAgents`, because launchd loads everything in that directory at login and this job has `RunAtLoad` and `KeepAlive`. So the link is the switch — no link, no runner, across a login and across every `install.sh` — and `install.sh` reads it rather than making it. With it absent, an install prints that the runner is off and boots out anything left loaded from before. To point it at a private repository:
-
-1. In 1Password, in the `dev` vault the service account can read, make an item named `github-tart-runner-<owner>`, with the owner lowercased, with a field called `token`. It holds a fine-grained personal access token whose **resource owner** is that owner, whose **repository access** is *Only select repositories* — the ones in the list and no others — and whose permissions are the three in the table above. Give it the shortest expiry you are willing to renew; a runner that stops answering because a token expired says so in its log. If the owner is an organization, the organization has to allow fine-grained tokens at all, under Settings → Personal access tokens → Fine-grained tokens, and by default an owner must approve each one a member creates.
-2. Add the reference to `home/.config/op/tart-runner.env` as `TART_RUNNER_TOKEN_<OWNER>="op://dev/github-tart-runner-<owner>/token"`, a reference and never a value.
-3. Add the `owner/name` as a line in `home/.config/tart-runner/repos`, and put `runs-on: [self-hosted, macOS, tart]` in that repository's workflow.
-4. Give softnet the setuid bit if it has none, build the image if there is none, make the link, and let `install.sh` load it.
-
-```sh
-sudo chown root /opt/homebrew/Cellar/softnet/*/bin/softnet
-sudo chmod u+s /opt/homebrew/Cellar/softnet/*/bin/softnet
-tart-runner --build-image
-ln -s ~/.mac-mini/home/Library/LaunchAgents/io.github.timche.tart-runner.plist \
-  ~/Library/LaunchAgents/io.github.timche.tart-runner.plist
-./install.sh
-```
-
-`launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.github.timche.tart-runner.plist` starts it there and then if the rest of an install is not wanted; the link is what makes the next login and the next install keep it on.
-
-Switching it off is the two halves back:
-
-```sh
-launchctl bootout gui/$(id -u)/io.github.timche.tart-runner
-rm ~/Library/LaunchAgents/io.github.timche.tart-runner.plist
-```
-
-The bootout stops the dispatcher now and the removed link is what keeps it stopped; removing the link alone leaves a running dispatcher until the next login or the next `install.sh`, which boots it out. Emptying the repository list stops it answering a repository without stopping the agent at all. `tart-runner --dry-run` says what it can see queued without starting anything, and `tart-runner --once` takes a single job in the foreground, which is the way to watch one go through. Only ever a private repository.
-
 ## Testing
 
 `.github/workflows/test.yml`, on a `macos-latest` runner and nowhere else: there is no macOS container to put any of this in, and the suite changes the machine it runs on. Hosted runners are free to a public repository, which is the reason this one is public.
@@ -437,13 +356,7 @@ There are three assert scripts, one per phase: `test/assert-machine.sh` for what
 
 `test/signing-agent.sh` is the one worth reading. It generates a key, puts a stub `op` in front of the real one on PATH, and runs the real `claude/signing-key.sh` against a throwaway `HOME` — then asserts that the agent holds the key, that `.ssh` holds neither half of it, and that a commit signs and verifies through the agent and cannot sign without it. The agent is run the way launchd runs it rather than by launchd, since launchd would hand it the account's `HOME` and not that one; `test/agent-links.sh` is the half that does use launchd, against the account itself and with no token anywhere, and asserts what only a real `bootstrap` can — that a symlinked plist loads, and that a wrapper changed in the checkout restarts the job. `test/boswell-agent.sh` does the same for boswell's plist under a label of its own and with a stand-in for boswell. The first two refuse to run outside CI unless `MAC_MINI_TEST_ANYWAY=1`: the first would register its throwaway key on whatever GitHub account `gh` is logged in to, and the second bounces the agent holding the real key, since launchd keys a job by label per account.
 
-A local run is `./install.sh && test/assert.sh` on the Mac itself, which is the quick check after each change. What it cannot answer is the promise the suite actually makes, since it runs against a Mac that is already built: `test/tart.sh` does that, in a Tart VM cloned for the run and deleted after it. It takes the working tree as it stands, uncommitted changes and untracked files included, copies it in, and runs `machine.sh`, `claude.sh` and `install.sh` with the asserts after each, so a change can be tried on a fresh Mac before it is pushed. `--keep` leaves the VM up when something fails. It wants the image `tart-runner --build-image` makes, and refuses for the same reasons the dispatcher does — a Windows guest up, another Tart VM running, a run already going.
-
-Three things bite when scripting Tart, and all three are in `test/tart.sh` and `tart-runner`:
-
-- `tart list` fails outright while any VM is running — it reads every VM's disk image and a running VM holds its own — so the process table and `~/.tart/vms/` are what get asked instead.
-- A clone keeps its parent's MAC, so `tart ip` answers instantly from the DHCP lease the previous clone left behind and hands back an address before the new VM has booted. `tart set --random-mac` on every clone.
-- `tart stop` gives the guest thirty seconds and then kills it, which a macOS guest does not finish in, and the guest's unflushed writes are lost. Shut down from inside and wait for the `tart run` process to exit.
+A local run is `./install.sh && test/assert.sh` on the Mac itself, which is the quick check after each change. What it cannot answer is the promise the suite actually makes, since it runs against a Mac that is already built: only CI does that, where `bootstrap.sh` builds a runner from nothing on every push. So a change to the fresh-Mac path is tried by pushing the branch and reading that job.
 
 What CI cannot reach: anything that needs a click. Screen Sharing needs the Sharing pane to register the sharing agent's screen recording rights, so `assert-machine.sh` reports where it stands instead of asserting it. The screen lock is worse than unreachable, for the reason above, so nothing checks it at all. Nor a service account and a vault, a tailnet to log in to — the runner installs tailscaled and configures its prefs, which works logged out, but nothing authenticates and the asserts say so — a machine that loses power, and TCC, since the runners have SIP disabled and anything gated on Full Disk Access behaves more permissively there than on a real Mac. That last one is why `remote-login.sh` goes through launchd rather than `systemsetup`, which is gated. Nor a hypervisor: a runner is a VM itself and Virtualization.framework inside one refuses outright, and OrbStack's first run is a welcome screen on the Mac's own display besides. The docs clone fails too, the runner's token not reaching `timche/docs`, so boswell stays unloaded and the asserts check its wiring rather than a running daemon.
 

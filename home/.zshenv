@@ -31,9 +31,18 @@ export PROJECT_DOCS_DIR="$HOME/projects/docs"
 # takes the first TLD and a dev server talking to itself should stay on this
 # Mac; the second is how Tim's MacBook reaches it over the tailnet, through a
 # wildcard DNS record at Cloudflare that points at this Mac's tailnet address.
-# The running proxy decides the TLDs and portless only warns when this differs,
-# so the daemon install.sh names is installed from this same list.
 export PORTLESS_TLD=localhost,timche.dev
+
+# The port the proxy binds on 127.0.0.1, and the one file that says so: the
+# LaunchAgent starts the proxy through zsh precisely so that it reads this, and
+# install.sh asks zsh for it when it points Tailscale Serve at the proxy.
+#
+# Above 1024, because the proxy runs as the account: a lower port would have it
+# re-exec itself under a sudo no session can answer, and a root proxy would be
+# running JavaScript this account can rewrite. A client finds the running proxy
+# through ~/.portless/proxy.port whatever this says; what it settles is the port
+# a proxy binds when portless starts one itself, the agent's included.
+export PORTLESS_PORT=8443
 
 # The cross-tool opt-out from usage analytics (donottrack.sh). varlock is why it
 # is here: without it, every project would need a .varlock/config.json of its own.

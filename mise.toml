@@ -47,6 +47,7 @@
 # config naming a path that is not a work tree.
 "~/Library/LaunchAgents/io.github.timche.boswell.plist" = { source = "home/Library/LaunchAgents/io.github.timche.boswell.plist", mode = "symlink" }
 "~/Library/LaunchAgents/io.github.timche.herdr.plist" = { source = "home/Library/LaunchAgents/io.github.timche.herdr.plist", mode = "symlink" }
+"~/Library/LaunchAgents/io.github.timche.portless.plist" = { source = "home/Library/LaunchAgents/io.github.timche.portless.plist", mode = "symlink" }
 
 # The one plist still rendered rather than linked: launchd reads WatchPaths itself
 # and expands no $HOME in it, so that path has to arrive already absolute.

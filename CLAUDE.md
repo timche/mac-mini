@@ -12,6 +12,8 @@ Two files here are named CLAUDE.md. This one is guidance for working in the repo
 
 `claude.sh` is the second phase and the one that does: `install.sh`, then `claude/login.sh`, then `claude/signing-key.sh`. `install.sh` first because `login.sh` logs in to a Claude Code that `install.sh` installs, and `signing-key.sh` needs the `user.email` from the `.gitconfig` `install.sh` links; `login.sh` reruns `install.sh` once there is a token, for the project docs it could not clone without one. `claude/signing-key.sh` calls `claude/op-token.sh` for the 1Password service-account token — the script to rerun with `--replace` after rotating it — then `claude/ssh-agent.sh` for the agent that holds the private half and then `claude/register-signing-key.sh`, which takes the public half from that agent — or from 1Password when the agent is not up yet — and puts it on the GitHub account.
 
+`portless-root.sh` is neither phase's and runs by hand, like `xcode.sh`: it copies the node and the portless mise installed to `/usr/local/lib/portless` as `root:wheel` and installs portless's proxy daemon from that copy, so the daemon holding port 443 executes nothing this account can write. It needs sudo, and it restarts the proxy, so it refuses a run with neither a cached sudo nor a terminal. `install.sh` calls it with `--check`, which needs neither, and prints the command when the daemon is behind.
+
 Public, which is what makes CI free, and it holds no secret: the signing key and the signing certificates are 1Password references, and the tokens are files `.gitignore` never sees.
 
 ## Edits here publish themselves

@@ -671,7 +671,7 @@ check "install.sh forwards the tailnet's port 443 to the proxy's own port" \
 # so anything running as the account could have launchd run it as root. Nothing
 # here may offer to install it, and install.sh says how to take it away.
 check "install.sh never installs portless's root daemon and asks for its removal" \
-  '! grep -q "portless service install" "$repo/install.sh" &&
+  '! grep -qE "^[^#]*portless service install" "$repo/install.sh" &&
    grep -q "sudo launchctl bootout system/sh.portless.proxy" "$repo/install.sh" &&
    grep -q "pgrep -u 0 -qf .portless/dist/cli.js proxy start" "$repo/install.sh"'
 

@@ -95,6 +95,9 @@ root_owned_path() {
     owner="$(stat -f '%Su' "$path" 2>/dev/null)" || return 1
     mode="$(stat -f '%OLp' "$path" 2>/dev/null)" || return 1
 
+    # stat reads the link rather than what it points at, and a root-owned link
+    # into the account's prefix is the hole this is looking for.
+    [ ! -L "$path" ] || return 1
     [ "$owner" = root ] || return 1
     [ $((8#$mode & 8#022)) -eq 0 ] || return 1
 

@@ -13,7 +13,8 @@
 # gh not logged in, or a token without the scope. On a fresh Mac all of those are
 # true before signing-key.sh has run.
 #
-# Safe to re-run: a key already on the account is left alone.
+# Safe to re-run: a key already on the account is left alone, and an older key
+# under the same title is removed once the current one is there.
 
 set -euo pipefail
 # The service-account token is expanded into commands below, where a trace would
@@ -91,14 +92,52 @@ fi
 # fields it stores.
 key="$(awk '{print $1" "$2}' "$staged")"
 
+# The account carries one key per machine that signs, titled after the machine,
+# so an entry under this exact title holding a different body is what a rotation
+# left behind: it verifies nothing this Mac will sign again, and every rotation
+# would otherwise add another. An inexact title is somebody else's — another
+# machine, or a key added by hand — and is never touched. Only ever run once the
+# current key is on the account, so a failed add cannot leave the machine with no
+# signing key at all.
+prune_rotated() {
+  local listing id entry_title entry_key
+
+  if ! listing="$(gh api user/ssh_signing_keys --jq '.[] | [.id, .title, .key] | @tsv' 2>/dev/null)"; then
+    echo "the signing keys could not be listed, so an older key titled" \
+         "'$title' may still be on the account" >&2
+    return 0
+  fi
+
+  while IFS=$'\t' read -r id entry_title entry_key; do
+    [ -n "$id" ] || continue
+    [ "$entry_title" = "$title" ] || continue
+
+    entry_key="$(printf '%s\n' "$entry_key" | awk 'NF >= 2 { print $1" "$2 }')"
+    [ -n "$entry_key" ] || continue
+    [ "$entry_key" != "$key" ] || continue
+
+    if gh api --method DELETE "user/ssh_signing_keys/$id" >/dev/null 2>&1; then
+      echo "removed the rotated signing key titled '$title' ($id)"
+    else
+      echo "the rotated signing key titled '$title' ($id) could not be removed" >&2
+    fi
+  done <<EOF
+$listing
+EOF
+}
+
+title="$(hostname -s)"
+
 if printf '%s\n' "$registered" | grep -qxF "$key"; then
   echo "the signing key is already on the GitHub account"
+  prune_rotated
   exit 0
 fi
 
-# Titled after the machine, since the account carries one key per machine that
-# signs — and the file this reads from is a temporary one whose name gh would
-# otherwise take.
-gh ssh-key add "$staged" --type signing --title "$(hostname -s)"
+# The file this reads from is a temporary one whose name gh would otherwise take
+# as the title.
+gh ssh-key add "$staged" --type signing --title "$title"
 
-echo "registered the signing key with GitHub as '$(hostname -s)'"
+echo "registered the signing key with GitHub as '$title'"
+
+prune_rotated

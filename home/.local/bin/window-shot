@@ -1,0 +1,61 @@
+#!/bin/bash
+# Captures one app window, without its shadow, where `screencapture -x` would
+# capture the whole display with every other session's windows on it. The
+# `-l <window id>` that does it wants a CGWindowID, which nothing on macOS
+# prints, so a few lines of Swift ask CGWindowListCopyWindowInfo for it. They
+# run through the Command Line Tools' `swift` as a script rather than as a
+# compiled binary, which would be a build step and a second file to keep current.
+#
+# The window list comes front to back, so the first match is the frontmost.
+# Window titles need the Screen Recording grant, which the capture needs anyway.
+
+set -uo pipefail
+
+usage() {
+  echo "usage: window-shot <owner> <out.png> [title substring]" >&2
+  echo "  owner is the app's process name as the window list has it: Electron, Google Chrome, Finder" >&2
+}
+
+case "${1:-}" in
+  -h | --help) usage; exit 0 ;;
+esac
+if [ $# -lt 2 ] || [ $# -gt 3 ]; then
+  usage
+  exit 2
+fi
+
+owner="$1" out="$2" title="${3:-}"
+
+id="$(swift - "$owner" "$title" <<'SWIFT'
+import CoreGraphics
+import Foundation
+
+let owner = CommandLine.arguments[1]
+let title = CommandLine.arguments[2]
+let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+let normal = windows.filter { ($0[kCGWindowLayer as String] as? Int) == 0 }
+let owned = normal.filter { ($0[kCGWindowOwnerName as String] as? String) == owner }
+let match = owned.first { title.isEmpty || (($0[kCGWindowName as String] as? String) ?? "").contains(title) }
+
+if let id = match?[kCGWindowNumber as String] {
+  print(id)
+  exit(0)
+}
+let err = FileHandle.standardError
+if owned.isEmpty {
+  let owners = Set(normal.compactMap { $0[kCGWindowOwnerName as String] as? String }).sorted()
+  err.write("window-shot: no on-screen window owned by \(owner); on screen: \(owners.joined(separator: ", "))\n".data(using: .utf8)!)
+} else {
+  let titles = owned.map { "\"\(($0[kCGWindowName as String] as? String) ?? "")\"" }
+  err.write("window-shot: no \(owner) window titled with \"\(title)\"; its windows: \(titles.joined(separator: ", "))\n".data(using: .utf8)!)
+}
+exit(1)
+SWIFT
+)" || exit 1
+
+rm -f "$out"
+if ! screencapture -x -o -l "$id" "$out" || [ ! -s "$out" ]; then
+  echo "window-shot: screencapture wrote nothing for window $id; a missing Screen Recording grant does that" >&2
+  exit 1
+fi
+echo "$out"

@@ -193,17 +193,31 @@ if command -v portless >/dev/null 2>&1; then
   fi
 
   # Port 443 on 127.0.0.1 is root's on macOS, and a session has no terminal to
-  # sudo from, so without the daemon the first dev server a session starts fails
-  # outright. What root executes is a root-owned copy of mise's node and the
-  # portless package under /usr/local/lib/portless, never mise's own directory,
-  # which this account can write and so would be a way to run code as root.
-  #
-  # portless-root.sh owns both halves and answers for them with --check, so the
-  # paths it derives live in one file rather than two that can drift. Installing
-  # or refreshing the copy needs sudo, which is Tim's to run.
-  if ! "$repo/portless-root.sh" --check; then
-    echo "portless's proxy is not running from a current root-owned copy;" \
-         "run: $repo/portless-root.sh" >&2
+  # sudo from, so without this daemon the first dev server a session starts fails
+  # outright. It records the absolute paths of the node and the portless that
+  # installed it, both under mise's versioned install directories, so a `mise up`
+  # of either leaves launchd pointing at a file that is gone.
+  # From zsh, because .zshenv is where the list is and claude.sh runs this from a
+  # bash that never read it.
+  portless_tlds="$(zsh -c 'print -r -- $PORTLESS_TLD' 2>/dev/null)"
+  portless_tlds="${portless_tlds:-localhost}"
+  portless_install="sudo portless service install --tld ${portless_tlds//,/ --tld }"
+  portless_daemon=/Library/LaunchDaemons/sh.portless.proxy.plist
+  if [ ! -f "$portless_daemon" ]; then
+    echo "portless's proxy is not installed as a daemon, so dev servers cannot" \
+         "take port 443; run: $portless_install" >&2
+  else
+    for i in 0 1; do
+      target="$(plutil -extract "ProgramArguments.$i" raw "$portless_daemon" 2>/dev/null)"
+      # An argument that is not there reads back empty, and an empty path is
+      # missing as far as `[ -e ]` is concerned — which would send Tim off to
+      # sudo a reinstall over nothing.
+      if [ -n "$target" ] && [ ! -e "$target" ]; then
+        echo "portless's daemon runs $target, which is gone since a mise" \
+             "upgrade; run: $portless_install" >&2
+        break
+      fi
+    done
   fi
 fi
 

@@ -55,7 +55,6 @@ daemon_plist="/Library/LaunchDaemons/$label.plist"
 root_lib=/usr/local/lib/portless
 copy_node="$root_lib/bin/node"
 copy_modules="$root_lib/lib/node_modules"
-copy_cli="$copy_modules/portless/dist/cli.js"
 
 check_only=false
 case "${1:-}" in
@@ -85,10 +84,10 @@ if [ -z "$node_which" ] || [ -z "$portless_which" ]; then
   exit 1
 fi
 
-# The chain of links mise leaves is exactly what must not reach the daemon: a
-# shim, a .bin entry, a `latest` pointing at a versioned directory. What is
-# copied is what all of them resolve to. Done here rather than with `readlink
-# -f`, which is GNU's spelling and only recently macOS's.
+# Every link and shim mise leaves is exactly what must not reach the daemon: a
+# `latest` pointing at a versioned directory, a runtime directory that a `mise
+# up` replaces. What is copied is what they resolve to. Done here rather than
+# with `readlink -f`, which is GNU's spelling and only recently macOS's.
 resolve() {
   local path="$1" dir base target
 
@@ -108,22 +107,45 @@ resolve() {
 }
 
 node_src="$(resolve "$node_which")"
-cli_src="$(resolve "$portless_which")"
-package_src="$(cd "$(dirname "$cli_src")/.." && pwd -P)"
 
-# The package's node_modules rather than the package alone: portless bundles its
-# dependencies into dist today, and a version that stops doing so would resolve
-# its siblings from here. Node walks up to this directory from the cli.js below
-# it, so the copy keeps the same two levels.
-modules_src="$(dirname "$package_src")"
+# What `mise which` answers for an npm package is a generated shell shim rather
+# than a link, so there is nothing to resolve: the package is found under the
+# node_modules the shim's own .bin directory sits in. mise's npm backend keeps it
+# one level further down, behind a .mise directory, and a plain npm install keeps
+# it directly under node_modules; both end in <node_modules>/portless.
+modules_src="$(cd "$(dirname "$portless_which")/.." && pwd -P)"
+package_src=""
 
-if [ ! -x "$node_src" ] || [ ! -f "$package_src/package.json" ] ||
-   [ "$(basename "$package_src")" != portless ] ||
+for candidate in "$modules_src/portless" "$modules_src"/.mise/portless@*/node_modules/portless; do
+  if [ -f "$candidate/package.json" ]; then
+    package_src="$(cd "$candidate" && pwd -P)"
+    break
+  fi
+done
+
+# The package's own node_modules rather than the package alone: portless bundles
+# its dependencies into dist today, and a version that stops doing so would
+# resolve its siblings from there. Node walks up to it from the cli.js below, so
+# the copy keeps the same two levels.
+[ -n "$package_src" ] && modules_src="$(dirname "$package_src")"
+
+# The entry point from the package rather than written down here, so a portless
+# that moves its own cli.js is a stale copy rather than a daemon pointed at a
+# file that is gone.
+cli_relative=""
+[ -n "$package_src" ] &&
+  cli_relative="$(jq -r '.bin.portless // empty' "$package_src/package.json")"
+cli_relative="${cli_relative#./}"
+
+if [ ! -x "$node_src" ] || [ -z "$cli_relative" ] ||
+   [ ! -f "$package_src/$cli_relative" ] ||
    [ "$(basename "$modules_src")" != node_modules ]; then
-  echo "mise's portless is not the layout this copies — $cli_src should be" >&2
-  echo "<node_modules>/portless/dist/cli.js" >&2
+  echo "mise's portless is not the layout this copies: a package.json with a" >&2
+  echo "bin.portless in a <node_modules>/portless under $(dirname "$portless_which")/.." >&2
   exit 1
 fi
+
+copy_cli="$copy_modules/portless/$cli_relative"
 
 node_stale=false
 cmp -s "$node_src" "$copy_node" || node_stale=true

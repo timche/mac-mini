@@ -127,21 +127,22 @@ done
 # its dependencies into dist today, and a version that stops doing so would
 # resolve its siblings from there. Node walks up to it from the cli.js below, so
 # the copy keeps the same two levels.
-[ -n "$package_src" ] && modules_src="$(dirname "$package_src")"
-
 # The entry point from the package rather than written down here, so a portless
 # that moves its own cli.js is a stale copy rather than a daemon pointed at a
 # file that is gone.
 cli_relative=""
-[ -n "$package_src" ] &&
+
+if [ -n "$package_src" ]; then
+  modules_src="$(dirname "$package_src")"
   cli_relative="$(jq -r '.bin.portless // empty' "$package_src/package.json")"
-cli_relative="${cli_relative#./}"
+  cli_relative="${cli_relative#./}"
+fi
 
 if [ ! -x "$node_src" ] || [ -z "$cli_relative" ] ||
    [ ! -f "$package_src/$cli_relative" ] ||
    [ "$(basename "$modules_src")" != node_modules ]; then
   echo "mise's portless is not the layout this copies: a package.json with a" >&2
-  echo "bin.portless in a <node_modules>/portless under $(dirname "$portless_which")/.." >&2
+  echo "bin.portless, in a portless directory under $modules_src" >&2
   exit 1
 fi
 

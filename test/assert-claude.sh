@@ -35,6 +35,10 @@ check() {
 # hang rather than an exit status.
 check "login.sh exits without a terminal" \
   '"$root/claude/login.sh" < /dev/null'
+check "op-token.sh skips without a terminal or a stored token" \
+  'OP_SERVICE_ACCOUNT_TOKEN_FILE="$(mktemp -u)" "$root/claude/op-token.sh" < /dev/null; [ $? -eq 2 ]'
+check "op-token.sh --replace refuses without a terminal" \
+  '! OP_SERVICE_ACCOUNT_TOKEN_FILE="$(mktemp -u)" "$root/claude/op-token.sh" --replace < /dev/null'
 check "signing-key.sh exits without a terminal or a stored token" \
   'OP_SERVICE_ACCOUNT_TOKEN_FILE="$(mktemp -u)" "$root/claude/signing-key.sh" < /dev/null'
 check "register-signing-key.sh skips with no agent, no vault and no gh" \

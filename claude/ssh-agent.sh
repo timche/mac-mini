@@ -136,7 +136,7 @@ printf '%s\n' "$agent_hash" >"$stamp"
 chmod 600 "$stamp"
 
 # Nothing for the agent to load yet, and it keeps trying — so there is no point
-# waiting on a key that cannot arrive until signing-key.sh has stored a token.
+# waiting on a key that cannot arrive until op-token.sh has stored a token.
 if [ ! -f "$token_file" ]; then
   echo "no service-account token in $token_file yet, so the agent is up and"
   echo "empty. It picks the key up on its own once there is one."

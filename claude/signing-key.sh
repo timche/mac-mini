@@ -14,14 +14,14 @@
 # the one place it is kept.
 #
 # What it needs is a 1Password service account with read access to the vault, whose
-# token is stored once and read by both. Nothing prints it.
+# token op-token.sh stores once and both read. Nothing prints it.
 #
 # The allowed_signers git verifies against is the one derived file left, written
 # here rather than tracked in the repo. The same key on every machine would make a
 # tracked copy correct, but writing it locally costs nothing and keeps a
 # credential-shaped file out of public history.
 #
-# Safe to re-run: a stored token is reused, and the trust list is compared before
+# Safe to re-run: a working token is reused, and the trust list is compared before
 # it is rewritten.
 
 set -euo pipefail
@@ -58,77 +58,24 @@ fi
 mkdir -p "$HOME/.ssh"
 chmod 700 "$HOME/.ssh"
 
-confirm() {
-  local answer
-  read -r -p "$1 [y/N] " answer
-  [ "$answer" = y ] || [ "$answer" = Y ]
-}
-
 read_field() {
   OP_SERVICE_ACCOUNT_TOKEN="$(cat "$token_file")" op read "$item/$1"
 }
 
-# Taken from the environment rather than an argument, which is where op wants it
-# and keeps it out of any process list. Verified before it is stored, because a
-# token that cannot read the vault is indistinguishable afterwards from a key that
-# moved.
-store_token() {
-  if [ ! -t 0 ]; then
-    echo "no service-account token at $token_file and no terminal to ask at —" >&2
-    echo "skipping the signing key. Run $repo/signing-key.sh directly." >&2
-    return 1
-  fi
-
-  cat <<EOF
-
-The signing key is read from 1Password with a service account. Paste its token —
-it is not echoed, and it needs read access to the vault in $item.
-
-EOF
-
-  local token
-  read -rs -p "token> " token
-  echo
-
-  if [ -z "$token" ]; then
-    echo "nothing pasted — skipping the signing key" >&2
-    return 1
-  fi
-
-  if ! OP_SERVICE_ACCOUNT_TOKEN="$token" op read "$item/public key" >/dev/null; then
-    echo "that token cannot read $item — not stored" >&2
-    return 1
-  fi
-
-  install -d -m 700 "$(dirname "$token_file")"
-
-  # Through a temporary file mktemp made private, so the token is never in a
-  # command line and never briefly readable at its final path.
-  local staged
-  staged="$(mktemp)"
-  chmod 600 "$staged"
-  printf '%s' "$token" >"$staged"
-  mv "$staged" "$token_file"
-  chmod 600 "$token_file"
-
-  echo "stored the service-account token in $token_file"
-}
-
-if [ ! -f "$token_file" ] && ! store_token; then
-  exit 0
-fi
+token_status=0
+"$repo/op-token.sh" || token_status=$?
+case "$token_status" in
+  0) ;;
+  2)
+    echo "skipping the signing key until there is a token." >&2
+    exit 0
+    ;;
+  *) exit 1 ;;
+esac
 
 if ! public="$(read_field 'public key')"; then
-  echo
-  echo "the token in $token_file could not read $item — it may have been" >&2
-  echo "revoked, or the item may have moved." >&2
-
-  if [ ! -t 0 ] || ! confirm "Replace the stored token?"; then
-    exit 1
-  fi
-
-  store_token || exit 1
-  public="$(read_field 'public key')"
+  echo "the token in $token_file could not read $item" >&2
+  exit 1
 fi
 
 staged="$(mktemp)"

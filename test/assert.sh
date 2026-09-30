@@ -804,55 +804,12 @@ check "DO_NOT_TRACK is set in every shell" \
   '[ "$(zsh -c "print -r -- \$DO_NOT_TRACK")" = 1 ] &&
    [ "$(bash -ic "printf %s \"\$DO_NOT_TRACK\"" 2>/dev/null)" = 1 ]'
 
-# CLAUDE.md is loaded whole into every session and adherence drops past about
-# 200 lines of ordinary markdown. Counted in words, since a paragraph here is one
-# line however long: 2,400 is 200 lines at the dozen words a wrapped line holds.
-# What reaches the context, not what is in the file: YAML frontmatter is
-# configuration and block-level HTML comments are stripped before injection, so
-# counting either would charge rent on words Claude never sees. Computed here
-# rather than inside the snippet, which runs through two levels of quoting.
-export loaded_words="$(
-  cat "$HOME/.claude/CLAUDE.md" 2>/dev/null |
-    awk '/^---$/ { fm = !fm; next } fm { next }
-         /<!--/ { c = 1 } c { if (/-->/) c = 0; next }
-         { print }' |
-    wc -w
-)"
-
-check "the always-loaded instructions stay under 2,400 words" \
-  '[ -f "$HOME/.claude/CLAUDE.md" ] && [ "$loaded_words" -gt 0 ] &&
-   [ "$loaded_words" -lt 2400 ]'
-
-# Markdown prose is never hard-wrapped: a paragraph or list item is one line.
-# Reports each line that continues the one before it, which is exactly what an
-# unwrap would join; code fences, tables, headings, frontmatter and hard breaks
-# are left alone. The synced skills are Anthropic's and written their own way.
-export wrapped_prose="$(
-  find "$repo" -name '*.md' -not -path '*/.git/*' -not -path '*/synced/*' \
-    -exec awk '
-      function starts_block(s) {
-        return s ~ /^[ \t]*$/ || s ~ /^[ \t]*[#|><]/ || s ~ /^[ \t]*(```|~~~)/ ||
-               s ~ /^[ \t]*([-*+]|[0-9]+[.)])[ \t]/ || s ~ /^[ \t]*(---+|\*\*\*+|___+)[ \t]*$/
-      }
-      FNR == 1 { fm = ($0 == "---"); prev = ""; fence = 0; if (fm) next }
-      fm { if ($0 == "---") fm = 0; next }
-      /^[ \t]*(```|~~~)/ { fence = !fence; prev = ""; next }
-      fence { next }
-      {
-        if (prev != "" && prev !~ /(  |\\)$/) {
-          if (prev ~ /^>/) {
-            body = $0; sub(/^> ?/, "", body)
-            if ($0 ~ /^>/ && !starts_block(body)) { print FILENAME ":" FNR; found = 1 }
-          } else if (!starts_block($0)) { print FILENAME ":" FNR; found = 1 }
-        }
-        prev = ($0 ~ /^[ \t]*$/ || $0 ~ /^[ \t]*[#|<]/ ||
-                $0 ~ /^[ \t]*(---+|\*\*\*+|___+)[ \t]*$/) ? "" : $0
-      }
-      END { exit found }
-    ' {} + 2>/dev/null
-)"
-
-check "markdown prose is not hard-wrapped" '[ -z "$wrapped_prose" ]'
+# The markdown rules are assert-markdown.sh's, which CI runs by itself on a Linux
+# runner: test.yml's paths filter keeps a markdown-only push off the macOS runner,
+# so a check that lived only here would never run for the commits it is about. It
+# exits with the number that failed, which this total takes over.
+"$repo/test/assert-markdown.sh"
+failures=$((failures + $?))
 
 # Finding the docs is a mechanism rather than a rule Claude has to remember, so
 # the wiring is what makes the global CLAUDE.md's docs section true.

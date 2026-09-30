@@ -86,6 +86,13 @@ lan_cidr() {
     value=$((value >> 1))
   done
 
+  # A /32 is one address rather than a network, which is what a point-to-point
+  # interface reports — a VPN's utun holding the default route, say. Advertising it
+  # would offer the tailnet a route to this node's own address.
+  if [ "$prefix" -eq 32 ]; then
+    return 0
+  fi
+
   IFS=. read -r a b c d <<EOF
 $address
 EOF

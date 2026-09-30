@@ -242,30 +242,18 @@ mcp_server chrome-devtools "{
 mcp_server context7 '{"type": "http", "url": "https://mcp.context7.com/mcp"}'
 # A worktree's dev server reaches Tim's MacBook as https://<branch>.<app>.<tld>
 # for the second TLD in PORTLESS_TLD, whose wildcard DNS record points at this
-# Mac's tailnet address. Tailscale Serve hands the tailnet's port 443 to the
-# proxy as raw TCP, so portless keeps TLS and routes by hostname, and each app
-# keeps a cookie jar of its own — which portless's own --tailscale gives up by
-# putting every app on this node's one name and a port each. The tailnet end
-# stays 443 whatever the proxy binds, so the MacBook's URLs carry no port.
-#
-# The port comes from zsh, because .zshenv is the one file that names it and
-# claude.sh runs this from a bash that never read it. An empty answer leaves the
-# forward alone rather than guessing: a wrong one is a dev URL that reaches
-# nothing.
-#
-# Only when the Mac is on a tailnet, and only when the forward differs, since
-# serve rewrites its config on every call.
-portless_port="$(zsh -c 'print -r -- $PORTLESS_PORT' 2>/dev/null)"
-
-if [ -z "$portless_port" ]; then
-  echo "PORTLESS_PORT is unset, so the tailnet's port 443 was left pointing" \
-       "where it was — .zshenv is what sets it" >&2
-elif tailscale status >/dev/null 2>&1; then
+# Mac's tailnet address. Tailscale Serve hands the tailnet's port 443 to portless
+# as raw TCP, so portless keeps TLS and routes by hostname, and each app keeps a
+# cookie jar of its own — which portless's own --tailscale gives up by putting
+# every app on this node's one name and a port each. Only when the Mac is on a
+# tailnet, and only when the forward differs, since serve rewrites its config on
+# every call.
+if tailscale status >/dev/null 2>&1; then
   if tailscale serve status --json 2>/dev/null |
-    jq -e --arg f "127.0.0.1:$portless_port" '.TCP["443"].TCPForward == $f' >/dev/null; then
-    echo "the tailnet's port 443 already reaches portless on $portless_port"
-  elif tailscale serve --bg --tcp 443 "tcp://127.0.0.1:$portless_port" >/dev/null; then
-    echo "forwarded the tailnet's port 443 to portless on $portless_port"
+    jq -e '.TCP["443"].TCPForward == "127.0.0.1:443"' >/dev/null; then
+    echo "the tailnet's port 443 already reaches portless"
+  elif tailscale serve --bg --tcp 443 tcp://127.0.0.1:443 >/dev/null; then
+    echo "forwarded the tailnet's port 443 to portless"
   else
     echo "could not forward the tailnet's port 443 to portless" >&2
   fi

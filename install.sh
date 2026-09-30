@@ -192,24 +192,18 @@ if command -v portless >/dev/null 2>&1; then
          "in a browser until it is; run: portless trust" >&2
   fi
 
-  # `portless service install` only ever writes a root LaunchDaemon, and that
-  # daemon runs the node and the portless under this account's own mise
-  # directory — so any process running as the account could rewrite that
-  # JavaScript and have launchd run it as root. The proxy runs as the account
-  # from the LaunchAgent below instead, and the only thing root ever bought was
-  # binding 127.0.0.1:443, which nothing off this Mac reaches.
+  # Port 443 on 127.0.0.1 is root's on macOS, and a session has no terminal to
+  # sudo from, so without the daemon the first dev server a session starts fails
+  # outright. What root executes is a root-owned copy of mise's node and the
+  # portless package under /usr/local/lib/portless, never mise's own directory,
+  # which this account can write and so would be a way to run code as root.
   #
-  # Removing the daemon needs sudo, which a session has no terminal to answer,
-  # so the command to run is printed. The process as well as the plist, since a
-  # daemon booted out of launchd by hand leaves the file and one whose file was
-  # deleted keeps running until the Mac restarts.
-  portless_daemon=/Library/LaunchDaemons/sh.portless.proxy.plist
-  if [ -f "$portless_daemon" ] ||
-     pgrep -u 0 -qf 'portless/dist/cli.js proxy start' 2>/dev/null; then
-    echo "portless's root proxy daemon is still installed, and it runs" \
-         "JavaScript this account can write — which is a way to run code as" \
-         "root. Remove it with: sudo launchctl bootout system/sh.portless.proxy" \
-         "&& sudo rm -f $portless_daemon" >&2
+  # portless-root.sh owns both halves and answers for them with --check, so the
+  # paths it derives live in one file rather than two that can drift. Installing
+  # or refreshing the copy needs sudo, which is Tim's to run.
+  if ! "$repo/portless-root.sh" --check; then
+    echo "portless's proxy is not running from a current root-owned copy;" \
+         "run: $repo/portless-root.sh" >&2
   fi
 fi
 

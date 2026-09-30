@@ -202,15 +202,22 @@ login_items_query='tell application "System Events" to get the path of every log
 if ! login_items="$(osascript -e "$login_items_query" 2>&1)"; then
   echo "warning: could not read this Mac's login items, so whether OrbStack starts" >&2
   echo "with the session is unknown: $login_items" >&2
-elif ! printf '%s' "$login_items" | tr ',' '\n' | sed 's/^ *//; s/ *$//' |
-  grep -qxF "$orbstack_app"; then
-  if osascript -e "tell application \"System Events\" to make login item at end with properties {path:\"$orbstack_app\", hidden:false}" >/dev/null 2>&1; then
-    echo "OrbStack now starts with the login session"
-  else
-    echo "warning: OrbStack is not a login item and could not be made one, so the" >&2
-    echo "VM is down until somebody opens it. Adding it by hand is OrbStack's own" >&2
-    echo "settings, or System Settings > General > Login Items." >&2
-  fi
+else
+  # osascript hands the paths back as one `, `-separated line. Spaces out and
+  # commas at both ends, and the path between commas is the whole of the match —
+  # the app this looks for has no space in its own path to lose.
+  case ",$(printf '%s' "$login_items" | tr -d ' ')," in
+  *",$orbstack_app,"*) ;;
+  *)
+    if osascript -e "tell application \"System Events\" to make login item at end with properties {path:\"$orbstack_app\", hidden:false}" >/dev/null 2>&1; then
+      echo "OrbStack now starts with the login session"
+    else
+      echo "warning: OrbStack is not a login item and could not be made one, so the" >&2
+      echo "VM is down until somebody opens it. Adding it by hand is OrbStack's own" >&2
+      echo "settings, or System Settings > General > Login Items." >&2
+    fi
+    ;;
+  esac
 fi
 
 # Where it stands

@@ -182,8 +182,8 @@ if [ "$(orb status 2>/dev/null || true)" = Running ]; then
   if login_items="$(osascript -e 'tell application "System Events" to get the path of every login item' 2>/dev/null)"; then
     export login_items
     check "OrbStack starts with the login session" \
-      'printf "%s" "$login_items" | tr "," "\n" | sed "s/^ *//; s/ *$//" |
-       grep -qxF /Applications/OrbStack.app'
+      'case ",$(printf "%s" "$login_items" | tr -d " ")," in
+       *",/Applications/OrbStack.app,"*) ;; *) exit 1 ;; esac'
   else
     echo "  --    this Mac's login items cannot be read, so whether OrbStack starts"
     echo "        with the session was not checked"

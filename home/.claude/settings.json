@@ -64,16 +64,7 @@
   "enabledPlugins": {
     "claude-md-management@claude-plugins-official": true,
     "frontend-design@claude-plugins-official": true,
-    "skill-creator@claude-plugins-official": true,
-    "typesafe@typesafe-ai": true
-  },
-  "extraKnownMarketplaces": {
-    "typesafe-ai": {
-      "source": {
-        "source": "github",
-        "repo": "typesafe-ai/skills"
-      }
-    }
+    "skill-creator@claude-plugins-official": true
   },
   "outputStyle": "Concise",
   "feedbackDrafts": "off",

@@ -519,16 +519,21 @@ if launchctl print "gui/$uid/$portless_label" >/dev/null 2>&1; then
   fi
 fi
 
-# Dangling, or still pointing into this checkout at a plist that is no longer
-# there: either way it is this repository's own link to take back. A real file,
-# or a link to anywhere else, is somebody's own.
+# mise removes no link it no longer declares, so the one it used to make survives
+# every re-run. Taken back when it points into this checkout, or when it points
+# nowhere at all — a real file, or a live link to somewhere else, is somebody's
+# own.
+portless_link_is_ours=false
 if [ -L "$portless_plist" ]; then
-  portless_link="$(readlink "$portless_plist")"
-  case "$portless_link" in
-    "$repo"/*) rm "$portless_plist" ;;
-    *) [ -e "$portless_plist" ] || rm "$portless_plist" ;;
+  case "$(readlink "$portless_plist")" in
+    "$repo"/*) portless_link_is_ours=true ;;
+    *) [ -e "$portless_plist" ] || portless_link_is_ours=true ;;
   esac
-  [ -e "$portless_plist" ] || echo "removed $portless_plist, a link this repo no longer makes"
+fi
+
+if [ "$portless_link_is_ours" = true ]; then
+  rm "$portless_plist"
+  echo "removed $portless_plist, a link this repo no longer makes"
 fi
 
 rm -f "$state/$portless_label.plist.loaded"

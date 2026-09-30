@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Installed as a root-owned copy in /Library/LaunchDaemons by tailscale.sh, not
+     as a symlink into the checkout: this is root's job description, and a link
+     would hand whoever owns the checkout the power to rewrite it — the same
+     reasoning as the sshd drop-in.
+
+     No LimitLoadToSessionType, which is what `brew services` writes into every
+     service it generates. Session types belong to gui-domain agents; a daemon in
+     the system domain loads without one. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.github.timche.tailscaled</string>
+  <!-- A root-owned copy of Homebrew's tailscaled, because every directory on the
+       way to /opt/homebrew/opt/tailscale/bin/tailscaled is writable by the
+       account, and a daemon pointed there is root for anything running as it.
+       tailscale.sh is what keeps the copy in step with the formula.
+
+       No arguments, which is what the brew service passed too, so tailscaled
+       keeps its macOS defaults: the state in /Library/Tailscale and the socket at
+       /var/run/tailscaled.socket. Naming either here would move it, and moving
+       the state is logging this Mac out of the tailnet. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/tailscaled</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <!-- The tailnet is how this Mac is reached, so the daemon coming back is not
+       optional. `tailscaled install-system-daemon` writes no KeepAlive at all
+       (tailscale/tailscale#21453), which is one of the reasons this plist is ours
+       rather than its. -->
+  <key>KeepAlive</key>
+  <true/>
+  <!-- /opt/homebrew/var/log, where the brew service wrote, is the account's: a
+       log root appends to under a path the account controls. /var/log is root's. -->
+  <key>StandardOutPath</key>
+  <string>/var/log/tailscaled.log</string>
+  <key>StandardErrorPath</key>
+  <string>/var/log/tailscaled.log</string>
+</dict>
+</plist>

@@ -31,7 +31,8 @@ check() {
 # on the other. The dscl and launchctl reads that build a path from a variable are
 # what this has to leave alone, which is why the pattern needs a literal name.
 check "no hardcoded home directory in the scripts" \
-  '! grep -rhoE --include="*.sh" --include="*.plist" "/Users/[A-Za-z0-9_.-]+" "$root" |
+  '! grep -rhoE --include="*.sh" --include="*.plist" --include="mise.toml" \
+       "/Users/[A-Za-z0-9_.-]+" "$root" |
      grep -q .'
 
 # The clone is ~/.mac-mini, hidden because it is machinery rather than work, and
@@ -351,7 +352,8 @@ if ssh-keygen -l -f "$HOME/.ssh/authorized_keys" >/dev/null 2>&1; then
 else
   check "no drop-in until there is a key to log in with" \
     '[ ! -f /etc/ssh/sshd_config.d/10-hardening.conf ]'
-  check "harden-ssh.sh refuses rather than failing the run" '"$root/harden-ssh.sh"'
+  check "harden-ssh.sh refuses rather than failing the run, and writes nothing" \
+    '"$root/harden-ssh.sh" && [ ! -f /etc/ssh/sshd_config.d/10-hardening.conf ]'
 fi
 
 # macOS has shipped the Include since Monterey, and without it the drop-in above

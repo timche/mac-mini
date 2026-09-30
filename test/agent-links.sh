@@ -57,9 +57,26 @@ launchctl print "gui/$uid/$label" >/dev/null 2>&1 && was_loaded=true
 wrapper="$(mktemp)"
 cp "$root/launchd/agent.sh" "$wrapper"
 
+# The stamp is what claude/ssh-agent.sh compares a wrapper against, and the edit
+# below moves it: left as it is, the next run would kickstart the job over a
+# wrapper this script has already put back.
+stamp_before="$(mktemp)"
+had_stamp=false
+if [ -f "$stamp" ]; then
+  cp "$stamp" "$stamp_before"
+  had_stamp=true
+fi
+
 cleanup() {
   cp "$wrapper" "$root/launchd/agent.sh"
   rm -f "$wrapper"
+
+  if [ "$had_stamp" = true ]; then
+    cp "$stamp_before" "$stamp"
+  else
+    rm -f "$stamp"
+  fi
+  rm -f "$stamp_before"
 
   if [ "$was_loaded" = false ]; then
     launchctl bootout "gui/$uid/$label" >/dev/null 2>&1

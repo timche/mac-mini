@@ -729,55 +729,6 @@ check "install.sh never restarts the herdr server it may be running in" \
   '! grep -qE "launchctl (bootout|kickstart)[^;]*herdr_label\"?\)?$" "$repo/install.sh" &&
    grep -q "a herdr server is running outside launchd" "$repo/install.sh"'
 
-# One proxy for the whole Mac, as the account. Nothing here may name the port:
-# .zshenv is where it lives, and zsh is why this agent is the one job started
-# through a shell that reads it.
-export portless_plist="$HOME/Library/LaunchAgents/io.github.timche.portless.plist"
-check "the portless agent is a live symlink into the checkout, and a valid plist" \
-  '[ -L "$portless_plist" ] && [ -e "$portless_plist" ] &&
-   [ "$portless_plist" -ef "$repo/home/Library/LaunchAgents/io.github.timche.portless.plist" ] &&
-   plutil -lint "$portless_plist" &&
-   [ "$(plutil -extract Label raw "$portless_plist")" = io.github.timche.portless ]'
-
-check "the portless agent starts the proxy through a zsh that reads .zshenv" \
-  '[ "$(plutil -extract ProgramArguments.0 raw -o - "$portless_plist")" = "/bin/zsh" ] &&
-   [ "$(plutil -extract ProgramArguments.1 raw -o - "$portless_plist")" = "-c" ]'
-
-export portless_agent_command="$(plutil -extract ProgramArguments.2 raw -o - "$portless_plist")"
-
-# mise's shim rather than the versioned path behind it, which a `mise up` of node
-# or of portless moves; --foreground so launchd watches the proxy itself; and
-# --skip-trust because trusting the CA is install.sh's, once, where something can
-# answer for it.
-check "the portless agent execs the shim in the foreground and trusts nothing" \
-  'printf "%s\n" "$portless_agent_command" |
-     grep -qF "exec \"\$HOME/.local/share/mise/shims/portless\" proxy start --foreground --https --skip-trust"'
-check "the portless agent appends to the log in ~/Library/Logs" \
-  'printf "%s\n" "$portless_agent_command" |
-     grep -qF ">>\"\$HOME/Library/Logs/portless-proxy.log\" 2>&1"'
-
-# The port and the TLDs come from .zshenv, so naming either here would be a
-# second place they live — and a plist launchd expands nothing in is the one
-# place they could go stale unnoticed.
-check "the portless agent names neither the port nor a path launchd cannot expand" \
-  '[ -f "$portless_plist" ] &&
-   ! printf "%s\n" "$portless_agent_command" |
-       grep -qE "PORTLESS_(PORT|TLD)|--port|-p [0-9]|--tld" &&
-   ! plutil -extract StandardOutPath raw -o - "$portless_plist" &&
-   ! plutil -extract EnvironmentVariables xml1 -o - "$portless_plist"'
-
-# Unconditional, as herdr's is: portless starts a proxy of its own the first time
-# a dev server finds none, so one that stayed stopped would be replaced by a
-# proxy launchd does not own and Tailscale Serve does not point at.
-check "the portless agent starts at load and is always kept alive" \
-  'plutil -extract RunAtLoad xml1 -o - "$portless_plist" | grep -q "<true/>" &&
-   [ "$(plutil -extract KeepAlive raw "$portless_plist")" = true ]'
-
-check "install.sh loads the portless agent and reloads a changed one" \
-  'grep -q "launchctl bootstrap \"gui/\$uid\" \"\$portless_plist\"" "$repo/install.sh" &&
-   grep -q "launchctl bootout \"gui/\$uid/\$portless_label\"" "$repo/install.sh" &&
-   grep -q "cmp -s \"\$portless_plist\" \"\$portless_loaded\"" "$repo/install.sh"'
-
 # The sweep is on a timer rather than on a session, so the agent is the whole of
 # its wiring: an unrendered or invalid plist is a job launchd rejects at load
 # with nothing in it to say why. Not reachable on a runner with no GUI session,

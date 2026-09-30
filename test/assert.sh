@@ -681,7 +681,8 @@ check "the herdr agent is a live symlink and a valid plist" \
   '[ -L "$herdr_plist" ] && [ -e "$herdr_plist" ] && plutil -lint "$herdr_plist" &&
    [ "$(plutil -extract Label raw "$herdr_plist")" = io.github.timche.herdr ]'
 check "the herdr agent runs the server and is always kept alive" \
-  'plutil -extract ProgramArguments.2 raw "$herdr_plist" | grep -qF 'exec "$HOME/.local/bin/herdr" server' &&
+  'plutil -extract ProgramArguments.2 raw "$herdr_plist" |
+     grep -qF "exec \"\$HOME/.local/bin/herdr\" server" &&
    [ "$(plutil -extract KeepAlive raw "$herdr_plist")" = true ]'
 check "install.sh never restarts the herdr server it may be running in" \
   '! grep -qE "launchctl (bootout|kickstart)[^;]*herdr_label\"?\)?$" "$repo/install.sh" &&

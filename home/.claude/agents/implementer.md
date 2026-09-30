@@ -3,6 +3,7 @@ name: implementer
 description: Part of the `lead` skill's workflow, which spawns it with a complete spec and its own worktree branch. Not a general-purpose coding agent: never select it on your own to make a change, only when the lead skill directs it.
 model: opus
 effort: medium
+disallowedTools: Agent
 isolation: worktree
 ---
 

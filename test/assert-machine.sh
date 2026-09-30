@@ -175,8 +175,20 @@ want_cpu=$(($(sysctl -n hw.ncpu) - 2))
 # to read. Said out loud, because a suite that quietly asserted nothing here would
 # read the same on a Mac where docker is broken.
 if [ "$(orb status 2>/dev/null || true)" = Running ]; then
-  check "OrbStack starts with the login session" \
-    '[ "$(orb_value app.start_at_login)" = true ]'
+  # macOS's list of login items rather than OrbStack's app.start_at_login, which
+  # reports false on a Mac that is in that list and does start with the session.
+  # Reading the list is also what says there is a GUI session to read it in, and a
+  # process allowed to drive System Events to read it with.
+  if login_items="$(osascript -e 'tell application "System Events" to get the path of every login item' 2>/dev/null)"; then
+    export login_items
+    check "OrbStack starts with the login session" \
+      'printf "%s" "$login_items" | tr "," "\n" | sed "s/^ *//; s/ *$//" |
+       grep -qxF /Applications/OrbStack.app'
+  else
+    echo "  --    this Mac's login items cannot be read, so whether OrbStack starts"
+    echo "        with the session was not checked"
+  fi
+
   check "OrbStack's VM is every core but two" \
     "[ \"\$(orb_value cpu)\" = $want_cpu ]"
   check "docker's context is orbstack" '[ "$(docker context show)" = orbstack ]'

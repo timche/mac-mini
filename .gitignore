@@ -5,3 +5,17 @@
 # Synced onto every machine from the claude.ai account, so there is nothing to
 # version, and the folder name carries the account's organisation id.
 home/.claude/skills/synced/
+# Claude Code's own settings for this checkout, which are this Mac's rather than
+# the repository's; the tracked half is home/.claude/settings.json.
+/.claude/settings.local.json
+# What a session writes to show a change working. It is attached to a pull request
+# or copied off, and boswell would otherwise publish every frame of it.
+*.png
+*.mov
+*.mp4
+# This repository is public and holds no secret: every one of them is an op://
+# reference resolved at the moment it is needed. Nothing in either shape lands
+# here by accident.
+*.pem
+.env
+.env.*

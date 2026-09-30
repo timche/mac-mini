@@ -142,6 +142,20 @@ mise trust "$repo"
 # for the Brewfile.
 mise install --locked
 
+# mise applies the links mise.toml declares and removes none it no longer does,
+# so a link this repo used to make survives every re-run pointing at a file that
+# is gone. Only a link into this checkout, which is this repository's to take
+# back; a real file, or a link to anywhere else, is somebody's own.
+varlock_token_link="$HOME/.env.1password"
+if [ -L "$varlock_token_link" ] && [ ! -e "$varlock_token_link" ]; then
+  case "$(readlink "$varlock_token_link")" in
+    "$repo"/*)
+      rm "$varlock_token_link"
+      echo "removed $varlock_token_link, a link this repo no longer makes"
+      ;;
+  esac
+fi
+
 # portless signs every https://<name>.localhost with a certificate authority of
 # its own, and a browser only believes it once that CA is in the system trust
 # store. portless offers to do this on its first run, which is a prompt for a

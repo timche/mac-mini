@@ -138,7 +138,7 @@ if [ "$portless" = true ]; then
     IFS=, read -r local_tld remote_tlds <<< "${PORTLESS_TLD:-localhost}"
     echo "  URL https://$name.$local_tld, portless's own for this worktree; \`portless list\` confirms it."
     IFS=, read -ra remote_tlds <<< "$remote_tlds"
-    for tld in "${remote_tlds[@]}"; do
+    for tld in ${remote_tlds[@]+"${remote_tlds[@]}"}; do
       echo "  From Tim's MacBook: https://$name.$tld, over the tailnet."
     done
   fi

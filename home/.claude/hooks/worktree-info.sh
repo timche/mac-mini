@@ -130,28 +130,16 @@ if [ "$portless" = true ]; then
 
   [ "$linked" = true ] && [ -n "$name" ] && name="$branch.$name"
 
-  # The proxy runs as the account on an unprivileged port, so every URL on this
-  # Mac carries it. The running proxy's own record first, since that is what
-  # portless resolves to; PORTLESS_PORT is what a proxy would bind if it had to
-  # start one. A proxy on 443 needs no port at all, and neither does the tailnet
-  # name below: Tailscale Serve answers on 443 whatever the proxy binds.
-  proxy_port="$(cat "${PORTLESS_STATE_DIR:-$HOME/.portless}/proxy.port" 2>/dev/null)"
-  [ -n "$proxy_port" ] || proxy_port="${PORTLESS_PORT:-}"
-  case "$proxy_port" in
-    "" | 443 | *[!0-9]*) port="" ;;
-    *) port=":$proxy_port" ;;
-  esac
-
   # The first TLD is the one PORTLESS_URL carries, and any after it is a name
   # Tim's MacBook reaches over the tailnet.
   if [ -z "$name" ]; then
-    echo "  Served by portless, which names the URL itself — \`portless list\` prints it, with the proxy's port on every name."
+    echo "  Served by portless, which names the URL itself — \`portless list\` prints it."
   else
     IFS=, read -r local_tld remote_tlds <<< "${PORTLESS_TLD:-localhost}"
-    echo "  URL https://$name.$local_tld$port, portless's own for this worktree; \`portless list\` confirms it."
+    echo "  URL https://$name.$local_tld, portless's own for this worktree; \`portless list\` confirms it."
     IFS=, read -ra remote_tlds <<< "$remote_tlds"
     for tld in ${remote_tlds[@]+"${remote_tlds[@]}"}; do
-      echo "  From Tim's MacBook: https://$name.$tld, over the tailnet, on 443 and so with no port — \`portless list\` prints this name with the proxy's port, which is the Mac's own."
+      echo "  From Tim's MacBook: https://$name.$tld, over the tailnet."
     done
   fi
 fi

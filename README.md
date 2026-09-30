@@ -184,7 +184,7 @@ The GitHub token goes in a file rather than the login keychain (`gh auth login -
 | `home/.config/herdr/config.toml` `home/.terminfo/x/xterm-ghostty` | herdr config, Ghostty terminfo |
 | `home/.config/mise/config.toml` | Every runtime mise installs globally |
 | `home/.config/boswell/config.toml` `home/Library/LaunchAgents/` | The repositories boswell watches, and the agents launchd runs |
-| `home/.local/bin/` | The machine's own scripts: the worktree sweep, the signed-build wrapper, the memory log, the CI dispatcher |
+| `home/.local/bin/` | The machine's own scripts: the worktree sweep, the signed-build wrapper, the `op` wrapper, the memory log, the CI dispatcher |
 | `home/.config/tart-runner/repos` | The repositories whose CI jobs this Mac answers |
 
 `.claude` sits under `home/` rather than at the repo root because a `.claude` directory at a repo root is *project* configuration to Claude Code — this repo would load its own global settings and skills a second time whenever it was the working directory.
@@ -320,6 +320,8 @@ Every Claude Code session is a pane of one herdr server, and that server is star
 What stays unsolved either way is approval: computer use asks for each app once per session, in the session's own terminal, and nothing pre-approves apps for a session nobody is watching ([anthropics/claude-code#47796](https://github.com/anthropics/claude-code/issues/47796), closed without it).
 
 ## varlock
+
+A project that resolves its secrets with `op run --env-file .env.op -- <cmd>` gets the same token from `~/.local/bin/op`, a wrapper ahead of Homebrew's `op` on PATH, so the project never learns how `op` signs in and the same command works on a Mac where the 1Password app does it. When `OP_SERVICE_ACCOUNT_TOKEN` is unset and the token file is readable, it sets the variable for that one `op` process and nothing else, where exporting it from `.zshenv` would put it in every process and so in transcripts and logs. `op run` hands its own environment to the command it starts, so for `op run` the wrapper puts `env -u OP_SERVICE_ACCOUNT_TOKEN` right after the first `--`; a command that calls `op` by name comes back through the wrapper and is signed in again. This keeps the token out of projects and build tools' environments rather than away from the account, which can read the file anyway. The scripts here and `launchd/agent.sh` read the file themselves and do not depend on it.
 
 A project that loads its environment through varlock gets the same token from `~/.env.1password`, linked from `home/.env.1password`: one `OP_TOKEN` item of type `opServiceAccountToken`, marked `@internal`, whose value is an `exec()` that reads the token file at each load. The project's schema imports it with `allowMissing=true`, so on a Mac with the 1Password app, where the file is absent, the plugin's `allowAppAuth` signs in through the app instead. `@internal` keeps the token out of every process varlock starts and out of the environment blob it injects. `.zshenv` and `.bashrc` set `DO_NOT_TRACK=1`, the cross-tool opt-out at donottrack.sh that varlock honours, since varlock otherwise sends anonymous usage analytics and writes an id to `~/.config/varlock/config.json` for any project without an opt-out of its own.
 

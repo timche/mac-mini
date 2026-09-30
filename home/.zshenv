@@ -32,7 +32,7 @@ export PROJECT_DOCS_DIR="$HOME/projects/docs"
 # Mac; the second is how Tim's MacBook reaches it over the tailnet, through a
 # wildcard DNS record at Cloudflare that points at this Mac's tailnet address.
 # The running proxy decides the TLDs and portless only warns when this differs,
-# so the daemon portless-root.sh installs is installed from this same list.
+# so the daemon install.sh names is installed from this same list.
 export PORTLESS_TLD=localhost,timche.dev
 
 # The cross-tool opt-out from usage analytics (donottrack.sh). varlock is why it

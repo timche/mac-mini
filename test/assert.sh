@@ -781,7 +781,8 @@ check "the portless agent appends to the log in ~/Library/Logs" \
 # place they could go stale unnoticed.
 check "the portless agent names neither the port nor a path launchd cannot expand" \
   '[ -f "$portless_plist" ] &&
-   ! grep -qE "PORTLESS_(PORT|TLD)|8443" "$portless_plist" &&
+   ! printf "%s\n" "$portless_agent_command" |
+       grep -qE "PORTLESS_(PORT|TLD)|--port|-p [0-9]|--tld" &&
    ! plutil -extract StandardOutPath raw -o - "$portless_plist" &&
    ! plutil -extract EnvironmentVariables xml1 -o - "$portless_plist"'
 

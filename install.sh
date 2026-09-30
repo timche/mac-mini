@@ -506,6 +506,45 @@ else
   fi
 fi
 
+# The one proxy every dev server routes through, as the account. portless starts
+# a proxy of its own the first time a dev server finds none, so what this agent
+# buys is a proxy that is already up, on the port Tailscale Serve points at, and
+# owned by launchd rather than by whichever session happened to be first.
+#
+# The shape is boswell's above, and the reason is the same: launchd keeps the
+# copy of the plist it read at load, so a changed one reaches a running job only
+# through a bootout and a fresh bootstrap, and the link still pointing where it
+# did says nothing about the file behind it.
+portless_label=io.github.timche.portless
+portless_plist="$HOME/Library/LaunchAgents/$portless_label.plist"
+portless_loaded="$state/$portless_label.plist.loaded"
+
+if [ ! -f "$portless_plist" ]; then
+  echo "$portless_plist is missing — mise links it from mise.toml" >&2
+else
+  portless_agent_loaded=false
+  if launchctl print "gui/$uid/$portless_label" >/dev/null 2>&1; then
+    portless_agent_loaded=true
+  fi
+
+  if [ "$portless_agent_loaded" = true ] &&
+     ! cmp -s "$portless_plist" "$portless_loaded"; then
+    launchctl bootout "gui/$uid/$portless_label" || true
+    portless_agent_loaded=false
+  fi
+
+  if [ "$portless_agent_loaded" = true ]; then
+    echo "$portless_label is already loaded"
+  elif launchctl bootstrap "gui/$uid" "$portless_plist"; then
+    mkdir -p "$state" && cp "$portless_plist" "$portless_loaded"
+    echo "loaded $portless_label"
+  else
+    echo "could not load $portless_label — the gui/$uid domain needs a GUI" \
+         "session logged in on the Mac; until it is loaded, the first dev" \
+         "server of a session starts a proxy of its own" >&2
+  fi
+fi
+
 # The herdr server, from launchd in the GUI session so its panes are local
 # sessions rather than SSH ones. Never booted out or restarted from here: this
 # script usually runs in one of that server's panes, and restarting the server

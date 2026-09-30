@@ -6,9 +6,12 @@
 # exists once `op run` or `op read` resolves it, so a file of references is safe
 # to commit and is how every secret here is wired. `stub-` values are test
 # doubles, such as the ones assert.sh hands to tart-runner in place of a token.
+# An upper-snake name such as APPLE_APP_SPECIFIC_PASSWORD is an environment
+# variable a doc names, which generic-password reads as the value.
 filter = '''
 filter.matchesAny(finding["secret"], [`^op://`]) ||
-filter.matchesAny(finding["secret"], [`^stub-`])
+filter.matchesAny(finding["secret"], [`^stub-`]) ||
+filter.matchesAny(finding["secret"], [`^[A-Z][A-Z0-9]*(_[A-Z0-9]+)+$`])
 '''
 
 # Keys after a table header belong to that table, so the filter has to come first.

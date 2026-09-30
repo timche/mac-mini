@@ -502,31 +502,33 @@ else
   fi
 fi
 
-# The unprivileged proxy agent this repo no longer makes. The proxy is root's
-# daemon on 443 again, from the root-owned copy portless-root.sh installs, and an
-# agent left loaded would hold a second proxy on a port nothing points at — while
-# the two fight over ~/.portless/proxy.port, which is where every client looks.
-# It is this account's own job and this account's own link, so no sudo: the
-# bootout, then the link mise no longer declares and so no longer replaces.
+# The proxy agent this repo no longer makes, which ran portless as the account on
+# a port of its own. sh.portless.proxy holds 443, and an agent left loaded would
+# hold a second proxy while the two fight over ~/.portless/proxy.port, which is
+# where every client looks — so the URLs would reach whichever won. It is this
+# account's own job and this account's own link, so no sudo.
 portless_label=io.github.timche.portless
 portless_plist="$HOME/Library/LaunchAgents/$portless_label.plist"
 
 if launchctl print "gui/$uid/$portless_label" >/dev/null 2>&1; then
   if launchctl bootout "gui/$uid/$portless_label"; then
-    echo "removed $portless_label, the unprivileged proxy agent"
+    echo "removed $portless_label, the proxy agent this repo no longer makes"
   else
     echo "could not remove $portless_label — it holds a proxy on the port the" \
          "root daemon wants; run: launchctl bootout gui/$uid/$portless_label" >&2
   fi
 fi
 
-if [ -L "$portless_plist" ] && [ ! -e "$portless_plist" ]; then
-  case "$(readlink "$portless_plist")" in
-    "$repo"/*)
-      rm "$portless_plist"
-      echo "removed $portless_plist, a link this repo no longer makes"
-      ;;
+# Dangling, or still pointing into this checkout at a plist that is no longer
+# there: either way it is this repository's own link to take back. A real file,
+# or a link to anywhere else, is somebody's own.
+if [ -L "$portless_plist" ]; then
+  portless_link="$(readlink "$portless_plist")"
+  case "$portless_link" in
+    "$repo"/*) rm "$portless_plist" ;;
+    *) [ -e "$portless_plist" ] || rm "$portless_plist" ;;
   esac
+  [ -e "$portless_plist" ] || echo "removed $portless_plist, a link this repo no longer makes"
 fi
 
 rm -f "$state/$portless_label.plist.loaded"

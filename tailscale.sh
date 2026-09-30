@@ -210,31 +210,6 @@ if [ "$state" != Running ]; then
   fi
 fi
 
-# MagicDNS
-
-# tailscaled on macOS leaves the system resolver alone, where the app rewrites it,
-# so tailnet names do not resolve until something sends them to 100.100.100.100. A
-# resolver file for the tailnet's own suffix rather than the machine's DNS
-# servers: those would take every lookup on the Mac through Tailscale and break
-# all of them whenever it is down.
-suffix="$(tailscale_status .MagicDNSSuffix)"
-
-if [ -z "$suffix" ]; then
-  echo "no MagicDNS suffix to resolve yet — rerun $repo/tailscale.sh once this"
-  echo "Mac is on the tailnet and tailnet names will resolve too"
-else
-  resolver="/etc/resolver/$suffix"
-  nameserver="nameserver 100.100.100.100"
-
-  if [ "$(sudo cat "$resolver" 2>/dev/null || true)" = "$nameserver" ]; then
-    echo "$resolver already sends $suffix to Tailscale"
-  else
-    sudo mkdir -p /etc/resolver
-    printf '%s\n' "$nameserver" | sudo tee "$resolver" >/dev/null
-    echo "$resolver now sends $suffix to Tailscale"
-  fi
-fi
-
 # What the tailnet has to say
 
 # Both of these are the tailnet's rather than the machine's, and neither can be

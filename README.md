@@ -99,7 +99,7 @@ The subnet comes from the interface the default route leaves by — its address 
 
 A node that has never logged in needs `tailscale up`, which prints a URL to open on a machine that has a browser and then waits for it — so `tailscale.sh` runs it only where there is a terminal to wait at, and prints the command when there is not. Everything after that is `tailscale set`, which changes prefs without starting a login, and which only runs where the prefs differ from what the script asks for. A node already advertising what this asks for comes out of a run untouched.
 
-MagicDNS is the one thing the daemon will not do for itself: it leaves the system resolver alone where the app rewrites it. So `tailscale.sh` writes `/etc/resolver/<tailnet>.ts.net` holding `nameserver 100.100.100.100`, which sends tailnet names to Tailscale and leaves every other lookup with the resolvers the Mac already had. Pointing the machine's own DNS servers at 100.100.100.100 would be the other way to do it, and would break all DNS whenever Tailscale is down.
+MagicDNS is the daemon's own: tailscaled writes `/etc/resolver/<tailnet>.ts.net` and a file per reverse zone, each marked `# Added by tailscaled`, which send tailnet names to 100.100.100.100 and leave every other lookup with the resolvers the Mac already had. `tailscale.sh` leaves them alone, since tailscaled rewrites and removes the files it recognises as its own.
 
 Two things only the tailnet can do, both in [the admin console](https://login.tailscale.com/admin): approve this machine's advertised subnet and its exit node, unless `autoApprovers` in the policy file already covers them, and allow Tailscale SSH to it with an `ssh` rule saying who may connect and as whom. Until that rule exists nothing reaches the SSH server tailscaled is running.
 
@@ -110,7 +110,7 @@ tailscale status                       # the node, the tailnet, and who else is 
 sudo tailscale debug prefs             # RunSSH, and AdvertiseRoutes with the subnet and 0.0.0.0/0, ::/0
 sudo brew services list                # whether the daemon is loaded
 sysctl net.inet.ip.forwarding          # 1 once routes are advertised, and Tailscale's doing
-scutil --dns | grep -B2 -A2 100.100.100.100   # the resolver file, as macOS reads it
+scutil --dns | grep -B2 -A2 100.100.100.100   # tailscaled's resolver files, as macOS reads them
 ```
 
 ## Docker

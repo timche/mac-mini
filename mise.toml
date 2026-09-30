@@ -60,6 +60,10 @@
 
 "~/.local/bin/memlog" = { source = "home/.local/bin/memlog", mode = "symlink" }
 
+# Ahead of Homebrew's op on PATH, so a project's `op run` is signed in with the
+# service-account token without the project knowing how.
+"~/.local/bin/op" = { source = "home/.local/bin/op", mode = "symlink" }
+
 # This repository's own CI, in a macOS VM cloned per job and deleted after it,
 # because a private repository's macOS minutes are GitHub's most expensive and
 # install.sh cannot be let near the real account. The repository list is a file so

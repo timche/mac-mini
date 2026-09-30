@@ -65,8 +65,7 @@
     "claude-md-management@claude-plugins-official": true,
     "frontend-design@claude-plugins-official": true,
     "skill-creator@claude-plugins-official": true,
-    "typesafe@typesafe-ai": true,
-    "stripe@claude-plugins-official": true
+    "typesafe@typesafe-ai": true
   },
   "extraKnownMarketplaces": {
     "typesafe-ai": {

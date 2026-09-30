@@ -73,6 +73,13 @@ if [ ! -x "$HOME/.local/bin/claude" ]; then
   curl -fsSL https://claude.ai/install.sh | bash
 fi
 
+# herdr's own installer, for the reason Claude Code's is: `herdr update` replaces
+# the binary it runs from, which under Homebrew is a Cellar path brew then
+# disowns. Guarded like it, and `herdr update` is the upgrade from then on.
+if [ ! -x "$HOME/.local/bin/herdr" ]; then
+  curl -fsSL https://herdr.dev/install.sh | sh
+fi
+
 # The machine
 
 boswell_label=io.github.timche.boswell

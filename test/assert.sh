@@ -109,7 +109,12 @@ check "mise resolves to its own installer's copy in every zsh mode" \
      [ "$(PATH=$stock_path zsh $mode -c "whence -p mise")" = \
        "$HOME/.local/bin/mise" ] || exit 1
    done'
-check "herdr runs"          'herdr --version'
+check "herdr resolves to its own installer's copy in every zsh mode" \
+  'for mode in "" -i -l; do
+     [ "$(PATH=$stock_path zsh $mode -c "whence -p herdr")" = \
+       "$HOME/.local/bin/herdr" ] || exit 1
+   done'
+check "herdr runs"          '"$HOME/.local/bin/herdr" --version'
 check "interactive zsh has zoxide's z" \
   'PATH=$stock_path zsh -ic "whence -w z" | grep -q "z: function"'
 check "oh-my-zsh present"   '[ -d "$HOME/.oh-my-zsh" ]'
@@ -146,7 +151,7 @@ check "the Brewfile's dependencies are satisfied" \
 
 # Provenance rather than a version, because a mise-installed copy of the same
 # name runs just as well and the point is which one the Mac has.
-for formula in fd ffmpeg glow herdr ripgrep shellcheck starship zoxide boswell; do
+for formula in fd ffmpeg glow ripgrep shellcheck starship zoxide boswell; do
   check "$formula is Homebrew's" \
     "brew list --formula --full-name | grep -qxE '(.*/)?$formula'"
 done
@@ -665,7 +670,7 @@ check "the herdr agent is a live symlink and a valid plist" \
   '[ -L "$herdr_plist" ] && [ -e "$herdr_plist" ] && plutil -lint "$herdr_plist" &&
    [ "$(plutil -extract Label raw "$herdr_plist")" = io.github.timche.herdr ]'
 check "the herdr agent runs the server and is always kept alive" \
-  'plutil -extract ProgramArguments.2 raw "$herdr_plist" | grep -q "exec /opt/homebrew/bin/herdr server" &&
+  'plutil -extract ProgramArguments.2 raw "$herdr_plist" | grep -qF 'exec "$HOME/.local/bin/herdr" server' &&
    [ "$(plutil -extract KeepAlive raw "$herdr_plist")" = true ]'
 check "install.sh never restarts the herdr server it may be running in" \
   '! grep -qE "launchctl (bootout|kickstart)[^;]*herdr_label\"?\)?$" "$repo/install.sh" &&

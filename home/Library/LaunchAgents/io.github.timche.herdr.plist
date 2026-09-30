@@ -20,7 +20,7 @@
   <array>
     <string>/bin/sh</string>
     <string>-c</string>
-    <string>export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"; export LANG=en_US.UTF-8; export SSH_AUTH_SOCK="$HOME/.ssh/agent.sock"; exec /opt/homebrew/bin/herdr server >>"$HOME/Library/Logs/herdr.log" 2>&amp;1</string>
+    <string>export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"; export LANG=en_US.UTF-8; export SSH_AUTH_SOCK="$HOME/.ssh/agent.sock"; exec "$HOME/.local/bin/herdr" server >>"$HOME/Library/Logs/herdr.log" 2>&amp;1</string>
   </array>
   <key>RunAtLoad</key>
   <true/>

@@ -35,7 +35,7 @@ fi
 # why.
 if ! command -v brew >/dev/null 2>&1; then
   echo "Homebrew is missing — run machine.sh first, which installs it along" \
-       "with gh, git and tailscale, then re-run this" >&2
+       "with gh and tailscale, then re-run this" >&2
   exit 1
 fi
 
@@ -195,7 +195,10 @@ if command -v portless >/dev/null 2>&1; then
   else
     for i in 0 1; do
       target="$(plutil -extract "ProgramArguments.$i" raw "$portless_daemon" 2>/dev/null)"
-      if [ ! -e "$target" ]; then
+      # An argument that is not there reads back empty, and an empty path is
+      # missing as far as `[ -e ]` is concerned — which would send Tim off to
+      # sudo a reinstall over nothing.
+      if [ -n "$target" ] && [ ! -e "$target" ]; then
         echo "portless's daemon runs $target, which is gone since a mise" \
              "upgrade; run: $portless_install" >&2
         break

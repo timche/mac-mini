@@ -8,7 +8,7 @@
 # daemon the SSH session is riding on. `brew bundle upgrade` moves them when that
 # is what is wanted.
 #
-# mise carries language runtimes and the two npm packages that run on the node it
+# mise carries language runtimes and the npm packages that run on the node it
 # provides; everything else a CLI is belongs here.
 #
 # xcodes and aria2 are deliberately not here. Both exist only for the Xcode

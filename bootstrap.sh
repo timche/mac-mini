@@ -89,7 +89,14 @@ fi
 target="${MAC_MINI_DIR:-$HOME/.mac-mini}"
 
 if [ -d "$target/.git" ]; then
-  git -C "$target" pull --ff-only
+  # boswell commits to this clone's main on its own, so a pull can refuse to
+  # fast-forward over work that has not been pushed yet. What is checked out still
+  # provisions the Mac, and ending the run over a pull would leave the machine
+  # half built for a reason that has nothing to do with it.
+  if ! git -C "$target" pull --ff-only; then
+    echo "warning: could not fast-forward $target, so this run uses the commit" >&2
+    echo "already checked out. 'git -C $target status' says why." >&2
+  fi
 else
   git clone "$repo_url" "$target"
 fi

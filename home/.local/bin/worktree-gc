@@ -63,7 +63,15 @@ if ! mkdir "$lock" 2>/dev/null; then
 fi
 
 echo $$ > "$lock/pid"
-trap 'rm -rf "$lock"' EXIT
+
+# Only ever this run's own lock: a run whose lock was taken over above is still
+# going, and removing the directory on its way out would leave the run that took
+# it over unlocked.
+release_lock() {
+  [ "$(cat "$lock/pid" 2>/dev/null)" = "$$" ] && rm -rf "$lock"
+}
+
+trap release_lock EXIT
 
 # The worktree folder a path belongs to, or nothing at all for a path outside
 # both roots. herdr nests a worktree one level deeper than Claude Code, which

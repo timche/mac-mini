@@ -92,8 +92,10 @@ fi
 
 signer_identity() {
   # The principal has to be the address the commits are authored under, or the
-  # signature verifies against nothing.
-  git config --get user.email || echo "$(id -un)@$(hostname -s)"
+  # signature verifies against nothing. --global because this is often run from
+  # inside a project, whose own config may name a different address than the
+  # .gitconfig install.sh links.
+  git config --global --get user.email || echo "$(id -un)@$(hostname -s)"
 }
 
 # Rewritten whole rather than appended to. With no copy of the key left on disk

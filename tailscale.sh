@@ -43,21 +43,41 @@ fi
 # ifconfig rather than `ipconfig getoption`, which only answers for an address
 # DHCP handed out; the mask comes back as 0xffffff00, and counting its bits is the
 # prefix.
+#
+# The mask is taken from after the `netmask` keyword rather than from a fixed
+# column: a point-to-point interface prints `inet <addr> --> <peer> netmask <mask>`
+# and puts the peer where a broadcast interface puts the mask. Anything that is not
+# a mask advertises nothing, since the arithmetic below would otherwise abort the
+# script — and with it every step machine.sh runs after this one.
 lan_cidr() {
-  local iface inet address mask prefix value a b c d network
+  local iface inet address mask mask_re prefix value a b c d network
 
   iface="$(route -n get default 2>/dev/null | awk '/interface:/ { print $2; exit }')"
   if [ -z "$iface" ]; then
     return 0
   fi
 
-  inet="$(ifconfig "$iface" 2>/dev/null | awk '/inet [0-9]/ { print $2, $4; exit }')"
+  inet="$(ifconfig "$iface" 2>/dev/null | awk '
+    /inet [0-9]/ {
+      for (i = 3; i < NF; i++) {
+        if ($i == "netmask") {
+          print $2, $(i + 1)
+          exit
+        }
+      }
+      exit
+    }')"
   if [ -z "$inet" ]; then
     return 0
   fi
 
   address="${inet%% *}"
   mask="${inet##* }"
+
+  mask_re='^0x[0-9a-fA-F]{8}$'
+  if ! [[ "$mask" =~ $mask_re ]]; then
+    return 0
+  fi
 
   prefix=0
   value=$((mask))

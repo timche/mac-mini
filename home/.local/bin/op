@@ -1,0 +1,58 @@
+#!/bin/bash
+# Signs 1Password's CLI in with the service-account token on a Mac that has no
+# 1Password app to do it, so a project's `op run --env-file .env.op -- <cmd>`
+# works here unchanged from a machine where the app signs in. The token goes to
+# this one op process rather than out of .zshenv, which would hand it to every
+# process and into transcripts and logs.
+#
+# `op run` passes its own environment on to the command it starts, token and
+# all, so the token is unset again after the first `--`. A child that runs `op`
+# by name comes back through here and is signed in afresh.
+#
+# The real op is the next one on PATH after this file, which on this Mac is
+# Homebrew's; ~/.local/bin comes first so that this one answers.
+
+set -uo pipefail
+
+self="${BASH_SOURCE[0]}"
+real=""
+IFS=: read -ra dirs <<<"$PATH"
+for dir in "${dirs[@]}"; do
+  candidate="${dir:-.}/op"
+  if [ -x "$candidate" ] && [ ! -d "$candidate" ] && ! [ "$candidate" -ef "$self" ]; then
+    real="$candidate"
+    break
+  fi
+done
+
+if [ -z "$real" ]; then
+  echo "op: no 1Password CLI on PATH besides this wrapper; it comes from the Brewfile" >&2
+  exit 127
+fi
+
+token_file="${OP_SERVICE_ACCOUNT_TOKEN_FILE:-$HOME/.config/op/service-account-token}"
+if [ -z "${OP_SERVICE_ACCOUNT_TOKEN:-}" ] && [ -r "$token_file" ]; then
+  OP_SERVICE_ACCOUNT_TOKEN="$(<"$token_file")"
+  export OP_SERVICE_ACCOUNT_TOKEN
+fi
+
+is_run=false
+for arg in "$@"; do
+  [ "$arg" = -- ] && break
+  [ "$arg" = run ] && { is_run=true; break; }
+done
+
+if $is_run; then
+  args=()
+  stripped=false
+  for arg in "$@"; do
+    args+=("$arg")
+    if ! $stripped && [ "$arg" = -- ]; then
+      args+=(env -u OP_SERVICE_ACCOUNT_TOKEN)
+      stripped=true
+    fi
+  done
+  exec "$real" "${args[@]}"
+fi
+
+exec "$real" "$@"

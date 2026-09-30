@@ -130,6 +130,52 @@ check "the copies are the formula's current binaries" \
   'cmp -s "$(brew --prefix tailscale)/bin/tailscaled" "$(daemon_program)" &&
    cmp -s "$(brew --prefix tailscale)/bin/tailscale" /usr/local/bin/tailscale'
 
+# portless's proxy, the second root daemon here and the same arrangement: root
+# binds 443 so that no dev URL carries a port, and what it executes is a copy in
+# /usr/local/lib/portless rather than the node and the cli.js mise keeps under
+# the account's own directory. Here rather than in assert.sh, which covers the
+# account, because this is what root runs and root_owned_path is what answers
+# for it.
+portless_daemon=sh.portless.proxy
+portless_daemon_plist="/Library/LaunchDaemons/$portless_daemon.plist"
+portless_lib=/usr/local/lib/portless
+export portless_daemon portless_daemon_plist portless_lib
+
+portless_program() {
+  plutil -extract "ProgramArguments.$1" raw -o - "$portless_daemon_plist" 2>/dev/null
+}
+export -f portless_program
+
+# The agent that ran the proxy as the account is gone, and nothing may bring it
+# back: two proxies would fight over ~/.portless/proxy.port, which is where every
+# client looks. Checked wherever this runs, since the answer is the same on a
+# runner with no GUI session.
+check "no unprivileged proxy agent is loaded" \
+  '! launchctl print "gui/$(id -u)/io.github.timche.portless"'
+
+# portless is mise's, which the account phase installs, so a runner that has only
+# had machine.sh has no daemon to read — and neither has a Mac before
+# portless-root.sh was first run.
+if [ ! -f "$portless_daemon_plist" ]; then
+  echo "  --    portless's proxy is not installed as a daemon, so it was not checked"
+else
+  check "the proxy daemon's plist belongs to root" \
+    '[ "$(stat -f "%Su %Lp" "$portless_daemon_plist")" = "root 644" ]'
+  # Both arguments, because the node is only half of what root executes: the
+  # cli.js it is handed is the other half and is the one a `mise up` moves.
+  check "the node the proxy daemon runs is root-owned all the way up" \
+    'root_owned_path "$(portless_program 0)"'
+  check "the portless the proxy daemon runs is root-owned all the way up" \
+    'root_owned_path "$(portless_program 1)"'
+  check "both are the copy in /usr/local/lib/portless" \
+    'case "$(portless_program 0)" in "$portless_lib"/*) ;; *) exit 1 ;; esac
+     case "$(portless_program 1)" in "$portless_lib"/*) ;; *) exit 1 ;; esac'
+  # The whole point of root holding it: a port-free URL. nc rather than a
+  # request, which would have the proxy mint a certificate for whatever name the
+  # check invented and leave it in the account's host-certs.
+  check "the proxy answers on 127.0.0.1:443" 'nc -z 127.0.0.1 443'
+fi
+
 # The daemon is in the system domain, which needs root to read — and a Mac being
 # provisioned by hand should not meet a password prompt inside a test.
 if sudo -n true 2>/dev/null; then

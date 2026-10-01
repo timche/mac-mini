@@ -702,6 +702,99 @@ else
   echo "  skip  worktree-gc's compose sweep (no docker daemon on this machine)"
 fi
 
+# A sweep that is not a dry run must not reach this machine's own processes or its
+# daemon, so a stub lsof and docker go ahead of them on PATH: the one reports no
+# process at all, the other no daemon.
+gc_stub_bin() {
+  local dir="$1"
+
+  mkdir -p "$dir"
+  printf '#!/bin/sh\nexit 0\n' > "$dir/lsof"
+  printf '#!/bin/sh\nexit 1\n' > "$dir/docker"
+  chmod +x "$dir/lsof" "$dir/docker"
+}
+export -f gc_stub_bin
+
+# Five folders, because the rule is narrower than "the session is over": a live
+# session claims the third, the second was touched inside the week a resume is
+# given, `bash-edit-diff` is named like no session at all, and the project folder
+# only goes when the last session folder in it did.
+gc_scratch_fixture() {
+  local h="$1" kept gone dir
+
+  kept="$h/.cache/claude-tmp/claude-$(id -u)/-Users-x-app"
+  gone="$h/.cache/claude-tmp/claude-$(id -u)/-Users-x-gone"
+
+  mkdir -p "$kept/11111111-1111-4111-8111-111111111111/scratchpad" \
+    "$kept/22222222-2222-4222-8222-222222222222/scratchpad" \
+    "$kept/33333333-3333-4333-8333-333333333333/scratchpad" \
+    "$kept/bash-edit-diff" \
+    "$gone/44444444-4444-4444-8444-444444444444" \
+    "$h/.claude/sessions"
+
+  for dir in "$kept"/*/scratchpad "$kept/bash-edit-diff" "$gone"/*; do
+    : > "$dir/f"
+  done
+
+  printf '{"pid":%s,"sessionId":"33333333-3333-4333-8333-333333333333"}\n' "$$" \
+    > "$h/.claude/sessions/$$.json"
+
+  # Depth first: a directory aged before the files in it is dated now again by
+  # the write that creates them.
+  find "$h/.cache/claude-tmp" -depth -exec touch -t 202001010000 {} +
+  find "$kept/22222222-2222-4222-8222-222222222222" -exec touch {} +
+}
+export -f gc_scratch_fixture
+
+check "worktree-gc --dry-run reports the scratch folder of a session long over, and only that one" \
+  'h="$(mktemp -d)" && gc_stub_bin "$h/bin" && gc_scratch_fixture "$h" &&
+   out="$(env -u CLAUDE_CODE_TMPDIR PATH="$h/bin:$PATH" HOME="$h" \
+     worktree-gc --dry-run)" &&
+   printf "%s" "$out" |
+     grep -q "would remove scratch folder .*/11111111-1111-4111-8111-111111111111," &&
+   printf "%s" "$out" | grep -q "would remove the empty project folder .*-Users-x-gone$" &&
+   ! printf "%s" "$out" | grep -qE "22222222|33333333|bash-edit-diff" &&
+   ! printf "%s" "$out" | grep -q "project folder .*-Users-x-app"'
+
+check "worktree-gc removes the dead scratch folders and the project folder they emptied" \
+  'h="$(mktemp -d)" && gc_stub_bin "$h/bin" && gc_scratch_fixture "$h" &&
+   s="$h/.cache/claude-tmp/claude-$(id -u)" &&
+   env -u CLAUDE_CODE_TMPDIR PATH="$h/bin:$PATH" HOME="$h" worktree-gc >/dev/null &&
+   [ ! -e "$s/-Users-x-app/11111111-1111-4111-8111-111111111111" ] &&
+   [ ! -e "$s/-Users-x-gone" ] &&
+   [ -d "$s/-Users-x-app/22222222-2222-4222-8222-222222222222" ] &&
+   [ -d "$s/-Users-x-app/33333333-3333-4333-8333-333333333333" ] &&
+   [ -d "$s/-Users-x-app/bash-edit-diff" ]'
+
+# A projects root of its own, so the prune cannot reach a repository somebody is
+# working in. Signing and the account are passed in, because a commit here is a
+# fixture rather than this account's work.
+gc_worktree_entry_fixture() {
+  local root="$1" repo="$1/app"
+
+  mkdir -p "$repo"
+  git -C "$repo" init -q -b main
+  git -C "$repo" -c commit.gpgsign=false -c user.name=gc \
+    -c user.email=gc@example.invalid commit -q --allow-empty -m fixture
+  git -C "$repo" worktree add -q "$repo/.claude/worktrees/live" -b live
+  git -C "$repo" worktree add -q "$repo/.claude/worktrees/gone" -b gone
+  rm -rf "$repo/.claude/worktrees/gone"
+}
+export -f gc_worktree_entry_fixture
+
+check "worktree-gc prunes the worktree entry of a removed folder and keeps the live one" \
+  'h="$(mktemp -d)" && gc_stub_bin "$h/bin" &&
+   gc_worktree_entry_fixture "$h/projects" >/dev/null 2>&1 &&
+   out="$(env -u CLAUDE_CODE_TMPDIR PATH="$h/bin:$PATH" HOME="$h" \
+     WORKTREE_GC_PROJECTS="$h/projects" worktree-gc --dry-run)" &&
+   printf "%s" "$out" | grep -q "would prune .*/app.s worktree entry worktrees/gone" &&
+   git -C "$h/projects/app" worktree list | grep -q worktrees/gone &&
+   swept="$(env -u CLAUDE_CODE_TMPDIR PATH="$h/bin:$PATH" HOME="$h" \
+     WORKTREE_GC_PROJECTS="$h/projects" worktree-gc)" &&
+   printf "%s" "$swept" | grep -q "pruning .*worktree entry worktrees/gone" &&
+   ! git -C "$h/projects/app" worktree list | grep -q worktrees/gone &&
+   git -C "$h/projects/app" worktree list | grep -q worktrees/live'
+
 # The herdr server has to come from launchd in the GUI session, or every pane is an
 # SSH session and Claude Code withholds computer use from it.
 export herdr_plist="$HOME/Library/LaunchAgents/io.github.timche.herdr.plist"

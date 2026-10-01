@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Sweeps what a removed worktree leaves behind: its compose project, and any
-# process still sitting in the folder.
+# Sweeps what a finished session leaves behind: a removed worktree's compose
+# project and the processes still sitting in its folder, the scratch folder of a
+# session nobody is running any more, and the worktree entries git keeps for
+# folders that are gone.
 #
 #   worktree-gc             # sweep
 #   worktree-gc --dry-run   # say what a sweep would do, and change nothing
@@ -15,8 +17,9 @@
 # is what the LaunchAgent is for.
 #
 # Conservative by construction: a compose project whose folder still exists is
-# somebody's session, and so is a process whose cwd still exists. Only the gone
-# ones are swept, and only inside the two roots worktrees are made in.
+# somebody's session, and so is a process whose cwd still exists, a scratch
+# folder a live session claims, and a worktree git still finds on disk. Only the
+# gone ones are swept, and only inside the roots this machine makes them in.
 
 set -uo pipefail
 
@@ -37,6 +40,8 @@ for arg in "$@"; do
 done
 
 herdr_root="$HOME/.herdr/worktrees"
+scratch_root="${CLAUDE_CODE_TMPDIR:-$HOME/.cache/claude-tmp}/claude-$(id -u)"
+projects_root="${WORKTREE_GC_PROJECTS:-$HOME/projects}"
 
 # Only ever one line of output per thing done, and nothing at all on a quiet
 # sweep: this runs every ten minutes forever, into a log somebody reads only
@@ -234,8 +239,132 @@ sweep_processes() {
   done
 }
 
+is_uuid() {
+  printf '%s\n' "$1" |
+    grep -qE '^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$'
+}
+
+# The session ids of every Claude Code process still running. The record outlives
+# the process it describes, so the pid in the filename is what decides, and the
+# id comes out with sed because jq is not something this may depend on.
+live_session_ids() {
+  local record pid id
+
+  for record in "$HOME/.claude/sessions"/*.json; do
+    [ -f "$record" ] || continue
+    pid="${record##*/}"
+    pid="${pid%.json}"
+    case "$pid" in '' | *[!0-9]*) continue ;; esac
+    kill -0 "$pid" 2>/dev/null || continue
+    id="$(sed -n 's/.*"sessionId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+      "$record" | head -n 1)"
+    [ -n "$id" ] && printf '%s\n' "$id"
+  done
+}
+
+# Session scratch folders, one per session under a folder per project. Only a
+# directory named like a session id is ever removed: `bash-edit-diff`, `tasks`
+# and whatever else Claude Code keeps beside them belong to no session, and the
+# folders a level up — cc-socks, tart — belong to no project.
+#
+# A week of grace on top of the session being over, because `claude --resume`
+# reuses the folder, and herdr resumes every session it had after a restart. The
+# project folder goes only when the last session in it did, and with rmdir, so
+# anything left makes it stay.
+sweep_scratch() {
+  local live slug session name kept
+
+  [ -d "$scratch_root" ] || return 0
+
+  live=" $(live_session_ids | tr '\n' ' ')"
+
+  for slug in "$scratch_root"/*; do
+    [ -d "$slug" ] || continue
+
+    kept=0
+    for session in "$slug"/*; do
+      [ -e "$session" ] || continue
+      name="${session##*/}"
+
+      if [ ! -d "$session" ] || ! is_uuid "$name"; then
+        kept=$((kept + 1))
+        continue
+      fi
+
+      case "$live" in
+        *" $name "*)
+          kept=$((kept + 1))
+          continue
+          ;;
+      esac
+
+      if [ -n "$(find "$session" -mtime -7 -print -quit 2>/dev/null)" ]; then
+        kept=$((kept + 1))
+        continue
+      fi
+
+      if [ "$dry_run" = true ]; then
+        say "would remove scratch folder $session, whose session is over"
+        continue
+      fi
+
+      say "removing scratch folder $session, whose session is over"
+      rm -rf "$session"
+    done
+
+    # A .DS_Store Finder left behind keeps the folder too, which is what rmdir
+    # would do with it anyway.
+    for session in "$slug"/.*; do
+      case "${session##*/}" in . | ..) continue ;; esac
+      [ -e "$session" ] && kept=$((kept + 1))
+    done
+
+    [ "$kept" -eq 0 ] || continue
+
+    if [ "$dry_run" = true ]; then
+      say "would remove the empty project folder $slug"
+      continue
+    fi
+
+    rmdir "$slug" 2>/dev/null && say "removed the empty project folder $slug"
+  done
+}
+
+# The worktree entries git keeps for folders that are gone. Its own prune rather
+# than a rule of ours: it drops metadata only, and only for a worktree whose
+# folder git cannot find, so a session still working keeps its entry. Nothing
+# outside ~/projects, where this machine's repositories are, and a .git directory
+# rather than a file, which is what a worktree itself has.
+sweep_worktree_entries() {
+  local repo line entry reason flags="" verb="pruning"
+
+  [ -d "$projects_root" ] || return 0
+  command -v git >/dev/null 2>&1 || return 0
+
+  if [ "$dry_run" = true ]; then
+    flags=--dry-run
+    verb="would prune"
+  fi
+
+  for repo in "$projects_root"/*; do
+    [ -d "$repo/.git" ] || continue
+
+    # git reports what it pruned on stderr, hence the whole of its output and the
+    # filter on the lines that name an entry.
+    while IFS= read -r line; do
+      case "$line" in "Removing "*) ;; *) continue ;; esac
+      entry="${line#Removing }"
+      reason="${entry#*: }"
+      entry="${entry%%:*}"
+      say "$verb $repo's worktree entry $entry, whose folder is gone ($reason)"
+    done < <(git -C "$repo" worktree prune -v $flags 2>&1)
+  done
+}
+
 sweep_compose
 sweep_processes
+sweep_scratch
+sweep_worktree_entries
 
 if [ "$dry_run" = true ]; then
   say "dry run over"

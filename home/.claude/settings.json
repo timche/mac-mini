@@ -8,14 +8,15 @@
     "pr": ""
   },
   "permissions": {
-    "defaultMode": "bypassPermissions",
     "deny": [
       "Read(~/.config/op/service-account-token)",
       "Edit(~/.config/op/service-account-token)",
       "Read(~/.claude/.credentials.json)",
       "Edit(~/.claude/.credentials.json)"
-    ]
+    ],
+    "defaultMode": "bypassPermissions"
   },
+  "model": "opus",
   "hooks": {
     "SessionStart": [
       {
@@ -86,6 +87,5 @@
   "theme": "dark",
   "preferredNotifChannel": "ghostty",
   "remoteControlAtStartup": false,
-  "agentPushNotifEnabled": true,
-  "model": "opus"
+  "agentPushNotifEnabled": true
 }

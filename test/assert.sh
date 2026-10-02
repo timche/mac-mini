@@ -861,7 +861,7 @@ check "hachiko is a live symlink and runs through its wrapper" \
 check "the webhook is an op:// reference beside hachiko, and no resolved URL" \
   '[ -L "$HOME/.local/bin/hachiko.env.op" ] &&
    [ -e "$HOME/.local/bin/hachiko.env.op" ] &&
-   grep -qx "HACHIKO_DISCORD_URL=op://dev/hachiko-discord/url" \
+   grep -qx "HACHIKO_DISCORD_URL=op://dev/hachiko-discord/webhook url" \
      "$HOME/.local/bin/hachiko.env.op" &&
    ! grep -q "discord.com" "$HOME/.local/bin/hachiko.env.op"'
 

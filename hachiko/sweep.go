@@ -135,7 +135,21 @@ func (s sweeper) run() error {
 		raised = s.raise(state, now, kind, headline, details, free, truncated)
 	}
 
+	// This minute's numbers, which every message about a question nobody has answered
+	// carries: the answer to a three-hour-old question is about a machine that has moved.
+	reading := nowReading{
+		free:     free,
+		prevFree: state.Disk.FreeKB,
+		level:    level,
+		span:     disk.span,
+		grewKB:   disk.grewKB,
+		sizes:    disk.sizes,
+		writers:  disk.writers,
+		report:   disk.report + cpu.report + disk.truncated,
+	}
+
 	s.chaseLateReports(state, now)
+	s.chaseAnswers(state, now, reading)
 
 	// What stays flagged: whatever was flagged before and is still going, plus what
 	// this check raised, and only if the message actually left the machine.
@@ -169,11 +183,11 @@ func (s sweeper) run() error {
 		state.LowSpaceLevel = level
 	}
 
-	state.Disk = DiskSample{At: now.Unix(), Files: disk.sizes}
+	state.Disk = DiskSample{At: now.Unix(), Files: disk.sizes, FreeKB: free}
 	state.CPU = cpu.sample
 	state.Stalled = disk.stalled
 
-	s.store.ForgetReportedExcept(state.Pending)
+	s.store.ForgetReportedExcept(stillExpected(state))
 
 	return s.store.Save(state)
 }
@@ -214,6 +228,9 @@ type diskFindings struct {
 	sizes         map[string]int64
 	growing       []Growing
 	stalled       []Stall
+	span          time.Duration
+	grewKB        int64
+	writers       []string
 	report        string
 	truncated     string
 	truncatedPath string
@@ -234,7 +251,7 @@ func (s sweeper) disk(state *State, now time.Time, free int64) diskFindings {
 		span = time.Second
 	}
 
-	out := diskFindings{}
+	out := diskFindings{span: span}
 
 	// What is still being skipped and what is due to be tried again. Everything not
 	// skipped is walked, so a directory being retried either stalls again or is quietly
@@ -269,10 +286,17 @@ func (s sweeper) disk(state *State, now time.Time, free int64) diskFindings {
 	for _, g := range growing {
 		// A path and an lsof command name are both chosen by whatever filled the disk,
 		// and both end up in a message Discord caps and in a prompt an agent reads.
+		writer := clip(s.deps.Writers(g.Path), writerLimit)
 		line := fmt.Sprintf("%s — %s GB, grew %s GB since the last sample (%s GB/hour), written by %s",
-			clip(g.Path, pathLimit), gbStr(g.KB), gbStr(g.GrewKB), rateStr(g.GrewKB, span),
-			clip(s.deps.Writers(g.Path), writerLimit))
+			clip(g.Path, pathLimit), gbStr(g.KB), gbStr(g.GrewKB), rateStr(g.GrewKB, span), writer)
 		out.report += "\n  " + line
+
+		// Everything a projection and a stale question are read from: what the files
+		// hachiko can see are gaining between two samples, and who is holding them.
+		out.grewKB += g.GrewKB
+		if !contains(out.writers, writer) {
+			out.writers = append(out.writers, writer)
+		}
 
 		if !s.dry && state.alertedFile(g.Path) {
 			out.stillGoing = append(out.stillGoing, g.Path)
@@ -403,9 +427,10 @@ func (s sweeper) cpu(state *State, now time.Time) cpuFindings {
 // path a worker made up, an lsof command name, a command line. Discord caps a message
 // at 2,000 characters, and one of these at a megabyte would be the whole of it.
 const (
-	pathLimit   = 200
-	writerLimit = 200
-	argsLimit   = 200
+	pathLimit     = 200
+	writerLimit   = 200
+	argsLimit     = 200
+	fallbackLimit = 200
 )
 
 func clip(s string, max int) string {
@@ -457,6 +482,7 @@ func (s sweeper) raise(state *State, now time.Time, kind, headline, details stri
 			state.Pending = map[string]Pending{}
 		}
 		state.Pending[incident] = Pending{OpenedAt: now.Unix(), Tab: session.Tab, Details: details}
+		s.expectAQuestion(state, now, kind, incident, session)
 	}
 
 	// An escalation supersedes the incident it escalated from, and the same session
@@ -469,6 +495,31 @@ func (s sweeper) raise(state *State, now time.Time, kind, headline, details stri
 	}
 
 	return true
+}
+
+// The standing orders end every on-call session on a question, so a session that was
+// briefed is one to start watching for an answer. The clock itself does not start here:
+// it starts when a check first sees the agent actually blocked, which is minutes later
+// and is the moment Tim's wait began.
+//
+// A new incident keeps the kind's clock and resets its steps: he has been unanswered
+// since the first question either way, but the handover is a decision about an incident
+// and each one gets its own.
+func (s sweeper) expectAQuestion(state *State, now time.Time, kind, incident string, session OncallSession) {
+	if state.Waiting == nil {
+		state.Waiting = map[string]Waiting{}
+	}
+
+	w := state.Waiting[kind]
+	if w.Incident != incident {
+		w.Incident, w.Opened = incident, now.Unix()
+		w.Steps, w.Default, w.Asked = nil, "", Asked{}
+	}
+	w.Tab = session.Tab
+	if session.Cancelled {
+		w.Nudged = now.Unix()
+	}
+	state.Waiting[kind] = w
 }
 
 func (s sweeper) brief(incident, details string) string {
@@ -506,6 +557,13 @@ func (s sweeper) resolveReports(state *State) map[string]string {
 		if _, ok := state.Pending[marker]; ok {
 			continue
 		}
+		// A marker for an incident that is already waiting on its question is that
+		// session's second report, the outcome — not a late first report on whatever is
+		// pending now. Reading it as one would close the new incident on the strength of a
+		// message about the old one.
+		if w, ok := state.Waiting[kindOf(marker)]; ok && w.Incident == marker {
+			continue
+		}
 
 		newest := newestPending(state.Pending, kindOf(marker))
 		if newest == "" {
@@ -535,6 +593,27 @@ func kindOf(incident string) string {
 	return kind
 }
 
+// Every incident a report could still arrive under: one that owes its first, and one
+// whose session is on its question and owes the outcome.
+func stillExpected(state *State) map[string]bool {
+	keep := map[string]bool{}
+	for id := range state.Pending {
+		keep[id] = true
+	}
+	for _, w := range state.Waiting {
+		keep[w.Incident] = true
+	}
+	return keep
+}
+
+func (s sweeper) rememberFallback(state *State, incident, fallback string) {
+	kind := kindOf(incident)
+	if w, ok := state.Waiting[kind]; ok && w.Incident == incident && fallback != "" {
+		w.Default = fallback
+		state.Waiting[kind] = w
+	}
+}
+
 // The guarantee behind the session: it needs herdr, a Claude login and usage left,
 // and a watch that only ever spoke through it would be silent exactly when that
 // chain broke.
@@ -550,6 +629,10 @@ func (s sweeper) chaseLateReports(state *State, now time.Time) {
 			} else {
 				s.say("the on-call session reported on %s, which %s superseded", from, id)
 			}
+			// The one line of the report the wait has a use for, taken before the marker
+			// goes: the session is about to ask its question, and this is what it said it
+			// would do if nobody answered it.
+			s.rememberFallback(state, id, s.store.ReportedFallback(from))
 			delete(state.Pending, id)
 			s.store.ClearReported(from)
 			s.store.ClearReported(id)

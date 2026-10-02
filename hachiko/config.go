@@ -27,6 +27,13 @@ type Config struct {
 
 	OncallDeadline time.Duration
 
+	// The wait after an on-call session has asked its question and nobody has answered:
+	// a reminder, a warning that the deadline is close, and the deadline at which the
+	// session is told to decide for itself.
+	RemindAfter   time.Duration
+	WarnAfter     time.Duration
+	HandoverAfter time.Duration
+
 	// What one directory read may take before it is abandoned, and what the whole walk
 	// may take before the sweep goes on without it. Defence in depth behind
 	// PrunedPaths: no single open may cost the machine its only monitor.
@@ -92,6 +99,10 @@ func configFromEnv() Config {
 		CPUWindow: time.Duration(envInt64("HACHIKO_CPU_WINDOW", 3600)) * time.Second,
 
 		OncallDeadline: time.Duration(envInt64("HACHIKO_ONCALL_DEADLINE", 600)) * time.Second,
+
+		RemindAfter:   time.Duration(envInt64("HACHIKO_REMIND_AFTER", 3600)) * time.Second,
+		WarnAfter:     time.Duration(envInt64("HACHIKO_WARN_AFTER", 9900)) * time.Second,
+		HandoverAfter: time.Duration(envInt64("HACHIKO_HANDOVER_AFTER", 10800)) * time.Second,
 
 		DirTimeout:  time.Duration(envInt64("HACHIKO_DIR_TIMEOUT", 3)) * time.Second,
 		WalkTimeout: time.Duration(envInt64("HACHIKO_WALK_TIMEOUT", 60)) * time.Second,

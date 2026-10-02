@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -113,7 +114,7 @@ func notify(cfg Config, incident, messageFile string) error {
 	// across a herdr call and an `op run`, and an on-call session told to report in
 	// under five minutes has none of them to spend waiting. The next sweep is what
 	// clears the incident, and it looks here first.
-	if err := store.MarkReported(incident); err != nil {
+	if err := store.MarkReported(incident, fallbackOption(string(message))); err != nil {
 		log.say("the report on %s was sent, but it was not recorded, so the raw details may follow it: %v",
 			incident, err)
 		return nil
@@ -121,6 +122,23 @@ func notify(cfg Config, incident, messageFile string) error {
 
 	log.say("the on-call session reported on %s", incident)
 	return nil
+}
+
+// What the session says it would do if nobody answers, read out of the report rather
+// than taken as a flag of its own. The line is one Tim reads too, so stating it to him
+// and stating it to hachiko are the same act — and nothing the agent writes about an
+// incident goes in a command line, where the whole machine reads it and a path chosen
+// by whatever filled the disk would be an argument.
+// Whatever the session put in front of the line is left alone — a dash, a bullet, the
+// emphasis a model reaches for — and so is whatever it put straight after the colon.
+var fallbackLine = regexp.MustCompile(`(?mi)^[^\n]*\bif no answer:[ \t*_]*([^\n]+)$`)
+
+func fallbackOption(message string) string {
+	match := fallbackLine.FindStringSubmatch(message)
+	if match == nil {
+		return ""
+	}
+	return clip(strings.TrimSpace(match[1]), fallbackLimit)
 }
 
 func oncall(cfg Config, name, briefFile string) error {

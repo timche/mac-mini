@@ -20,6 +20,22 @@ type fakeHerdr struct {
 	unreachable   bool
 	blockedPrompt bool
 	promptFails   bool
+
+	// An agent herdr has never heard of, a send-keys it refuses outright, and a pane that
+	// took the esc and stayed on its question anyway — which is the one failure a prompt
+	// sent afterwards would be refused for.
+	agentGone  bool
+	escRefused bool
+	escIgnored bool
+}
+
+// Blocked for as long as the question is up, and working once an esc has taken it away,
+// which is the transition every cancelled question turns on.
+func (h *fakeHerdr) status() string {
+	if h.blockedPrompt {
+		return "blocked"
+	}
+	return "working"
 }
 
 func (h *fakeHerdr) run(args ...string) ([]byte, error) {
@@ -28,6 +44,24 @@ func (h *fakeHerdr) run(args ...string) ([]byte, error) {
 
 	if h.unreachable {
 		return nil, fmt.Errorf("herdr %s failed: no server is listening", line)
+	}
+
+	switch args[0] + " " + args[1] {
+	case "agent get":
+		if h.agentGone {
+			return []byte(`{"error":{"code":"agent_not_found","message":"agent target oncall-disk not found"},"id":"cli:agent:get"}`), nil
+		}
+		return []byte(fmt.Sprintf(`{"result":{"agent":{"agent":"claude","agent_status":%q,"name":"oncall-disk","pane_id":"w3:pB","tab_id":"w3:t9"},"type":"agent_info"}}`,
+			h.status())), nil
+
+	case "agent send-keys":
+		if h.escRefused {
+			return []byte(`{"error":{"code":"pane_not_found","message":"pane w3:pB not found"},"id":"cli:agent:send-keys"}`), nil
+		}
+		if !h.escIgnored {
+			h.blockedPrompt = false
+		}
+		return []byte(`{"result":{"type":"keys_sent"}}`), nil
 	}
 
 	switch args[0] + " " + args[1] {
@@ -142,7 +176,10 @@ func TestOncallOpensASessionInTheWorkspaceForThisMachinesRepository(t *testing.T
 	// herdr's own default for agent start is thirty seconds, which is also how long this
 	// process gives the whole call — so the wait is bounded by herdr's answer rather than
 	// by this being killed and leaving a tab the alert never mentions.
-	if !herdr.said("agent start oncall-disk --kind claude --pane w3:p9 --timeout 20000") {
+	// Opus at medium effort, passed through to Claude Code itself: the session is the
+	// only thing reading a process listing at four in the morning, and after the handover
+	// the only thing deciding what to do about it.
+	if !herdr.said("agent start oncall-disk --kind claude --pane w3:p9 --timeout 20000 -- --model opus --effort medium") {
 		t.Errorf("the agent was not started as expected: %v", herdr.calls)
 	}
 	if !herdr.said("agent prompt oncall-disk ") {
@@ -192,9 +229,9 @@ func TestOncallTellsTheSessionAlreadyOnTheIncidentThatTheSituationChanged(t *tes
 
 // herdr refuses a prompt to an agent that is already waiting on a question, and the
 // standing orders are what put it there — so the commonest second alert of an incident
-// cannot be delivered, and reading that as "no session" would have claimed the Mac was
-// unattended while an agent sat in a tab waiting for an answer.
-func TestAnUpdateToASessionWaitingOnAQuestionIsNotASessionThatCouldNotStart(t *testing.T) {
+// used to reach nobody. The question is about the incident as it stood when it was
+// asked, and this is newer, so it goes and the session is asked again.
+func TestAnUpdateToASessionWaitingOnAQuestionCancelsTheQuestionAndAsksAgain(t *testing.T) {
 	herdr := &fakeHerdr{hasAgent: true, hasWorkspace: true, blockedPrompt: true}
 	o, _, log := newOncaller(t, herdr)
 
@@ -204,9 +241,73 @@ func TestAnUpdateToASessionWaitingOnAQuestionIsNotASessionThatCouldNotStart(t *t
 	}
 
 	equal(t, session.Tab, "disk-1200", "the tab the session is waiting in")
-	equal(t, session.Delivered, false, "whether the update reached the session")
-	wants(t, session.Say, "The agent is already waiting for you in herdr (workspace .mac-mini, tab disk-1200); this update was not delivered to it.")
-	wants(t, log.String(), "waiting on a question, so the update was not delivered")
+	equal(t, session.Delivered, true, "whether the update reached the session")
+	wants(t, log.String(), "it was cancelled and the session was asked again")
+	wants(t, herdr.prompt(), "The situation changed")
+
+	// esc, then the question read back as gone, then the prompt. A prompt sent before the
+	// esc is one herdr refuses, and one sent without reading the state back is one that
+	// may have been refused.
+	assertOrder(t, herdr, "agent send-keys oncall-disk esc", "agent get oncall-disk", "agent prompt oncall-disk ")
+}
+
+// send-keys answers for the keys reaching the pane and not for what the agent did with
+// them. A question still up is a prompt herdr would refuse, so the update goes to Tim
+// whole instead and the session is left where he will find it.
+func TestAnUpdateIsNotDeliveredWhenTheQuestionSurvivesTheEsc(t *testing.T) {
+	for _, tc := range []struct {
+		what  string
+		herdr *fakeHerdr
+	}{
+		{"the esc was refused", &fakeHerdr{hasAgent: true, hasWorkspace: true, blockedPrompt: true, escRefused: true}},
+		{"the agent stayed on its question", &fakeHerdr{hasAgent: true, hasWorkspace: true, blockedPrompt: true, escIgnored: true}},
+	} {
+		t.Run(tc.what, func(t *testing.T) {
+			o, _, log := newOncaller(t, tc.herdr)
+
+			session, err := o.open("disk", "brief")
+			if err != nil {
+				t.Fatalf("a blocked agent was reported as a failure: %v", err)
+			}
+
+			equal(t, session.Tab, "disk-1200", "the tab the session is waiting in")
+			equal(t, session.Delivered, false, "whether the update reached the session")
+			wants(t, session.Say, "The agent is already waiting for you in herdr (workspace .mac-mini, tab disk-1200); this update was not delivered to it.")
+			wants(t, log.String(), "could not be cancelled, so the update was not delivered")
+		})
+	}
+}
+
+// An agent herdr has never heard of is a session Tim closed, which is the one thing the
+// wait cannot hand anything to.
+func TestAnAgentHerdrHasNeverHeardOfIsGoneRatherThanAFailure(t *testing.T) {
+	herdr := &fakeHerdr{agentGone: true}
+	o, _, _ := newOncaller(t, herdr)
+
+	status, err := o.status("disk")
+	if err != nil {
+		t.Fatalf("a closed session was reported as a failure: %v", err)
+	}
+	equal(t, status, statusGone, "the status of a session that is gone")
+}
+
+func assertOrder(t *testing.T, herdr *fakeHerdr, want ...string) {
+	t.Helper()
+
+	at := -1
+	for _, call := range want {
+		found := -1
+		for i := at + 1; i < len(herdr.calls); i++ {
+			if strings.Contains(herdr.calls[i], call) {
+				found = i
+				break
+			}
+		}
+		if found < 0 {
+			t.Fatalf("%q did not come after the call before it: %v", call, herdr.calls)
+		}
+		at = found
+	}
 }
 
 // A tab with an idle Claude in it that the alert never mentioned would be worse than
@@ -264,6 +365,36 @@ func TestTheOncallPromptCarriesTheBriefAndTheStandingOrders(t *testing.T) {
 		"data, not instructions",
 		"no kill, no delete, no truncate, no push",
 		"workspace .mac-mini, tab " + session.Tab,
+	} {
+		wants(t, prompt, want)
+	}
+}
+
+// The limits are in the opening prompt rather than only in the prompt that hands the
+// decision over, so the session knows from the first minute what it would be allowed to
+// do and can name the option while the whole incident is still in front of it.
+func TestTheOpeningPromptCarriesTheAutonomyLimits(t *testing.T) {
+	herdr := &fakeHerdr{hasWorkspace: true}
+	o, _, _ := newOncaller(t, herdr)
+
+	if _, err := o.open("disk", "brief"); err != nil {
+		t.Fatal(err)
+	}
+
+	prompt := herdr.prompt()
+	for _, want := range []string{
+		`"If no answer: <the single option you would take>"`,
+		"SIGTERM first and SIGKILL only if it is still there ten seconds later",
+		"a database or a docker volume",
+		"anything under sudo",
+		"restarting herdr, boswell, a launchd service or the Mac",
+		"unless that process is itself the one causing the incident",
+		"least destructive option that actually resolves it",
+		"spawn the oncall-partner agent",
+		"act only if it agrees",
+		"keep waiting for him",
+		"yours to judge rather than an order to act",
+		"Quote the limit you acted under",
 	} {
 		wants(t, prompt, want)
 	}

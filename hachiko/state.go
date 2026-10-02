@@ -35,11 +35,20 @@ type State struct {
 	Stalled []Stall `json:"stalled,omitempty"`
 
 	Pending map[string]Pending `json:"pending,omitempty"`
+
+	// One per kind, because there is one on-call agent per kind and one question at a
+	// time in front of it.
+	Waiting map[string]Waiting `json:"waiting,omitempty"`
 }
 
 type DiskSample struct {
 	At    int64            `json:"at,omitempty"`
 	Files map[string]int64 `json:"files,omitempty"`
+
+	// Free space at that sample, so the rate the disk is actually losing can be read
+	// against the rate the files hachiko can see are gaining. A writer it never found is
+	// still taking the disk.
+	FreeKB int64 `json:"free_kb,omitempty"`
 }
 
 type CPUSample struct {
@@ -82,6 +91,39 @@ type Pending struct {
 	OpenedAt int64  `json:"opened_at"`
 	Tab      string `json:"tab"`
 	Details  string `json:"details"`
+}
+
+// Waiting is an on-call agent that has put its question in front of Tim, and how long
+// it has been there. Since is zero until a check has actually seen the agent blocked,
+// so the clock starts at the question rather than at the brief.
+//
+// Nudged is when hachiko itself cancelled the question. Without it the working state
+// that follows reads exactly like Tim answering, and the clock would stop every time
+// hachiko asked the agent to think again.
+type Waiting struct {
+	Incident string   `json:"incident"`
+	Tab      string   `json:"tab"`
+	Opened   int64    `json:"opened"`
+	Since    int64    `json:"since,omitempty"`
+	Nudged   int64    `json:"nudged,omitempty"`
+	Steps    []string `json:"steps,omitempty"`
+
+	// What the agent said in its first report it would do if nobody answered, which is
+	// what the warning quotes rather than guessing at.
+	Default string `json:"default,omitempty"`
+
+	Asked Asked `json:"asked,omitempty"`
+}
+
+// Asked is the incident as it stood when the question went up, which is the only thing
+// a material change can be measured against: the options in front of Tim are about
+// these numbers, and once they have moved far enough the question is the wrong one.
+type Asked struct {
+	At      int64            `json:"at,omitempty"`
+	FreeKB  int64            `json:"free_kb,omitempty"`
+	Level   int64            `json:"level,omitempty"`
+	Sizes   map[string]int64 `json:"sizes,omitempty"`
+	Writers []string         `json:"writers,omitempty"`
 }
 
 func (s *State) hasDiskSample() bool { return s.Disk.At > 0 }
@@ -271,14 +313,29 @@ func (st Store) reportedDir() string { return filepath.Join(st.dir, "reported") 
 // as herdr and `op run` take. One file per incident, created and never read back by
 // the writer: the sweep is the only thing that edits state, and this is the one fact
 // it needs from outside.
-func (st Store) MarkReported(incident string) error {
+//
+// The file holds the one line of the report the next sweep has a use for, the option
+// the agent would fall back on, and nothing else of it: the report itself has already
+// gone to the channel.
+func (st Store) MarkReported(incident, fallback string) error {
 	if !incidentID.MatchString(incident) {
 		return fmt.Errorf("%q is not an incident id", incident)
 	}
 	if err := os.MkdirAll(st.reportedDir(), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(st.reportedDir(), incident), nil, 0o644)
+	return os.WriteFile(filepath.Join(st.reportedDir(), incident), []byte(fallback), 0o644)
+}
+
+func (st Store) ReportedFallback(incident string) string {
+	if !incidentID.MatchString(incident) {
+		return ""
+	}
+	note, err := os.ReadFile(filepath.Join(st.reportedDir(), incident))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(note))
 }
 
 func (st Store) Reported(incident string) bool {
@@ -312,14 +369,16 @@ func (st Store) ReportedIDs() []string {
 }
 
 // A marker for an incident nothing is waiting on any more, which is what a report for
-// an incident that had already been superseded leaves behind.
-func (st Store) ForgetReportedExcept(keep map[string]Pending) {
+// an incident that had already been superseded leaves behind. An incident still owing a
+// report and one already waiting on its question both keep theirs: the second is where
+// the session's outcome arrives, which may land in the seconds this sweep has left.
+func (st Store) ForgetReportedExcept(keep map[string]bool) {
 	entries, err := os.ReadDir(st.reportedDir())
 	if err != nil {
 		return
 	}
 	for _, entry := range entries {
-		if _, ok := keep[entry.Name()]; !ok {
+		if !keep[entry.Name()] {
 			os.Remove(filepath.Join(st.reportedDir(), entry.Name()))
 		}
 	}

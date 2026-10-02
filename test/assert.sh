@@ -872,6 +872,17 @@ check "the CPU allowlist is a live symlink and names the VMs and the indexer" \
    grep -qx "mds" "$HOME/.config/hachiko/cpu-allow" &&
    grep -qx "backupd" "$HOME/.config/hachiko/cpu-allow"'
 
+# The standing orders send the on-call session to this agent before it acts on its own,
+# so an agent file that is not there is an autonomous action with nobody checking it. The
+# tools are the whole of why it is safe to spawn from a session that has been handed
+# authority over the machine: it inspects and reports, and nothing it can call writes.
+check "the on-call session's review partner is there, reads Opus's second opinion and can change nothing" \
+  'p="$HOME/.claude/agents/oncall-partner.md" && [ -e "$p" ] &&
+   grep -qx "model: fable" "$p" &&
+   grep -qx "tools: Read, Grep, Glob, Bash" "$p" &&
+   grep -q "Read-only, absolutely" "$p" &&
+   grep -q "oncall-partner" "$repo/hachiko/oncall.go"'
+
 # The numbers the README and the plist comment both name. Every one of them is an
 # environment variable so that a test can trip the same arithmetic with megabytes and
 # minutes, which is exactly why the defaults need asserting.
@@ -884,6 +895,15 @@ check "hachiko watches for 100 GB free, 20 GB critical, 1 GB files, 2 GB of grow
    grep -qF "envInt64(\"HACHIKO_CPU_SHARE\", 50)" "$c" &&
    grep -qF "envInt64(\"HACHIKO_CPU_WINDOW\", 3600)" "$c" &&
    grep -qF "envInt64(\"HACHIKO_ONCALL_DEADLINE\", 600)" "$c"'
+
+# The wait after the session has asked its question: an hour, a quarter of an hour's
+# notice before the deadline, and three hours to the deadline itself. Tim's numbers, and
+# the point at which the session is allowed to act for him.
+check "hachiko reminds at an hour, warns at 2h45 and hands the decision over at three hours" \
+  'c="$repo/hachiko/config.go" &&
+   grep -qF "envInt64(\"HACHIKO_REMIND_AFTER\", 3600)" "$c" &&
+   grep -qF "envInt64(\"HACHIKO_WARN_AFTER\", 9900)" "$c" &&
+   grep -qF "envInt64(\"HACHIKO_HANDOVER_AFTER\", 10800)" "$c"'
 
 # The go the wrapper builds with is this repository's own, in its root mise.toml: this
 # repo is one of the projects that wants a runtime for itself.

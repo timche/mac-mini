@@ -53,6 +53,13 @@ type fixture struct {
 	oncallErr     error
 	oncallBlocked bool
 
+	// What herdr would say the on-call agent of each kind is doing, and what hachiko did
+	// to it: one entry per cancelled question and the prompt that replaced it.
+	status       map[string]string
+	statusErr    error
+	interrupts   []string
+	interruptErr error
+
 	sent         []string
 	sendAttempts int
 	sendErr      error
@@ -109,6 +116,9 @@ func newFixture(t *testing.T) *fixture {
 		pid:    999001,
 		cwd:    map[int]string{},
 		writer: "4242 (fake-worker)",
+		// Nothing is waiting on a question until a test says so, which is what every
+		// check written before the wait existed assumes.
+		status: map[string]string{},
 	}
 }
 
@@ -146,19 +156,49 @@ func (f *fixture) deps() Deps {
 			case f.oncallErr != nil:
 				return OncallSession{}, f.oncallErr
 			case f.oncallBlocked:
+				// The agent is on a question whose cancelling did not work, so nothing of
+				// the update reached it.
 				return OncallSession{
 					Tab: name + "-0000",
 					Say: fmt.Sprintf("The agent is already waiting for you in herdr (workspace .mac-mini, tab %s-0000); this update was not delivered to it.", name),
 				}, nil
 			}
 
-			return OncallSession{
+			session := OncallSession{
 				Tab:       name + "-0000",
 				Delivered: true,
 				Say:       fmt.Sprintf("An agent is looking into it in herdr (workspace .mac-mini, tab %s-0000); details to follow.", name),
-			}, nil
+			}
+
+			// What the real oncaller does with an agent herdr would refuse a prompt to: the
+			// question goes and the brief takes its place, which leaves it working.
+			if f.status[name] == statusBlocked {
+				f.interrupts = append(f.interrupts, "The situation changed\n"+brief)
+				f.status[name] = statusWorking
+				session.Cancelled = true
+			}
+			return session, nil
 		},
 
+		AgentStatus: func(kind string) (string, error) {
+			if f.statusErr != nil {
+				return "", f.statusErr
+			}
+			if status, ok := f.status[kind]; ok {
+				return status, nil
+			}
+			return "idle", nil
+		},
+		Interrupt: func(kind, lead, data string) error {
+			if f.interruptErr != nil {
+				return f.interruptErr
+			}
+			f.interrupts = append(f.interrupts, lead+"\n"+data)
+			// The agent herdr refuses a prompt to is the one still on its question, so a
+			// cancelled question leaves it working on what it was handed instead.
+			f.status[kind] = statusWorking
+			return nil
+		},
 		Send: func(message string) error {
 			f.sendAttempts++
 			if f.sendErr != nil {
@@ -318,9 +358,29 @@ func (f *fixture) sentCount() int { return len(f.sent) }
 // lock and cannot wait on a sweep holding one.
 func (f *fixture) notify(incident string) {
 	f.t.Helper()
-	if err := f.store.MarkReported(incident); err != nil {
+	if err := f.store.MarkReported(incident, ""); err != nil {
 		f.t.Fatal(err)
 	}
+}
+
+// A report with the one line the wait reads out of it: what the session says it would do
+// if nobody answers its question.
+func (f *fixture) notifyWithFallback(incident, fallback string) {
+	f.t.Helper()
+	if err := f.store.MarkReported(incident, fallback); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+// The agent puts its question up, which is where the wait starts.
+func (f *fixture) blocks(kind string) { f.status[kind] = statusBlocked }
+
+func (f *fixture) lastInterrupt() string {
+	f.t.Helper()
+	if len(f.interrupts) == 0 {
+		f.t.Fatal("no question was cancelled")
+	}
+	return f.interrupts[len(f.interrupts)-1]
 }
 
 func (f *fixture) onlyPendingID() string {

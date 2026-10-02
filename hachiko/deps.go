@@ -32,6 +32,16 @@ type Deps struct {
 	// reached it, which is what the message about to go out has to say.
 	Oncall func(name, brief string) (OncallSession, error)
 
+	// What herdr says the on-call agent of a kind is doing — blocked, working, idle,
+	// done, or gone when there is no such agent any more. Blocked is the whole of how
+	// hachiko knows Tim has not answered yet.
+	AgentStatus func(kind string) (string, error)
+
+	// Cancels the question the agent is waiting on and hands it a prompt in its place.
+	// It fails rather than prompting if the question is still up, since herdr refuses a
+	// prompt to a blocked agent and a step recorded as done would never be tried again.
+	Interrupt func(kind, lead, data string) error
+
 	// Reaches the channel Tim watches. The only thing that ever sees the webhook.
 	Send func(message string) error
 }
@@ -83,6 +93,12 @@ func realDeps(cfg Config) Deps {
 
 		Oncall: func(name, brief string) (OncallSession, error) {
 			return oncaller{cfg: cfg, run: herdrCLI, now: now, log: log}.open(name, brief)
+		},
+		AgentStatus: func(kind string) (string, error) {
+			return oncaller{cfg: cfg, run: herdrCLI, now: now, log: log}.status(kind)
+		},
+		Interrupt: func(kind, lead, data string) error {
+			return oncaller{cfg: cfg, run: herdrCLI, now: now, log: log}.interrupt(kind, lead, data)
 		},
 		Send: func(message string) error { return sendThroughOP(cfg, message) },
 	}

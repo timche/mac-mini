@@ -12,6 +12,8 @@
 # Only the rebuild depends on mise. The binary it execs is a static Go binary that
 # depends on nothing — not mise, not Homebrew, not a runtime — which is the point on
 # a machine where the LaunchAgent has to keep watching while the tooling is broken.
+# Every way the build can fail ends the same way: one line, and the last binary that
+# worked.
 #
 # The repository is found through this script's own resolved path rather than named,
 # so the same wrapper works as the symlink in ~/.local/bin, as a file in a checkout,
@@ -45,6 +47,22 @@ export HACHIKO_ENV_FILE
 cache="${HACHIKO_CACHE_DIR:-$HOME/Library/Caches/hachiko}"
 bin="$cache/hachiko"
 stamp="$cache/source.sha256"
+build_timeout=120
+
+run_binary() {
+  if [ ! -x "$bin" ]; then
+    say "there is no hachiko binary and none could be built, so nothing is watching this Mac"
+    exit 1
+  fi
+  exec "$bin" "$@"
+}
+
+# A checkout with no hachiko/ in it is a pull that moved or removed the sources, not a
+# source tree to build: say so and keep watching with the binary that is already here.
+if [ ! -d "$src" ]; then
+  say "$src is not there, so hachiko was not rebuilt"
+  run_binary "$@"
+fi
 
 # The sources' contents and their names, so a rename or a deletion counts as a
 # change too. A few milliseconds, which is what keeps a run that has nothing to
@@ -54,25 +72,58 @@ hash=$(
     sort | xargs shasum -a 256 2>/dev/null | shasum -a 256 | cut -d' ' -f1
 )
 
+# A build that hangs is a five-minute agent that never comes back, so it is given a
+# couple of minutes and then killed. The sleeper is the watchdog; killing it once the
+# build has finished is what keeps this from waiting for it.
+build() {
+  "$1" exec -C "$repo" -- go build -C "$src" -o "$2" . >"$3" 2>&1 &
+  build_pid=$!
+
+  (
+    sleep "$build_timeout"
+    kill -TERM "$build_pid" 2>/dev/null
+  ) &
+  watchdog_pid=$!
+
+  wait "$build_pid"
+  status=$?
+
+  kill -TERM "$watchdog_pid" 2>/dev/null
+  wait "$watchdog_pid" 2>/dev/null
+
+  return "$status"
+}
+
 if [ -n "$hash" ] && [ "$hash" != "$(cat "$stamp" 2>/dev/null)" ]; then
   mise=$(command -v mise 2>/dev/null) || mise="$HOME/.local/bin/mise"
 
+  # A LaunchAgent is the wrong place to download a toolchain: a go that is missing is
+  # install.sh's to put there, and a mise that went to the network here would turn a
+  # five-minute check into however long the download takes.
+  MISE_EXEC_AUTO_INSTALL=0
+  MISE_NOT_FOUND_AUTO_INSTALL=0
+  export MISE_EXEC_AUTO_INSTALL MISE_NOT_FOUND_AUTO_INSTALL
+
+  CGO_ENABLED=0
+  export CGO_ENABLED
+
+  out="$cache/build.log"
+
   if [ ! -x "$mise" ]; then
     say "mise is missing, so hachiko could not be rebuilt from $src"
-  elif mkdir -p "$cache" &&
-    out=$(CGO_ENABLED=0 "$mise" exec -C "$repo" -- go build -C "$src" -o "$cache/hachiko.$$" . 2>&1); then
+  elif ! mkdir -p "$cache"; then
+    say "$cache could not be made, so hachiko could not be rebuilt from $src"
+  elif ! "$mise" which go >/dev/null 2>&1; then
+    say "the go this repo's mise.toml asks for is not installed, so hachiko could not be rebuilt — run install.sh"
+  elif build "$mise" "$cache/hachiko.$$" "$out"; then
     # Into place in one step, so a run that starts mid-build execs a whole binary.
     mv -f "$cache/hachiko.$$" "$bin" && printf '%s\n' "$hash" >"$stamp"
+    rm -f "$out"
   else
     rm -f "$cache/hachiko.$$"
     # The hash is deliberately not recorded, so the next run tries the build again.
-    say "the sources in $src do not build, so this is the last binary that did: $(printf '%s' "$out" | head -1)"
+    say "the sources in $src do not build, so this is the last binary that did: $(head -1 "$out" 2>/dev/null)"
   fi
 fi
 
-if [ ! -x "$bin" ]; then
-  say "there is no hachiko binary and $src does not build, so nothing is watching this Mac"
-  exit 1
-fi
-
-exec "$bin" "$@"
+run_binary "$@"

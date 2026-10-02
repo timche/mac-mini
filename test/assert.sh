@@ -945,6 +945,33 @@ check "the wrapper keeps the last good binary when the sources do not compile" \
    grep -q "do not build, so this is the last binary that did" "$d/err" &&
    [ "$(cat "$d/cache/source.sha256")" = "$built" ]'
 
+# A pull that moved the sources away is not a source tree that fails to compile, and a
+# go that is not installed is install.sh's to fix: both say which, and neither stops the
+# watch. A LaunchAgent is also the wrong place to fetch a toolchain from, so the build
+# never reaches the network on its own.
+check "the wrapper says why it could not rebuild and keeps watching" \
+  'd="$(mktemp -d)" && mkdir -p "$d/home/.local/bin" "$d/bin" &&
+   cp -R "$repo/hachiko" "$d/hachiko" &&
+   cp "$repo/mise.toml" "$d/mise.toml" &&
+   cp "$repo/home/.local/bin/hachiko" "$d/home/.local/bin/hachiko" &&
+   export MISE_TRUSTED_CONFIG_PATHS="$d" &&
+   export HACHIKO_CACHE_DIR="$d/cache" &&
+   "$d/home/.local/bin/hachiko" --help >/dev/null &&
+   mv "$d/hachiko" "$d/hachiko.moved" &&
+   "$d/home/.local/bin/hachiko" --help 2>"$d/gone" | grep -q "dry-run" &&
+   grep -q "is not there, so hachiko was not rebuilt" "$d/gone" &&
+   mv "$d/hachiko.moved" "$d/hachiko" &&
+   printf "edit\n" >>"$d/hachiko/main.go" &&
+   printf "#!/bin/sh\nexit 1\n" >"$d/bin/mise" && chmod +x "$d/bin/mise" &&
+   PATH="$d/bin:$stock_path" HOME="$d" "$d/home/.local/bin/hachiko" --help \
+     2>"$d/nogo" | grep -q "dry-run" &&
+   grep -q "is not installed, so hachiko could not be rebuilt — run install.sh" "$d/nogo"'
+
+check "the wrapper never has mise install a toolchain of its own" \
+  'grep -q "MISE_EXEC_AUTO_INSTALL=0" "$repo/home/.local/bin/hachiko" &&
+   grep -q "MISE_NOT_FOUND_AUTO_INSTALL=0" "$repo/home/.local/bin/hachiko" &&
+   grep -q "build_timeout=" "$repo/home/.local/bin/hachiko"'
+
 # A run with nothing to build may not reach for mise at all: this runs every five
 # minutes forever, and the binary it execs depends on nothing.
 check "the wrapper runs the cached binary without a go of any kind when nothing changed" \

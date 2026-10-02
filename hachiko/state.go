@@ -27,6 +27,11 @@ type State struct {
 	// says so once more and says nothing again until it has recovered.
 	LowSpaceLevel int64 `json:"low_space_level,omitempty"`
 
+	// Directories that did not answer a read in time. Remembered so that a walk does
+	// not spend the same seconds on the same hung open every five minutes; removing one
+	// from this file by hand is how it gets looked at again.
+	StalledDirs []string `json:"stalled_dirs,omitempty"`
+
 	Pending map[string]Pending `json:"pending,omitempty"`
 }
 
@@ -69,6 +74,22 @@ func contains(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func mergeSorted(lists ...[]string) []string {
+	seen := map[string]bool{}
+	var out []string
+
+	for _, list := range lists {
+		for _, v := range list {
+			if !seen[v] {
+				seen[v] = true
+				out = append(out, v)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func sortedKeys[V any](m map[string]V) []string {

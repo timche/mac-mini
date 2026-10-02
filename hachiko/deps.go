@@ -19,8 +19,10 @@ type Deps struct {
 	Log    io.Writer
 	Getpid func() int
 
-	FreeKB    func() (int64, error)
-	BigFiles  func() []FileSize
+	FreeKB func() (int64, error)
+	// skip is what earlier sweeps found would not answer, on top of the folders this
+	// never opens at all.
+	BigFiles  func(skip []string) WalkResult
 	Writers   func(path string) string
 	Truncate  func(path string) error
 	Processes func() ([]Process, error)
@@ -60,8 +62,19 @@ func realDeps(cfg Config) Deps {
 		Log:    os.Stdout,
 		Getpid: os.Getpid,
 
-		FreeKB:   func() (int64, error) { return freeKB(cfg.Home) },
-		BigFiles: func() []FileSize { return bigFiles(cfg.Roots(), cfg.PrunedPaths(), cfg.BigKB) },
+		FreeKB: func() (int64, error) { return freeKB(cfg.Home) },
+		BigFiles: func(skip []string) WalkResult {
+			return Walk{
+				Roots:  cfg.Roots(),
+				Pruned: append(cfg.PrunedPaths(), skip...),
+				MinKB:  cfg.BigKB,
+				// Wall clock, not the sweep's: these deadlines are about how long an open
+				// has really been waiting, which a simulated clock would never reach.
+				Now:         time.Now,
+				DirTimeout:  cfg.DirTimeout,
+				WalkTimeout: cfg.WalkTimeout,
+			}.Run()
+		},
 		Writers:  writers,
 		Truncate: func(path string) error { return truncateLog(path, device) },
 

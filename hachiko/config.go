@@ -27,6 +27,12 @@ type Config struct {
 
 	OncallDeadline time.Duration
 
+	// What one directory read may take before it is abandoned, and what the whole walk
+	// may take before the sweep goes on without it. Defence in depth behind
+	// PrunedPaths: no single open may cost the machine its only monitor.
+	DirTimeout  time.Duration
+	WalkTimeout time.Duration
+
 	Home         string
 	MachineDir   string
 	TmpRoot      string
@@ -84,6 +90,9 @@ func configFromEnv() Config {
 
 		OncallDeadline: time.Duration(envInt64("HACHIKO_ONCALL_DEADLINE", 600)) * time.Second,
 
+		DirTimeout:  time.Duration(envInt64("HACHIKO_DIR_TIMEOUT", 3)) * time.Second,
+		WalkTimeout: time.Duration(envInt64("HACHIKO_WALK_TIMEOUT", 60)) * time.Second,
+
 		Home:         home,
 		MachineDir:   machineDir,
 		TmpRoot:      envString("HACHIKO_TMP", "/private/tmp"),
@@ -100,16 +109,57 @@ func configFromEnv() Config {
 	}
 }
 
-// Roots are the two trees a runaway log lands in: the tmp everything reaches for
-// and the account's own home.
-func (c Config) Roots() []string { return []string{c.TmpRoot, c.Home} }
-
-// PrunedPaths are the two folders holding the VM disk images, which are sparse and
-// so apparently hundreds of gigabytes they are not occupying.
-func (c Config) PrunedPaths() []string {
+// Roots are the trees a runaway log lands in: the tmp everything reaches for, the
+// account's own home, and the two folders inside ~/Library that hold logs and caches
+// rather than another app's data. The rest of ~/Library is not walked at all — see
+// PrunedPaths — so those two come back as roots of their own.
+func (c Config) Roots() []string {
 	return []string{
-		filepath.Join(c.Home, "Library", "Containers"),
-		filepath.Join(c.Home, "Library", "Group Containers"),
+		c.TmpRoot,
+		c.Home,
+		filepath.Join(c.Home, "Library", "Logs"),
+		filepath.Join(c.Home, "Library", "Caches"),
+	}
+}
+
+// PrunedPaths is the whole of what the walk does not open. Everything else under the
+// roots is walked, because a runaway log lands wherever somebody found convenient.
+//
+// All of them are about TCC. Under launchd an unsigned binary is its own
+// TCC-responsible process and has none of the grants a herdr pane has, and what it meets
+// is not a refusal: a folder behind Full Disk Access answers "operation not permitted" in
+// microseconds and is no trouble, but a folder behind a consent prompt makes open() wait
+// for a dialog on a screen nobody is looking at. That is a sweep that never returns, on a
+// Mac whose only monitor it is. It cannot be discovered at runtime either, because the
+// same code run from a session walks all of it fine.
+//
+// ~/Library goes wholesale: it is every other app's data, macOS guards it under Device
+// Control and Data Access, and reading it raises "Data Access Blocked" as well as
+// hundreds of TCC requests. Logs and Caches are walked as roots of their own instead,
+// being this machine's own output rather than anybody's data — the first is where a
+// runaway log lands and where a truncate is allowed, the second is where hachiko's own
+// binary lives. Pruning ~/Library also takes the Containers folders with it, which held
+// the VM disk images that are sparse and so apparently hundreds of gigabytes they are not
+// occupying, and iCloud Drive and the CloudStorage mounts, which are consent-guarded too.
+//
+// The home folders below it are the documents-and-media consent category. Public is the
+// odd one out: it is not guarded at all, it is the folder the Mac shares out, and nothing
+// that writes a log writes it there.
+func (c Config) PrunedPaths() []string {
+	under := func(parts ...string) string {
+		return filepath.Join(append([]string{c.Home}, parts...)...)
+	}
+
+	return []string{
+		under("Library"),
+
+		under("Desktop"),
+		under("Documents"),
+		under("Downloads"),
+		under("Movies"),
+		under("Music"),
+		under("Pictures"),
+		under("Public"),
 	}
 }
 

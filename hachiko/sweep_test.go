@@ -380,6 +380,39 @@ func TestTheFirstProcessIsRecordedWhenThereIsNoPreviousSample(t *testing.T) {
 	}
 }
 
+// A directory that would not answer is named once and then remembered, so the next sweep
+// hands it straight back as something to skip rather than paying the seconds again.
+func TestADirectoryThatWouldNotAnswerIsNamedOnceAndThenSkipped(t *testing.T) {
+	f := newFixture(t)
+	hung := filepath.Join(f.cfg.Home, "Volumes", "dead-mount")
+	f.stalls = []string{hung}
+
+	wants(t, f.at(0).sweep(), hung+" did not answer a read within 3s, so it is skipped from here on")
+	equal(t, len(f.state().StalledDirs), 1, "directories remembered as stalled")
+
+	// The second sweep is handed it to skip, and says nothing more about it.
+	out := f.at(300).sweep()
+	lacks(t, out, "did not answer a read")
+	equal(t, len(f.skipped), 1, "directories the walk was told to skip")
+	if len(f.skipped) == 1 {
+		equal(t, f.skipped[0], hung, "the directory the walk was told to skip")
+	}
+	equal(t, len(f.state().StalledDirs), 1, "directories remembered after the second sweep")
+}
+
+// A monitor that reports nothing because it is still counting is the failure this exists
+// to avoid, so the CPU check and the alerts run on what the walk did manage to see.
+func TestAWalkCutShortStillLetsTheRestOfTheCheckRun(t *testing.T) {
+	f := newFixture(t)
+	f.cutShort = true
+	f.freeGB = 90
+
+	out := f.at(0).sweep()
+	wants(t, out, "the walk ran out of its 1m0s, so this check saw only part of the disk")
+	wants(t, out, "only 90.0 GB free, under the 100 GB threshold")
+	equal(t, f.sentCount(), 1, "messages sent")
+}
+
 // An escalation re-briefs the same session under a new incident id, but the id the
 // session was first handed is the one in its scrollback — so it reports under that. The
 // report is on the incident either way, and reading it any other way loses it and then

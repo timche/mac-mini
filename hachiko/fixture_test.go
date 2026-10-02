@@ -38,6 +38,11 @@ type fixture struct {
 	procs   []Process
 	pid     int
 
+	// What the walk reports it could not look at, and what it was told to skip.
+	stalls   []string
+	cutShort bool
+	skipped  []string
+
 	cwd       map[int]string
 	writer    string
 	allowlist string
@@ -73,6 +78,9 @@ func newFixture(t *testing.T) *fixture {
 		CPUShare:       50,
 		CPUWindow:      time.Hour,
 		OncallDeadline: 10 * time.Minute,
+
+		DirTimeout:  3 * time.Second,
+		WalkTimeout: time.Minute,
 
 		Home:         home,
 		MachineDir:   filepath.Join(home, ".mac-mini"),
@@ -116,7 +124,8 @@ func (f *fixture) deps() Deps {
 
 		FreeKB:   func() (int64, error) { return f.freeGB * gib, nil },
 		BigFiles: f.bigFiles,
-		Writers:  func(string) string { return f.writer },
+
+		Writers: func(string) string { return f.writer },
 		Truncate: func(path string) error {
 			if err := os.Truncate(path, 0); err != nil {
 				return err
@@ -162,8 +171,10 @@ func (f *fixture) deps() Deps {
 
 // Real files with real allocated sizes, so the truncate rules and the sparse-image
 // reasoning are exercised rather than described.
-func (f *fixture) bigFiles() []FileSize {
-	var out []FileSize
+func (f *fixture) bigFiles(skip []string) WalkResult {
+	f.skipped = skip
+
+	out := WalkResult{Stalled: f.stalls, CutShort: f.cutShort}
 	for _, path := range f.watched {
 		info, err := os.Lstat(path)
 		if err != nil {
@@ -174,10 +185,10 @@ func (f *fixture) bigFiles() []FileSize {
 			continue
 		}
 		if kb := st.Blocks / 2; kb >= f.cfg.BigKB {
-			out = append(out, FileSize{Path: path, KB: kb})
+			out.Files = append(out.Files, FileSize{Path: path, KB: kb})
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	sort.Slice(out.Files, func(i, j int) bool { return out.Files[i].Path < out.Files[j].Path })
 	return out
 }
 

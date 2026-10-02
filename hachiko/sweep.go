@@ -116,8 +116,8 @@ func (s sweeper) run() error {
 		if newIncident {
 			s.say("would open an on-call session as %s and send: %s", kind, headline)
 		}
-		s.say("%s GB free, %d file(s) growing fast, %d over %s GB, %d process(es) hot of %d sampled",
-			gbStr(free), len(disk.growing), len(disk.sizes), gbStr(s.cfg.BigKB), len(cpu.hot), cpu.sampled)
+		s.say("%s GB free, %d file(s) growing fast, %d over %s GB, %d process(es) hot of %d sampled, %d director(ies) skipped for not answering",
+			gbStr(free), len(disk.growing), len(disk.sizes), gbStr(s.cfg.BigKB), len(cpu.hot), cpu.sampled, len(disk.stalled))
 		s.say("dry run over")
 		return nil
 	}
@@ -170,6 +170,7 @@ func (s sweeper) run() error {
 
 	state.Disk = DiskSample{At: now.Unix(), Files: disk.sizes}
 	state.CPU = cpu.sample
+	state.StalledDirs = disk.stalled
 
 	s.store.ForgetReportedExcept(state.Pending)
 
@@ -179,6 +180,7 @@ func (s sweeper) run() error {
 type diskFindings struct {
 	sizes         map[string]int64
 	growing       []Growing
+	stalled       []string
 	report        string
 	truncated     string
 	truncatedPath string
@@ -199,8 +201,25 @@ func (s sweeper) disk(state *State, now time.Time, free int64) diskFindings {
 		span = time.Second
 	}
 
-	sizes, growing := growth(state.Disk.Files, s.deps.BigFiles(), s.cfg.GrowthKB, had)
-	out := diskFindings{sizes: sizes, growing: growing}
+	out := diskFindings{}
+	walk := s.deps.BigFiles(state.StalledDirs)
+
+	// Once each, and then remembered: a directory that will not answer is one this has
+	// nothing more to say about, and a line every five minutes forever would bury the
+	// lines that matter.
+	for _, dir := range walk.Stalled {
+		if !contains(state.StalledDirs, dir) {
+			s.say("%s did not answer a read within %s, so it is skipped from here on", dir, s.cfg.DirTimeout)
+		}
+	}
+	out.stalled = mergeSorted(state.StalledDirs, walk.Stalled)
+
+	if walk.CutShort {
+		s.say("the walk ran out of its %s, so this check saw only part of the disk", s.cfg.WalkTimeout)
+	}
+
+	sizes, growing := growth(state.Disk.Files, walk.Files, s.cfg.GrowthKB, had)
+	out.sizes, out.growing = sizes, growing
 
 	for _, g := range growing {
 		// A path and an lsof command name are both chosen by whatever filled the disk,

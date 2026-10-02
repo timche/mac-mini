@@ -1,0 +1,94 @@
+package main
+
+import (
+	"slices"
+	"testing"
+	"time"
+)
+
+const psSample = `    1     0  24320  33:41.67 Mon Sep 28 20:06:06 2026 /sbin/launchd
+ 7018     1 524288   2:03:04.12 Mon Sep  8 09:00:00 2026 /usr/local/bin/node  worker.js --flag
+  642     1   1616  1-02:00:00.00 Tue Sep 29 09:00:00 2026 /usr/libexec/smd
+`
+
+func TestParseProcessesReadsTheFieldsPsPrints(t *testing.T) {
+	procs := parseProcesses(psSample)
+	equal(t, len(procs), 3, "processes parsed")
+
+	launchd := procs[0]
+	equal(t, launchd.PID, 1, "pid")
+	equal(t, launchd.PPID, 0, "ppid")
+	equal(t, launchd.RSSKB, int64(24320), "rss")
+	equal(t, launchd.CPU, 33*time.Minute+41*time.Second+670*time.Millisecond, "cumulative cpu")
+	equal(t, launchd.Command, "/sbin/launchd", "command")
+
+	// The command keeps its own spacing, which is how an argument with two spaces in
+	// it reads the way it was started.
+	equal(t, procs[1].Command, "/usr/local/bin/node  worker.js --flag", "command with arguments")
+	equal(t, procs[1].Name(), "node", "name")
+	equal(t, procs[1].Path(), "/usr/local/bin/node", "path")
+	equal(t, procs[1].Start, "Mon Sep 8 09:00:00 2026", "a single-digit day")
+	equal(t, procs[1].Key(), "7018:Mon Sep 8 09:00:00 2026", "identity")
+	equal(t, procs[1].CPU, (2*3600+3*60+4)*time.Second+120*time.Millisecond, "hours of cpu")
+
+	equal(t, procs[2].CPU, 26*time.Hour, "a day of cpu")
+	if procs[1].StartedAt.IsZero() {
+		t.Error("the start date was not parsed")
+	}
+}
+
+func TestParseProcessesIgnoresWhatIsNotALine(t *testing.T) {
+	if procs := parseProcesses("\n  \nnot a process line\n"); len(procs) != 0 {
+		t.Errorf("rubbish was parsed as processes: %v", procs)
+	}
+}
+
+// ps prints the start date with the locale's month and weekday names, and that date is
+// half of an identity this compares as a string — so a Mac whose locale changed would
+// otherwise reset every process's history.
+func TestThePsSampleIsTakenInTheCLocale(t *testing.T) {
+	cmd := psCommand()
+
+	if !slices.Contains(cmd.Env, "LC_ALL=C") {
+		t.Error("the ps sample is not taken in the C locale")
+	}
+	if !slices.Contains(cmd.Args, "-ww") {
+		t.Error("ps would truncate the command to a terminal width")
+	}
+	for _, arg := range cmd.Args {
+		if arg == "pcpu" || arg == "%cpu" {
+			t.Error("ps was asked for a per-cent figure of its own")
+		}
+	}
+}
+
+func TestOwnTreeIsEverythingBetweenAPidAndLaunchd(t *testing.T) {
+	procs := []Process{
+		{PID: 1, PPID: 0},
+		{PID: 400, PPID: 1},
+		{PID: 500, PPID: 400},
+		{PID: 7018, PPID: 500},
+		{PID: 9000, PPID: 1},
+	}
+
+	tree := ownTree(procs, 7018)
+
+	for _, pid := range []int{7018, 500, 400} {
+		if !tree[pid] {
+			t.Errorf("pid %d is not in its own tree", pid)
+		}
+	}
+	for _, pid := range []int{1, 9000} {
+		if tree[pid] {
+			t.Errorf("pid %d was counted as hachiko's own", pid)
+		}
+	}
+}
+
+func TestOwnTreeSurvivesAPidItsSampleDoesNotHold(t *testing.T) {
+	tree := ownTree(nil, 7018)
+	equal(t, len(tree), 1, "the tree of a pid nothing knows about")
+	if !tree[7018] {
+		t.Error("a process is not in its own tree")
+	}
+}

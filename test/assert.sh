@@ -926,6 +926,83 @@ check "install.sh loads the hachiko agent and reloads a changed one" \
 check "the hachiko agent is loaded" \
   'launchctl print "gui/$(id -u)/io.github.timche.hachiko" >/dev/null'
 
+# The one check that is the agent rather than a description of it. Everything else here
+# runs hachiko as this session, which holds the privacy grants herdr was given — and that
+# is exactly the difference that hid a sweep hanging forever on its first real run.
+#
+# Under launchd an unsigned binary is its own TCC-responsible process. A folder behind
+# Full Disk Access answers "operation not permitted" at once, but one behind a consent
+# prompt makes open() wait for a dialog on a screen this Mac does not have, so the sweep
+# never returns and never releases its lock. `launchctl submit` is the smallest way to get
+# that shape: a job in the same gui domain, the built binary, a state and cache directory
+# of its own, and the whole of it removed afterwards whatever happens.
+#
+# Three things have to be true: it exits, it printed its summary, and it asked TCC for
+# nothing. The last is read from tccd's own log, which takes no sudo and names the binary
+# that asked, and from the window list, which is where a consent dialog would be.
+hachiko_launchd() {
+  local bin="$1" dir="$2" label="$3" waited=0
+
+  launchctl submit -l "$label" -o "$dir/out" -e "$dir/err" -- \
+    /usr/bin/env "HACHIKO_STATE_DIR=$dir/state" "HACHIKO_CACHE_DIR=$dir/cache" \
+    "$bin" --dry-run || return 1
+
+  while [ "$waited" -lt 40 ]; do
+    grep -q "dry run over" "$dir/out" 2>/dev/null && break
+    sleep 0.5
+    waited=$((waited + 1))
+  done
+
+  launchctl remove "$label" 2>/dev/null
+  grep -q "dry run over" "$dir/out" 2>/dev/null
+}
+export -f hachiko_launchd
+
+# A consent dialog is UserNotificationCenter's window, and nothing here should ever cause
+# one. Read with the same CGWindowListCopyWindowInfo window-shot uses, which needs the
+# Screen Recording grant this session already has.
+hachiko_prompt_on_screen() {
+  swift - <<'SWIFT' 2>/dev/null
+import CoreGraphics
+import Foundation
+
+let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+let owners = windows.compactMap { $0[kCGWindowOwnerName as String] as? String }
+if owners.contains(where: { $0.contains("UserNotificationCenter") }) {
+  print("prompt")
+}
+SWIFT
+}
+export -f hachiko_prompt_on_screen
+
+# Every request tccd logged about this binary has to have reached a result. The denials
+# that are fine are the ones tccd records without asking anybody — "does not allow
+# prompting; recording denied", microseconds, and the walk carries on. A request with no
+# result is the other kind: a prompt on a screen nobody is looking at, and the process
+# behind it waiting in open() for as long as the Mac is up. `log show` reads this without
+# sudo and names the binary that asked.
+hachiko_tcc_unanswered() {
+  local log="$1" bin="$2" id
+
+  for id in $(sed -n "s|.*AUTHREQ_ATTRIBUTION: msgID=\([0-9.]*\),.*$bin.*|\1|p" "$log" | sort -u); do
+    grep -q "AUTHREQ_RESULT: msgID=$id," "$log" || printf '%s\n' "$id"
+  done
+}
+export -f hachiko_tcc_unanswered
+
+check "hachiko finishes a sweep under launchd, where it has no privacy grants" \
+  'cd / && d="$(mktemp -d)" && label="io.github.timche.hachiko.assert.$$" &&
+   export HACHIKO_CACHE_DIR="$d/cache" &&
+   "$repo/home/.local/bin/hachiko" --help >/dev/null &&
+   [ -x "$d/cache/hachiko" ] &&
+   since="$(date "+%Y-%m-%d %H:%M:%S")" &&
+   hachiko_launchd "$d/cache/hachiko" "$d" "$label" &&
+   grep -q "GB free," "$d/out" &&
+   ! grep -q "did not answer a read" "$d/out" &&
+   [ -z "$(hachiko_prompt_on_screen)" ] &&
+   /usr/bin/log show --start "$since" --predicate "process == \"tccd\"" >"$d/tcc" 2>/dev/null &&
+   [ -z "$(hachiko_tcc_unanswered "$d/tcc" "$d/cache/hachiko")" ]'
+
 # Every wrapper check below runs from `/`, which is where launchd starts an agent, and
 # that is the whole point of them: mise decides which tools are active from the directory
 # it is asked about, so a question asked without one is answered for `/` — where nothing

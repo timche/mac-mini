@@ -13,6 +13,7 @@ on:
       - "*.sh"
       - Brewfile
       - mise.toml
+      - hachiko/**
       - claude/**
       - launchd/**
       - system/**
@@ -88,6 +89,16 @@ jobs:
       - run: test/assert.sh
       - run: ./install.sh
       - run: test/assert.sh
+
+      # The compiled tools, whose behaviour is their own tests rather than the assert
+      # scripts': those check the wiring, and `go test` checks what a sweep decides.
+      # On the go this repo's own mise.toml declares and install.sh has just put there,
+      # through its absolute path because a workflow step reads no rc file.
+      - name: go vet and go test in hachiko/
+        run: |
+          "$HOME/.local/bin/mise" exec -- go vet -C hachiko ./...
+          "$HOME/.local/bin/mise" exec -- go test -C hachiko ./...
+          test -z "$("$HOME/.local/bin/mise" exec -- gofmt -l hachiko)"
 
       # The signing key and the agent that holds it, with a stub op standing in
       # for 1Password. The one thing here that cannot be checked without a vault.

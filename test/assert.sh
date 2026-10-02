@@ -845,6 +845,121 @@ check "install.sh loads the gc agent and reloads a changed one" \
    grep -q "cmp -s \"\$gc_plist_before\" \"\$gc_plist\"" "$repo/install.sh" &&
    grep -q "mkdir -p \"\$HOME/.herdr/worktrees\"" "$repo/install.sh"'
 
+# hachiko, the one compiled tool here. Its behaviour is `go test ./...` in hachiko/,
+# which drives the whole of the decision-making against injected seams; what is left
+# for this script is the wiring a Go test cannot see — the links, the agent, and the
+# wrapper that builds the binary.
+check "hachiko is a live symlink and runs through its wrapper" \
+  '[ -L "$HOME/.local/bin/hachiko" ] && [ -x "$HOME/.local/bin/hachiko" ] &&
+   hachiko --help | grep -q "dry-run" &&
+   hachiko --help | grep -q "notify" &&
+   hachiko --help | grep -q "oncall"'
+
+# Beside the wrapper because that is where the wrapper looks: `op run --env-file` is
+# given the path next to the script's own resolved location, so a missing link is an
+# alert with nowhere to go rather than a wrong URL.
+check "the webhook is an op:// reference beside hachiko, and no resolved URL" \
+  '[ -L "$HOME/.local/bin/hachiko.env.op" ] &&
+   [ -e "$HOME/.local/bin/hachiko.env.op" ] &&
+   grep -qx "HACHIKO_DISCORD_URL=op://dev/hachiko-discord/url" \
+     "$HOME/.local/bin/hachiko.env.op" &&
+   ! grep -q "discord.com" "$HOME/.local/bin/hachiko.env.op"'
+
+check "the CPU allowlist is a live symlink and names the VMs and the indexer" \
+  '[ -L "$HOME/.config/hachiko/cpu-allow" ] &&
+   [ -e "$HOME/.config/hachiko/cpu-allow" ] &&
+   grep -qx "OrbStack Helper" "$HOME/.config/hachiko/cpu-allow" &&
+   grep -qx "mds" "$HOME/.config/hachiko/cpu-allow" &&
+   grep -qx "backupd" "$HOME/.config/hachiko/cpu-allow"'
+
+# The numbers the README and the plist comment both name. Every one of them is an
+# environment variable so that a test can trip the same arithmetic with megabytes and
+# minutes, which is exactly why the defaults need asserting.
+check "hachiko watches for 100 GB free, 20 GB critical, 1 GB files, 2 GB of growth, half a core for an hour" \
+  'c="$repo/hachiko/config.go" &&
+   grep -qF "envInt64(\"HACHIKO_LOW_GB\", 100)" "$c" &&
+   grep -qF "envInt64(\"HACHIKO_CRITICAL_GB\", 20)" "$c" &&
+   grep -qF "envInt64(\"HACHIKO_BIG_KB\", gib)" "$c" &&
+   grep -qF "envInt64(\"HACHIKO_GROWTH_KB\", 2*gib)" "$c" &&
+   grep -qF "envInt64(\"HACHIKO_CPU_SHARE\", 50)" "$c" &&
+   grep -qF "envInt64(\"HACHIKO_CPU_WINDOW\", 3600)" "$c" &&
+   grep -qF "envInt64(\"HACHIKO_ONCALL_DEADLINE\", 600)" "$c"'
+
+# The go the wrapper builds with is this repository's own, in its root mise.toml: this
+# repo is one of the projects that wants a runtime for itself.
+check "this repo declares the go its compiled tools are built with" \
+  'grep -qE "^go = \"[0-9]" "$repo/mise.toml" &&
+   grep -q "mise install --locked" "$repo/install.sh" &&
+   grep -q "mise exec -- go version" "$repo/install.sh"'
+
+check "the hachiko module is standard library only and builds without cgo" \
+  '[ ! -f "$repo/hachiko/go.sum" ] &&
+   ! grep -q "^require" "$repo/hachiko/go.mod" &&
+   grep -q "CGO_ENABLED=0" "$repo/home/.local/bin/hachiko"'
+
+# The agent is the whole of the wiring, so an unrendered or invalid plist is a job
+# launchd rejects at load with nothing in it to say why.
+export hachiko_plist="$HOME/Library/LaunchAgents/io.github.timche.hachiko.plist"
+
+check "the hachiko agent is a live symlink and a valid plist" \
+  '[ -L "$hachiko_plist" ] && [ -e "$hachiko_plist" ] && plutil -lint "$hachiko_plist" &&
+   [ "$(plutil -extract Label raw "$hachiko_plist")" = io.github.timche.hachiko ]'
+check "the hachiko agent runs hachiko and logs to ~/Library/Logs" \
+  'plutil -extract ProgramArguments.2 raw -o - "$hachiko_plist" |
+     grep -qF "exec \"\$HOME/.local/bin/hachiko\" >>\"\$HOME/Library/Logs/hachiko.log\""'
+check "the hachiko agent checks at load" \
+  'plutil -extract RunAtLoad xml1 -o - "$hachiko_plist" | grep -q "<true/>"'
+check "the hachiko agent checks every five minutes" \
+  '[ "$(plutil -extract StartInterval raw -o - "$hachiko_plist")" = 300 ]'
+# ~/.local/bin first, for the wrapper itself, for the op there that signs 1Password
+# in, for the herdr the server runs from and for the mise that rebuilds the binary;
+# Homebrew's op behind it.
+check "the hachiko agent's PATH reaches the op wrapper, herdr, mise and Homebrew" \
+  'plutil -extract ProgramArguments.2 raw -o - "$hachiko_plist" |
+     grep -qF "export PATH=\"\$HOME/.local/bin:/opt/homebrew/bin"'
+
+check "install.sh loads the hachiko agent and reloads a changed one" \
+  'grep -q "launchctl bootstrap \"gui/\$uid\" \"\$hachiko_plist\"" "$repo/install.sh" &&
+   grep -q "launchctl bootout \"gui/\$uid/\$hachiko_label\"" "$repo/install.sh" &&
+   grep -q "cmp -s \"\$hachiko_plist\" \"\$hachiko_loaded\"" "$repo/install.sh"'
+
+check "the hachiko agent is loaded" \
+  'launchctl print "gui/$(id -u)/io.github.timche.hachiko" >/dev/null'
+
+# The promise the whole build-in-place arrangement rests on: boswell publishes every
+# edit within seconds, so a half-written one reaches the Mac, and the agent has to keep
+# watching with the last binary that compiled. Against a copy of the module, because
+# the check deliberately breaks it.
+check "the wrapper keeps the last good binary when the sources do not compile" \
+  'd="$(mktemp -d)" && mkdir -p "$d/home/.local/bin" &&
+   cp -R "$repo/hachiko" "$d/hachiko" &&
+   cp "$repo/mise.toml" "$d/mise.toml" &&
+   cp "$repo/home/.local/bin/hachiko" "$d/home/.local/bin/hachiko" &&
+   export MISE_TRUSTED_CONFIG_PATHS="$d" &&
+   export HACHIKO_CACHE_DIR="$d/cache" &&
+   "$d/home/.local/bin/hachiko" --help >/dev/null &&
+   [ -x "$d/cache/hachiko" ] &&
+   built="$(cat "$d/cache/source.sha256")" &&
+   printf "func broken( {\n" >>"$d/hachiko/main.go" &&
+   "$d/home/.local/bin/hachiko" --help 2>"$d/err" | grep -q "dry-run" &&
+   grep -q "do not build, so this is the last binary that did" "$d/err" &&
+   [ "$(cat "$d/cache/source.sha256")" = "$built" ]'
+
+# A run with nothing to build may not reach for mise at all: this runs every five
+# minutes forever, and the binary it execs depends on nothing.
+check "the wrapper runs the cached binary without a go of any kind when nothing changed" \
+  'd="$(mktemp -d)" && mkdir -p "$d/home/.local/bin" "$d/bin" &&
+   cp -R "$repo/hachiko" "$d/hachiko" &&
+   cp "$repo/mise.toml" "$d/mise.toml" &&
+   cp "$repo/home/.local/bin/hachiko" "$d/home/.local/bin/hachiko" &&
+   export MISE_TRUSTED_CONFIG_PATHS="$d" &&
+   export HACHIKO_CACHE_DIR="$d/cache" &&
+   "$d/home/.local/bin/hachiko" --help >/dev/null &&
+   printf "#!/bin/sh\nexit 97\n" >"$d/bin/mise" && chmod +x "$d/bin/mise" &&
+   PATH="$d/bin:$stock_path" HOME="$d" "$d/home/.local/bin/hachiko" --help \
+     2>"$d/err" | grep -q "dry-run" &&
+   [ ! -s "$d/err" ]'
+
 # The wrapper execs the next op on PATH after itself, so a stub placed behind it
 # stands in for Homebrew's: it prints the token it was handed, its arguments,
 # and runs what follows `--` for `op run`, the way the real one does.

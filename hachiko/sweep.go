@@ -420,20 +420,74 @@ Nothing else you can run reaches that channel. He has already had one line sayin
 		details, incident, incident, int(s.cfg.OncallDeadline.Minutes()))
 }
 
+// Which pending incident each marker is a report on. `hachiko notify` leaves a marker
+// rather than editing the state, because a sweep holds the lock across a herdr call and
+// an `op run` and the session has no minutes to spend waiting for it.
+//
+// A session re-briefed by an escalation keeps the incident id it was first handed in its
+// scrollback, and reports under it — so a marker with no pending incident of its own is
+// a report on the newest pending incident of the same kind, which is the one that
+// superseded it. Reading it any other way loses the report and then says the agent went
+// quiet about the very thing it just answered.
+func (s sweeper) resolveReports(state *State) map[string]string {
+	reported := map[string]string{}
+
+	for _, marker := range s.store.ReportedIDs() {
+		if _, ok := state.Pending[marker]; ok {
+			reported[marker] = marker
+		}
+	}
+
+	for _, marker := range s.store.ReportedIDs() {
+		if _, ok := state.Pending[marker]; ok {
+			continue
+		}
+
+		newest := newestPending(state.Pending, kindOf(marker))
+		if newest == "" {
+			continue
+		}
+		if _, taken := reported[newest]; !taken {
+			reported[newest] = marker
+		}
+	}
+
+	return reported
+}
+
+func newestPending(pending map[string]Pending, kind string) string {
+	newest, openedAt := "", int64(-1)
+
+	for _, id := range sortedKeys(pending) {
+		if at := pending[id].OpenedAt; kindOf(id) == kind && at > openedAt {
+			newest, openedAt = id, at
+		}
+	}
+	return newest
+}
+
+func kindOf(incident string) string {
+	kind, _, _ := strings.Cut(incident, "-")
+	return kind
+}
+
 // The guarantee behind the session: it needs herdr, a Claude login and usage left,
 // and a watch that only ever spoke through it would be silent exactly when that
 // chain broke.
 func (s sweeper) chaseLateReports(state *State, now time.Time) {
+	reported := s.resolveReports(state)
+
 	for _, id := range sortedKeys(state.Pending) {
 		p := state.Pending[id]
 
-		// `hachiko notify` leaves a marker rather than editing the state, because a sweep
-		// holds the lock across a herdr call and an `op run` and the session has no
-		// minutes to spend waiting for it. The marker is what the deadline was waiting
-		// for, whichever order the two ran in.
-		if s.store.Reported(id) {
-			s.say("the on-call session reported on %s", id)
+		if from, ok := reported[id]; ok {
+			if from == id {
+				s.say("the on-call session reported on %s", id)
+			} else {
+				s.say("the on-call session reported on %s, which %s superseded", from, id)
+			}
 			delete(state.Pending, id)
+			s.store.ClearReported(from)
 			s.store.ClearReported(id)
 			continue
 		}

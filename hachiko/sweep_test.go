@@ -380,6 +380,52 @@ func TestTheFirstProcessIsRecordedWhenThereIsNoPreviousSample(t *testing.T) {
 	}
 }
 
+// An escalation re-briefs the same session under a new incident id, but the id the
+// session was first handed is the one in its scrollback — so it reports under that. The
+// report is on the incident either way, and reading it any other way loses it and then
+// says the agent went quiet about the very thing it just answered.
+func TestAReportUnderTheIdAnEscalationSupersededStillCounts(t *testing.T) {
+	f := newFixture(t)
+
+	f.grow("tmp/worker.log", 3*mb)
+	f.at(0).sweep()
+	f.grow("tmp/worker.log", 4*mb)
+	f.at(300).sweep()
+	first := f.onlyPendingID()
+
+	// The escalation: free space crosses the critical threshold, so the same session is
+	// re-briefed under a second id and the first stops being pending.
+	f.freeGB = 15
+	f.at(600).sweep()
+	second := f.onlyPendingID()
+	if second == first {
+		t.Fatalf("the escalation did not open a new incident: %s", second)
+	}
+
+	// The session answers with the id it was first given.
+	f.at(660).notify(first)
+
+	out := f.at(1500).sweep()
+	wants(t, out, "the on-call session reported on "+first+", which "+second+" superseded")
+	lacks(t, out, "has not reported")
+	equal(t, len(f.state().Pending), 0, "pending incidents after the report")
+
+	// And no marker is left behind to be read as a second report.
+	equal(t, len(f.store.ReportedIDs()), 0, "markers left behind")
+}
+
+// A report for a kind nothing is pending on is not a report on something else of that
+// kind that has not been raised yet.
+func TestAMarkerWithNothingPendingIsForgotten(t *testing.T) {
+	f := newFixture(t)
+	f.at(0).notify("disk-1699999999")
+	equal(t, len(f.store.ReportedIDs()), 1, "markers before the sweep")
+
+	equal(t, f.at(0).sweep(), "", "the log for a report on nothing")
+	equal(t, len(f.store.ReportedIDs()), 0, "markers after the sweep")
+	equal(t, f.sentCount(), 0, "messages sent")
+}
+
 // The standing orders leave an on-call session waiting on a question, and herdr refuses
 // a prompt to an agent in that state — so the commonest second alert of an incident
 // reaches nobody. Reading that as "no session" would have claimed the Mac was

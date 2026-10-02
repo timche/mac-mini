@@ -251,6 +251,22 @@ func (st Store) ClearReported(incident string) {
 	}
 }
 
+func (st Store) ReportedIDs() []string {
+	entries, err := os.ReadDir(st.reportedDir())
+	if err != nil {
+		return nil
+	}
+
+	var ids []string
+	for _, entry := range entries {
+		if incidentID.MatchString(entry.Name()) {
+			ids = append(ids, entry.Name())
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
 // A marker for an incident nothing is waiting on any more, which is what a report for
 // an incident that had already been superseded leaves behind.
 func (st Store) ForgetReportedExcept(keep map[string]Pending) {

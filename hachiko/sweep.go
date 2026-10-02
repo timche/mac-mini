@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -170,17 +171,49 @@ func (s sweeper) run() error {
 
 	state.Disk = DiskSample{At: now.Unix(), Files: disk.sizes}
 	state.CPU = cpu.sample
-	state.StalledDirs = disk.stalled
+	state.Stalled = disk.stalled
 
 	s.store.ForgetReportedExcept(state.Pending)
 
 	return s.store.Save(state)
 }
 
+// What the next sweep inherits: the ones still being skipped, the ones that stalled
+// again with their clock moved on, and the newly stalled. A directory that was retried
+// and did not stall is gone from the list, which is what puts it back in the walk.
+func (s sweeper) rememberStalls(was []Stall, stalled, retried []string, now time.Time) []Stall {
+	keep := make([]Stall, 0, len(was)+len(stalled))
+	seen := map[string]bool{}
+
+	for _, old := range was {
+		switch {
+		case contains(stalled, old.Dir):
+			old.LastAt = now.Unix()
+		case contains(retried, old.Dir):
+			continue
+		}
+		keep = append(keep, old)
+		seen[old.Dir] = true
+	}
+
+	for _, dir := range stalled {
+		if seen[dir] {
+			continue
+		}
+		s.say("%s did not answer a read within %s, so it is skipped until it is tried again in %s",
+			dir, s.cfg.DirTimeout, s.cfg.StallRetry)
+		keep = append(keep, Stall{Dir: dir, FirstAt: now.Unix(), LastAt: now.Unix()})
+		seen[dir] = true
+	}
+
+	sort.Slice(keep, func(i, j int) bool { return keep[i].Dir < keep[j].Dir })
+	return keep
+}
+
 type diskFindings struct {
 	sizes         map[string]int64
 	growing       []Growing
-	stalled       []string
+	stalled       []Stall
 	report        string
 	truncated     string
 	truncatedPath string
@@ -202,17 +235,29 @@ func (s sweeper) disk(state *State, now time.Time, free int64) diskFindings {
 	}
 
 	out := diskFindings{}
-	walk := s.deps.BigFiles(state.StalledDirs)
 
-	// Once each, and then remembered: a directory that will not answer is one this has
-	// nothing more to say about, and a line every five minutes forever would bury the
-	// lines that matter.
+	// What is still being skipped and what is due to be tried again. Everything not
+	// skipped is walked, so a directory being retried either stalls again or is quietly
+	// back.
+	skip, retried := dueForRetry(state.Stalled, now, s.cfg.StallRetry)
+	walk := s.deps.BigFiles(skip)
+
+	stalledNow := map[string]bool{}
 	for _, dir := range walk.Stalled {
-		if !contains(state.StalledDirs, dir) {
-			s.say("%s did not answer a read within %s, so it is skipped from here on", dir, s.cfg.DirTimeout)
+		stalledNow[dir] = true
+	}
+
+	// One line when a directory stops answering and one when it starts again, and
+	// nothing in between: a line every five minutes forever would bury the lines that
+	// matter.
+	for _, was := range state.Stalled {
+		if contains(retried, was.Dir) && !stalledNow[was.Dir] {
+			s.say("%s answered again after %s, so it is back in the walk",
+				was.Dir, hmStr(now.Sub(time.Unix(was.FirstAt, 0))))
 		}
 	}
-	out.stalled = mergeSorted(state.StalledDirs, walk.Stalled)
+
+	out.stalled = s.rememberStalls(state.Stalled, walk.Stalled, retried, now)
 
 	if walk.CutShort {
 		s.say("the walk ran out of its %s, so this check saw only part of the disk", s.cfg.WalkTimeout)

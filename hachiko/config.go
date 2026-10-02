@@ -33,6 +33,9 @@ type Config struct {
 	DirTimeout  time.Duration
 	WalkTimeout time.Duration
 
+	// How long a directory that would not answer stays skipped before it is tried again.
+	StallRetry time.Duration
+
 	Home         string
 	MachineDir   string
 	TmpRoot      string
@@ -92,6 +95,7 @@ func configFromEnv() Config {
 
 		DirTimeout:  time.Duration(envInt64("HACHIKO_DIR_TIMEOUT", 3)) * time.Second,
 		WalkTimeout: time.Duration(envInt64("HACHIKO_WALK_TIMEOUT", 60)) * time.Second,
+		StallRetry:  time.Duration(envInt64("HACHIKO_STALL_RETRY", 3600)) * time.Second,
 
 		Home:         home,
 		MachineDir:   machineDir,

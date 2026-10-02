@@ -387,8 +387,8 @@ func TestADirectoryThatWouldNotAnswerIsNamedOnceAndThenSkipped(t *testing.T) {
 	hung := filepath.Join(f.cfg.Home, "Volumes", "dead-mount")
 	f.stalls = []string{hung}
 
-	wants(t, f.at(0).sweep(), hung+" did not answer a read within 3s, so it is skipped from here on")
-	equal(t, len(f.state().StalledDirs), 1, "directories remembered as stalled")
+	wants(t, f.at(0).sweep(), hung+" did not answer a read within 3s, so it is skipped until it is tried again in 1h0m0s")
+	equal(t, len(f.state().Stalled), 1, "directories remembered as stalled")
 
 	// The second sweep is handed it to skip, and says nothing more about it.
 	out := f.at(300).sweep()
@@ -397,7 +397,67 @@ func TestADirectoryThatWouldNotAnswerIsNamedOnceAndThenSkipped(t *testing.T) {
 	if len(f.skipped) == 1 {
 		equal(t, f.skipped[0], hung, "the directory the walk was told to skip")
 	}
-	equal(t, len(f.state().StalledDirs), 1, "directories remembered after the second sweep")
+	equal(t, len(f.state().Stalled), 1, "directories remembered after the second sweep")
+}
+
+// One slow read is not a reason to stop looking at a tree for good — and a read goes slow
+// under disk pressure, which is exactly when a runaway writer is thrashing the volume and
+// /private/tmp is the thing worth watching.
+func TestADirectoryThatStalledIsTriedAgainAfterAnHour(t *testing.T) {
+	f := newFixture(t)
+	hung := filepath.Join(f.cfg.Home, "tmp")
+	f.stalls = []string{hung}
+
+	f.at(0).sweep()
+	f.at(300).sweep()
+	equal(t, len(f.skipped), 1, "directories skipped before the hour is up")
+
+	// An hour later it is walked again rather than skipped.
+	f.at(3600).sweep()
+	equal(t, len(f.skipped), 0, "directories skipped once the hour is up")
+	equal(t, len(f.state().Stalled), 1, "directories still remembered after a failed retry")
+
+	// And having stalled again, it goes quiet for another hour rather than being retried
+	// every five minutes.
+	f.at(3900).sweep()
+	equal(t, len(f.skipped), 1, "directories skipped after the retry stalled too")
+}
+
+func TestADirectoryThatAnswersAgainIsSaidOnceAndPutBackInTheWalk(t *testing.T) {
+	f := newFixture(t)
+	hung := filepath.Join(f.cfg.Home, "tmp")
+	f.stalls = []string{hung}
+
+	f.at(0).sweep()
+
+	// The mount comes back, and the retry an hour later finds it.
+	f.stalls = nil
+	out := f.at(3600).sweep()
+
+	wants(t, out, hung+" answered again after 1h00m, so it is back in the walk")
+	equal(t, len(f.state().Stalled), 0, "directories still remembered after it recovered")
+
+	// Said once, not every sweep after it.
+	lacks(t, f.at(3900).sweep(), "answered again")
+	equal(t, len(f.skipped), 0, "directories skipped once it recovered")
+}
+
+// A directory that is still stalling costs one line when it starts and nothing after,
+// however many sweeps and retries it takes.
+func TestADirectoryThatKeepsStallingIsNeverNamedTwice(t *testing.T) {
+	f := newFixture(t)
+	hung := filepath.Join(f.cfg.Home, "tmp")
+	f.stalls = []string{hung}
+
+	said := 0
+	for i := range int64(30) {
+		if strings.Contains(f.at(i*300).sweep(), "did not answer a read") {
+			said++
+		}
+	}
+
+	equal(t, said, 1, "times the stalled directory was named across two and a half hours")
+	equal(t, len(f.state().Stalled), 1, "directories remembered at the end")
 }
 
 // A monitor that reports nothing because it is still counting is the failure this exists

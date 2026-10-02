@@ -27,10 +27,12 @@ type State struct {
 	// says so once more and says nothing again until it has recovered.
 	LowSpaceLevel int64 `json:"low_space_level,omitempty"`
 
-	// Directories that did not answer a read in time. Remembered so that a walk does
-	// not spend the same seconds on the same hung open every five minutes; removing one
-	// from this file by hand is how it gets looked at again.
-	StalledDirs []string `json:"stalled_dirs,omitempty"`
+	// Directories that did not answer a read in time, and when. Remembered so that a
+	// walk does not spend the same seconds on the same hung open every five minutes, and
+	// retried after a while so that one slow read under disk pressure — which is exactly
+	// when a runaway writer is thrashing the volume — does not blind the watch to a
+	// whole tree for good.
+	Stalled []Stall `json:"stalled,omitempty"`
 
 	Pending map[string]Pending `json:"pending,omitempty"`
 }
@@ -52,6 +54,27 @@ type ProcSample struct {
 	CPU           float64 `json:"cpu"`
 	HotSince      int64   `json:"hot_since,omitempty"`
 	CPUAtHotSince float64 `json:"cpu_at_hot_since,omitempty"`
+}
+
+// Stall is a directory the walk gave up on, with the first time it did and the last.
+type Stall struct {
+	Dir     string `json:"dir"`
+	FirstAt int64  `json:"first_at"`
+	LastAt  int64  `json:"last_at"`
+}
+
+// Which of them are still being skipped, and which are due to be tried again. A hung open
+// costs one directory timeout to retry, so an hour is cheap; a tree that has come back
+// being invisible until somebody edits a state file is not.
+func dueForRetry(stalled []Stall, now time.Time, after time.Duration) (skip []string, retry []string) {
+	for _, s := range stalled {
+		if now.Sub(time.Unix(s.LastAt, 0)) >= after {
+			retry = append(retry, s.Dir)
+		} else {
+			skip = append(skip, s.Dir)
+		}
+	}
+	return skip, retry
 }
 
 // Pending is an incident an on-call session was opened for and has not reported on.

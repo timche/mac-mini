@@ -81,6 +81,7 @@ func newFixture(t *testing.T) *fixture {
 
 		DirTimeout:  3 * time.Second,
 		WalkTimeout: time.Minute,
+		StallRetry:  time.Hour,
 
 		Home:         home,
 		MachineDir:   filepath.Join(home, ".mac-mini"),
@@ -174,7 +175,16 @@ func (f *fixture) deps() Deps {
 func (f *fixture) bigFiles(skip []string) WalkResult {
 	f.skipped = skip
 
-	out := WalkResult{Stalled: f.stalls, CutShort: f.cutShort}
+	out := WalkResult{CutShort: f.cutShort}
+
+	// A directory the walk was told to skip is never opened, so it cannot be reported as
+	// one that would not answer.
+	for _, dir := range f.stalls {
+		if !contains(skip, dir) {
+			out.Stalled = append(out.Stalled, dir)
+		}
+	}
+
 	for _, path := range f.watched {
 		info, err := os.Lstat(path)
 		if err != nil {

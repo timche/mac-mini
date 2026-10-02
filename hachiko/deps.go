@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -52,6 +53,24 @@ func realDeps(cfg Config) Deps {
 	}
 }
 
+// Every subprocess here is one a stale mount or a dead socket could stop for good,
+// and a sweep that never returns is one holding the lock that keeps the next twelve
+// from running. ps and lsof get seconds; op and herdr get longer, since one resolves
+// a reference over the network and the other starts a session.
+const (
+	sampleTimeout = 15 * time.Second
+	lsofTimeout   = 10 * time.Second
+	herdrTimeout  = 30 * time.Second
+	opTimeout     = 90 * time.Second
+)
+
+func output(limit time.Duration, name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	defer cancel()
+
+	return exec.CommandContext(ctx, name, args...).Output()
+}
+
 // What df reads, without a df: statfs answers for the volume a path is on, in the
 // blocks available to somebody who is not root, which is the number that decides
 // whether a build has room.
@@ -66,7 +85,7 @@ func freeKB(path string) (int64, error) {
 // pid and command of whoever holds the file open. Named rather than acted on: the
 // point of an alert is that a person decides what to do about the writer.
 func writers(path string) string {
-	out, err := exec.Command("lsof", "-Fpc", "--", path).Output()
+	out, err := output(lsofTimeout, "lsof", "-Fpc", "--", path)
 	if err != nil && len(out) == 0 {
 		return "no writer lsof can see"
 	}
@@ -92,7 +111,7 @@ func writers(path string) string {
 // lsof for the hot pids alone: asking it about every process on the machine costs
 // more than the sweep does.
 func processCWD(pid int) string {
-	out, err := exec.Command("lsof", "-a", "-p", fmt.Sprint(pid), "-d", "cwd", "-Fn").Output()
+	out, err := output(lsofTimeout, "lsof", "-a", "-p", fmt.Sprint(pid), "-d", "cwd", "-Fn")
 	if err != nil && len(out) == 0 {
 		return ""
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"slices"
 	"testing"
 	"time"
@@ -47,7 +48,7 @@ func TestParseProcessesIgnoresWhatIsNotALine(t *testing.T) {
 // half of an identity this compares as a string — so a Mac whose locale changed would
 // otherwise reset every process's history.
 func TestThePsSampleIsTakenInTheCLocale(t *testing.T) {
-	cmd := psCommand()
+	cmd := psCommand(context.Background())
 
 	if !slices.Contains(cmd.Env, "LC_ALL=C") {
 		t.Error("the ps sample is not taken in the C locale")

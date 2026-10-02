@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"os/exec"
@@ -42,14 +43,17 @@ func (p Process) Name() string { return filepath.Base(p.Path()) }
 // can hold a space, -ww because ps otherwise truncates it to a terminal width, and
 // LC_ALL=C because the start date is five tokens whose month and weekday names are
 // the locale's otherwise — and that date is an identity this compares as a string.
-func psCommand() *exec.Cmd {
-	cmd := exec.Command("ps", "-A", "-ww", "-o", "pid=,ppid=,rss=,time=,lstart=,command=")
+func psCommand(ctx context.Context) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "ps", "-A", "-ww", "-o", "pid=,ppid=,rss=,time=,lstart=,command=")
 	cmd.Env = append(cmd.Environ(), "LC_ALL=C")
 	return cmd
 }
 
 func sampleProcesses() ([]Process, error) {
-	out, err := psCommand().Output()
+	ctx, cancel := context.WithTimeout(context.Background(), sampleTimeout)
+	defer cancel()
+
+	out, err := psCommand(ctx).Output()
 	if err != nil {
 		return nil, fmt.Errorf("ps: %w", err)
 	}

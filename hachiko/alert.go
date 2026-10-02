@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -45,8 +46,11 @@ func sendThroughOP(cfg Config, message string) error {
 		return err
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+	defer cancel()
+
 	args := opArgs(cfg, self)
-	cmd := exec.Command(op, args[1:]...)
+	cmd := exec.CommandContext(ctx, op, args[1:]...)
 	cmd.Stdin = strings.NewReader(message)
 
 	out, err := cmd.CombinedOutput()

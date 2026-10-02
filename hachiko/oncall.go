@@ -18,8 +18,7 @@ func herdrCLI(args ...string) ([]byte, error) {
 		return nil, fmt.Errorf("no herdr on PATH, so no session was opened")
 	}
 
-	cmd := exec.Command("herdr", args...)
-	out, err := cmd.Output()
+	out, err := output(herdrTimeout, "herdr", args...)
 	if err != nil {
 		detail := strings.TrimSpace(string(out))
 		if detail == "" {

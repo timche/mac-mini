@@ -28,13 +28,18 @@ type WalkResult struct {
 // ones.
 var prunedNames = map[string]bool{".git": true, "node_modules": true}
 
-// Walk is everything one sweep needs to read the disk, with the two seams that matter:
-// the directory read itself, and the clock the deadlines are measured on.
+// Walk is everything one sweep needs to read the disk, with the seams that matter: the
+// two calls that touch the filesystem, and the clock the deadlines are measured on.
+//
+// Lstat is a seam and not an implementation detail because it is the other call that can
+// hang: ~/OrbStack is an NFS mount, and asking which volume a directory is on blocks on a
+// server that has gone away exactly as reading it would.
 type Walk struct {
 	Roots   []string
 	Pruned  []string
 	MinKB   int64
 	ReadDir func(string) ([]os.DirEntry, error)
+	Lstat   func(string) (os.FileInfo, error)
 	Now     func() time.Time
 
 	// What one directory may take before it is abandoned, and what the whole walk may
@@ -50,6 +55,10 @@ func (w Walk) Run() WalkResult {
 	readDir := w.ReadDir
 	if readDir == nil {
 		readDir = os.ReadDir
+	}
+	lstat := w.Lstat
+	if lstat == nil {
+		lstat = os.Lstat
 	}
 	now := w.Now
 	if now == nil {
@@ -68,6 +77,7 @@ func (w Walk) Run() WalkResult {
 
 	state := &walkState{
 		readDir:    readDir,
+		lstat:      lstat,
 		now:        now,
 		pruned:     pruned,
 		minKB:      w.MinKB,
@@ -78,18 +88,13 @@ func (w Walk) Run() WalkResult {
 	}
 
 	for _, root := range w.Roots {
-		info, err := os.Lstat(root)
-		if err != nil || !info.IsDir() {
+		// -xdev: a volume mounted under a root is somebody else's disk, and its free
+		// space is not the number this is about. Timed like everything else, because a
+		// root can be a mount too.
+		device, ok := state.deviceOf(root)
+		if !ok {
 			continue
 		}
-
-		// -xdev: a volume mounted under a root is somebody else's disk, and its free
-		// space is not the number this is about.
-		var device int32 = -1
-		if st, ok := info.Sys().(*syscall.Stat_t); ok {
-			device = st.Dev
-		}
-
 		state.walkTree(root, device)
 	}
 
@@ -98,6 +103,7 @@ func (w Walk) Run() WalkResult {
 
 type walkState struct {
 	readDir    func(string) ([]os.DirEntry, error)
+	lstat      func(string) (os.FileInfo, error)
 	now        func() time.Time
 	pruned     map[string]bool
 	minKB      int64
@@ -150,7 +156,7 @@ func (s *walkState) walkTree(root string, device int32) {
 		}
 
 		sem <- struct{}{}
-		entries, ok := s.readDirWithin(dir)
+		entries, ok := s.openDir(dir, device)
 		children := make([]string, 0, 8)
 
 		if ok {
@@ -165,9 +171,10 @@ func (s *walkState) walkTree(root string, device int32) {
 					if prunedNames[entry.Name()] {
 						continue
 					}
-					if sameDevice(path, device) {
-						children = append(children, path)
-					}
+					// Which volume it is on is settled in its own timed read rather than
+					// here: asking costs an lstat, and an lstat of a mount whose server has
+					// gone away never comes back.
+					children = append(children, path)
 				case entry.Type().IsRegular():
 					// A symlink is never followed: the file it names is either under a
 					// root already or on somebody else's volume.
@@ -192,14 +199,85 @@ func (s *walkState) walkTree(root string, device int32) {
 	wg.Wait()
 }
 
-// A directory read that has not answered in time is abandoned rather than waited on.
-// The goroutine holding the open stays blocked until the kernel lets it go, which on a
-// consent-protected folder or a dead mount is never — but this process exits every five
-// minutes, and a sweep that finished is worth more than a complete one.
-func (s *walkState) readDirWithin(dir string) ([]os.DirEntry, bool) {
-	// The walk's own deadline bounds a read that is already waiting, not just the next
-	// one to start: with enough hung directories, every read is inside its own limit and
-	// the walk would still never end.
+// Everything that touches a directory happens here, under one deadline: which volume it
+// is on, and what is in it. Both are calls that never come back on a mount whose server
+// has gone away or a folder behind a consent prompt — so neither may happen anywhere
+// else.
+//
+// What does not answer in time is abandoned rather than waited on. The goroutine holding
+// it stays blocked until the kernel lets it go, which may be never, but this process
+// exits every five minutes and a sweep that finished is worth more than a complete one.
+func (s *walkState) openDir(dir string, device int32) ([]os.DirEntry, bool) {
+	type answer struct {
+		entries []os.DirEntry
+		ok      bool
+	}
+
+	// Buffered, so the goroutine this abandons can finish its send and go away rather
+	// than blocking on a reader that has left.
+	done := make(chan answer, 1)
+	work := func() {
+		if !s.onDevice(dir, device) {
+			done <- answer{}
+			return
+		}
+		entries, err := s.readDir(dir)
+		done <- answer{entries, err == nil}
+	}
+
+	if !s.within(dir, work) {
+		return nil, false
+	}
+	got := <-done
+	return got.entries, got.ok
+}
+
+// The device of a root, which every directory under it is then measured against.
+func (s *walkState) deviceOf(root string) (int32, bool) {
+	type answer struct {
+		device int32
+		ok     bool
+	}
+
+	done := make(chan answer, 1)
+	work := func() {
+		info, err := s.lstat(root)
+		if err != nil || info == nil || !info.IsDir() {
+			done <- answer{}
+			return
+		}
+		st, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			// Unmeasurable rather than missing: walk it, and let every child match.
+			done <- answer{device: -1, ok: true}
+			return
+		}
+		done <- answer{device: st.Dev, ok: true}
+	}
+
+	if !s.within(root, work) {
+		return 0, false
+	}
+	got := <-done
+	return got.device, got.ok
+}
+
+func (s *walkState) onDevice(dir string, device int32) bool {
+	if device < 0 {
+		return true
+	}
+	info, err := s.lstat(dir)
+	if err != nil || info == nil {
+		return false
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	return ok && st.Dev == device
+}
+
+// Runs work and says whether it finished in time. The walk's own deadline bounds work
+// that is already waiting, not just the next piece to start: with enough hung
+// directories, every one of them is inside its own limit and the walk still never ends.
+func (s *walkState) within(dir string, work func()) bool {
 	limit := s.dirTimeout
 	outOfTime := false
 
@@ -207,7 +285,7 @@ func (s *walkState) readDirWithin(dir string) ([]os.DirEntry, bool) {
 		remaining := s.deadline.Sub(s.now())
 		if remaining <= 0 {
 			s.markCutShort()
-			return nil, false
+			return false
 		}
 		if limit <= 0 || remaining < limit {
 			limit, outOfTime = remaining, true
@@ -215,29 +293,22 @@ func (s *walkState) readDirWithin(dir string) ([]os.DirEntry, bool) {
 	}
 
 	if limit <= 0 {
-		entries, err := s.readDir(dir)
-		return entries, err == nil
+		work()
+		return true
 	}
 
-	type answer struct {
-		entries []os.DirEntry
-		err     error
-	}
-
-	// Buffered, so the goroutine this abandons can finish its send and go away rather
-	// than blocking on a reader that has left.
-	done := make(chan answer, 1)
+	finished := make(chan struct{})
 	go func() {
-		entries, err := s.readDir(dir)
-		done <- answer{entries, err}
+		work()
+		close(finished)
 	}()
 
 	timer := time.NewTimer(limit)
 	defer timer.Stop()
 
 	select {
-	case got := <-done:
-		return got.entries, got.err == nil
+	case <-finished:
+		return true
 	case <-timer.C:
 		// Out of time is not the same as a directory that will not answer: one is this
 		// walk's budget and the other is a folder to stop asking about.
@@ -246,7 +317,7 @@ func (s *walkState) readDirWithin(dir string) ([]os.DirEntry, bool) {
 		} else {
 			s.markStalled(dir)
 		}
-		return nil, false
+		return false
 	}
 }
 
@@ -274,16 +345,4 @@ func allocatedKB(entry os.DirEntry) (int64, error) {
 	// st_blocks is counted in 512-byte blocks whatever the filesystem's own block size,
 	// which is what stat -f %b reports too.
 	return st.Blocks / 2, nil
-}
-
-func sameDevice(path string, device int32) bool {
-	if device < 0 {
-		return true
-	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		return false
-	}
-	st, ok := info.Sys().(*syscall.Stat_t)
-	return ok && st.Dev == device
 }

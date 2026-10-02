@@ -253,6 +253,83 @@ func TestADirectoryThatNeverAnswersIsAbandonedAndNamed(t *testing.T) {
 	}
 }
 
+// Asking which volume a directory is on is an lstat, and an lstat of a mount whose server
+// has gone away never comes back — ~/OrbStack is NFS. It used to happen in the parent's
+// loop, outside every deadline, so one dead mount hung the whole sweep.
+func TestAMountWhoseLstatNeverAnswersIsAbandonedLikeAnyOtherDirectory(t *testing.T) {
+	root := t.TempDir()
+	writeKB(t, filepath.Join(root, "fine", "worker.log"), 2048)
+	dead := filepath.Join(root, "dead-mount")
+	if err := os.MkdirAll(dead, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	blocked := make(chan struct{})
+	t.Cleanup(func() { close(blocked) })
+
+	lstat := func(path string) (os.FileInfo, error) {
+		if path == dead {
+			<-blocked
+			return nil, nil
+		}
+		return os.Lstat(path)
+	}
+
+	started := time.Now()
+	got := Walk{
+		Roots:      []string{root},
+		MinKB:      1024,
+		Lstat:      lstat,
+		DirTimeout: 50 * time.Millisecond,
+	}.Run()
+	took := time.Since(started)
+
+	if took > 5*time.Second {
+		t.Fatalf("the walk waited %s on a mount whose lstat never answers", took)
+	}
+
+	equal(t, len(got.Stalled), 1, "stalled directories")
+	if len(got.Stalled) == 1 {
+		equal(t, got.Stalled[0], dead, "the directory that stalled")
+	}
+	if !found(got.Files, filepath.Join(root, "fine", "worker.log")) {
+		t.Errorf("the walk gave up on the rest of the disk: %v", got.Files)
+	}
+}
+
+// And the same for a root, which can be a mount too.
+func TestARootWhoseLstatNeverAnswersIsNotWaitedOn(t *testing.T) {
+	root := t.TempDir()
+	other := t.TempDir()
+	writeKB(t, filepath.Join(other, "worker.log"), 2048)
+
+	blocked := make(chan struct{})
+	t.Cleanup(func() { close(blocked) })
+
+	lstat := func(path string) (os.FileInfo, error) {
+		if path == root {
+			<-blocked
+			return nil, nil
+		}
+		return os.Lstat(path)
+	}
+
+	started := time.Now()
+	got := Walk{
+		Roots:      []string{root, other},
+		MinKB:      1024,
+		Lstat:      lstat,
+		DirTimeout: 50 * time.Millisecond,
+	}.Run()
+
+	if took := time.Since(started); took > 5*time.Second {
+		t.Fatalf("the walk waited %s on a root whose lstat never answers", took)
+	}
+	if !found(got.Files, filepath.Join(other, "worker.log")) {
+		t.Errorf("the root after it was not walked: %v", got.Files)
+	}
+}
+
 // A directory already known not to answer costs nothing on the next run: the sweep hands
 // it back as something to skip, so there is no second three seconds to pay.
 func TestADirectoryAlreadyKnownToStallIsNotOpenedAgain(t *testing.T) {

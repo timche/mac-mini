@@ -20,7 +20,7 @@ import (
 )
 
 const usage = `usage: hachiko [--dry-run | --test-alert]
-       hachiko notify <incident-id> <message-file>
+       hachiko notify [--outcome] <incident-id> <message-file>
        hachiko oncall <name> <brief-file>
        hachiko approval-request <incident-id> <action-file>
        hachiko listen
@@ -29,7 +29,8 @@ const usage = `usage: hachiko [--dry-run | --test-alert]
   --dry-run          report what a check sees, change nothing, alert nothing
   --test-alert       send a short message to the channel, to prove it works
   notify             send a message about an incident to the channel Tim watches,
-                     which is how the on-call session reports its findings
+                     which is how the on-call session reports its findings;
+                     --outcome marks the one that says the incident is resolved
   oncall             open a Claude Code session in herdr to work an incident, and
                      print the label of the tab it is waiting in
   approval-request   register the one action an on-call session is asking Tim to
@@ -62,10 +63,17 @@ func run(args []string) error {
 	if len(args) > 0 {
 		switch args[0] {
 		case "notify":
-			if len(args) != 3 {
-				return badUsage("notify takes an incident id and a file")
+			// A constant word and nothing of the incident's, so it is one of the few things
+			// here that may be an argument: ps showing it says only that a session said it had
+			// finished.
+			rest, outcome := args[1:], false
+			if len(rest) > 0 && rest[0] == "--outcome" {
+				rest, outcome = rest[1:], true
 			}
-			return notify(cfg, args[1], args[2])
+			if len(rest) != 2 {
+				return badUsage("notify takes an incident id and a file, after an optional --outcome")
+			}
+			return notify(cfg, rest[0], rest[1], outcome)
 		case "oncall":
 			if len(args) != 3 {
 				return badUsage("oncall takes a name and a file")
@@ -112,7 +120,7 @@ func run(args []string) error {
 // The on-call session's own way to reach the channel, and the only one it has: it is
 // never handed the URL. The message arrives as a file so that it is not in the
 // arguments of a process the whole machine can read either.
-func notify(cfg Config, incident, messageFile string) error {
+func notify(cfg Config, incident, messageFile string, outcome bool) error {
 	message, err := os.ReadFile(messageFile)
 	if err != nil {
 		return fmt.Errorf("cannot read the message at %s", messageFile)
@@ -141,7 +149,7 @@ func notify(cfg Config, incident, messageFile string) error {
 	// across a herdr call and an `op run`, and an on-call session told to report in
 	// under five minutes has none of them to spend waiting. The next sweep is what
 	// clears the incident, and it looks here first.
-	if err := store.MarkReported(incident, fallbackOption(string(message))); err != nil {
+	if err := store.MarkReported(incident, fallbackOption(string(message)), outcome); err != nil {
 		log.say("the report on %s was sent, but it was not recorded, so the raw details may follow it: %v",
 			incident, err)
 		return nil
@@ -188,16 +196,22 @@ func sendFromStdin(args []string) error {
 // and stating it to hachiko are the same act — and nothing the agent writes about an
 // incident goes in a command line, where the whole machine reads it and a path chosen
 // by whatever filled the disk would be an argument.
-// Whatever the session put in front of the line is left alone — a dash, a bullet, the
-// emphasis a model reaches for — and so is whatever it put straight after the colon.
-var fallbackLine = regexp.MustCompile(`(?mi)^[^\n]*\bif no answer:[ \t*_]*([^\n]+)$`)
+// A line of its own, which is what the orders ask for: only what a model puts in front of
+// one is allowed before it — a dash, a bullet, a quote marker, the emphasis it reaches for —
+// and nothing else. Anything looser matched a log line the session had quoted into the
+// middle of a sentence, and the option hachiko then held out to Tim was a string chosen by
+// whatever filled the disk.
+//
+// The last one wins, because a session that quotes an earlier message of its own, or a log
+// line on a line of its own, has the line it means last.
+var fallbackLine = regexp.MustCompile(`(?mi)^[-*>+\t ]*(?:\*\*)?[ \t]*if no answer:\**[ \t]*([^\n]+?)[ \t*]*$`)
 
 func fallbackOption(message string) string {
-	match := fallbackLine.FindStringSubmatch(message)
-	if match == nil {
+	matches := fallbackLine.FindAllStringSubmatch(message, -1)
+	if len(matches) == 0 {
 		return ""
 	}
-	return clip(strings.TrimSpace(match[1]), fallbackLimit)
+	return safe(matches[len(matches)-1][1], fallbackLimit)
 }
 
 func oncall(cfg Config, name, briefFile string) error {

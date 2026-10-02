@@ -113,6 +113,11 @@ type Waiting struct {
 	Nudged   int64    `json:"nudged,omitempty"`
 	Steps    []string `json:"steps,omitempty"`
 
+	// When a check first projected that free space would reach the critical threshold before
+	// the handover. The second check to say so is what hands the decision over, because one
+	// interval is an extrapolation and the thing it authorises is a kill.
+	Worsening int64 `json:"worsening,omitempty"`
+
 	// What the agent said in its first report it would do if nobody answered, which is
 	// what the warning quotes rather than guessing at.
 	Default string `json:"default,omitempty"`
@@ -319,29 +324,72 @@ func (st Store) reportedDir() string { return filepath.Join(st.dir, "reported") 
 // the writer: the sweep is the only thing that edits state, and this is the one fact
 // it needs from outside.
 //
-// The file holds the one line of the report the next sweep has a use for, the option
-// the agent would fall back on, and nothing else of it: the report itself has already
-// gone to the channel.
-func (st Store) MarkReported(incident, fallback string) error {
+// The file holds the two things about the report the next sweep has a use for and nothing
+// else of it, the report itself having already gone to the channel: the option the agent
+// would fall back on, and whether this was the message that said the incident is resolved.
+//
+// A session sends more than two messages — its analysis, the same question posted into the
+// Discord thread, an update when the situation moves — so a marker merges with the one
+// already there rather than replacing it. Overwriting lost the fallback option every time
+// a later message happened not to repeat it, and the warning then had nothing to quote.
+func (st Store) MarkReported(incident, fallback string, outcome bool) error {
 	if !incidentID.MatchString(incident) {
 		return fmt.Errorf("%q is not an incident id", incident)
 	}
 	if err := os.MkdirAll(st.reportedDir(), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(st.reportedDir(), incident), []byte(fallback), 0o644)
+
+	was := st.readReport(incident)
+	if fallback == "" {
+		fallback = was.fallback
+	}
+	outcome = outcome || was.outcome
+
+	body := "fallback: " + strings.ReplaceAll(fallback, "\n", " ") + "\n"
+	if outcome {
+		body = "outcome\n" + body
+	}
+	return os.WriteFile(filepath.Join(st.reportedDir(), incident), []byte(body), 0o644)
 }
 
-func (st Store) ReportedFallback(incident string) string {
-	if !incidentID.MatchString(incident) {
-		return ""
-	}
-	note, err := os.ReadFile(filepath.Join(st.reportedDir(), incident))
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(note))
+type report struct {
+	fallback string
+	outcome  bool
 }
+
+// A marker written before this format existed is one line of fallback with no key on it,
+// which is still the fallback and still not an outcome.
+func (st Store) readReport(incident string) report {
+	if !incidentID.MatchString(incident) {
+		return report{}
+	}
+	file, err := os.ReadFile(filepath.Join(st.reportedDir(), incident))
+	if err != nil {
+		return report{}
+	}
+
+	out := report{}
+	for _, line := range strings.Split(string(file), "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case line == "outcome":
+			out.outcome = true
+		case strings.HasPrefix(line, "fallback:"):
+			out.fallback = strings.TrimSpace(strings.TrimPrefix(line, "fallback:"))
+		case line != "" && out.fallback == "":
+			out.fallback = line
+		}
+	}
+	return out
+}
+
+func (st Store) ReportedFallback(incident string) string { return st.readReport(incident).fallback }
+
+// Only the message the session marked as the outcome ends the wait. Reading any second
+// report as one ended it on the question the session had just posted into Discord, which is
+// the one message the orders on that path require it to send.
+func (st Store) ReportedOutcome(incident string) bool { return st.readReport(incident).outcome }
 
 func (st Store) Reported(incident string) bool {
 	if !incidentID.MatchString(incident) {
@@ -397,7 +445,7 @@ func (st Store) RequestApproval(incident, action string) error {
 	}
 	// Clipped here rather than at the caller, because what an action names is a path and a
 	// command chosen by whatever filled the disk, and it goes back into a prompt.
-	return os.WriteFile(st.approvalPath(incident), []byte(clip(strings.TrimSpace(action), replyLimit)), 0o644)
+	return os.WriteFile(st.approvalPath(incident), []byte(safe(action, replyLimit)), 0o644)
 }
 
 func (st Store) OpenApproval(incident string) string {

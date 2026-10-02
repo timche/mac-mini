@@ -48,9 +48,11 @@ var (
 // five-second loop off the service account's daily limit.
 func listen(cfg Config) error {
 	log := logger{out: os.Stdout, now: clockFromEnv()}
+	store := Store{dir: cfg.StateDir}
 
 	if !cfg.Discord.On() {
-		log.say("no Discord channel and user are configured, so there is nothing to listen to")
+		sayOnce(store, log, "unconfigured",
+			"no Discord channel and user are configured, so there is nothing to listen to")
 		time.Sleep(listenIdle)
 		return nil
 	}
@@ -76,16 +78,19 @@ func listen(cfg Config) error {
 func listenWithToken(cfg Config) error {
 	log := logger{out: os.Stdout, now: clockFromEnv()}
 
+	store := Store{dir: cfg.StateDir}
+
 	token := strings.TrimSpace(os.Getenv("HACHIKO_DISCORD_BOT_TOKEN"))
 	if token == "" {
-		log.say("the bot token did not resolve, so replies are off and the webhook is what alerts go to")
+		sayOnce(store, log, "no-token",
+			"the bot token did not resolve, so replies are off and the webhook is what alerts go to")
 		time.Sleep(listenIdle)
 		return nil
 	}
 
-	l := listener{
+	l := &listener{
 		cfg:    cfg,
-		store:  Store{dir: cfg.StateDir},
+		store:  store,
 		bot:    newBot(token),
 		herdr:  herdrCLI,
 		now:    clockFromEnv(),
@@ -93,10 +98,28 @@ func listenWithToken(cfg Config) error {
 		secret: strings.TrimSpace(os.Getenv("HACHIKO_APPROVAL_TOTP")),
 	}
 
-	log.say("listening to the incident threads in Discord for a reply from %s", cfg.Discord.UserID)
+	sayOnce(store, log, "listening-"+cfg.Discord.UserID,
+		"listening to the incident threads in Discord for a reply from "+cfg.Discord.UserID)
 	for {
 		l.once()
 		time.Sleep(listenPoll)
+	}
+}
+
+// launchd restarts this agent every five minutes for as long as nothing is configured, and a
+// line on every start is a line every five minutes for the life of the Mac about something
+// that is not wrong. So the state it last said is written down, and it says nothing again
+// until that changes — which is also how turning the feature on gets a line of its own.
+func sayOnce(store Store, log logger, state, message string) {
+	path := filepath.Join(store.dir, "listen", "said")
+
+	if was, err := os.ReadFile(path); err == nil && strings.TrimSpace(string(was)) == state {
+		return
+	}
+	log.say("%s", message)
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err == nil {
+		os.WriteFile(path, []byte(state), 0o644)
 	}
 }
 
@@ -111,12 +134,67 @@ type listener struct {
 	// The otpauth URI or base32 as 1Password handed it over, decoded only when a code
 	// actually arrives. Never given to the agent, never logged, and never in an argument.
 	secret string
+
+	// A thread that will not answer — a bot without permission on it, a thread Tim deleted —
+	// asked again every five seconds was twelve identical lines a minute in the log, for as
+	// long as the incident stayed open. In memory rather than in a file: the process lives as
+	// long as the feature is on, and a backoff that survived a restart would be one nothing
+	// ever clears.
+	trouble map[string]*threadTrouble
+}
+
+// How long a thread that failed is left alone, and whether the log has already said so.
+type threadTrouble struct {
+	fails   int
+	nextTry time.Time
+	said    bool
+}
+
+// Doubling from one poll, to five minutes. Long enough that a permission somebody fixes is
+// picked up within the five minutes, short enough that nothing waits an hour for a reply.
+const listenBackoffMax = 5 * time.Minute
+
+func (l *listener) troubleWith(thread string) *threadTrouble {
+	if l.trouble == nil {
+		l.trouble = map[string]*threadTrouble{}
+	}
+	if l.trouble[thread] == nil {
+		l.trouble[thread] = &threadTrouble{}
+	}
+	return l.trouble[thread]
+}
+
+func (l *listener) failed(incident, thread string, err error) {
+	t := l.troubleWith(thread)
+	t.fails++
+
+	wait := listenPoll << min(t.fails-1, 10)
+	if wait > listenBackoffMax {
+		wait = listenBackoffMax
+	}
+	t.nextTry = l.now().Add(wait)
+
+	// Once per state change. A line every five seconds buries the lines that matter, which is
+	// the same rule the rest of this log is written to.
+	if !t.said {
+		t.said = true
+		l.log.say("the thread for %s could not be read, so it is tried again in %s and not said again until it answers: %v",
+			incident, wait, err)
+	}
+}
+
+func (l *listener) answered(incident, thread string) {
+	t := l.troubleWith(thread)
+	if t.said {
+		l.log.say("the thread for %s is readable again", incident)
+	}
+	t.fails, t.said, t.nextTry = 0, false, time.Time{}
 }
 
 // One pass over the threads the open incidents have. The threads come from the state the
 // sweep writes, read without the lock: a sweep holds that lock across a herdr call and an
 // `op run`, and a loop that waited for it would be a loop that misses replies for minutes.
-func (l listener) once() {
+func (l *listener) once() {
 	state, err := l.store.Load()
 	if err != nil && !errors.Is(err, errStateCorrupt) {
 		return
@@ -128,14 +206,17 @@ func (l listener) once() {
 	l.forgetSeenExcept(state.Threads)
 }
 
-func (l listener) thread(state *State, incident, thread string) {
-	seen := l.lastSeen(thread)
-
-	messages, err := l.bot.messagesAfter(thread, seen)
-	if err != nil {
-		l.log.say("the thread for %s could not be read: %v", incident, err)
+func (l *listener) thread(state *State, incident, thread string) {
+	if t := l.troubleWith(thread); l.now().Before(t.nextTry) {
 		return
 	}
+
+	messages, err := l.bot.messagesAfter(thread, l.lastSeen(thread))
+	if err != nil {
+		l.failed(incident, thread, err)
+		return
+	}
+	l.answered(incident, thread)
 
 	for _, message := range messages {
 		// Whatever it was, it has been seen: a message that cannot be acted on may not be
@@ -158,7 +239,7 @@ func (l listener) thread(state *State, incident, thread string) {
 	}
 }
 
-func (l listener) reply(state *State, incident, thread, messageID, text string) {
+func (l *listener) reply(state *State, incident, thread, messageID, text string) {
 	if code := approvalReply.FindStringSubmatch(text); code != nil {
 		l.approve(incident, thread, messageID, code[1])
 		return
@@ -187,7 +268,7 @@ If what he is asking for is on the never list, do not do it on the strength of t
 // The code is checked here and the secret stays here. The agent is told that an action it
 // named has been approved and never what approved it, so a session that has been talked
 // into something cannot approve it for itself.
-func (l listener) approve(incident, thread, messageID, code string) {
+func (l *listener) approve(incident, thread, messageID, code string) {
 	action := l.store.OpenApproval(incident)
 	if action == "" {
 		// Not a hint: a code with nothing open to approve is either a mistake or somebody
@@ -205,11 +286,11 @@ func (l listener) approve(incident, thread, messageID, code string) {
 
 	step, ok := totpVerify(secret, code, l.now())
 	if !ok || l.usedStep(step) {
-		l.log.say("a code for %s was not accepted", incident)
-		l.sayInThread(thread, "Code not accepted.")
+		l.wrongCode(incident, thread, action)
 		return
 	}
 	l.useStep(step)
+	l.clearAttempts(incident)
 
 	lead := fmt.Sprintf(`Tim has approved one action on %s with a code from his authenticator, checked by hachiko. The action approved is the one you registered and is quoted between the markers below. You may now carry out that action and nothing else: anything further on the never list needs a request and a code of its own.`,
 		incident)
@@ -225,11 +306,62 @@ func (l listener) approve(incident, thread, messageID, code string) {
 	l.acknowledge(thread, messageID)
 }
 
+// Three. A code is six digits over three thirty-second steps, so a reply every few seconds
+// from an account somebody has taken over is about one chance in a thousand per try and
+// hours rather than years to a hit — which is no protection at all when the thing being
+// protected is deleting a repository. So the request itself goes after three wrong codes and
+// the session has to register it again, which it cannot do without saying in the thread what
+// it is asking for, where Tim can see it.
+const approvalTries = 3
+
+func (l *listener) wrongCode(incident, thread, action string) {
+	tries := l.recordAttempt(incident, action)
+
+	if tries >= approvalTries {
+		l.store.CloseApproval(incident)
+		l.clearAttempts(incident)
+		l.log.say("%d codes for %s were not accepted, so the request to be allowed that action is cancelled",
+			tries, incident)
+		l.sayInThread(thread, "Code not accepted. That was the third try, so the request is cancelled and the agent has to ask again.")
+		return
+	}
+
+	l.log.say("a code for %s was not accepted (%d of %d)", incident, tries, approvalTries)
+	l.sayInThread(thread, "Code not accepted.")
+}
+
+// Counted against the action it is for, so registering a different action starts again: the
+// count is there to stop somebody guessing at one approval, not to lock the session out of
+// asking for the next thing.
+func (l listener) attemptsPath(incident string) string {
+	return filepath.Join(l.cfg.StateDir, "listen", "tries-"+incident)
+}
+
+func (l listener) recordAttempt(incident, action string) int {
+	tries, was := 0, ""
+	if file, err := os.ReadFile(l.attemptsPath(incident)); err == nil {
+		count, rest, _ := strings.Cut(strings.TrimSpace(string(file)), "\n")
+		tries, _ = strconv.Atoi(count)
+		was = rest
+	}
+	if was != action {
+		tries = 0
+	}
+	tries++
+
+	if err := os.MkdirAll(filepath.Dir(l.attemptsPath(incident)), 0o755); err == nil {
+		os.WriteFile(l.attemptsPath(incident), []byte(fmt.Sprintf("%d\n%s", tries, action)), 0o644)
+	}
+	return tries
+}
+
+func (l listener) clearAttempts(incident string) { os.Remove(l.attemptsPath(incident)) }
+
 // Straight to the agent, through the same cancel-then-prompt the sweep uses: herdr refuses
 // a prompt to an agent on a question, and this is the answer to that question. The esc is
 // hachiko's, but the clock is not — nothing records it as a nudge, so the next sweep reads
 // the agent leaving blocked as Tim having answered, which is exactly what happened.
-func (l listener) handTo(incident, lead, data string) error {
+func (l *listener) handTo(incident, lead, data string) error {
 	kind := kindOf(incident)
 
 	o := oncaller{cfg: l.cfg, run: l.herdr, now: l.now, log: l.log}
@@ -252,13 +384,13 @@ func (l listener) handTo(incident, lead, data string) error {
 
 // A tick on his own message, which is the shortest way to say it landed, and a sentence in
 // the thread if the bot has no permission to react.
-func (l listener) acknowledge(thread, messageID string) {
+func (l *listener) acknowledge(thread, messageID string) {
 	if err := l.bot.react(thread, messageID, "%E2%9C%85"); err != nil {
 		l.sayInThread(thread, "Passed to the agent.")
 	}
 }
 
-func (l listener) sayInThread(thread, text string) {
+func (l *listener) sayInThread(thread, text string) {
 	if _, err := l.bot.post(thread, text); err != nil {
 		l.log.say("nothing could be posted back to the thread: %v", err)
 	}
@@ -278,8 +410,12 @@ func (l listener) lastSeen(thread string) string {
 	return discordID(string(id))
 }
 
+// The highest id seen and not the last one handled: `after` means later than this, so a mark
+// that went backwards — which is what one message arriving out of order did — asked for the
+// same messages again on the next pass and handed every one of them to the agent a second
+// time.
 func (l listener) markSeen(thread, messageID string) {
-	if discordID(messageID) == "" {
+	if discordID(messageID) == "" || snowflake(messageID) <= snowflake(l.lastSeen(thread)) {
 		return
 	}
 	if err := os.MkdirAll(filepath.Dir(l.seenPath(thread)), 0o755); err != nil {

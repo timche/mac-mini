@@ -903,6 +903,35 @@ check "the on-call session's review partner is there, reads Opus's second opinio
    grep -q "Read-only, absolutely" "$p" &&
    grep -q "oncall-partner" "$repo/hachiko/oncall.go"'
 
+# The partner checks a proposed action against limits it is given in its own prompt, so one
+# that drifted from the limits the session was told is a reviewer agreeing to something nobody
+# allowed. These phrases are the load-bearing half of both lists and have to be the same words
+# in both files. A function rather than a snippet, because the list holds a quote and an
+# apostrophe and the snippets run through two levels of it.
+hachiko_limits_in_step() {
+  local partner="$1" orders="$2" phrase
+  local missing=0
+
+  while IFS= read -r phrase; do
+    [ -n "$phrase" ] || continue
+    grep -qF "$phrase" "$partner" || { printf 'not in the partner: %s\n' "$phrase"; missing=1; }
+    grep -qF "$phrase" "$orders" || { printf 'not in the orders: %s\n' "$phrase"; missing=1; }
+  done <<'PHRASES'
+SIGTERM first and SIGKILL only if it is still there ten seconds later
+*.log, *.out, *.err, *.output or *.log.N
+a database or a docker volume
+restarting herdr, boswell, a launchd service or the Mac
+unless that process is itself the one causing the incident
+is not a licence to empty a folder
+PHRASES
+
+  return "$missing"
+}
+export -f hachiko_limits_in_step
+
+check "the partner's limits are the same words as the standing orders'" \
+  'hachiko_limits_in_step "$HOME/.claude/agents/oncall-partner.md" "$repo/hachiko/oncall.go"'
+
 # The numbers the README and the plist comment both name. Every one of them is an
 # environment variable so that a test can trip the same arithmetic with megabytes and
 # minutes, which is exactly why the defaults need asserting.

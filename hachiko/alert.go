@@ -107,6 +107,13 @@ func sendThroughOP(cfg Config, out Outgoing) (string, error) {
 		}
 		return "", errors.New(detail)
 	}
+
+	// A send that worked but had something to say — the bot refused and the webhook took it —
+	// is a line the child wrote and the log would otherwise never see, since only a failure
+	// reads this buffer.
+	if note := strings.TrimSpace(stderr.String()); note != "" {
+		fmt.Fprintln(os.Stderr, note)
+	}
 	return strings.TrimSpace(stdout.String()), nil
 }
 
@@ -146,8 +153,22 @@ func sendMode(stdin io.Reader, out Outgoing, channel string) (string, error) {
 	// Trimmed, because a 1Password field holding a trailing newline is a URL net/http
 	// refuses, a header value it rejects outright, and an error message carrying a form of
 	// it this would not recognise.
-	if token := strings.TrimSpace(os.Getenv("HACHIKO_DISCORD_BOT_TOKEN")); token != "" && channel != "" {
-		return sendThroughBot(newBot(token), channel, out)
+	token := strings.TrimSpace(os.Getenv("HACHIKO_DISCORD_BOT_TOKEN"))
+	if token != "" && channel != "" {
+		thread, err := sendThroughBot(newBot(token), channel, out)
+		if err == nil {
+			return thread, nil
+		}
+
+		// A bot that is configured and will not post — a token Tim revoked, an application
+		// somebody deleted, a channel it was removed from — is an alert nobody receives, and
+		// the webhook is still there. So this message goes that way instead and says so in the
+		// log, rather than the watch going quiet about a disk filling because of a permission.
+		// Not a thread, because there is no thread: the next check tries the bot again.
+		//
+		// stderr, because stdout is where the thread id goes.
+		logger{out: os.Stderr, now: clockFromEnv()}.say(
+			"the bot would not post, so this message went to the webhook instead: %v", err)
 	}
 
 	webhook := strings.TrimSpace(os.Getenv("HACHIKO_DISCORD_URL"))
@@ -175,9 +196,15 @@ func sendThroughBot(bot discordBot, channel string, out Outgoing) (string, error
 		return "", nil
 	}
 
+	// A thread that could not be opened is not a message that failed: the message is posted,
+	// and saying otherwise sent it a second time down the webhook. The next message of this
+	// incident goes to the channel instead, which is a thread missing rather than an alert
+	// missing.
 	thread, err := bot.openThread(channel, posted, out.OpenThread)
 	if err != nil {
-		return "", err
+		logger{out: os.Stderr, now: clockFromEnv()}.say(
+			"the message was posted but no thread could be opened on it, so the rest of this incident goes to the channel: %v", err)
+		return "", nil
 	}
 	return thread, nil
 }

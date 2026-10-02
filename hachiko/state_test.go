@@ -133,7 +133,7 @@ func TestALockThatCannotBeMadeIsNotMistakenForAHeldOne(t *testing.T) {
 func TestOnlyAnIncidentIdCanBeMarkedReported(t *testing.T) {
 	store := Store{dir: filepath.Join(t.TempDir(), "hachiko")}
 
-	if err := store.MarkReported("disk-1700000000", "stop the worker"); err != nil {
+	if err := store.MarkReported("disk-1700000000", "stop the worker", false); err != nil {
 		t.Fatal(err)
 	}
 	if !store.Reported("disk-1700000000") {
@@ -147,7 +147,7 @@ func TestOnlyAnIncidentIdCanBeMarkedReported(t *testing.T) {
 	}
 
 	for _, bad := range []string{"../../etc/passwd", "disk", "disk-", "disk-1/x", "", "Disk-1"} {
-		if err := store.MarkReported(bad, ""); err == nil {
+		if err := store.MarkReported(bad, "", false); err == nil {
 			t.Errorf("%q was accepted as an incident id", bad)
 		}
 		if store.Reported(bad) {

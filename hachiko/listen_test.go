@@ -16,9 +16,10 @@ import (
 // in it, and an on-call agent on its question. Nothing here reaches either.
 type listenFixture struct {
 	t     *testing.T
-	l     listener
+	l     *listener
 	herdr *fakeHerdr
 	log   *bytes.Buffer
+	now   time.Time
 
 	// What the bot was asked to do, and what it answers: the messages in the thread, and
 	// everything posted or reacted to on the way back.
@@ -26,6 +27,11 @@ type listenFixture struct {
 	posted   []string
 	reacted  []string
 	reactErr bool
+
+	// A thread the bot cannot read — no permission on it, or Tim deleted it — and how many
+	// times it was actually asked, which is what a backoff is.
+	readErr int
+	reads   int
 }
 
 const (
@@ -54,11 +60,17 @@ func newListener(t *testing.T) *listenFixture {
 		t:     t,
 		herdr: &fakeHerdr{hasAgent: true, hasWorkspace: true, blockedPrompt: true},
 		log:   &bytes.Buffer{},
+		now:   time.Unix(1111111111, 0),
 	}
 
 	bot, _ := fakeBotWith(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet:
+			f.reads++
+			if f.readErr != 0 {
+				w.WriteHeader(f.readErr)
+				return
+			}
 			// Newest first, which is what Discord answers with and the opposite of the order a
 			// conversation has to be read in.
 			newestFirst := make([]discordMessage, 0, len(f.messages))
@@ -82,8 +94,8 @@ func newListener(t *testing.T) *listenFixture {
 		}
 	})
 
-	now := func() time.Time { return time.Unix(1111111111, 0) }
-	f.l = listener{
+	now := func() time.Time { return f.now }
+	f.l = &listener{
 		cfg:    cfg,
 		store:  Store{dir: cfg.StateDir},
 		bot:    bot,
@@ -121,6 +133,9 @@ func (f *listenFixture) once() string {
 	f.herdr.calls = nil
 	return f.pass()
 }
+
+// Time moving on between passes, which is the whole of what a backoff is measured in.
+func (f *listenFixture) tick(d time.Duration) { f.now = f.now.Add(d) }
 
 // A pass with whatever messages are already in the thread, for a test that wants two in a
 // row without clearing them.
@@ -353,6 +368,130 @@ func TestAnApprovalRequestOnlyTakesAnIncidentIdAndIsClipped(t *testing.T) {
 	if len(store.OpenApproval(diskIncident)) > replyLimit+10 {
 		t.Error("an action was not clipped")
 	}
+}
+
+// Six digits over three thirty-second steps is about one chance in a thousand a try, and a
+// reply every few seconds from an account somebody has taken over is hours rather than years
+// to a hit — which is no protection at all when what is being protected is deleting a
+// repository. So the request goes after three, and the session has to ask again in the thread
+// where Tim can see it.
+func TestThreeWrongCodesCancelTheRequest(t *testing.T) {
+	f := newListener(t)
+	if err := f.l.store.RequestApproval(diskIncident, "delete the orphaned postgres volume"); err != nil {
+		t.Fatal(err)
+	}
+
+	for try := 1; try < approvalTries; try++ {
+		f.once()
+		f.says(fmt.Sprintf("30000000000000010%d", try), "approve 000000")
+		out := f.pass()
+
+		wants(t, out, fmt.Sprintf("not accepted (%d of %d)", try, approvalTries))
+		equal(t, f.posted[len(f.posted)-1], "Code not accepted.", "what a wrong code is answered with")
+		equal(t, f.l.store.OpenApproval(diskIncident), "delete the orphaned postgres volume",
+			"the request still open")
+	}
+
+	f.once()
+	f.says("300000000000000199", "approve 000000")
+	out := f.pass()
+
+	wants(t, out, "3 codes for "+diskIncident+" were not accepted, so the request to be allowed that action is cancelled")
+	wants(t, f.posted[len(f.posted)-1], "That was the third try, so the request is cancelled")
+	equal(t, f.l.store.OpenApproval(diskIncident), "", "the request left open after three wrong codes")
+
+	// And the right code is no good either, because there is nothing left for it to approve.
+	f.once()
+	f.says("300000000000000200", "approve "+currentCode(t, f))
+	f.pass()
+	equal(t, f.herdr.said("agent prompt"), false, "whether a code approved anything after the request went")
+}
+
+// The count is there to stop somebody guessing at one approval, not to lock the session out
+// of asking for the next thing: a different action starts again, and so does a good code.
+func TestTheWrongCodeCountIsPerActionAndClearedByAGoodOne(t *testing.T) {
+	f := newListener(t)
+
+	tryWrong := func(id, action string) string {
+		t.Helper()
+		if err := f.l.store.RequestApproval(diskIncident, action); err != nil {
+			t.Fatal(err)
+		}
+		f.once()
+		f.says(id, "approve 000000")
+		return f.pass()
+	}
+
+	tryWrong("300000000000000101", "delete the volume")
+	wants(t, tryWrong("300000000000000102", "stop the worker"), fmt.Sprintf("not accepted (1 of %d)", approvalTries))
+
+	if err := f.l.store.RequestApproval(diskIncident, "stop the worker"); err != nil {
+		t.Fatal(err)
+	}
+	f.once()
+	f.says("300000000000000103", "approve "+currentCode(t, f))
+	wants(t, f.pass(), "an approved action on "+diskIncident)
+
+	wants(t, tryWrong("300000000000000104", "stop the worker"), fmt.Sprintf("not accepted (1 of %d)", approvalTries))
+}
+
+// A thread that will not answer — a bot without permission on it, a thread Tim deleted —
+// asked again every five seconds was twelve identical lines a minute in the log for as long as
+// the incident stayed open, which buries the lines that matter.
+func TestAThreadThatWillNotAnswerIsBackedOffAndSaidOnce(t *testing.T) {
+	f := newListener(t)
+	f.readErr = http.StatusForbidden
+
+	wants(t, f.once(), "could not be read, so it is tried again in")
+	equal(t, f.reads, 1, "reads attempted")
+
+	// Said once, and not asked again until the backoff is up.
+	for i := 0; i < 4; i++ {
+		equal(t, f.once(), "", "the log while the thread is backed off")
+	}
+	equal(t, f.reads, 1, "reads attempted while backed off")
+
+	// The backoff doubles from one poll, so a little later it is tried again — and still says
+	// nothing, because nothing about it has changed.
+	f.tick(listenPoll * 2)
+	equal(t, f.once(), "", "the log on the retry")
+	equal(t, f.reads, 2, "reads attempted after the backoff")
+
+	// One line when it comes back, which is the other state change worth one.
+	f.readErr = 0
+	f.tick(listenPoll * 4)
+	wants(t, f.once(), "is readable again")
+	equal(t, f.reads, 3, "reads attempted once it answered")
+
+	// And nothing more about it after that.
+	f.tick(listenPoll)
+	equal(t, f.once(), "", "the log once it is readable again")
+}
+
+// launchd restarts the agent every five minutes for as long as nothing is configured, and a
+// line on every start is a line every five minutes for the life of the Mac about something
+// that is not wrong.
+func TestAnUnconfiguredListenerSaysSoOnceAndAgainWhenItChanges(t *testing.T) {
+	store := Store{dir: filepath.Join(t.TempDir(), "state")}
+	out := &bytes.Buffer{}
+	log := logger{out: out, now: func() time.Time { return base }}
+
+	for i := 0; i < 5; i++ {
+		sayOnce(store, log, "unconfigured", "nothing is configured")
+	}
+	equal(t, strings.Count(out.String(), "nothing is configured"), 1,
+		"times an unconfigured listener said so")
+
+	// Turning it on is a state change, and that gets a line of its own.
+	sayOnce(store, log, "listening-987", "listening for a reply")
+	sayOnce(store, log, "listening-987", "listening for a reply")
+	equal(t, strings.Count(out.String(), "listening for a reply"), 1,
+		"times it said it had started listening")
+
+	// And so is turning it off again.
+	sayOnce(store, log, "unconfigured", "nothing is configured")
+	equal(t, strings.Count(out.String(), "nothing is configured"), 2,
+		"times it said so after the configuration changed back")
 }
 
 func currentCode(t *testing.T, f *listenFixture) string {

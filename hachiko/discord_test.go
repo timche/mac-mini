@@ -186,23 +186,39 @@ func TestTheTokenIsNeverInACommandLine(t *testing.T) {
 	}
 }
 
-// Oldest first, because a conversation has to be read in the order it happened and Discord
-// returns the opposite.
-func TestMessagesComeBackOldestFirst(t *testing.T) {
-	bot, calls := fakeBot(t, map[string]string{
-		"GET /channels/thread-1/messages?limit=100&after=msg-1": `[
-			{"id":"msg-3","content":"3","author":{"id":"tim"}},
-			{"id":"msg-2","content":"2","author":{"id":"tim"}}]`,
-	})
+// Oldest first, whichever order Discord sent them in. It documents newest first for a plain
+// fetch and oldest first for an `after`, and which of the two a given call returns is not
+// something to stake the order of a conversation on: reversing on that assumption handed the
+// agent the messages backwards and remembered the oldest id as the newest, which asked for
+// the same messages again for ever. A snowflake is a timestamp, so sorting by it is sorting
+// by when.
+func TestMessagesComeBackOldestFirstWhicheverOrderDiscordSent(t *testing.T) {
+	const (
+		first  = "300000000000000002"
+		second = "300000000000000003"
+		third  = "300000000000000011"
+	)
 
-	messages, err := bot.messagesAfter("thread-1", "msg-1")
-	if err != nil {
-		t.Fatal(err)
+	for _, order := range []string{
+		`[{"id":"` + third + `"},{"id":"` + second + `"},{"id":"` + first + `"}]`,
+		`[{"id":"` + first + `"},{"id":"` + second + `"},{"id":"` + third + `"}]`,
+		`[{"id":"` + second + `"},{"id":"` + third + `"},{"id":"` + first + `"}]`,
+	} {
+		bot, calls := fakeBot(t, map[string]string{
+			"GET /channels/thread-1/messages?limit=100&after=300000000000000001": order,
+		})
+
+		messages, err := bot.messagesAfter("thread-1", "300000000000000001")
+		if err != nil {
+			t.Fatal(err)
+		}
+		equal(t, len(messages), 3, "messages read")
+		// Numerically, not as strings: ...11 is later than ...3 and sorts after it.
+		equal(t, messages[0].ID, first, "the first message read from "+order)
+		equal(t, messages[1].ID, second, "the second message read from "+order)
+		equal(t, messages[2].ID, third, "the third message read from "+order)
+		wants(t, strings.Join(*calls, " "), "after=300000000000000001")
 	}
-	equal(t, len(messages), 2, "messages read")
-	equal(t, messages[0].ID, "msg-2", "the first message read")
-	equal(t, messages[1].ID, "msg-3", "the second message read")
-	wants(t, strings.Join(*calls, " "), "after=msg-1")
 }
 
 // A thread name Discord refuses is a thread that is never made, and an incident id with a
@@ -246,6 +262,7 @@ func TestSendModeUsesTheBotOnlyWithATokenAndAChannel(t *testing.T) {
 
 	t.Setenv("HACHIKO_DISCORD_URL", server.URL+"/api/webhooks/1/x")
 	t.Setenv("HACHIKO_DISCORD_BOT_TOKEN", "")
+	botPointedAt(t, server.URL)
 
 	if _, err := sendMode(strings.NewReader("the disk is filling"), Outgoing{}, "chan"); err != nil {
 		t.Fatal(err)
@@ -258,6 +275,107 @@ func TestSendModeUsesTheBotOnlyWithATokenAndAChannel(t *testing.T) {
 		t.Fatal(err)
 	}
 	equal(t, reached, "/api/webhooks/1/x", "where a message went with no channel")
+}
+
+// A bot that is configured and will not post — a token Tim revoked, an application somebody
+// deleted, a channel it was removed from — is an alert nobody receives while the webhook is
+// sitting right there. The watch may not go quiet about a disk filling because of a permission.
+func TestABrokenBotFallsBackToTheWebhookForThatMessage(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound} {
+		var reached []string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			reached = append(reached, r.URL.Path)
+			if strings.HasPrefix(r.URL.Path, "/channels/") {
+				w.WriteHeader(status)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		}))
+
+		t.Setenv("HACHIKO_DISCORD_URL", server.URL+"/api/webhooks/1/x")
+		t.Setenv("HACHIKO_DISCORD_BOT_TOKEN", fakeBotToken)
+		botPointedAt(t, server.URL)
+
+		stderr := captureStderr(t)
+		thread, err := sendMode(strings.NewReader("the disk is filling"),
+			Outgoing{OpenThread: "disk-42"}, "chan")
+		note := stderr()
+		server.Close()
+
+		if err != nil {
+			t.Fatalf("a %d from the bot lost the message: %v", status, err)
+		}
+		equal(t, thread, "", "the thread a broken bot opened")
+		equal(t, len(reached), 2, "requests made")
+		wants(t, reached[len(reached)-1], "/api/webhooks/1/x")
+		wants(t, note, "the bot would not post, so this message went to the webhook instead")
+		lacks(t, note, "NOT-A-REAL-BOT-TOKEN")
+	}
+}
+
+// A thread that could not be opened is not a message that failed: the message is posted, and
+// saying otherwise sent it a second time down the webhook.
+func TestAMessageWhoseThreadCouldNotBeOpenedIsNotSentTwice(t *testing.T) {
+	var reached []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = append(reached, r.URL.Path)
+		if strings.HasSuffix(r.URL.Path, "/threads") {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.Write([]byte(`{"id":"300000000000000001"}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("HACHIKO_DISCORD_URL", server.URL+"/api/webhooks/1/x")
+	t.Setenv("HACHIKO_DISCORD_BOT_TOKEN", fakeBotToken)
+	botPointedAt(t, server.URL)
+
+	stderr := captureStderr(t)
+	thread, err := sendMode(strings.NewReader("the disk is filling"),
+		Outgoing{OpenThread: "disk-42"}, "chan")
+	note := stderr()
+
+	if err != nil {
+		t.Fatalf("a thread that could not be opened was reported as a failed message: %v", err)
+	}
+	equal(t, thread, "", "the thread recorded when none could be opened")
+	equal(t, len(reached), 2, "requests made")
+	for _, path := range reached {
+		lacks(t, path, "/api/webhooks/")
+	}
+	wants(t, note, "the rest of this incident goes to the channel")
+}
+
+// stderr is where a send that worked but had something to say says it, stdout being where the
+// thread id goes.
+// Points the bot that `sendMode` builds for itself at a server of this test's own. Without
+// it, a test of that step posts to Discord.
+func botPointedAt(t *testing.T, api string) {
+	t.Helper()
+
+	was := discordBase
+	discordBase = api
+	t.Cleanup(func() { discordBase = was })
+}
+
+func captureStderr(t *testing.T) func() string {
+	t.Helper()
+
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	was := os.Stderr
+	os.Stderr = write
+
+	return func() string {
+		os.Stderr = was
+		write.Close()
+		out, _ := io.ReadAll(read)
+		read.Close()
+		return string(out)
+	}
 }
 
 func fakeBot(t *testing.T, answers map[string]string) (discordBot, *[]string) {

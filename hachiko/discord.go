@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -77,6 +78,12 @@ func discordID(value string) string {
 
 const discordAPI = "https://discord.com/api/v10"
 
+// Where newBot points. A variable rather than the constant itself so that a test of the step
+// that builds its own bot — the one `op run` re-enters, which is handed a token and a channel
+// and nothing else — can be driven against a server of its own. Nothing but a test ever
+// changes it, and a test that forgets to is a test that posts to Discord.
+var discordBase = discordAPI
+
 // The token reaches one process's environment and one request header. Nothing puts it in
 // an argument, where ps would show it to every process on the machine, and nothing writes
 // it anywhere — and every error text that leaves here has it taken out first, for the
@@ -94,7 +101,7 @@ type discordBot struct {
 func newBot(token string) discordBot {
 	return discordBot{
 		token:  token,
-		api:    discordAPI,
+		api:    discordBase,
 		client: &http.Client{Timeout: 20 * time.Second},
 		now:    time.Now,
 		sleep:  time.Sleep,
@@ -217,7 +224,7 @@ func (b discordBot) post(channel, content string) (string, error) {
 func (b discordBot) openThread(channel, message, name string) (string, error) {
 	answer, err := b.call(http.MethodPost,
 		"/channels/"+channel+"/messages/"+message+"/threads",
-		map[string]any{"name": clip(name, discordThreadName), "auto_archive_duration": 1440})
+		map[string]any{"name": safe(name, discordThreadName), "auto_archive_duration": 1440})
 	if err != nil {
 		return "", err
 	}
@@ -254,12 +261,26 @@ func (b discordBot) messagesAfter(channel, after string) ([]discordMessage, erro
 		return nil, errors.New("Discord answered something that is not a list of messages")
 	}
 
-	// Newest first is what it sends, and the id is the clock: a snowflake sorts by the
-	// moment it was made.
-	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
-		messages[i], messages[j] = messages[j], messages[i]
-	}
+	// Sorted rather than reversed. Discord documents newest first for a plain fetch and
+	// oldest first for an `after`, and which of the two a given call returns is not something
+	// to stake the order of a conversation on — a reversal that guessed wrong handed the
+	// agent the messages backwards and remembered the oldest as the newest. The id is the
+	// clock: a snowflake is a timestamp, so sorting by it numerically is sorting by when.
+	sort.Slice(messages, func(i, j int) bool {
+		return snowflake(messages[i].ID) < snowflake(messages[j].ID)
+	})
 	return messages, nil
+}
+
+// An id that is not a number sorts before every real one, which puts anything Discord
+// answered with that this does not understand at the front rather than at the end, where it
+// would be mistaken for the newest thing said.
+func snowflake(id string) uint64 {
+	n, err := strconv.ParseUint(id, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // So that Tim can see his reply landed without waiting for the agent to say anything.

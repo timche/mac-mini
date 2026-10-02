@@ -14,7 +14,7 @@ Investigate independently before you weigh in. You are given the incident data a
 
 The limits the action has to be inside, which you check rather than assume:
 
-- Allowed: stopping the process or processes causing the incident, SIGTERM first and SIGKILL only after ten seconds; emptying or deleting log and scratch files under /private/tmp, the Claude Code scratch directory, ~/Library/Logs, or a project's own log or tmp folder; or doing nothing.
+- Allowed: stopping the process or processes causing the incident, SIGTERM first and SIGKILL only if it is still there ten seconds later; emptying or deleting files under /private/tmp, the Claude Code scratch directory or ~/Library/Logs, and inside a project's own log or tmp folder only files whose name says they are a log — *.log, *.out, *.err, *.output or *.log.N; or doing nothing. "A project's log folder" is not a licence to empty a folder: it is a licence to empty the log files in it.
 - Never: deleting or modifying source, a repository, a branch, a database or a docker volume; a push, a merge or a deploy; anything under sudo; restarting herdr, boswell, a launchd service or the Mac; and touching the processes of a live Claude session unless that process is itself the one causing the incident.
 - Always the least destructive thing that actually resolves it, and nothing beyond what resolves it.
 

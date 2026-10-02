@@ -118,7 +118,7 @@ func (s sweeper) run() error {
 		headline = fmt.Sprintf("Disk: only %s GB free", gbStr(free))
 	}
 	if headline == "" && truncated {
-		headline = fmt.Sprintf("Disk: truncated %s, %s GB free", clip(disk.truncatedPath, pathLimit), gbStr(free))
+		headline = fmt.Sprintf("Disk: truncated %s, %s GB free", safe(disk.truncatedPath, pathLimit), gbStr(free))
 	}
 
 	newIncident := disk.fired || cpu.fired || lowNow || truncated
@@ -167,14 +167,15 @@ func (s sweeper) run() error {
 	// This minute's numbers, which every message about a question nobody has answered
 	// carries: the answer to a three-hour-old question is about a machine that has moved.
 	reading := nowReading{
-		free:     free,
-		prevFree: state.Disk.FreeKB,
-		level:    level,
-		span:     disk.span,
-		grewKB:   disk.grewKB,
-		sizes:    disk.sizes,
-		writers:  disk.writers,
-		report:   disk.report + cpu.report + disk.truncated,
+		free:        free,
+		prevFree:    state.Disk.FreeKB,
+		level:       level,
+		span:        disk.span,
+		spanClamped: disk.spanClamped,
+		grewKB:      disk.grewKB,
+		sizes:       disk.sizes,
+		writers:     disk.writers,
+		report:      disk.report + cpu.report + disk.truncated,
 	}
 
 	s.chaseLateReports(state, now)
@@ -268,6 +269,7 @@ type diskFindings struct {
 	growing       []Growing
 	stalled       []Stall
 	span          time.Duration
+	spanClamped   bool
 	grewKB        int64
 	writers       []string
 	report        string
@@ -285,12 +287,16 @@ func (s sweeper) disk(state *State, now time.Time, free int64) diskFindings {
 	if had {
 		prevAt = time.Unix(state.Disk.At, 0)
 	}
-	span := now.Sub(prevAt)
+	// A span of nothing or less is not an interval, it is a clock that moved: the machine
+	// slept, somebody set the time, a sample carries a timestamp in the future. A second is
+	// enough to divide a growth by for a rate in a message; it is not enough to extrapolate
+	// from, so the fact that it was invented travels with it.
+	span, clamped := now.Sub(prevAt), false
 	if span <= 0 {
-		span = time.Second
+		span, clamped = time.Second, true
 	}
 
-	out := diskFindings{span: span}
+	out := diskFindings{span: span, spanClamped: clamped || !had}
 
 	// What is still being skipped and what is due to be tried again. Everything not
 	// skipped is walked, so a directory being retried either stalls again or is quietly
@@ -325,9 +331,9 @@ func (s sweeper) disk(state *State, now time.Time, free int64) diskFindings {
 	for _, g := range growing {
 		// A path and an lsof command name are both chosen by whatever filled the disk,
 		// and both end up in a message Discord caps and in a prompt an agent reads.
-		writer := clip(s.deps.Writers(g.Path), writerLimit)
+		writer := safe(s.deps.Writers(g.Path), writerLimit)
 		line := fmt.Sprintf("%s — %s GB, grew %s GB since the last sample (%s GB/hour), written by %s",
-			clip(g.Path, pathLimit), gbStr(g.KB), gbStr(g.GrewKB), rateStr(g.GrewKB, span), writer)
+			safe(g.Path, pathLimit), gbStr(g.KB), gbStr(g.GrewKB), rateStr(g.GrewKB, span), writer)
 		out.report += "\n  " + line
 
 		// Everything a projection and a stale question are read from: what the files
@@ -351,7 +357,7 @@ func (s sweeper) disk(state *State, now time.Time, free int64) diskFindings {
 		out.fresh = append(out.fresh, g.Path)
 		if out.headline == "" {
 			out.headline = fmt.Sprintf("Disk: %s growing %s GB/h, %s GB free",
-				clip(g.Path, pathLimit), rateStr(g.GrewKB, span), gbStr(free))
+				safe(g.Path, pathLimit), rateStr(g.GrewKB, span), gbStr(free))
 		}
 	}
 
@@ -364,19 +370,19 @@ func (s sweeper) disk(state *State, now time.Time, free int64) diskFindings {
 		switch {
 		case !truncatable(s.cfg, worst):
 			s.say("free space is under %d GB and %s is the fastest growing, but it is not a log this may truncate",
-				s.cfg.CriticalGB(), clip(worst, pathLimit))
+				s.cfg.CriticalGB(), safe(worst, pathLimit))
 		case s.dry:
-			s.say("would truncate %s", clip(worst, pathLimit))
+			s.say("would truncate %s", safe(worst, pathLimit))
 		default:
 			// Never an rm and never a kill: the writer keeps its descriptor and its
 			// offset, so a log it appends to goes on working and the space comes back
 			// at once, where an unlinked file frees nothing until the writer exits and
 			// a killed worker takes a session's work with it.
 			if err := s.deps.Truncate(worst); err != nil {
-				s.say("could not truncate %s: %v", clip(worst, pathLimit), err)
+				s.say("could not truncate %s: %v", safe(worst, pathLimit), err)
 			} else {
-				s.say("truncated %s to keep the disk alive; its writer was not touched", clip(worst, pathLimit))
-				out.truncated += "\n  truncated " + clip(worst, pathLimit)
+				s.say("truncated %s to keep the disk alive; its writer was not touched", safe(worst, pathLimit))
+				out.truncated += "\n  truncated " + safe(worst, pathLimit)
 				out.truncatedPath = worst
 				// The size it is now, so the next check measures growth from the
 				// truncate rather than reporting a file that shrank.
@@ -425,7 +431,7 @@ func (s sweeper) cpu(state *State, now time.Time) cpuFindings {
 		}
 
 		if cwd := s.deps.CWD(p.PID); cwd != "" {
-			line += ", cwd " + clip(cwd, pathLimit)
+			line += ", cwd " + safe(cwd, pathLimit)
 			if where := repoOf(s.cfg, cwd); where != "" {
 				line += ", in " + where
 				// The shape that caused the incident this exists for: a worker whose
@@ -437,7 +443,7 @@ func (s sweeper) cpu(state *State, now time.Time) cpuFindings {
 			}
 		}
 
-		line += "\n    " + clip(p.Command, argsLimit)
+		line += "\n    " + safe(p.Command, argsLimit)
 		out.report += "\n  " + line
 
 		key := p.Key()
@@ -477,6 +483,23 @@ func clip(s string, max int) string {
 		return s
 	}
 	return s[:max] + "..."
+}
+
+// The same, for a string that goes anywhere near a prompt. A path may hold a newline, and
+// a newline is how a line of data becomes a line of conversation — so a name chosen by
+// whatever filled the disk is one line before it is clipped to one length. Every other
+// control character goes with it: none of them says anything about a file, and all of them
+// can make a message read as something it is not.
+func safe(s string, max int) string {
+	clean := make([]rune, 0, len(s))
+	for _, r := range s {
+		if r == '\t' || (r >= 0x20 && r != 0x7f) {
+			clean = append(clean, r)
+		} else {
+			clean = append(clean, ' ')
+		}
+	}
+	return clip(strings.TrimSpace(string(clean)), max)
 }
 
 // The order the alert goes out in: the session first, so the message can name the

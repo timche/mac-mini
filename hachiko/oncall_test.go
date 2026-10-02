@@ -385,6 +385,13 @@ func TestTheOpeningPromptCarriesTheAutonomyLimits(t *testing.T) {
 	for _, want := range []string{
 		`"If no answer: <the single option you would take>"`,
 		"SIGTERM first and SIGKILL only if it is still there ten seconds later",
+		// A project's tmp folder holds a build somebody is waiting on as readily as a log, so
+		// what is allowed is named by what the file is called rather than by which folder it
+		// happens to be in.
+		"*.log, *.out, *.err, *.output or *.log.N",
+		`"A project's log folder" is not a licence to empty a folder`,
+		"`hachiko notify --outcome <incident> <file>`",
+		"Use --outcome on that message and on no other",
 		"a database or a docker volume",
 		"anything under sudo",
 		"restarting herdr, boswell, a launchd service or the Mac",

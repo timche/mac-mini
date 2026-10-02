@@ -79,9 +79,16 @@ build() {
   "$1" exec -C "$repo" -- go build -C "$src" -o "$2" . >"$3" 2>&1 &
   build_pid=$!
 
+  # The watchdog waits on its own sleep rather than being the sleep, so that killing it
+  # once the build is done takes the sleep with it: a signal to the subshell does not
+  # reach a child it is only waiting on, and every rebuild would leave one behind for
+  # two minutes.
   (
-    sleep "$build_timeout"
-    kill -TERM "$build_pid" 2>/dev/null
+    sleeper=
+    trap '[ -n "${sleeper:-}" ] && kill "$sleeper" 2>/dev/null; exit 0' TERM
+    sleep "$build_timeout" &
+    sleeper=$!
+    wait "$sleeper" && kill -TERM "$build_pid" 2>/dev/null
   ) &
   watchdog_pid=$!
 
@@ -113,7 +120,10 @@ if [ -n "$hash" ] && [ "$hash" != "$(cat "$stamp" 2>/dev/null)" ]; then
     say "mise is missing, so hachiko could not be rebuilt from $src"
   elif ! mkdir -p "$cache"; then
     say "$cache could not be made, so hachiko could not be rebuilt from $src"
-  elif ! "$mise" which go >/dev/null 2>&1; then
+  # -C, because launchd starts this agent in / and mise decides what is active from the
+  # directory it is asked about: without it, a Mac with go installed reports it missing
+  # on every run and never rebuilds again.
+  elif ! "$mise" which -C "$repo" go >/dev/null 2>&1; then
     say "the go this repo's mise.toml asks for is not installed, so hachiko could not be rebuilt — run install.sh"
   elif build "$mise" "$cache/hachiko.$$" "$out"; then
     # Into place in one step, so a run that starts mid-build execs a whole binary.

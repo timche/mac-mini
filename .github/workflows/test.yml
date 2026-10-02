@@ -94,11 +94,17 @@ jobs:
       # scripts': those check the wiring, and `go test` checks what a sweep decides.
       # On the go this repo's own mise.toml declares and install.sh has just put there,
       # through its absolute path because a workflow step reads no rc file.
+      #
+      # -C names the checkout rather than trusting the working directory, because mise
+      # decides which tools are active from the directory it is asked about and a go that
+      # is not active reads as a go that is not installed.
       - name: go vet and go test in hachiko/
         run: |
-          "$HOME/.local/bin/mise" exec -- go vet -C hachiko ./...
-          "$HOME/.local/bin/mise" exec -- go test -C hachiko ./...
-          test -z "$("$HOME/.local/bin/mise" exec -- gofmt -l hachiko)"
+          mise="$HOME/.local/bin/mise"
+          repo="$GITHUB_WORKSPACE"
+          "$mise" exec -C "$repo" -- go vet -C "$repo/hachiko" ./...
+          "$mise" exec -C "$repo" -- go test -C "$repo/hachiko" ./...
+          test -z "$("$mise" exec -C "$repo" -- gofmt -l "$repo/hachiko")"
 
       # The signing key and the agent that holds it, with a stub op standing in
       # for 1Password. The one thing here that cannot be checked without a vault.

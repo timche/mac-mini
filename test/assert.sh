@@ -926,12 +926,32 @@ check "install.sh loads the hachiko agent and reloads a changed one" \
 check "the hachiko agent is loaded" \
   'launchctl print "gui/$(id -u)/io.github.timche.hachiko" >/dev/null'
 
-# The promise the whole build-in-place arrangement rests on: boswell publishes every
-# edit within seconds, so a half-written one reaches the Mac, and the agent has to keep
-# watching with the last binary that compiled. Against a copy of the module, because
-# the check deliberately breaks it.
+# Every wrapper check below runs from `/`, which is where launchd starts an agent, and
+# that is the whole point of them: mise decides which tools are active from the directory
+# it is asked about, so a question asked without one is answered for `/` — where nothing
+# this repo declares is active. The check that catches it is the next one.
+#
+# The promise the whole build-in-place arrangement rests on: boswell publishes every edit
+# within seconds, so a half-written one reaches the Mac, and the agent has to keep
+# watching with the last binary that compiled. Against a copy of the module, because the
+# check deliberately breaks it.
+check "the wrapper rebuilds from the directory launchd starts the agent in" \
+  'cd / && d="$(mktemp -d)" && mkdir -p "$d/home/.local/bin" &&
+   cp -R "$repo/hachiko" "$d/hachiko" &&
+   cp "$repo/mise.toml" "$d/mise.toml" &&
+   cp "$repo/home/.local/bin/hachiko" "$d/home/.local/bin/hachiko" &&
+   export MISE_TRUSTED_CONFIG_PATHS="$d" &&
+   export HACHIKO_CACHE_DIR="$d/cache" &&
+   "$d/home/.local/bin/hachiko" --help >/dev/null 2>"$d/first" &&
+   [ ! -s "$d/first" ] &&
+   built="$(cat "$d/cache/source.sha256")" &&
+   printf "\n// an edit that landed while the agent was running\n" >>"$d/hachiko/main.go" &&
+   "$d/home/.local/bin/hachiko" --help 2>"$d/err" | grep -q "dry-run" &&
+   [ ! -s "$d/err" ] &&
+   [ "$(cat "$d/cache/source.sha256")" != "$built" ]'
+
 check "the wrapper keeps the last good binary when the sources do not compile" \
-  'd="$(mktemp -d)" && mkdir -p "$d/home/.local/bin" &&
+  'cd / && d="$(mktemp -d)" && mkdir -p "$d/home/.local/bin" &&
    cp -R "$repo/hachiko" "$d/hachiko" &&
    cp "$repo/mise.toml" "$d/mise.toml" &&
    cp "$repo/home/.local/bin/hachiko" "$d/home/.local/bin/hachiko" &&
@@ -950,7 +970,7 @@ check "the wrapper keeps the last good binary when the sources do not compile" \
 # watch. A LaunchAgent is also the wrong place to fetch a toolchain from, so the build
 # never reaches the network on its own.
 check "the wrapper says why it could not rebuild and keeps watching" \
-  'd="$(mktemp -d)" && mkdir -p "$d/home/.local/bin" "$d/bin" &&
+  'cd / && d="$(mktemp -d)" && mkdir -p "$d/home/.local/bin" "$d/bin" &&
    cp -R "$repo/hachiko" "$d/hachiko" &&
    cp "$repo/mise.toml" "$d/mise.toml" &&
    cp "$repo/home/.local/bin/hachiko" "$d/home/.local/bin/hachiko" &&
@@ -975,7 +995,7 @@ check "the wrapper never has mise install a toolchain of its own" \
 # A run with nothing to build may not reach for mise at all: this runs every five
 # minutes forever, and the binary it execs depends on nothing.
 check "the wrapper runs the cached binary without a go of any kind when nothing changed" \
-  'd="$(mktemp -d)" && mkdir -p "$d/home/.local/bin" "$d/bin" &&
+  'cd / && d="$(mktemp -d)" && mkdir -p "$d/home/.local/bin" "$d/bin" &&
    cp -R "$repo/hachiko" "$d/hachiko" &&
    cp "$repo/mise.toml" "$d/mise.toml" &&
    cp "$repo/home/.local/bin/hachiko" "$d/home/.local/bin/hachiko" &&

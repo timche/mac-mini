@@ -26,30 +26,52 @@ type Deps struct {
 	Processes func() ([]Process, error)
 	CWD       func(pid int) string
 
-	// Opens the on-call session and answers with the label of the tab it is waiting
-	// in, which is what the message about to go out names.
-	Oncall func(name, brief string) (string, error)
+	// Opens the on-call session and answers with where it is and whether the brief
+	// reached it, which is what the message about to go out has to say.
+	Oncall func(name, brief string) (OncallSession, error)
 
 	// Reaches the channel Tim watches. The only thing that ever sees the webhook.
 	Send func(message string) error
 }
 
+const logTime = "2006-01-02T15:04:05-0700"
+
+// One line per thing that happened and nothing at all on a quiet check: this runs
+// every five minutes forever, into a log somebody reads only when something is wrong.
+type logger struct {
+	out io.Writer
+	now func() time.Time
+}
+
+func (l logger) say(format string, args ...any) {
+	fmt.Fprintf(l.out, "%s hachiko: %s\n", l.now().Format(logTime), fmt.Sprintf(format, args...))
+}
+
 func realDeps(cfg Config) Deps {
+	now := clockFromEnv()
+	log := logger{out: os.Stdout, now: now}
+
+	// The volume free space is being counted on, so a path that has become a link to
+	// another one is not truncated in its name.
+	device, _ := deviceOf(cfg.Home)
+
 	return Deps{
-		Now:    clockFromEnv(),
+		Now:    now,
 		Log:    os.Stdout,
 		Getpid: os.Getpid,
 
 		FreeKB:   func() (int64, error) { return freeKB(cfg.Home) },
 		BigFiles: func() []FileSize { return bigFiles(cfg.Roots(), cfg.PrunedPaths(), cfg.BigKB) },
 		Writers:  writers,
-		Truncate: func(path string) error { return os.Truncate(path, 0) },
+		Truncate: func(path string) error { return truncateLog(path, device) },
 
 		Processes: sampleProcesses,
 		CWD:       processCWD,
 
-		Oncall: func(name, brief string) (string, error) { return openOncall(cfg, herdrCLI, name, brief) },
-		Send:   func(message string) error { return sendThroughOP(cfg, message) },
+		Oncall: func(name, brief string) (OncallSession, error) {
+			return oncaller{cfg: cfg, run: herdrCLI, now: now, log: log}.open(name, brief)
+		},
+		Send: func(message string) error { return sendThroughOP(cfg, message) },
 	}
 }
 
@@ -80,6 +102,45 @@ func freeKB(path string) (int64, error) {
 		return 0, fmt.Errorf("statfs %s: %w", path, err)
 	}
 	return int64(fs.Bavail) * int64(fs.Bsize) / 1024, nil
+}
+
+func deviceOf(path string) (int32, bool) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return -1, false
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return -1, false
+	}
+	return st.Dev, true
+}
+
+// Never an rm and never a kill: the writer keeps its descriptor and its offset, so a
+// log it appends to goes on working and the space comes back at once.
+//
+// O_NOFOLLOW and then a second look at what was actually opened, because minutes pass
+// between the walk that chose this path and the decision to empty it, and the one
+// thing that may not happen is emptying a file somebody swapped a link in for.
+func truncateLog(path string, device int32) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s is no longer a regular file", path)
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); !ok || (device >= 0 && st.Dev != device) {
+		return fmt.Errorf("%s is no longer on the volume this is counting space on", path)
+	}
+
+	return file.Truncate(0)
 }
 
 // pid and command of whoever holds the file open. Named rather than acted on: the

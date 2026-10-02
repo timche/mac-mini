@@ -4,7 +4,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestQuietCheckSaysNothingAndSendsNothing(t *testing.T) {
@@ -52,12 +54,51 @@ func TestAReportInsideTheDeadlineLeavesNothingMoreToSend(t *testing.T) {
 	f.grow("tmp/worker.log", 4*mb)
 	f.at(300).sweep()
 
-	f.at(420).notify(f.onlyPendingID())
-	equal(t, len(f.state().Pending), 0, "pending incidents after a report")
+	incident := f.onlyPendingID()
+	f.at(420).notify(incident)
 
+	// The next sweep is what consumes the marker: it is the only thing that edits the
+	// state, so a report cannot be lost to a sweep writing at the same moment.
 	f.grow("tmp/worker.log", 4*mb)
-	equal(t, f.at(900).sweep(), "", "the log after a report")
+	wants(t, f.at(900).sweep(), "the on-call session reported on "+incident)
+	equal(t, len(f.state().Pending), 0, "pending incidents after a report")
 	equal(t, f.sentCount(), 1, "messages sent")
+
+	// And nothing of hachiko's own goes out afterwards however long the file keeps
+	// growing.
+	f.grow("tmp/worker.log", 4*mb)
+	equal(t, f.at(1500).sweep(), "", "the log after the report was consumed")
+	equal(t, f.sentCount(), 1, "messages sent after the report was consumed")
+}
+
+// The deadline and the report race: a sweep holds its lock across a herdr call and an
+// `op run`, which together can outlast the five minutes an on-call session is told to
+// report within — so the report may not depend on taking that lock, and a sweep that
+// held it for the whole window must still see the report rather than sending the raw
+// details over the top of it.
+func TestAReportLandsWhileASweepHoldsTheLock(t *testing.T) {
+	f := newFixture(t)
+	f.grow("tmp/worker.log", 3*mb)
+	f.at(0).sweep()
+	f.grow("tmp/worker.log", 4*mb)
+	f.at(300).sweep()
+
+	incident := f.onlyPendingID()
+
+	// The lock, held by a sweep that is still inside its callouts.
+	lock, _, err := f.store.Acquire(5*time.Minute, f.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	f.at(420).notify(incident)
+	lock.Release()
+
+	out := f.at(900).sweep()
+	wants(t, out, "the on-call session reported on "+incident)
+	lacks(t, out, "has not reported")
+	equal(t, f.sentCount(), 1, "messages sent")
+	equal(t, len(f.state().Pending), 0, "pending incidents after the report")
 }
 
 // The session needs herdr, a Claude login and usage left; a watch that only ever
@@ -337,6 +378,103 @@ func TestTheFirstProcessIsRecordedWhenThereIsNoPreviousSample(t *testing.T) {
 	if _, ok := procs["101:"+firstStart]; !ok {
 		t.Error("the first process of the sample was dropped")
 	}
+}
+
+// The standing orders leave an on-call session waiting on a question, and herdr refuses
+// a prompt to an agent in that state — so the commonest second alert of an incident
+// reaches nobody. Reading that as "no session" would have claimed the Mac was
+// unattended; waiting on it would have promised a report that cannot come.
+func TestAnUpdateASessionCannotBeHandedSendsTheWholeOfItAndWaitsOnNothing(t *testing.T) {
+	f := newFixture(t)
+	f.grow("tmp/worker.log", 3*mb)
+	f.at(0).sweep()
+
+	f.oncallBlocked = true
+	f.grow("tmp/worker.log", 4*mb)
+	f.at(300).sweep()
+
+	equal(t, f.sentCount(), 1, "messages sent")
+	wants(t, f.lastSent(), "written by 4242 (fake-worker)")
+	wants(t, f.lastSent(), "this update was not delivered to it.")
+	lacks(t, f.lastSent(), "On-call session could not start.")
+	lacks(t, f.lastSent(), "details to follow")
+
+	// Nothing is going to report, so nothing waits ten minutes to say so.
+	equal(t, len(f.state().Pending), 0, "pending incidents")
+
+	// And the file is still one incident: the dedupe happened even though the session
+	// never heard about it.
+	f.grow("tmp/worker.log", 4*mb)
+	equal(t, f.at(600).sweep(), "", "the log on the next check")
+	equal(t, f.at(1200).sweep(), "", "the log after the deadline would have passed")
+	equal(t, f.sentCount(), 1, "messages sent after the deadline would have passed")
+}
+
+// A truncate is the one thing here that changes somebody's disk. On every run but the
+// first the file is already flagged and the threshold is already crossed, so nothing
+// else fires — and the truncate went unreported.
+func TestATruncateOnALaterRunIsStillReported(t *testing.T) {
+	f := newFixture(t)
+	f.freeGB = 15
+
+	log := f.grow("tmp/worker.log", 2*mb)
+	f.at(0).sweep()
+
+	f.grow("tmp/worker.log", 4*mb)
+	f.at(300).sweep()
+	before := f.sentCount()
+
+	// The file is in AlertedFiles now and the threshold has not moved, so the truncate is
+	// the only thing this run has to say.
+	f.grow("tmp/worker.log", 4*mb)
+	out := f.at(600).sweep()
+
+	wants(t, out, "truncated "+log)
+	equal(t, f.sentCount(), before+1, "messages sent for the second truncate")
+	wants(t, f.lastSent(), "truncated "+log)
+	equal(t, size(t, log), int64(0), "the truncated log")
+}
+
+// A send that failed is an incident nobody has heard about, and the sample it was
+// measured against is the only baseline that can still catch it: advancing it would let
+// a writer that slows to under the threshold slip through for good, having already taken
+// the disk.
+func TestAFileNobodyHasHeardAboutKeepsTheSizeItWasMeasuredAgainst(t *testing.T) {
+	f := newFixture(t)
+	f.sendErr = errSendFailed
+
+	f.grow("tmp/worker.log", 3*mb)
+	f.at(0).sweep()
+	f.grow("tmp/worker.log", 4*mb)
+	f.at(300).sweep()
+	equal(t, f.sentCount(), 0, "messages sent while the webhook was down")
+
+	// Under the growth threshold for this interval alone, but far over it since the sample
+	// the failed alert was about.
+	f.sendErr = nil
+	f.grow("tmp/worker.log", 1*mb)
+
+	wants(t, f.at(600).sweep(), "growing fast")
+	equal(t, f.sentCount(), 1, "messages sent once the webhook was back")
+}
+
+// A path is chosen by whatever filled the disk, and Discord caps a message at 2,000
+// characters: one path at a megabyte would be the whole of it.
+func TestALongPathIsClippedOutOfTheMessage(t *testing.T) {
+	f := newFixture(t)
+
+	long := "tmp/" + strings.Repeat("deep/", 120) + "worker.log"
+	path := f.grow(long, 3*mb)
+	f.at(0).sweep()
+
+	f.grow(long, 4*mb)
+	f.at(300).sweep()
+
+	if len(path) <= pathLimit {
+		t.Fatalf("the path under test is only %d characters", len(path))
+	}
+	lacks(t, f.lastSent(), path)
+	wants(t, f.lastSent(), clip(path, pathLimit))
 }
 
 func size(t *testing.T, path string) int64 {

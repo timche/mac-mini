@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -82,6 +84,12 @@ type Store struct{ dir string }
 
 func (st Store) path() string { return filepath.Join(st.dir, "state.json") }
 
+// A state file that cannot be read is a sweep that starts over rather than one that
+// stops: a corrupt sample costs one interval of history, a refusal costs every
+// interval after it. It is still said out loud, because a file that goes corrupt
+// every run is a sweep that can never measure growth and would otherwise look quiet.
+var errStateCorrupt = errors.New("the state file could not be read, so this check measures from nothing")
+
 func (st Store) Load() (*State, error) {
 	state := &State{}
 
@@ -93,11 +101,8 @@ func (st Store) Load() (*State, error) {
 		return state, err
 	}
 
-	// A state file that cannot be read is a sweep that starts over rather than one
-	// that stops: a corrupt sample costs one interval of history, a refusal costs
-	// every interval after it.
 	if err := json.Unmarshal(data, state); err != nil {
-		return &State{}, nil
+		return &State{}, fmt.Errorf("%w: %v", errStateCorrupt, err)
 	}
 	return state, nil
 }
@@ -130,76 +135,132 @@ func (st Store) Save(state *State) error {
 	return os.Rename(name, st.path())
 }
 
-// mkdir rather than flock, which macOS does not have. A lock older than the
-// interval is taken over, so one left behind by a killed sweep cannot stop every
-// sweep after it.
+// mkdir rather than flock, which macOS does not have. A lock older than the interval
+// is taken over, so one left behind by a killed sweep cannot stop every sweep after
+// it.
 type Lock struct {
-	dir  string
-	held bool
+	dir string
+	pid int
 }
 
-func (st Store) Acquire(stale time.Duration, now time.Time) (*Lock, bool, string) {
+// errLockHeld is the one failure that is not a fault: another sweep is running, and
+// this one has nothing to say about it.
+var errLockHeld = errors.New("another check holds the lock")
+
+// A failure that is not errLockHeld is a fault worth a line, and `mkdir` on a disk
+// with nothing left is exactly the fault this watch exists to catch — so the sweep
+// goes ahead without a lock rather than going quiet about a full disk.
+func (st Store) Acquire(stale time.Duration, now time.Time) (*Lock, string, error) {
 	if err := os.MkdirAll(st.dir, 0o755); err != nil {
-		return nil, false, err.Error()
+		return nil, "", err
 	}
 
 	dir := filepath.Join(st.dir, "lock")
-	lock := &Lock{dir: dir}
 
-	if lock.try(now) {
-		return lock, true, ""
+	lock, err := tryLock(dir, now)
+	if err == nil {
+		return lock, "", nil
+	}
+	if !errors.Is(err, os.ErrExist) {
+		return nil, "", err
 	}
 
-	info, err := os.Stat(dir)
-	if err != nil || now.Sub(info.ModTime()) <= stale {
-		return nil, false, ""
+	info, statErr := os.Stat(dir)
+	if statErr != nil {
+		return nil, "", statErr
+	}
+	if now.Sub(info.ModTime()) <= stale {
+		return nil, "", errLockHeld
 	}
 
 	owner := "an earlier check"
 	if pid, err := os.ReadFile(filepath.Join(dir, "pid")); err == nil && len(pid) > 0 {
-		owner = string(pid)
+		owner = strings.TrimSpace(string(pid))
 	}
 
-	os.RemoveAll(dir)
-	if lock.try(now) {
-		return lock, true, owner
+	if err := os.RemoveAll(dir); err != nil {
+		return nil, "", err
 	}
-	return nil, false, ""
+
+	lock, err = tryLock(dir, now)
+	if err != nil {
+		return nil, "", err
+	}
+	return lock, owner, nil
 }
 
-func (l *Lock) try(now time.Time) bool {
-	if err := os.Mkdir(l.dir, 0o755); err != nil {
+func tryLock(dir string, now time.Time) (*Lock, error) {
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		return nil, err
+	}
+
+	pid := os.Getpid()
+	os.WriteFile(filepath.Join(dir, "pid"), []byte(strconv.Itoa(pid)), 0o644)
+	os.Chtimes(dir, now, now)
+	return &Lock{dir: dir, pid: pid}, nil
+}
+
+// Only the lock this process actually holds. A sweep slow enough to have its lock
+// taken over is a sweep whose Release would otherwise delete the lock of the check
+// that took it, and then a third would run beside both.
+func (l *Lock) Release() {
+	if l == nil || l.pid == 0 {
+		return
+	}
+
+	pid, err := os.ReadFile(filepath.Join(l.dir, "pid"))
+	if err != nil || strings.TrimSpace(string(pid)) != strconv.Itoa(l.pid) {
+		return
+	}
+
+	os.RemoveAll(l.dir)
+	l.pid = 0
+}
+
+// An incident id is a filename below, so it may only be what a sweep makes one.
+var incidentID = regexp.MustCompile(`\A[a-z]+-[0-9]+\z`)
+
+func (st Store) reportedDir() string { return filepath.Join(st.dir, "reported") }
+
+// How `hachiko notify` tells the next sweep that the session has spoken, without
+// touching state.json and so without waiting for a lock a sweep can hold for as long
+// as herdr and `op run` take. One file per incident, created and never read back by
+// the writer: the sweep is the only thing that edits state, and this is the one fact
+// it needs from outside.
+func (st Store) MarkReported(incident string) error {
+	if !incidentID.MatchString(incident) {
+		return fmt.Errorf("%q is not an incident id", incident)
+	}
+	if err := os.MkdirAll(st.reportedDir(), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(st.reportedDir(), incident), nil, 0o644)
+}
+
+func (st Store) Reported(incident string) bool {
+	if !incidentID.MatchString(incident) {
 		return false
 	}
-	l.held = true
-	os.WriteFile(filepath.Join(l.dir, "pid"), []byte(strconv.Itoa(os.Getpid())), 0o644)
-	os.Chtimes(l.dir, now, now)
-	return true
+	_, err := os.Stat(filepath.Join(st.reportedDir(), incident))
+	return err == nil
 }
 
-func (l *Lock) Release() {
-	if l != nil && l.held {
-		os.RemoveAll(l.dir)
-		l.held = false
+func (st Store) ClearReported(incident string) {
+	if incidentID.MatchString(incident) {
+		os.Remove(filepath.Join(st.reportedDir(), incident))
 	}
 }
 
-// What notify does to a state another sweep may be writing at the same moment: wait
-// for the lock rather than clobber it, since a sweep takes a second or two.
-func (st Store) Update(stale time.Duration, now func() time.Time, change func(*State)) error {
-	for attempt := 0; attempt < 40; attempt++ {
-		lock, ok, _ := st.Acquire(stale, now())
-		if ok {
-			defer lock.Release()
-
-			state, err := st.Load()
-			if err != nil {
-				return err
-			}
-			change(state)
-			return st.Save(state)
+// A marker for an incident nothing is waiting on any more, which is what a report for
+// an incident that had already been superseded leaves behind.
+func (st Store) ForgetReportedExcept(keep map[string]Pending) {
+	entries, err := os.ReadDir(st.reportedDir())
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if _, ok := keep[entry.Name()]; !ok {
+			os.Remove(filepath.Join(st.reportedDir(), entry.Name()))
 		}
-		time.Sleep(250 * time.Millisecond)
 	}
-	return fmt.Errorf("another check held the lock on %s for ten seconds", st.dir)
 }

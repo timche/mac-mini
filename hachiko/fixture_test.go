@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -41,10 +42,11 @@ type fixture struct {
 	writer    string
 	allowlist string
 
-	oncallName  string
-	oncallBrief string
-	oncallCalls int
-	oncallErr   error
+	oncallName    string
+	oncallBrief   string
+	oncallCalls   int
+	oncallErr     error
+	oncallBlocked bool
 
 	sent         []string
 	sendAttempts int
@@ -126,13 +128,25 @@ func (f *fixture) deps() Deps {
 		Processes: func() ([]Process, error) { return f.procs, nil },
 		CWD:       func(pid int) string { return f.cwd[pid] },
 
-		Oncall: func(name, brief string) (string, error) {
+		Oncall: func(name, brief string) (OncallSession, error) {
 			f.oncallCalls++
 			f.oncallName, f.oncallBrief = name, brief
-			if f.oncallErr != nil {
-				return "", f.oncallErr
+
+			switch {
+			case f.oncallErr != nil:
+				return OncallSession{}, f.oncallErr
+			case f.oncallBlocked:
+				return OncallSession{
+					Tab: name + "-0000",
+					Say: fmt.Sprintf("The agent is already waiting for you in herdr (workspace .mac-mini, tab %s-0000); this update was not delivered to it.", name),
+				}, nil
 			}
-			return name + "-0000", nil
+
+			return OncallSession{
+				Tab:       name + "-0000",
+				Delivered: true,
+				Say:       fmt.Sprintf("An agent is looking into it in herdr (workspace .mac-mini, tab %s-0000); details to follow.", name),
+			}, nil
 		},
 
 		Send: func(message string) error {
@@ -279,10 +293,11 @@ func (f *fixture) lastSent() string {
 
 func (f *fixture) sentCount() int { return len(f.sent) }
 
+// What `hachiko notify` does to the state: a marker and nothing else, so it needs no
+// lock and cannot wait on a sweep holding one.
 func (f *fixture) notify(incident string) {
 	f.t.Helper()
-	if err := f.store.Update(5*time.Minute, func() time.Time { return f.now },
-		func(state *State) { delete(state.Pending, incident) }); err != nil {
+	if err := f.store.MarkReported(incident); err != nil {
 		f.t.Fatal(err)
 	}
 }

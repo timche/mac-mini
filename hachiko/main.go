@@ -107,21 +107,19 @@ func notify(cfg Config, incident, messageFile string) error {
 	}
 
 	store := Store{dir: cfg.StateDir}
-	now := clockFromEnv()
+	log := logger{out: os.Stdout, now: clockFromEnv()}
 
-	// The send is what the deadline was waiting for, so the incident stops being
-	// pending even if the state cannot be written: a duplicate line in the log is
-	// cheaper than a second message saying the agent went quiet.
-	if err := store.Update(5*time.Minute, now, func(state *State) {
-		delete(state.Pending, incident)
-	}); err != nil {
-		fmt.Fprintf(os.Stdout, "%s hachiko: reported on %s, but the state was not updated: %v\n",
-			now().Format("2006-01-02T15:04:05-0700"), incident, err)
+	// A marker rather than an edit to the state, and so no lock: a sweep holds that lock
+	// across a herdr call and an `op run`, and an on-call session told to report in
+	// under five minutes has none of them to spend waiting. The next sweep is what
+	// clears the incident, and it looks here first.
+	if err := store.MarkReported(incident); err != nil {
+		log.say("the report on %s was sent, but it was not recorded, so the raw details may follow it: %v",
+			incident, err)
 		return nil
 	}
 
-	fmt.Fprintf(os.Stdout, "%s hachiko: the on-call session reported on %s\n",
-		now().Format("2006-01-02T15:04:05-0700"), incident)
+	log.say("the on-call session reported on %s", incident)
 	return nil
 }
 
@@ -131,12 +129,14 @@ func oncall(cfg Config, name, briefFile string) error {
 		return fmt.Errorf("cannot read the brief at %s", briefFile)
 	}
 
-	label, err := openOncall(cfg, herdrCLI, name, string(brief))
+	// The label goes to stdout and nothing else does, because the caller reads it to
+	// name the tab in the message it is about to send.
+	session, err := openOncall(cfg, herdrCLI, name, string(brief))
 	if err != nil {
 		return err
 	}
 
-	fmt.Println(label)
+	fmt.Println(session.Tab)
 	return nil
 }
 

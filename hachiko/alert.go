@@ -8,8 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -73,8 +76,10 @@ func opArgs(cfg Config, self string) []string {
 
 // The far end of that re-exec, reached only under `op run`.
 func sendMode(stdin io.Reader) error {
-	url := os.Getenv("HACHIKO_DISCORD_URL")
-	if url == "" {
+	// Trimmed, because a 1Password field holding a trailing newline is a URL net/http
+	// refuses and an error message carrying a form of it this would not recognise.
+	webhook := strings.TrimSpace(os.Getenv("HACHIKO_DISCORD_URL"))
+	if webhook == "" {
 		return errors.New("HACHIKO_DISCORD_URL is empty, so the op:// reference did not resolve")
 	}
 
@@ -86,24 +91,24 @@ func sendMode(stdin io.Reader) error {
 		return errors.New("nothing to send")
 	}
 
-	return postDiscord(&http.Client{Timeout: 20 * time.Second}, url, string(message))
+	return postDiscord(&http.Client{Timeout: 20 * time.Second}, webhook, string(message))
 }
 
-func postDiscord(client *http.Client, url, message string) error {
+func postDiscord(client *http.Client, webhook, message string) error {
 	body, err := json.Marshal(map[string]string{"content": capMessage(message)})
 	if err != nil {
 		return err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, webhook, bytes.NewReader(body))
 	if err != nil {
-		return errors.New(redact(err.Error(), url))
+		return errors.New(redact(err.Error(), webhook))
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return errors.New(redact(err.Error(), url))
+		return errors.New(redact(err.Error(), webhook))
 	}
 	defer resp.Body.Close()
 	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
@@ -123,10 +128,29 @@ func capMessage(message string) string {
 }
 
 // net/http names the URL it failed on, and an alert that could not be sent is logged
-// where everything else is.
-func redact(text, url string) string {
-	if url == "" {
+// where everything else is — so every spelling of it a message could carry goes. A
+// *url.Error prints the target through %q, which escapes a newline or a byte outside
+// ASCII and so spells the same URL differently; net/url hands back the percent-escaped
+// forms. Longest first, so a prefix of one does not break the match for another.
+func redact(text, webhook string) string {
+	webhook = strings.TrimSpace(webhook)
+	if webhook == "" {
 		return text
 	}
-	return strings.ReplaceAll(text, url, "the webhook")
+
+	quoted := strconv.Quote(webhook)
+	forms := []string{
+		webhook,
+		quoted[1 : len(quoted)-1],
+		url.QueryEscape(webhook),
+		url.PathEscape(webhook),
+	}
+	sort.Slice(forms, func(i, j int) bool { return len(forms[i]) > len(forms[j]) })
+
+	for _, form := range forms {
+		if form != "" {
+			text = strings.ReplaceAll(text, form, "the webhook")
+		}
+	}
+	return text
 }

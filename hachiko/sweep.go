@@ -1,8 +1,10 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -13,12 +15,8 @@ type sweeper struct {
 	dry   bool
 }
 
-// One line per thing that happened and nothing at all on a quiet check: this runs
-// every five minutes forever, into a log somebody reads only when something is
-// wrong.
 func (s sweeper) say(format string, args ...any) {
-	fmt.Fprintf(s.deps.Log, "%s hachiko: %s\n",
-		s.deps.Now().Format("2006-01-02T15:04:05-0700"), fmt.Sprintf(format, args...))
+	logger{out: s.deps.Log, now: s.deps.Now}.say(format, args...)
 }
 
 func (s sweeper) run() error {
@@ -32,19 +30,32 @@ func (s sweeper) run() error {
 
 	// A dry run changes nothing at all, the state directory and the lock included.
 	if !s.dry {
-		lock, ok, takenFrom := s.store.Acquire(5*time.Minute, now)
-		if !ok {
-			return nil
-		}
-		defer lock.Release()
+		lock, takenFrom, err := s.store.Acquire(5*time.Minute, now)
 
+		switch {
+		case errors.Is(err, errLockHeld):
+			return nil
+		case errors.Is(err, syscall.ENOSPC):
+			// The fault this whole thing exists to catch. A sweep that stopped here would
+			// be silent exactly when it has something to say.
+			s.say("there is no room left to take a lock in %s, so this check runs without one", s.cfg.StateDir)
+		case err != nil:
+			s.say("the lock in %s could not be taken, so this check runs without one: %v", s.cfg.StateDir, err)
+		}
+
+		if lock != nil {
+			defer lock.Release()
+		}
 		if takenFrom != "" {
 			s.say("taking over a lock left behind by %s", takenFrom)
 		}
 	}
 
 	state, err := s.store.Load()
-	if err != nil {
+	switch {
+	case errors.Is(err, errStateCorrupt):
+		s.say("%v", err)
+	case err != nil:
 		return err
 	}
 
@@ -64,6 +75,11 @@ func (s sweeper) run() error {
 	before := state.LowSpaceLevel
 	lowNow := level != 0 && (before == 0 || level < before)
 
+	// A truncate is the one thing here that changes somebody's disk, so it is always an
+	// incident of its own — including on a run where the file was already flagged and
+	// the threshold was already crossed, which is every run but the first.
+	truncated := disk.truncated != ""
+
 	headline := disk.headline
 	if headline == "" {
 		headline = cpu.headline
@@ -71,8 +87,11 @@ func (s sweeper) run() error {
 	if headline == "" && lowNow {
 		headline = fmt.Sprintf("Disk: only %s GB free", gbStr(free))
 	}
+	if headline == "" && truncated {
+		headline = fmt.Sprintf("Disk: truncated %s, %s GB free", clip(disk.truncatedPath, pathLimit), gbStr(free))
+	}
 
-	newIncident := disk.fired || cpu.fired || lowNow
+	newIncident := disk.fired || cpu.fired || lowNow || truncated
 
 	// The full detail, which the first message carries when it is urgent and the
 	// session's own report carries otherwise.
@@ -86,7 +105,7 @@ func (s sweeper) run() error {
 	// on it; the kind only decides which session the incident goes to, and one
 	// session takes the whole of a run either way.
 	kind := "disk"
-	if !disk.fired && !lowNow && cpu.fired {
+	if !disk.fired && !lowNow && !truncated && cpu.fired {
 		kind = "cpu"
 	}
 
@@ -112,7 +131,7 @@ func (s sweeper) run() error {
 
 	raised := false
 	if newIncident {
-		raised = s.raise(state, now, kind, headline, details, free, disk.truncated != "")
+		raised = s.raise(state, now, kind, headline, details, free, truncated)
 	}
 
 	s.chaseLateReports(state, now)
@@ -123,6 +142,21 @@ func (s sweeper) run() error {
 	if raised {
 		keptFiles = append(keptFiles, disk.fresh...)
 		keptProcs = append(keptProcs, cpu.fresh...)
+	} else {
+		// A file nobody has heard about yet keeps the size it was measured against, so
+		// the growth that failed to send goes on accumulating against the same baseline.
+		// Advancing it would let a writer that slows to a gigabyte an interval slip
+		// under the threshold for good, having already taken the disk.
+		for _, path := range disk.fresh {
+			if path == disk.truncatedPath {
+				continue
+			}
+			if before, ok := state.Disk.Files[path]; ok {
+				disk.sizes[path] = before
+			} else {
+				delete(disk.sizes, path)
+			}
+		}
 	}
 
 	state.AlertedFiles, state.AlertedProcs = keptFiles, keptProcs
@@ -137,18 +171,21 @@ func (s sweeper) run() error {
 	state.Disk = DiskSample{At: now.Unix(), Files: disk.sizes}
 	state.CPU = cpu.sample
 
+	s.store.ForgetReportedExcept(state.Pending)
+
 	return s.store.Save(state)
 }
 
 type diskFindings struct {
-	sizes      map[string]int64
-	growing    []Growing
-	report     string
-	truncated  string
-	headline   string
-	fired      bool
-	stillGoing []string
-	fresh      []string
+	sizes         map[string]int64
+	growing       []Growing
+	report        string
+	truncated     string
+	truncatedPath string
+	headline      string
+	fired         bool
+	stillGoing    []string
+	fresh         []string
 }
 
 func (s sweeper) disk(state *State, now time.Time, free int64) diskFindings {
@@ -166,8 +203,11 @@ func (s sweeper) disk(state *State, now time.Time, free int64) diskFindings {
 	out := diskFindings{sizes: sizes, growing: growing}
 
 	for _, g := range growing {
+		// A path and an lsof command name are both chosen by whatever filled the disk,
+		// and both end up in a message Discord caps and in a prompt an agent reads.
 		line := fmt.Sprintf("%s — %s GB, grew %s GB since the last sample (%s GB/hour), written by %s",
-			g.Path, gbStr(g.KB), gbStr(g.GrewKB), rateStr(g.GrewKB, span), s.deps.Writers(g.Path))
+			clip(g.Path, pathLimit), gbStr(g.KB), gbStr(g.GrewKB), rateStr(g.GrewKB, span),
+			clip(s.deps.Writers(g.Path), writerLimit))
 		out.report += "\n  " + line
 
 		if !s.dry && state.alertedFile(g.Path) {
@@ -184,7 +224,7 @@ func (s sweeper) disk(state *State, now time.Time, free int64) diskFindings {
 		out.fresh = append(out.fresh, g.Path)
 		if out.headline == "" {
 			out.headline = fmt.Sprintf("Disk: %s growing %s GB/h, %s GB free",
-				g.Path, rateStr(g.GrewKB, span), gbStr(free))
+				clip(g.Path, pathLimit), rateStr(g.GrewKB, span), gbStr(free))
 		}
 	}
 
@@ -197,19 +237,20 @@ func (s sweeper) disk(state *State, now time.Time, free int64) diskFindings {
 		switch {
 		case !truncatable(s.cfg, worst):
 			s.say("free space is under %d GB and %s is the fastest growing, but it is not a log this may truncate",
-				s.cfg.CriticalGB(), worst)
+				s.cfg.CriticalGB(), clip(worst, pathLimit))
 		case s.dry:
-			s.say("would truncate %s", worst)
+			s.say("would truncate %s", clip(worst, pathLimit))
 		default:
 			// Never an rm and never a kill: the writer keeps its descriptor and its
 			// offset, so a log it appends to goes on working and the space comes back
 			// at once, where an unlinked file frees nothing until the writer exits and
 			// a killed worker takes a session's work with it.
 			if err := s.deps.Truncate(worst); err != nil {
-				s.say("could not truncate %s: %v", worst, err)
+				s.say("could not truncate %s: %v", clip(worst, pathLimit), err)
 			} else {
-				s.say("truncated %s to keep the disk alive; its writer was not touched", worst)
-				out.truncated += "\n  truncated " + worst
+				s.say("truncated %s to keep the disk alive; its writer was not touched", clip(worst, pathLimit))
+				out.truncated += "\n  truncated " + clip(worst, pathLimit)
+				out.truncatedPath = worst
 				// The size it is now, so the next check measures growth from the
 				// truncate rather than reporting a file that shrank.
 				out.sizes[worst] = 0
@@ -257,7 +298,7 @@ func (s sweeper) cpu(state *State, now time.Time) cpuFindings {
 		}
 
 		if cwd := s.deps.CWD(p.PID); cwd != "" {
-			line += ", cwd " + cwd
+			line += ", cwd " + clip(cwd, pathLimit)
 			if where := repoOf(s.cfg, cwd); where != "" {
 				line += ", in " + where
 				// The shape that caused the incident this exists for: a worker whose
@@ -269,7 +310,7 @@ func (s sweeper) cpu(state *State, now time.Time) cpuFindings {
 			}
 		}
 
-		line += "\n    " + clip(p.Command, 200)
+		line += "\n    " + clip(p.Command, argsLimit)
 		out.report += "\n  " + line
 
 		key := p.Key()
@@ -294,6 +335,15 @@ func (s sweeper) cpu(state *State, now time.Time) cpuFindings {
 	return out
 }
 
+// Every string in a message or a prompt that something other than hachiko chose: a
+// path a worker made up, an lsof command name, a command line. Discord caps a message
+// at 2,000 characters, and one of these at a megabyte would be the whole of it.
+const (
+	pathLimit   = 200
+	writerLimit = 200
+	argsLimit   = 200
+)
+
 func clip(s string, max int) string {
 	if len(s) <= max {
 		return s
@@ -308,22 +358,22 @@ func clip(s string, max int) string {
 func (s sweeper) raise(state *State, now time.Time, kind, headline, details string, free int64, truncated bool) bool {
 	incident := fmt.Sprintf("%s-%d", kind, now.Unix())
 
-	tab, err := s.deps.Oncall(kind, s.brief(incident, details))
+	session, err := s.deps.Oncall(kind, s.brief(incident, details))
 	if err != nil {
 		s.say("no on-call session was opened: %v", err)
-		tab = ""
+		session = OncallSession{}
 	}
 
 	// Urgent is free space already critical, or a file this truncated: either way Tim
-	// needs the whole of it now rather than when an agent has finished reading.
+	// needs the whole of it now rather than when an agent has finished reading. So is a
+	// session the brief never reached, since nothing is going to read it for him.
 	message := headline
-	if free < s.cfg.CriticalKB || truncated || tab == "" {
+	if free < s.cfg.CriticalKB || truncated || !session.Delivered {
 		message = details
 	}
 
-	if tab != "" {
-		message += fmt.Sprintf("\n\nAn agent is looking into it in herdr (workspace %s, tab %s); details to follow.",
-			s.cfg.WorkspaceLabel(), tab)
+	if session.Say != "" {
+		message += "\n\n" + session.Say
 	} else {
 		message += "\n\nOn-call session could not start."
 	}
@@ -335,11 +385,14 @@ func (s sweeper) raise(state *State, now time.Time, kind, headline, details stri
 		return false
 	}
 
-	if tab != "" {
+	// Only a session the brief reached has a report to wait for. One that is blocked on
+	// its own question, or that never got the brief, has already had the whole of it
+	// sent on its behalf.
+	if session.Delivered {
 		if state.Pending == nil {
 			state.Pending = map[string]Pending{}
 		}
-		state.Pending[incident] = Pending{OpenedAt: now.Unix(), Tab: tab, Details: details}
+		state.Pending[incident] = Pending{OpenedAt: now.Unix(), Tab: session.Tab, Details: details}
 	}
 
 	// An escalation supersedes the incident it escalated from, and the same session
@@ -373,6 +426,17 @@ Nothing else you can run reaches that channel. He has already had one line sayin
 func (s sweeper) chaseLateReports(state *State, now time.Time) {
 	for _, id := range sortedKeys(state.Pending) {
 		p := state.Pending[id]
+
+		// `hachiko notify` leaves a marker rather than editing the state, because a sweep
+		// holds the lock across a herdr call and an `op run` and the session has no
+		// minutes to spend waiting for it. The marker is what the deadline was waiting
+		// for, whichever order the two ran in.
+		if s.store.Reported(id) {
+			s.say("the on-call session reported on %s", id)
+			delete(state.Pending, id)
+			s.store.ClearReported(id)
+			continue
+		}
 
 		waited := now.Sub(time.Unix(p.OpenedAt, 0))
 		if waited < s.cfg.OncallDeadline {

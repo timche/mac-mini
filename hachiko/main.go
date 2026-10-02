@@ -22,14 +22,20 @@ import (
 const usage = `usage: hachiko [--dry-run | --test-alert]
        hachiko notify <incident-id> <message-file>
        hachiko oncall <name> <brief-file>
+       hachiko approval-request <incident-id> <action-file>
+       hachiko listen
 
-  (no option)    check free space and what is burning CPU, and alert when it matters
-  --dry-run      report what a check sees, change nothing, alert nothing
-  --test-alert   send a short message to the webhook, to prove it works
-  notify         send a message about an incident to the channel Tim watches,
-                 which is how the on-call session reports its findings
-  oncall         open a Claude Code session in herdr to work an incident, and
-                 print the label of the tab it is waiting in
+  (no option)        check free space and what is burning CPU, and alert when it matters
+  --dry-run          report what a check sees, change nothing, alert nothing
+  --test-alert       send a short message to the channel, to prove it works
+  notify             send a message about an incident to the channel Tim watches,
+                     which is how the on-call session reports its findings
+  oncall             open a Claude Code session in herdr to work an incident, and
+                     print the label of the tab it is waiting in
+  approval-request   register the one action an on-call session is asking Tim to
+                     approve with a code, so a code alone approves nothing else
+  listen             watch the incident threads in Discord for a reply from Tim and
+                     hand it to the on-call session; does nothing unless configured
 `
 
 func main() {
@@ -65,25 +71,37 @@ func run(args []string) error {
 				return badUsage("oncall takes a name and a file")
 			}
 			return oncall(cfg, args[1], args[2])
+		case "approval-request":
+			if len(args) != 3 {
+				return badUsage("approval-request takes an incident id and a file")
+			}
+			return approvalRequest(cfg, args[1], args[2])
+		case "listen":
+			if len(args) != 1 {
+				return badUsage("listen takes no arguments")
+			}
+			return listen(cfg)
 		}
 	}
 
 	dry := false
-	for _, arg := range args {
-		switch arg {
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
 		case "--dry-run":
 			dry = true
 		case "--test-alert":
 			return testAlert(cfg)
-		// Left out of the usage: this is how the one step that holds the webhook URL
-		// is re-entered under `op run`, and nothing else should call it.
+		// Left out of the usage: these two are how the steps that hold the webhook URL and
+		// the bot token are re-entered under `op run`, and nothing else should call them.
 		case "--send":
-			return sendMode(os.Stdin)
+			return sendFromStdin(args[i+1:])
+		case "--listen-mode":
+			return listenWithToken(cfg)
 		case "-h", "--help":
 			fmt.Print(usage)
 			return nil
 		default:
-			return badUsage("unknown option %s", arg)
+			return badUsage("unknown option %s", args[i])
 		}
 	}
 
@@ -103,12 +121,21 @@ func notify(cfg Config, incident, messageFile string) error {
 		return fmt.Errorf("%s is empty, so there is nothing to send", messageFile)
 	}
 
-	if err := sendThroughOP(cfg, string(message)); err != nil {
-		return err
-	}
-
 	store := Store{dir: cfg.StateDir}
 	log := logger{out: os.Stdout, now: clockFromEnv()}
+
+	// Into the incident's own thread when there is one, so the analysis is under the alert
+	// it is about and Tim's reply to it is somewhere the listener is already watching. Read
+	// without the lock: a sweep holds that lock across a herdr call and an `op run`, and
+	// this is one field of a map the sweep alone writes.
+	out := Outgoing{Text: string(message)}
+	if state, err := store.Load(); err == nil {
+		out.Thread = state.Threads[incident]
+	}
+
+	if _, err := sendThroughOP(cfg, out); err != nil {
+		return err
+	}
 
 	// A marker rather than an edit to the state, and so no lock: a sweep holds that lock
 	// across a herdr call and an `op run`, and an on-call session told to report in
@@ -121,6 +148,38 @@ func notify(cfg Config, incident, messageFile string) error {
 	}
 
 	log.say("the on-call session reported on %s", incident)
+	return nil
+}
+
+// The flags the `op run` child is handed: a channel and a thread, which are ids in a URL
+// rather than secrets. The thread it opened is the one thing it prints.
+func sendFromStdin(args []string) error {
+	out, channel := Outgoing{}, ""
+
+	for i := 0; i < len(args); i++ {
+		if i+1 >= len(args) {
+			return badUsage("%s takes a value", args[i])
+		}
+		switch args[i] {
+		case "--channel":
+			channel = args[i+1]
+		case "--thread":
+			out.Thread = args[i+1]
+		case "--open-thread":
+			out.OpenThread = args[i+1]
+		default:
+			return badUsage("unknown option %s", args[i])
+		}
+		i++
+	}
+
+	thread, err := sendMode(os.Stdin, out, channel)
+	if err != nil {
+		return err
+	}
+	if thread != "" {
+		fmt.Println(thread)
+	}
 	return nil
 }
 
@@ -165,7 +224,7 @@ func testAlert(cfg Config) error {
 	}
 
 	message := fmt.Sprintf("hachiko on %s: test alert, %s GB free. Nothing is wrong.", cfg.Host, gbStr(free))
-	if err := sendThroughOP(cfg, message); err != nil {
+	if _, err := sendThroughOP(cfg, Outgoing{Text: message}); err != nil {
 		return err
 	}
 

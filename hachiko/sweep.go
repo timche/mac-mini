@@ -20,6 +20,35 @@ func (s sweeper) say(format string, args ...any) {
 	logger{out: s.deps.Log, now: s.deps.Now}.say(format, args...)
 }
 
+// Every message about an incident in one place. With the bot configured, the first message
+// of an incident opens a thread and everything after it goes inside, so a reminder three
+// hours later is under the alert it is about rather than further down a channel — and the
+// thread is what `hachiko listen` reads a reply out of. With only the webhook, the thread
+// is nothing and the message goes to the channel exactly as it always did.
+func (s sweeper) send(state *State, incident, message string) error {
+	out := Outgoing{Text: message}
+
+	switch thread, known := state.Threads[incident]; {
+	case incident == "":
+	case known:
+		out.Thread = thread
+	default:
+		out.OpenThread = incident
+	}
+
+	thread, err := s.deps.Send(out)
+	if err != nil {
+		return err
+	}
+	if thread != "" {
+		if state.Threads == nil {
+			state.Threads = map[string]string{}
+		}
+		state.Threads[incident] = thread
+	}
+	return nil
+}
+
 func (s sweeper) run() error {
 	now := s.deps.Now()
 
@@ -187,7 +216,17 @@ func (s sweeper) run() error {
 	state.CPU = cpu.sample
 	state.Stalled = disk.stalled
 
-	s.store.ForgetReportedExcept(stillExpected(state))
+	expected := stillExpected(state)
+	s.store.ForgetReportedExcept(expected)
+
+	// A thread for an incident nobody is waiting on any more. Dropped here rather than when
+	// the wait ends, because the session's outcome message goes into it after that and the
+	// listener has no reason to poll it afterwards.
+	for incident := range state.Threads {
+		if !expected[incident] {
+			delete(state.Threads, incident)
+		}
+	}
 
 	return s.store.Save(state)
 }
@@ -469,7 +508,7 @@ func (s sweeper) raise(state *State, now time.Time, kind, headline, details stri
 
 	// A failed send must leave the incident unraised, so the next check tries again
 	// rather than going quiet about it.
-	if err := s.deps.Send(message); err != nil {
+	if err := s.send(state, incident, message); err != nil {
 		s.say("the alert did not send and is left to the next check: %v", err)
 		return false
 	}
@@ -649,7 +688,7 @@ func (s sweeper) chaseLateReports(state *State, now time.Time) {
 The on-call agent has not reported after %d minutes, so these are hachiko's own raw details.
 Attach: herdr workspace %s, tab %s`, p.Details, int(waited.Minutes()), s.cfg.WorkspaceLabel(), p.Tab)
 
-		if err := s.deps.Send(late); err != nil {
+		if err := s.send(state, id, late); err != nil {
 			s.say("the on-call session has not reported on %s and the raw details did not send either: %v", id, err)
 			continue
 		}

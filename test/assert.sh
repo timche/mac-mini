@@ -865,6 +865,26 @@ check "the webhook is an op:// reference beside hachiko, and no resolved URL" \
      "$HOME/.local/bin/hachiko.env.op" &&
    ! grep -q "discord.com" "$HOME/.local/bin/hachiko.env.op"'
 
+# Answering from Discord, which is off until the config file names a channel and a user. The
+# two secrets it needs are in a second .env.op deliberately: `op run` refuses a reference it
+# cannot resolve, so a bot token named beside the webhook before the field exists would stop
+# every alert rather than leaving one feature off.
+check "the Discord reply config is a live symlink and empty until Tim fills it in" \
+  '[ -L "$HOME/.config/hachiko/discord" ] && [ -e "$HOME/.config/hachiko/discord" ] &&
+   grep -qE "^channel *=" "$HOME/.config/hachiko/discord" &&
+   grep -qE "^user *=" "$HOME/.config/hachiko/discord" &&
+   ! grep -qE "^(channel|user) *= *[0-9]" "$HOME/.config/hachiko/discord"'
+
+check "the bot token and the approval secret are op:// references in a file of their own" \
+  '[ -L "$HOME/.local/bin/hachiko.discord.env.op" ] &&
+   [ -e "$HOME/.local/bin/hachiko.discord.env.op" ] &&
+   grep -qx "HACHIKO_DISCORD_BOT_TOKEN=op://dev/hachiko-discord/bot token" \
+     "$HOME/.local/bin/hachiko.discord.env.op" &&
+   grep -qx "HACHIKO_APPROVAL_TOTP=op://dev/hachiko-discord/approval" \
+     "$HOME/.local/bin/hachiko.discord.env.op" &&
+   ! grep -q "bot token" "$HOME/.local/bin/hachiko.env.op" &&
+   ! grep -qE "^[A-Z_]+=[^o]" "$HOME/.local/bin/hachiko.discord.env.op"'
+
 check "the CPU allowlist is a live symlink and names the VMs and the indexer" \
   '[ -L "$HOME/.config/hachiko/cpu-allow" ] &&
    [ -e "$HOME/.config/hachiko/cpu-allow" ] &&
@@ -945,6 +965,28 @@ check "install.sh loads the hachiko agent and reloads a changed one" \
 
 check "the hachiko agent is loaded" \
   'launchctl print "gui/$(id -u)/io.github.timche.hachiko" >/dev/null'
+
+# The listener, loaded whether or not the feature is configured: with nothing in the config
+# file it says so once per start and exits, and the throttle is what makes that cost nothing.
+# KeepAlive because the poll is the job — a listener that exited and stayed exited is a reply
+# nobody reads.
+export listen_plist="$HOME/Library/LaunchAgents/io.github.timche.hachiko-listen.plist"
+
+check "the Discord listener agent is a live symlink and a valid plist" \
+  '[ -L "$listen_plist" ] && [ -e "$listen_plist" ] && plutil -lint "$listen_plist" &&
+   [ "$(plutil -extract Label raw "$listen_plist")" = io.github.timche.hachiko-listen ]'
+check "the listener runs hachiko listen and logs to ~/Library/Logs" \
+  'plutil -extract ProgramArguments.2 raw -o - "$listen_plist" |
+     grep -qF "exec \"\$HOME/.local/bin/hachiko\" listen >>\"\$HOME/Library/Logs/hachiko-listen.log\""'
+check "the listener is kept alive and throttled to five minutes" \
+  'plutil -extract KeepAlive xml1 -o - "$listen_plist" | grep -q "<true/>" &&
+   [ "$(plutil -extract ThrottleInterval raw -o - "$listen_plist")" = 300 ]'
+check "install.sh loads the listener agent and reloads a changed one" \
+  'grep -q "launchctl bootstrap \"gui/\$uid\" \"\$listen_plist\"" "$repo/install.sh" &&
+   grep -q "launchctl bootout \"gui/\$uid/\$listen_label\"" "$repo/install.sh" &&
+   grep -q "cmp -s \"\$listen_plist\" \"\$listen_loaded\"" "$repo/install.sh"'
+check "the listener agent is loaded" \
+  'launchctl print "gui/$(id -u)/io.github.timche.hachiko-listen" >/dev/null'
 
 # The one check that is the agent rather than a description of it. Everything else here
 # runs hachiko as this session, which holds the privacy grants herdr was given — and that

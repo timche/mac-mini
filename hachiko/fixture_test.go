@@ -64,6 +64,12 @@ type fixture struct {
 	sendAttempts int
 	sendErr      error
 	truncated    []string
+
+	// Whether a bot is configured, which is the only thing that makes a thread: which
+	// thread each message went into, and which incidents opened one.
+	threads bool
+	sentTo  []string
+	opened  []string
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -199,13 +205,21 @@ func (f *fixture) deps() Deps {
 			f.status[kind] = statusWorking
 			return nil
 		},
-		Send: func(message string) error {
+		Send: func(out Outgoing) (string, error) {
 			f.sendAttempts++
 			if f.sendErr != nil {
-				return f.sendErr
+				return "", f.sendErr
 			}
-			f.sent = append(f.sent, message)
-			return nil
+			f.sent = append(f.sent, out.Text)
+			f.sentTo = append(f.sentTo, out.Thread)
+
+			// What the bot answers when a message opened a thread: an id of its own, which
+			// the sweep records against the incident. Without a bot there is none.
+			if out.OpenThread != "" && f.threads {
+				f.opened = append(f.opened, out.OpenThread)
+				return "thread-" + out.OpenThread, nil
+			}
+			return "", nil
 		},
 	}
 }

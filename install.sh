@@ -553,6 +553,41 @@ else
   fi
 fi
 
+# The half that listens for a reply in Discord, in the same shape and for the same
+# reasons. It is loaded whether or not the feature is configured: with no channel and
+# no user in ~/.config/hachiko/discord it says so once per start and exits, and the
+# plist's five-minute throttle is what makes that cost nothing. Loading it only when
+# configured would mean a reply that works on a Mac somebody ran install.sh on after
+# filling the file in and nowhere else.
+listen_label=io.github.timche.hachiko-listen
+listen_plist="$HOME/Library/LaunchAgents/$listen_label.plist"
+listen_loaded="$state/$listen_label.plist.loaded"
+
+if [ ! -f "$listen_plist" ]; then
+  echo "$listen_plist is missing — mise links it from mise.toml" >&2
+else
+  listen_is_loaded=false
+  if launchctl print "gui/$uid/$listen_label" >/dev/null 2>&1; then
+    listen_is_loaded=true
+  fi
+
+  if [ "$listen_is_loaded" = true ] && ! cmp -s "$listen_plist" "$listen_loaded"; then
+    launchctl bootout "gui/$uid/$listen_label" || true
+    listen_is_loaded=false
+  fi
+
+  if [ "$listen_is_loaded" = true ]; then
+    echo "$listen_label is already loaded"
+  elif launchctl bootstrap "gui/$uid" "$listen_plist"; then
+    mkdir -p "$state" && cp "$listen_plist" "$listen_loaded"
+    echo "loaded $listen_label"
+  else
+    echo "could not load $listen_label — the gui/$uid domain needs a GUI session" \
+         "logged in on the Mac; until it is loaded a reply in Discord reaches" \
+         "nobody and the on-call session is answered in herdr alone" >&2
+  fi
+fi
+
 # The proxy agent this repo no longer makes, which ran portless as the account on
 # a port of its own. sh.portless.proxy holds 443, and an agent left loaded would
 # hold a second proxy while the two fight over ~/.portless/proxy.port, which is

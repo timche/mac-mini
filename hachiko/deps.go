@@ -42,8 +42,10 @@ type Deps struct {
 	// prompt to a blocked agent and a step recorded as done would never be tried again.
 	Interrupt func(kind, lead, data string) error
 
-	// Reaches the channel Tim watches. The only thing that ever sees the webhook.
-	Send func(message string) error
+	// Reaches the channel Tim watches. The only thing that ever sees the webhook or the bot
+	// token, and it answers with the thread it opened when the message was the first of an
+	// incident and the bot is configured.
+	Send func(out Outgoing) (string, error)
 }
 
 const logTime = "2006-01-02T15:04:05-0700"
@@ -100,7 +102,7 @@ func realDeps(cfg Config) Deps {
 		Interrupt: func(kind, lead, data string) error {
 			return oncaller{cfg: cfg, run: herdrCLI, now: now, log: log}.interrupt(kind, lead, data)
 		},
-		Send: func(message string) error { return sendThroughOP(cfg, message) },
+		Send: func(out Outgoing) (string, error) { return sendThroughOP(cfg, out) },
 	}
 }
 

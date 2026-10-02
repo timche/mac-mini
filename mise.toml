@@ -79,6 +79,13 @@ go = "1.27"
 "~/.local/bin/hachiko.env.op" = { source = "home/.local/bin/hachiko.env.op", mode = "symlink" }
 "~/.config/hachiko/cpu-allow" = { source = "home/.config/hachiko/cpu-allow", mode = "symlink" }
 
+# Answering the on-call session from Discord, off until the config file names a channel and
+# a user. The two secrets it needs are in a second .env.op rather than beside the webhook,
+# because `op run` refuses a reference it cannot resolve and a bot token named before the
+# field exists would take every alert down with it.
+"~/.local/bin/hachiko.discord.env.op" = { source = "home/.local/bin/hachiko.discord.env.op", mode = "symlink" }
+"~/.config/hachiko/discord" = { source = "home/.config/hachiko/discord", mode = "symlink" }
+
 # `screencapture -l` of one app's window, by owner name rather than window id.
 "~/.local/bin/window-shot" = { source = "home/.local/bin/window-shot", mode = "symlink" }
 
@@ -90,6 +97,7 @@ go = "1.27"
 
 "~/Library/LaunchAgents/io.github.timche.memlog.plist" = { source = "home/Library/LaunchAgents/io.github.timche.memlog.plist", mode = "symlink" }
 "~/Library/LaunchAgents/io.github.timche.hachiko.plist" = { source = "home/Library/LaunchAgents/io.github.timche.hachiko.plist", mode = "symlink" }
+"~/Library/LaunchAgents/io.github.timche.hachiko-listen.plist" = { source = "home/Library/LaunchAgents/io.github.timche.hachiko-listen.plist", mode = "symlink" }
 "~/.config/betterleaks/betterleaks.toml" = { source = "home/.config/betterleaks/betterleaks.toml", mode = "symlink" }
 
 "~/.claude/CLAUDE.md" = { source = "home/.claude/CLAUDE.md", mode = "symlink" }

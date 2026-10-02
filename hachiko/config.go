@@ -53,7 +53,18 @@ type Config struct {
 
 	CPUAllowPath string
 	EnvFile      string
-	StateDir     string
+
+	// The bot token and the approval secret, in a file of their own: `op run` fails outright
+	// on a reference it cannot resolve, so naming a field that does not exist yet beside the
+	// webhook would stop every alert rather than leaving one feature off. Passed only when
+	// the channel and the user are configured, which is the same moment those fields exist.
+	DiscordEnvFile string
+
+	StateDir string
+
+	// The channel and the one account replies are taken from, both empty unless Tim has
+	// filled them in, which is what turns the bot and `hachiko listen` on.
+	Discord DiscordConfig
 
 	Host string
 }
@@ -118,7 +129,12 @@ func configFromEnv() Config {
 
 		CPUAllowPath: envString("HACHIKO_CPU_ALLOW", filepath.Join(home, ".config", "hachiko", "cpu-allow")),
 		EnvFile:      envFile,
-		StateDir:     envString("HACHIKO_STATE_DIR", filepath.Join(cache, "hachiko")),
+		DiscordEnvFile: envString("HACHIKO_DISCORD_ENV_FILE",
+			filepath.Join(home, ".local", "bin", "hachiko.discord.env.op")),
+		StateDir: envString("HACHIKO_STATE_DIR", filepath.Join(cache, "hachiko")),
+
+		Discord: readDiscordConfig(envString("HACHIKO_DISCORD_CONFIG",
+			filepath.Join(home, ".config", "hachiko", "discord"))),
 
 		Host: host,
 	}

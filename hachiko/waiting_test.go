@@ -443,3 +443,55 @@ func TestTheFallbackOptionIsReadOutOfTheReport(t *testing.T) {
 	long := fallbackOption("If no answer: " + strings.Repeat("x", fallbackLimit+50))
 	equal(t, len(long), fallbackLimit+3, "the length of a clipped option")
 }
+
+// With the bot on, the first message of an incident opens a thread and everything after it
+// goes inside — so a reminder three hours later is under the alert it is about rather than
+// further down a channel, and the thread is what the listener reads a reply out of.
+func TestOneIncidentGetsOneThreadAndEveryLaterMessageGoesIntoIt(t *testing.T) {
+	f := newFixture(t)
+	f.threads = true
+	f.cfg.RemindAfter = remindAt * time.Second
+	f.cfg.WarnAfter = warnAt * time.Second
+	f.cfg.HandoverAfter = handoverAt * time.Second
+
+	f.grow("tmp/worker.log", 3*mb)
+	f.at(0).sweep()
+	f.grow("tmp/worker.log", 4*mb)
+	f.at(300).sweep()
+
+	incident := f.onlyPendingID()
+	equal(t, len(f.opened), 1, "threads opened")
+	equal(t, f.state().Threads[incident], "thread-"+incident, "the thread recorded for the incident")
+
+	// Every message after it goes into that thread rather than opening a second.
+	f.notifyWithFallback(incident, "stop pid 4242")
+	f.blocks("disk")
+	f.grow("tmp/worker.log", 3*mb)
+	f.at(600).sweep()
+	f.at(600 + remindAt).sweep()
+
+	equal(t, len(f.opened), 1, "threads opened by the reminder")
+	equal(t, f.sentTo[len(f.sentTo)-1], "thread-"+incident, "where the reminder went")
+
+	// And the thread goes once nothing is open on it, so the listener stops polling it and
+	// the state does not keep one per incident for the life of the Mac.
+	f.status["disk"] = statusWorking
+	f.at(600 + remindAt + 300).sweep()
+	equal(t, len(f.state().Threads), 0, "threads still recorded")
+}
+
+// Without a bot there is no thread, and every message goes to the channel exactly as it
+// always did. That is the path that has to keep working on a Mac whose Discord application
+// somebody deleted.
+func TestWithNoBotNothingOpensAThreadAndNothingIsRecorded(t *testing.T) {
+	f := newFixture(t)
+
+	f.grow("tmp/worker.log", 3*mb)
+	f.at(0).sweep()
+	f.grow("tmp/worker.log", 4*mb)
+	f.at(300).sweep()
+
+	equal(t, len(f.opened), 0, "threads opened")
+	equal(t, len(f.state().Threads), 0, "threads recorded")
+	equal(t, f.sentTo[0], "", "where the first message went")
+}

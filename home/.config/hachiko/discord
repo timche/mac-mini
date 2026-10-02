@@ -1,0 +1,20 @@
+# Answering the on-call session from Discord, which is off until both lines below have a
+# value. Neither is a secret — a channel id is in the URL of every message in it and a user
+# id is on Tim's own profile — so they are here rather than in 1Password, and the bot token
+# that is a secret is a reference in hachiko.env.op beside the wrapper.
+#
+# channel: the private channel hachiko alerts to. Each incident gets a thread in it.
+# user:    the one account a reply is taken from. Everything else in the thread is ignored,
+#          the bot's own messages included, because a reply is an instruction to an agent
+#          with authority over this Mac.
+#
+# Both are snowflakes: enable Developer Mode in Discord and copy the id.
+#
+# What else it needs: a Discord application with a bot, the Message Content intent turned
+# on, invited to the server with permission to read messages, send them, create threads and
+# add reactions; a `bot token` field on the hachiko-discord item in the dev vault; and an
+# `approval` one-time-password field on the same item, which is the second factor an action
+# on the never list needs. README has the whole of it under hachiko.
+
+channel =
+user =

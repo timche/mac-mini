@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -25,73 +26,160 @@ const (
 	messageKeep  = 1860
 )
 
-// The one step that sees the webhook URL, and the only reason `op run` is ever
-// called: every run counts against the service account's daily limit, so it happens
-// when there is something to send and not before.
+// Where a message goes beyond the channel: into the thread an incident already has, or
+// into one this message is about to open. Both are ids and names rather than secrets, so
+// they travel as arguments; the message itself does not, since it carries paths and
+// command lines chosen by whatever filled the disk.
+type Outgoing struct {
+	Text       string
+	Thread     string
+	OpenThread string
+}
+
+// The one step that sees the webhook URL or the bot token, and the only reason `op run`
+// is ever called: every run counts against the service account's daily limit, so it
+// happens when there is something to send and not before.
 //
-// The URL arrives in this process's environment and leaves it in a request body.
-// Nothing puts it in an argument, where ps would show it to every process on the
-// machine, and nothing writes it anywhere.
-func sendThroughOP(cfg Config, message string) error {
+// The secret arrives in this process's environment and leaves it in a request body or one
+// header. Nothing puts it in an argument, where ps would show it to every process on the
+// machine, and nothing writes it anywhere. The thread the child opened comes back on its
+// stdout, which is the one thing it prints.
+// One --env-file per file, and the second only when the feature that needs it is on: `op
+// run` refuses a reference it cannot resolve, and a bot token named before the field exists
+// would take every alert down with it.
+func envFiles(cfg Config) []string {
+	files := []string{"--env-file", cfg.EnvFile}
+
+	if cfg.Discord.On() {
+		if _, err := os.Stat(cfg.DiscordEnvFile); err == nil {
+			files = append(files, "--env-file", cfg.DiscordEnvFile)
+		}
+	}
+	return files
+}
+
+func lookOp() (string, error) {
 	op, err := exec.LookPath("op")
 	if err != nil {
-		return errors.New("no op on PATH, so the alert was not sent")
+		return "", errors.New("no op on PATH, so no secret of hachiko's can be resolved")
+	}
+	return op, nil
+}
+
+// Replacing this process rather than starting another: what comes back is a long-running
+// listener, and a parent whose only job was to wait for it would be a second process in
+// every listing and a second thing for launchd to lose track of.
+func execOP(op string, args []string) error {
+	return syscall.Exec(op, args, os.Environ())
+}
+
+func sendThroughOP(cfg Config, out Outgoing) (string, error) {
+	op, err := lookOp()
+	if err != nil {
+		return "", err
 	}
 
 	if _, err := os.Stat(cfg.EnvFile); err != nil {
-		return fmt.Errorf("%s is missing, so the alert was not sent", cfg.EnvFile)
+		return "", fmt.Errorf("%s is missing, so the alert was not sent", cfg.EnvFile)
 	}
 
 	// The binary rather than the wrapper: the wrapper's job is to decide which
 	// binary runs, and this one is already running.
 	self, err := os.Executable()
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
 	defer cancel()
 
-	args := opArgs(cfg, self)
+	args := opArgs(cfg, self, out)
 	cmd := exec.CommandContext(ctx, op, args[1:]...)
-	cmd.Stdin = strings.NewReader(message)
+	cmd.Stdin = strings.NewReader(out.Text)
 
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		detail := strings.TrimSpace(string(out))
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+
+	if err := cmd.Run(); err != nil {
+		detail := strings.TrimSpace(stderr.String())
 		if detail == "" {
 			detail = err.Error()
 		}
-		return errors.New(detail)
+		return "", errors.New(detail)
 	}
-	return nil
+	return strings.TrimSpace(stdout.String()), nil
 }
 
 // The reference and never the value: what op resolves arrives in the child's
-// environment, and nothing about the webhook is in a command line ps shows to every
-// process on the machine.
-func opArgs(cfg Config, self string) []string {
-	return []string{"op", "run", "--env-file", cfg.EnvFile, "--", self, "--send"}
+// environment, and nothing about the webhook or the token is in a command line ps shows
+// to every process on the machine.
+func opArgs(cfg Config, self string, out Outgoing) []string {
+	args := append([]string{"op", "run"}, envFiles(cfg)...)
+	args = append(args, "--", self, "--send")
+
+	if cfg.Discord.On() {
+		args = append(args, "--channel", cfg.Discord.ChannelID)
+	}
+	if out.Thread != "" {
+		args = append(args, "--thread", out.Thread)
+	}
+	if out.OpenThread != "" {
+		args = append(args, "--open-thread", out.OpenThread)
+	}
+	return args
 }
 
-// The far end of that re-exec, reached only under `op run`.
-func sendMode(stdin io.Reader) error {
-	// Trimmed, because a 1Password field holding a trailing newline is a URL net/http
-	// refuses and an error message carrying a form of it this would not recognise.
-	webhook := strings.TrimSpace(os.Getenv("HACHIKO_DISCORD_URL"))
-	if webhook == "" {
-		return errors.New("HACHIKO_DISCORD_URL is empty, so the op:// reference did not resolve")
-	}
-
+// The far end of that re-exec, reached only under `op run`. The bot when there is a token
+// and a channel to use it on, and the webhook otherwise — which is the whole of how this
+// stays off until Tim has configured it, and how it keeps working on a Mac whose Discord
+// application somebody deleted.
+func sendMode(stdin io.Reader, out Outgoing, channel string) (string, error) {
 	message, err := io.ReadAll(stdin)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if len(bytes.TrimSpace(message)) == 0 {
-		return errors.New("nothing to send")
+		return "", errors.New("nothing to send")
+	}
+	out.Text = string(message)
+
+	// Trimmed, because a 1Password field holding a trailing newline is a URL net/http
+	// refuses, a header value it rejects outright, and an error message carrying a form of
+	// it this would not recognise.
+	if token := strings.TrimSpace(os.Getenv("HACHIKO_DISCORD_BOT_TOKEN")); token != "" && channel != "" {
+		return sendThroughBot(newBot(token), channel, out)
 	}
 
-	return postDiscord(&http.Client{Timeout: 20 * time.Second}, webhook, string(message))
+	webhook := strings.TrimSpace(os.Getenv("HACHIKO_DISCORD_URL"))
+	if webhook == "" {
+		return "", errors.New("HACHIKO_DISCORD_URL is empty, so the op:// reference did not resolve")
+	}
+	return "", postDiscord(&http.Client{Timeout: 20 * time.Second}, webhook, out.Text)
+}
+
+// One incident, one thread: the first message opens it and every message after it goes
+// inside, so a reminder three hours later is under the alert it is about rather than
+// somewhere further down a channel. A thread that could not be opened is not a message
+// that failed — the message is already posted, and the next one goes to the channel.
+func sendThroughBot(bot discordBot, channel string, out Outgoing) (string, error) {
+	where := channel
+	if out.Thread != "" {
+		where = out.Thread
+	}
+
+	posted, err := bot.post(where, out.Text)
+	if err != nil {
+		return "", err
+	}
+	if out.OpenThread == "" {
+		return "", nil
+	}
+
+	thread, err := bot.openThread(channel, posted, out.OpenThread)
+	if err != nil {
+		return "", err
+	}
+	return thread, nil
 }
 
 func postDiscord(client *http.Client, webhook, message string) error {

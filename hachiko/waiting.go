@@ -79,7 +79,7 @@ func (s sweeper) chaseAnswers(state *State, now time.Time, reading nowReading) {
 			s.noAgent(state, now, kind, w, reading)
 
 		case status == statusBlocked:
-			state.Waiting[kind] = s.escalate(now, kind, w, reading)
+			state.Waiting[kind] = s.escalate(state, now, kind, w, reading)
 
 		case status == statusWorking && w.Nudged != 0:
 			// hachiko took the question away itself and the agent is working on what it
@@ -108,7 +108,7 @@ func (s sweeper) chaseAnswers(state *State, now time.Time, reading nowReading) {
 // The clock, and the one message per step on it. The order is deliberate: a handover
 // that is due makes a reminder noise, and a question that is about to be cancelled and
 // asked again is not one to remind him about either.
-func (s sweeper) escalate(now time.Time, kind string, w Waiting, reading nowReading) Waiting {
+func (s sweeper) escalate(state *State, now time.Time, kind string, w Waiting, reading nowReading) Waiting {
 	if w.Since == 0 {
 		w.Since = now.Unix()
 		s.say("the %s on-call agent is waiting for an answer on %s", kind, w.Incident)
@@ -140,25 +140,25 @@ func (s sweeper) escalate(now time.Time, kind string, w Waiting, reading nowRead
 
 	switch {
 	case waited >= s.cfg.WarnAfter && !contains(w.Steps, stepWarn):
-		return s.warn(w, reading, waited)
+		return s.warn(state, w, reading, waited)
 	case waited >= s.cfg.RemindAfter && !contains(w.Steps, stepRemind):
-		return s.remind(w, reading, waited)
+		return s.remind(state, w, reading, waited)
 	}
 	return w
 }
 
-func (s sweeper) remind(w Waiting, reading nowReading, waited time.Duration) Waiting {
+func (s sweeper) remind(state *State, w Waiting, reading nowReading, waited time.Duration) Waiting {
 	message := fmt.Sprintf(`%s is still waiting for you after %s, and still waiting for you in herdr (workspace %s, tab %s).
 
 %s`, w.Incident, hmStr(waited), s.cfg.WorkspaceLabel(), w.Tab, reading.numbers(s.cfg.Host))
 
-	return s.step(w, stepRemind, message,
+	return s.step(state, w, stepRemind, message,
 		fmt.Sprintf("reminded about %s after %s", w.Incident, hmStr(waited)))
 }
 
 // A quarter of an hour, which is long enough to answer from a phone and short enough
 // that it is not a second reminder.
-func (s sweeper) warn(w Waiting, reading nowReading, waited time.Duration) Waiting {
+func (s sweeper) warn(state *State, w Waiting, reading nowReading, waited time.Duration) Waiting {
 	fallback := w.Default
 	if fallback == "" {
 		fallback = "the agent named no fallback option, so it will decide when it re-checks"
@@ -174,15 +174,15 @@ It is waiting for you in herdr (workspace %s, tab %s).`,
 		w.Incident, hmStr(waited), hmStr(s.cfg.HandoverAfter-s.cfg.WarnAfter), fallback,
 		reading.numbers(s.cfg.Host), s.cfg.WorkspaceLabel(), w.Tab)
 
-	return s.step(w, stepWarn, message,
+	return s.step(state, w, stepWarn, message,
 		fmt.Sprintf("warned that %s is %s from the handover", w.Incident, hmStr(s.cfg.HandoverAfter-waited)))
 }
 
 // A step is done only once the message has actually left the machine, and the steps
 // before it are marked with it: a check that comes back after an outage has no reason to
 // send an hour's reminder about a question that is already past its deadline.
-func (s sweeper) step(w Waiting, step, message, said string) Waiting {
-	if err := s.deps.Send(message); err != nil {
+func (s sweeper) step(state *State, w Waiting, step, message, said string) Waiting {
+	if err := s.send(state, w.Incident, message); err != nil {
 		s.say("the %s step on %s did not send and is left to the next check: %v", step, w.Incident, err)
 		return w
 	}
@@ -276,7 +276,7 @@ func (s sweeper) noAgent(state *State, now time.Time, kind string, w Waiting, re
 Open a session on it yourself, or leave it to the next check to raise again.`,
 		w.Incident, hmStr(waited), kind, reading.numbers(s.cfg.Host))
 
-	if err := s.deps.Send(message); err != nil {
+	if err := s.send(state, w.Incident, message); err != nil {
 		s.say("%s has no on-call agent left and the message saying so did not send either: %v", w.Incident, err)
 		return
 	}

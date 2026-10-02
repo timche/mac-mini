@@ -39,6 +39,11 @@ type State struct {
 	// One per kind, because there is one on-call agent per kind and one question at a
 	// time in front of it.
 	Waiting map[string]Waiting `json:"waiting,omitempty"`
+
+	// The Discord thread each open incident has, when the bot is configured. It is what
+	// puts a reminder under the alert it is about, what `hachiko notify` posts into, and
+	// what `hachiko listen` reads a reply out of.
+	Threads map[string]string `json:"threads,omitempty"`
 }
 
 type DiskSample struct {
@@ -366,6 +371,52 @@ func (st Store) ReportedIDs() []string {
 	}
 	sort.Strings(ids)
 	return ids
+}
+
+// The one action an on-call session has asked Tim to approve with a code. A file of its
+// own rather than a field in the state, for the reason `notify`'s marker is: the session
+// writes it while a sweep may be holding the lock, and `hachiko listen` reads it on a
+// five-second loop that may not wait for either.
+//
+// It is what makes a code approve one thing: a code with no request open approves nothing,
+// and the approval the listener hands the agent names the action the agent itself
+// registered rather than whatever it has decided to do since.
+func (st Store) approvalPath(incident string) string {
+	return filepath.Join(st.dir, "approvals", incident)
+}
+
+func (st Store) RequestApproval(incident, action string) error {
+	if !incidentID.MatchString(incident) {
+		return fmt.Errorf("%q is not an incident id", incident)
+	}
+	if strings.TrimSpace(action) == "" {
+		return errors.New("an approval request has to say which action it is for")
+	}
+	if err := os.MkdirAll(filepath.Dir(st.approvalPath(incident)), 0o755); err != nil {
+		return err
+	}
+	// Clipped here rather than at the caller, because what an action names is a path and a
+	// command chosen by whatever filled the disk, and it goes back into a prompt.
+	return os.WriteFile(st.approvalPath(incident), []byte(clip(strings.TrimSpace(action), replyLimit)), 0o644)
+}
+
+func (st Store) OpenApproval(incident string) string {
+	if !incidentID.MatchString(incident) {
+		return ""
+	}
+	action, err := os.ReadFile(st.approvalPath(incident))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(action))
+}
+
+// One request, one approval. The next action the session wants approved is a request of
+// its own, and a code it already used is no help with it.
+func (st Store) CloseApproval(incident string) {
+	if incidentID.MatchString(incident) {
+		os.Remove(st.approvalPath(incident))
+	}
 }
 
 // A marker for an incident nothing is waiting on any more, which is what a report for

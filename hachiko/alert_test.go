@@ -16,7 +16,7 @@ const fakeWebhook = "https://discord.invalid/api/webhooks/123/NOT-A-REAL-TOKEN"
 // to run names the reference and never the value.
 func TestTheWebhookIsNeverInACommandLine(t *testing.T) {
 	cfg := Config{EnvFile: "/somewhere/hachiko.env.op"}
-	args := opArgs(cfg, "/cache/hachiko")
+	args := opArgs(cfg, "/cache/hachiko", Outgoing{})
 
 	for _, arg := range args {
 		if strings.Contains(arg, "discord") || strings.Contains(arg, "HACHIKO_DISCORD_URL") {
@@ -115,7 +115,7 @@ func TestSendModeTrimsTheResolvedReference(t *testing.T) {
 	defer server.Close()
 
 	t.Setenv("HACHIKO_DISCORD_URL", server.URL+"\n")
-	if err := sendMode(strings.NewReader("the disk is filling")); err != nil {
+	if _, err := sendMode(strings.NewReader("the disk is filling"), Outgoing{}, ""); err != nil {
 		t.Fatalf("a reference with a trailing newline was not sent: %v", err)
 	}
 	equal(t, got, `{"content":"the disk is filling"}`, "the request body")
@@ -137,14 +137,14 @@ func TestALongMessageIsCappedAndSaysWhereTheRestIs(t *testing.T) {
 
 func TestSendModeRefusesWithNothingToSendAndWithNoReferenceResolved(t *testing.T) {
 	t.Setenv("HACHIKO_DISCORD_URL", "")
-	err := sendMode(strings.NewReader("something"))
+	_, err := sendMode(strings.NewReader("something"), Outgoing{}, "")
 	if err == nil {
 		t.Fatal("an unresolved reference was not reported")
 	}
 	wants(t, err.Error(), "did not resolve")
 
 	t.Setenv("HACHIKO_DISCORD_URL", fakeWebhook)
-	err = sendMode(strings.NewReader("   \n"))
+	_, err = sendMode(strings.NewReader("   \n"), Outgoing{}, "")
 	if err == nil {
 		t.Fatal("an empty message was not reported")
 	}

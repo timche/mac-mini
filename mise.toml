@@ -7,6 +7,19 @@
 # --no-upgrade, nothing to assert an installed set against, and no way to fetch a
 # formula from a plain tap. mise's job here is the language runtimes.
 
+# The runtime this repository needs for itself: the compiled tools under their own
+# folders at the root — hachiko so far — are built with it. A runtime every project
+# may want a different version of is in home/.config/mise/config.toml instead, and
+# another project's go or rust stays in that project's own mise.toml.
+#
+# Only a rebuild depends on this. Each tool's wrapper in ~/.local/bin runs a binary
+# it has already built, so a LaunchAgent keeps working when mise does not.
+#
+# The mise.lock beside this file is what `mise install --locked` reads, so a rebuilt
+# Mac gets the version resolved here rather than whatever latest means on the day.
+[tools]
+go = "1.27"
+
 # oh-my-zsh's own installer does nothing here that a clone does not: it is only
 # told not to run zsh, not to chsh, and not to write a .zshrc, all of which this
 # repo owns.
@@ -58,6 +71,14 @@
 # LaunchAgent runs it on a timer whether or not a session is up.
 "~/.local/bin/worktree-gc" = { source = "home/.local/bin/worktree-gc", mode = "symlink" }
 
+# The watch over free space and the CPU, with the webhook reference beside it: the
+# wrapper resolves its .env.op from its own directory, so the two are linked together
+# or the alert has nowhere to go. The wrapper is all that is linked — the binary it
+# builds from hachiko/ lives in ~/Library/Caches/hachiko and is nobody's dotfile.
+"~/.local/bin/hachiko" = { source = "home/.local/bin/hachiko", mode = "symlink" }
+"~/.local/bin/hachiko.env.op" = { source = "home/.local/bin/hachiko.env.op", mode = "symlink" }
+"~/.config/hachiko/cpu-allow" = { source = "home/.config/hachiko/cpu-allow", mode = "symlink" }
+
 # `screencapture -l` of one app's window, by owner name rather than window id.
 "~/.local/bin/window-shot" = { source = "home/.local/bin/window-shot", mode = "symlink" }
 
@@ -68,6 +89,7 @@
 "~/.local/bin/op" = { source = "home/.local/bin/op", mode = "symlink" }
 
 "~/Library/LaunchAgents/io.github.timche.memlog.plist" = { source = "home/Library/LaunchAgents/io.github.timche.memlog.plist", mode = "symlink" }
+"~/Library/LaunchAgents/io.github.timche.hachiko.plist" = { source = "home/Library/LaunchAgents/io.github.timche.hachiko.plist", mode = "symlink" }
 "~/.config/betterleaks/betterleaks.toml" = { source = "home/.config/betterleaks/betterleaks.toml", mode = "symlink" }
 
 "~/.claude/CLAUDE.md" = { source = "home/.claude/CLAUDE.md", mode = "symlink" }

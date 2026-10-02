@@ -1,0 +1,43 @@
+# Commands hachiko never reports for burning a core, one glob per line, matched
+# against the command's name and against its full path. Everything here is
+# expected to spend a core for an hour at a time on this Mac, so an alert about it
+# would be noise and the next real one would be read as more of it.
+#
+# A pattern is a glob, not a regular expression, and it has to match the whole
+# name or the whole path.
+
+# The docker VM. Its helper runs the Linux guest, so a busy container is this
+# process at 100% for as long as the build takes.
+OrbStack
+OrbStack Helper
+*/OrbStack.app/*
+
+# A UTM guest, and the hypervisor underneath it. A Windows VM idles at a few per
+# cent and pegs a core whenever Windows feels like it.
+UTM
+QEMULauncher
+qemu-system-*
+
+# Spotlight. Indexing is off on this Mac, so these should never be busy at all —
+# listed because a macOS update turns indexing back on and the first thing it does
+# is walk every worktree's node_modules for an hour.
+mds
+mds_stores
+mdworker
+mdworker_shared
+mdbulkimport
+
+# Time Machine, which checksums the whole of a backup set and has no idea anybody
+# is waiting.
+backupd
+backupd-helper
+
+# A macOS update, which downloads and verifies in the background by design.
+softwareupdated
+SoftwareUpdateNotificationManager
+
+# The window server and the kernel's own accounting process. Neither is something
+# a session can do anything about, and WindowServer is busy whenever Screen
+# Sharing is connected.
+WindowServer
+kernel_task

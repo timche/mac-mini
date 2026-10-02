@@ -1,0 +1,78 @@
+#!/bin/sh
+# Runs hachiko, the watch over free space and the CPU, and builds it first if its
+# sources have changed since the binary in the cache was made.
+#
+# There is no install step and no release pipeline because there is nowhere to
+# release to: boswell commits every edit to this repository within seconds and pulls
+# it onto the Mac, so a change to hachiko/ is live on the next five-minute run as
+# soon as it lands. What that costs is a build on the Mac, and what it buys is that a
+# half-written edit cannot take the monitor down: a source tree that does not compile
+# leaves the last binary that did in place and logs one line about it.
+#
+# Only the rebuild depends on mise. The binary it execs is a static Go binary that
+# depends on nothing — not mise, not Homebrew, not a runtime — which is the point on
+# a machine where the LaunchAgent has to keep watching while the tooling is broken.
+#
+# The repository is found through this script's own resolved path rather than named,
+# so the same wrapper works as the symlink in ~/.local/bin, as a file in a checkout,
+# and in a worktree.
+
+set -u
+
+say() {
+  printf '%s hachiko: %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$1" >&2
+}
+
+self=$0
+while [ -L "$self" ]; do
+  link=$(readlink "$self")
+  case $link in
+    /*) self=$link ;;
+    *) self=$(dirname "$self")/$link ;;
+  esac
+done
+self=$(cd "$(dirname "$self")" && pwd)/$(basename "$self")
+
+bindir=$(dirname "$self")
+repo=$(cd "$bindir/../../.." && pwd)
+src="$repo/hachiko"
+
+# Beside this script, which is where mise links both of them, so the alert has
+# somewhere to go without the binary in the cache knowing where the checkout is.
+HACHIKO_ENV_FILE="${HACHIKO_ENV_FILE:-$bindir/hachiko.env.op}"
+export HACHIKO_ENV_FILE
+
+cache="${HACHIKO_CACHE_DIR:-$HOME/Library/Caches/hachiko}"
+bin="$cache/hachiko"
+stamp="$cache/source.sha256"
+
+# The sources' contents and their names, so a rename or a deletion counts as a
+# change too. A few milliseconds, which is what keeps a run that has nothing to
+# build from reaching for mise at all.
+hash=$(
+  find "$src" -type f \( -name '*.go' -o -name go.mod -o -name go.sum \) 2>/dev/null |
+    sort | xargs shasum -a 256 2>/dev/null | shasum -a 256 | cut -d' ' -f1
+)
+
+if [ -n "$hash" ] && [ "$hash" != "$(cat "$stamp" 2>/dev/null)" ]; then
+  mise=$(command -v mise 2>/dev/null) || mise="$HOME/.local/bin/mise"
+
+  if [ ! -x "$mise" ]; then
+    say "mise is missing, so hachiko could not be rebuilt from $src"
+  elif mkdir -p "$cache" &&
+    out=$(CGO_ENABLED=0 "$mise" exec -C "$repo" -- go build -C "$src" -o "$cache/hachiko.$$" . 2>&1); then
+    # Into place in one step, so a run that starts mid-build execs a whole binary.
+    mv -f "$cache/hachiko.$$" "$bin" && printf '%s\n' "$hash" >"$stamp"
+  else
+    rm -f "$cache/hachiko.$$"
+    # The hash is deliberately not recorded, so the next run tries the build again.
+    say "the sources in $src do not build, so this is the last binary that did: $(printf '%s' "$out" | head -1)"
+  fi
+fi
+
+if [ ! -x "$bin" ]; then
+  say "there is no hachiko binary and $src does not build, so nothing is watching this Mac"
+  exit 1
+fi
+
+exec "$bin" "$@"

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Symlinked into ~/Library/LaunchAgents from the [dotfiles] entry in mise.toml,
+     which launchd accepts: it resolves the link when the job is bootstrapped and
+     reads the file behind it.
+
+     launchd expands neither ~ nor $HOME in a plist — a $HOME in StandardOutPath is
+     an EX_CONFIG failure at load with nothing anywhere naming the key that was
+     wrong — but it does hand a gui-domain agent a HOME. So the PATH and the log
+     both move into a shell, which is the one thing here that can expand one, and
+     this file needs no rendering to name no account. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.github.timche.hachiko</string>
+  <!-- ~/.local/bin first, for the hachiko wrapper itself, for the op there that
+       signs 1Password in with the service-account token, for the herdr the server
+       runs from, and for the mise that rebuilds the binary when the sources have
+       changed; Homebrew's prefix for the op CLI behind that wrapper; the system
+       directories for ps and lsof. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>export PATH="$HOME/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"; exec "$HOME/.local/bin/hachiko" &gt;&gt;"$HOME/Library/Logs/hachiko.log" 2&gt;&amp;1</string>
+  </array>
+  <!-- A check on load, so a Mac that was off through the thing that filled it says
+       so as soon as it is back. -->
+  <key>RunAtLoad</key>
+  <true/>
+  <!-- Five minutes. The walk and the process sample cost about a second together,
+       and 90 GB an hour is 7.5 GB per interval — short enough to catch a runaway
+       writer with hundreds of gigabytes still free, long enough that the sample is
+       cheap, and twelve of them make the hour a hot process is judged over. -->
+  <key>StartInterval</key>
+  <integer>300</integer>
+</dict>
+</plist>

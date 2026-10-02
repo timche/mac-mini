@@ -140,7 +140,22 @@ mise trust "$repo"
 # --locked so a rebuilt Mac gets the versions mise.lock resolved rather than
 # whatever latest means on the day, which is the same promise --no-upgrade makes
 # for the Brewfile.
-mise install --locked
+#
+# From inside the checkout, so that the [tools] in its own mise.toml are installed
+# beside the global list: this repository's compiled tools are built with the go
+# declared there, and a Mac without it has a hachiko that cannot be rebuilt.
+(cd "$repo" && mise install --locked)
+
+# Reported rather than assumed, because the wrapper that would have said so runs
+# from a LaunchAgent into a log: a Mac with no go keeps watching with the binary it
+# already has and silently stops picking up changes.
+if (cd "$repo" && mise exec -- go version) >/dev/null 2>&1; then
+  echo "go is installed for this repo's compiled tools"
+else
+  echo "mise could not install the go this repo's mise.toml asks for — the tools" \
+       "under hachiko/ and any beside it cannot be rebuilt until it can, and each" \
+       "keeps running the last binary it built" >&2
+fi
 
 # mise applies the links mise.toml declares and removes none it no longer does,
 # so a link this repo used to make survives every re-run pointing at a file that
@@ -499,6 +514,42 @@ else
     echo "could not load $gc_label — the gui/$uid domain needs a GUI session" \
          "logged in on the Mac; nothing will sweep a removed worktree's" \
          "containers until it is loaded, and worktree-gc runs by hand" >&2
+  fi
+fi
+
+# The watch over free space and the CPU, every five minutes. The shape is boswell's:
+# the plist is a link, so what it points at says nothing about the file launchd read
+# at load, and a copy of that is what a reload is decided against.
+#
+# Nothing gates it, and nothing here builds it. A webhook it cannot resolve and a
+# herdr it cannot reach are lines in its log rather than reasons not to watch, and
+# the binary is the wrapper's to build on the first run after a change.
+hachiko_label=io.github.timche.hachiko
+hachiko_plist="$HOME/Library/LaunchAgents/$hachiko_label.plist"
+hachiko_loaded="$state/$hachiko_label.plist.loaded"
+
+if [ ! -f "$hachiko_plist" ]; then
+  echo "$hachiko_plist is missing — mise links it from mise.toml" >&2
+else
+  hachiko_is_loaded=false
+  if launchctl print "gui/$uid/$hachiko_label" >/dev/null 2>&1; then
+    hachiko_is_loaded=true
+  fi
+
+  if [ "$hachiko_is_loaded" = true ] && ! cmp -s "$hachiko_plist" "$hachiko_loaded"; then
+    launchctl bootout "gui/$uid/$hachiko_label" || true
+    hachiko_is_loaded=false
+  fi
+
+  if [ "$hachiko_is_loaded" = true ]; then
+    echo "$hachiko_label is already loaded"
+  elif launchctl bootstrap "gui/$uid" "$hachiko_plist"; then
+    mkdir -p "$state" && cp "$hachiko_plist" "$hachiko_loaded"
+    echo "loaded $hachiko_label"
+  else
+    echo "could not load $hachiko_label — the gui/$uid domain needs a GUI session" \
+         "logged in on the Mac; until it is loaded nothing notices a process" \
+         "logging the disk full or burning a core, and hachiko runs by hand" >&2
   fi
 fi
 

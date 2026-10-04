@@ -127,8 +127,9 @@ type Waiting struct {
 
 	// When the agent was first seen with no question up and nothing in flight, which is the
 	// start of the grace it gets to report an outcome before hachiko says that nothing did.
-	// Cleared whenever it has something to say again, so the grace is measured from the
-	// moment it went quiet rather than from the prompt it went quiet after.
+	// Cleared whenever it has something to say again and whenever hachiko hands it anything,
+	// so the grace runs from the moment it went quiet and never from before the last thing
+	// it was asked.
 	Settled int64 `json:"settled,omitempty"`
 
 	// When a check first projected that free space would reach the critical threshold before

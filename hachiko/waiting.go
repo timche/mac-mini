@@ -384,7 +384,7 @@ Re-check the situation from scratch — the numbers below are this minute's — 
 	}
 
 	w.Steps = mergeSorted(w.Steps, steps)
-	w.Nudged = now.Unix()
+	w.Nudged, w.Settled = now.Unix(), 0
 	return w
 }
 
@@ -414,7 +414,7 @@ func (s sweeper) retryOwed(now time.Time, kind string, w Waiting, reading nowRea
 
 	w.Steps = mergeSorted(w.Steps, w.OwedSteps)
 	w.Owed, w.OwedSteps = "", nil
-	w.Nudged = now.Unix()
+	w.Nudged, w.Settled = now.Unix(), 0
 	return w
 }
 
@@ -477,7 +477,7 @@ func (s sweeper) refresh(now time.Time, kind string, w Waiting, reading nowReadi
 
 	w.Asked = reading.snapshot(now)
 	w.Steps = mergeSorted(w.Steps, once(changed))
-	w.Nudged = now.Unix()
+	w.Nudged, w.Settled = now.Unix(), 0
 	return w
 }
 

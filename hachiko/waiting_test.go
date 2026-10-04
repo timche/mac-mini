@@ -194,6 +194,32 @@ func TestASilentUnblockKeepsTheTimeline(t *testing.T) {
 	wants(t, f.lastPrompt(), "Tim has not answered for 0h36m")
 }
 
+// The grace for an outcome runs from the moment the agent went quiet and never from before
+// the last thing hachiko asked it: an agent that was already idle when the decision was
+// handed to it would otherwise have the wait closed on the very next check, having had no
+// time at all to do what it was told.
+func TestTheGraceForAnOutcomeStartsAfterTheHandoverAndNotBeforeIt(t *testing.T) {
+	f := waiting(t)
+
+	// Idle for long enough that the grace would already be spent, with the timeline running.
+	f.status["disk"] = "idle"
+	f.at(600 + remindAt).sweep()
+	f.at(600 + warnAt).sweep()
+	equal(t, f.state().Waiting["disk"].Settled, base.Unix()+600+remindAt, "when it went quiet")
+
+	// The handover goes as a prompt, and herdr still calls it idle rather than working.
+	out := f.at(600 + handoverAt).sweep()
+	wants(t, out, "handed the decision on disk-")
+	equal(t, f.state().Waiting["disk"].Settled, int64(0), "when it went quiet, after the handover")
+
+	f.status["disk"] = "idle"
+	equal(t, f.at(600+handoverAt+300).sweep(), "", "the log on the check after the handover")
+	equal(t, len(f.state().Waiting), 1, "waits still being counted")
+
+	// And the grace runs from there.
+	wants(t, f.at(600+handoverAt+900).sweep(), "nothing reported the outcome of disk-")
+}
+
 // What ends a wait that has nothing to show: the decision was handed over, the session went
 // quiet, and no outcome ever came. It is given the minutes it had to report its findings in
 // to say what it did, and then the watch on that kind stops.

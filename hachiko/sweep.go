@@ -178,7 +178,9 @@ func (s sweeper) run() error {
 	//
 	// A reading that is missing is not a reading that is clear, so neither of these is taken
 	// from one: a walk that ran out of its seconds saw only part of the disk, and a check
-	// with no process sample saw no processes at all.
+	// with no process sample saw no processes at all. A directory the walk was told to skip
+	// is the third of them, and the wait is where that is caught, since what it has to be
+	// measured against is the files the question was asked about.
 	cleared := map[string]string{}
 	if level == 0 && !disk.cutShort && disk.report == "" && disk.truncated == "" {
 		cleared["disk"] = fmt.Sprintf("Nothing is growing fast any more, and free space is over every threshold at %s GB.",
@@ -202,6 +204,7 @@ func (s sweeper) run() error {
 		writers:     disk.writers,
 		report:      disk.report + cpu.report + disk.truncated,
 		cleared:     cleared,
+		stalled:     disk.stalled,
 	}
 
 	s.chaseLateReports(state, now)
@@ -631,6 +634,11 @@ func (s sweeper) expectAQuestion(state *State, now time.Time, kind, incident str
 	if w.Incident != incident {
 		w.Incident, w.Opened = incident, now.Unix()
 		w.Steps, w.Default, w.Asked = nil, "", Asked{}
+		// Both of these are one check's half of a two-check judgement about the incident that
+		// has just been superseded: that it is about to fill the disk, and that it has stopped
+		// by itself. Neither carries over, least of all the second — a writer that stopped and
+		// started again is the thing that raised this one.
+		w.Worsening, w.Clear = 0, 0
 	}
 	w.Tab = session.Tab
 	if session.Cancelled {

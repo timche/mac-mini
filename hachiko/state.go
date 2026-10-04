@@ -148,6 +148,12 @@ type Waiting struct {
 	// interval is an extrapolation and the thing it authorises is a kill.
 	Worsening int64 `json:"worsening,omitempty"`
 
+	// When a check first found that nothing which could have fired this incident is firing
+	// any more. The second check to say so is what tells the session, for the same reason:
+	// one interval is a writer between bursts or a daemon between runs as readily as an
+	// incident that is over, and what it hands the session is a reason to close one.
+	Clear int64 `json:"clear,omitempty"`
+
 	// What the agent said in its first report it would do if nobody answered, which is
 	// what the warning quotes rather than guessing at.
 	Default string `json:"default,omitempty"`

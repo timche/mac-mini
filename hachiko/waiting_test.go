@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -442,9 +443,16 @@ func TestAFileDoublingWhileTheAgentWaitsCancelsTheQuestionAndAsksAgain(t *testin
 func TestATriggerThatHasClearedReachesTheAgentOnce(t *testing.T) {
 	f := waiting(t)
 
-	// The writer stops: nothing growing fast, and free space over every threshold.
+	// The writer stops: nothing growing fast, and free space over every threshold. One check
+	// saying so says only that, since a writer between bursts reads exactly the same.
 	f.keepGrowing = ""
 	out := f.at(900).sweep()
+	wants(t, out, "one more check saying so tells the disk on-call agent")
+	lacks(t, out, "its question was cancelled")
+	equal(t, len(f.interrupts), 0, "questions cancelled on the first check that said so")
+
+	// The second agrees, and that is what reaches the agent.
+	out = f.at(1200).sweep()
 
 	wants(t, out, "what fired this incident is no longer firing")
 	wants(t, out, "its question was cancelled and it was asked again")
@@ -479,7 +487,9 @@ func TestATriggerThatClearsAfterTheHandoverStillReachesTheAgent(t *testing.T) {
 	// It judged that waiting was safe and asked again, and then the writer stopped.
 	f.blocks("disk")
 	f.keepGrowing = ""
-	out := f.at(600 + handoverAt + 300).sweep()
+	f.at(600 + handoverAt + 300).sweep()
+	f.blocks("disk")
+	out := f.at(600 + handoverAt + 600).sweep()
 
 	wants(t, out, "what fired this incident is no longer firing")
 	equal(t, len(f.interrupts), 2, "questions cancelled in all")
@@ -493,7 +503,8 @@ func TestATriggerThatClearsWithNoQuestionUpIsThePromptAlone(t *testing.T) {
 
 	f.status["disk"] = "idle"
 	f.keepGrowing = ""
-	out := f.at(900).sweep()
+	f.at(900).sweep()
+	out := f.at(1200).sweep()
 
 	wants(t, out, "what fired this incident is no longer firing")
 	wants(t, out, "so it was asked again")
@@ -519,10 +530,15 @@ func TestACPUTriggerThatHasClearedReachesTheAgent(t *testing.T) {
 	f.proc(7018, 13*240, firstStart, "/usr/local/bin/node worker.js")
 	f.at(13 * 300).sweep()
 
-	// It is still there and has spent no CPU since, which is what dasd did at about eight in
-	// the morning: back under the share for a sample.
+	// It is still there and has spent no CPU since: back under the share. Two samples of that,
+	// because one is a daemon between runs as readily as one that has finished.
 	f.proc(7018, 13*240, firstStart, "/usr/local/bin/node worker.js")
 	out := f.at(14 * 300).sweep()
+	wants(t, out, "one more check saying so tells the cpu on-call agent")
+	equal(t, len(f.interrupts), 0, "questions cancelled on the first check that said so")
+
+	f.proc(7018, 13*240, firstStart, "/usr/local/bin/node worker.js")
+	out = f.at(15 * 300).sweep()
 
 	wants(t, out, "what fired this incident is no longer firing")
 	equal(t, len(f.interrupts), 1, "questions cancelled")
@@ -579,6 +595,96 @@ func TestASystemProcessIncidentHandsOverOnceAndThenGoesQuiet(t *testing.T) {
 	equal(t, len(f.state().Waiting), 1, "waits still being counted")
 }
 
+// One quiet interval is a writer between bursts, which is what most of them are: the writer
+// that stops and starts again raises an incident of its own, and the half-made judgement
+// that the last one had stopped does not carry into it.
+func TestAWriterThatStartsAgainNeverCountsAsHavingCleared(t *testing.T) {
+	f := waiting(t)
+	first := f.state().Waiting["disk"].Incident
+
+	f.keepGrowing = ""
+	wants(t, f.at(900).sweep(), "one more check saying so tells the disk on-call agent")
+	equal(t, f.state().Waiting["disk"].Clear, base.Unix()+900, "the check that said so")
+
+	// It starts writing again, which is a fresh alert on the same kind.
+	f.keepGrowing, f.keepKB = "tmp/worker.log", 3*mb
+	out := f.at(1200).sweep()
+	lacks(t, out, "no longer firing")
+	wants(t, out, "growing fast:")
+
+	w := f.state().Waiting["disk"]
+	if w.Incident == first {
+		t.Fatal("the writer starting again did not raise an incident of its own")
+	}
+	equal(t, w.Clear, int64(0), "the check that said the last one had stopped")
+
+	// And when this one stops, it starts counting again from one rather than from where the
+	// last incident left off.
+	f.keepGrowing = ""
+	f.blocks("disk")
+	out = f.at(1500).sweep()
+	wants(t, out, "one more check saying so tells the disk on-call agent")
+	lacks(t, out, "no longer firing")
+}
+
+// A directory the walk was told to skip may be holding the very file the incident is about,
+// and a file nothing looked at reads exactly like a file that stopped growing: neither
+// appears in the findings at all.
+func TestADirectoryTheWalkSkippedIsNotATriggerThatHasCleared(t *testing.T) {
+	f := waiting(t)
+	f.cfg.StallRetry = 300 * time.Second
+	path := f.grow("tmp/worker.log", 3*mb)
+	f.at(900).sweep()
+
+	// The directory holding it stops answering, so the file is not read on this check or the
+	// next. Nothing is growing fast, because nothing was looked at.
+	f.keepGrowing = ""
+	f.stalls = []string{filepath.Dir(path)}
+	lacks(t, f.at(1200).sweep(), "no longer firing")
+	lacks(t, f.at(1500).sweep(), "no longer firing")
+	equal(t, len(f.interrupts), 0, "questions cancelled while the directory would not answer")
+
+	// Once it answers again and the file really has stopped, two readings tell the agent.
+	f.stalls = nil
+	wants(t, f.at(1800).sweep(), "one more check saying so tells the disk on-call agent")
+	wants(t, f.at(2100).sweep(), "what fired this incident is no longer firing")
+}
+
+// A pid is reused and the history behind one belongs to whoever held it, so the number alone
+// says nothing about whether an incident cleared. Identity is the pid and the start time
+// together, and the clearing is read off the same hot set that identity builds: the process
+// the incident was about really is gone when its key is, and a pid taken over by a different
+// one is a different process that has to earn the hour for itself.
+func TestClearingIsJudgedByTheProcessKeyAndNotThePid(t *testing.T) {
+	f := newFixture(t)
+	f.cfg.RemindAfter = remindAt * time.Second
+	f.cfg.WarnAfter = warnAt * time.Second
+	f.cfg.HandoverAfter = handoverAt * time.Second
+
+	f.cpuRuns(13, 240)
+	incident := f.onlyPendingID()
+	f.notifyWithFallback(incident, "leave it alone")
+	f.blocks("cpu")
+	f.proc(7018, 13*240, firstStart, "/usr/local/bin/node worker.js")
+	f.at(13 * 300).sweep()
+
+	// Something else takes the pid and starts burning a core. For its first hour nothing is
+	// over the threshold, because the hour is the threshold — and what goes out then tells
+	// the session to read the processes again rather than take hachiko's reading for it.
+	const reused = "Tue Sep 29 09:00:00 2026"
+	var all strings.Builder
+	for i := range 14 {
+		f.proc(7018, float64(i)*240, reused, "/usr/local/bin/node other.js")
+		all.WriteString(f.at(int64(14+i) * 300).sweep())
+	}
+
+	// By the end of that hour it is hot in its own right, so something is over the share and
+	// nothing has cleared by the time it is. The pid being the same number is no part of it
+	// either way: the identity hachiko judges by is the pid and the start time together.
+	wants(t, all.String(), "hot for an hour: pid 7018 node")
+	lacks(t, f.at(28*300).sweep(), "no longer firing")
+}
+
 // A reading that is missing is not a reading that is clear: a check with no process sample
 // saw no processes at all, and a walk that ran out of its seconds saw part of the disk.
 func TestAMissingReadingIsNotATriggerThatHasCleared(t *testing.T) {
@@ -590,9 +696,10 @@ func TestAMissingReadingIsNotATriggerThatHasCleared(t *testing.T) {
 	lacks(t, f.at(1200).sweep(), "no longer firing")
 	equal(t, len(f.interrupts), 0, "questions cancelled on a walk that saw part of the disk")
 
-	// And once it has seen the whole of it, the news goes.
+	// And once it has seen the whole of it, two readings running tell the agent.
 	f.cutShort = false
-	wants(t, f.at(1500).sweep(), "what fired this incident is no longer firing")
+	wants(t, f.at(1500).sweep(), "one more check saying so tells the disk on-call agent")
+	wants(t, f.at(1800).sweep(), "what fired this incident is no longer firing")
 }
 
 // A threshold crossed either way is a question whose options were written for a disk

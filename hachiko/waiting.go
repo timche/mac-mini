@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -69,6 +70,11 @@ type nowReading struct {
 	// CPU share. Empty for a kind whose trigger is still going, and empty on a check whose
 	// reading of that half was missing rather than clear.
 	cleared map[string]string
+
+	// The directories the walk did not open, which the wait reads against the files its
+	// question was asked about: one of them under a skipped directory is a file nothing
+	// looked at rather than a file that stopped growing.
+	stalled []Stall
 }
 
 func (r nowReading) snapshot(now time.Time) Asked {
@@ -262,17 +268,18 @@ func (s sweeper) escalate(state *State, now time.Time, kind string, w Waiting, r
 	// not esc and go on either way.
 	escSpent := blocked && w.Escs >= escAttempts
 
-	changed := materialChange(w, reading)
-
 	// Before anything on the clock, and the one change that outlives a handover already
 	// made: what fired the incident has stopped by itself. The authority to kill a process
 	// is no use against one that has already stopped, a reminder about options is the wrong
 	// message, and a session that was handed the decision and asked again is still the only
 	// thing that can verify this and close — which is why this one is not gated on the
 	// handover not having happened, as every other change is.
-	if changed.once == stepCleared && !escSpent {
-		return s.refresh(now, kind, w, reading, changed, blocked)
+	w, clear := s.clearing(w, reading, now, kind)
+	if clear.happened() && !escSpent {
+		return s.refresh(now, kind, w, reading, clear, blocked)
 	}
+
+	changed := materialChange(w, reading)
 
 	// An early handover is a step of its own and not the deadline's. Recorded as the
 	// deadline's, a session that was handed the decision early and judged that waiting was
@@ -640,6 +647,55 @@ To report to the channel Tim watches, write your message to a file and run:
   hachiko notify %s <file>`, data, w.Incident, w.Incident)
 }
 
+// Whether what fired the incident has stopped by itself, which is not a question gone stale
+// but an incident that may be over. Two checks in a row have to say so, the same rule the
+// projection above obeys and for the same reason: one interval is where every way of being
+// wrong lives — a writer between bursts, a daemon between runs, a sample taken late — and
+// what this hands the session is a reason to close an incident. Five more minutes is nothing
+// against that.
+//
+// Said once per incident, since every check after the first would say the same thing about
+// the same quiet machine.
+func (s sweeper) clearing(w Waiting, reading nowReading, now time.Time, kind string) (Waiting, change) {
+	detail, clear := reading.cleared[kindOf(w.Incident)]
+	if !clear || contains(w.Steps, stepCleared) || skippedTheQuestion(reading.stalled, w.Asked.Sizes) {
+		w.Clear = 0
+		return w, change{}
+	}
+
+	if w.Clear == 0 {
+		w.Clear = now.Unix()
+		s.say("nothing that fired %s is firing any more; one more check saying so tells the %s on-call agent",
+			w.Incident, kind)
+		return w, change{}
+	}
+
+	return w, change{
+		why:    "what fired this incident is no longer firing",
+		detail: detail,
+		once:   stepCleared,
+	}
+}
+
+// Whether a directory the walk did not open could be holding one of the files the question
+// was asked about. A file under a skipped directory is not a file that stopped growing, it is
+// a file nothing looked at, and the two readings are identical: in neither does it appear.
+//
+// Measured against the question's own files rather than against what is still flagged,
+// because what is still flagged is emptied by the first check that cannot see the file — so
+// one skipped check would have hidden the directory from every check after it.
+func skippedTheQuestion(stalled []Stall, asked map[string]int64) bool {
+	for _, stall := range stalled {
+		prefix := strings.TrimSuffix(stall.Dir, "/") + "/"
+		for path := range asked {
+			if strings.HasPrefix(path, prefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Whether waiting the rest of the three hours would cost more than asking again is the
 // agent's judgement, but the numbers behind it are hachiko's: it is the only thing
 // sampling the disk every five minutes while the agent sits on its question.
@@ -739,17 +795,6 @@ func (c change) happened() bool { return c.why != "" }
 // one is measured against the question rather than against the last check, because the
 // question is what has gone stale.
 func materialChange(w Waiting, reading nowReading) change {
-	// First of all of them, because it is not a question gone stale but an incident that may
-	// be over: what fired it is not firing any more. Said once per incident, since every
-	// check after the first would say the same thing about the same quiet machine.
-	if detail, clear := reading.cleared[kindOf(w.Incident)]; clear && !contains(w.Steps, stepCleared) {
-		return change{
-			why:    "what fired this incident is no longer firing",
-			detail: detail,
-			once:   stepCleared,
-		}
-	}
-
 	if reading.level != w.Asked.Level {
 		if reading.level == 0 {
 			return change{

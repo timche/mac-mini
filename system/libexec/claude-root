@@ -1,0 +1,374 @@
+#!/bin/bash
+
+# The one command a Claude Code session on this Mac may run under sudo without
+# Tim. Everything else privileged is still a command printed for him to read and
+# run himself, because sudo here asks for his password and a session has no
+# terminal to type it at.
+#
+# It exists for the class of incident where the fix is one root command and the
+# wait is hours: a scheduler daemon that got into a loop and spun a core all
+# night, which `killall dasd` ends in a second and which neither a sleeping Tim
+# nor an on-call session could touch. Blanket sudo would have fixed that one too,
+# and every other thing a session could ever decide to do; this takes a fixed set
+# of actions and refuses the rest, so what a session is trusted with is a list
+# somebody can read rather than the whole machine.
+#
+# So: no action takes a path, a command, a signal or a pid from the caller. The
+# only argument any of them takes is a name matched against a list compiled in
+# below, by string equality and never as a pattern, and a name that is not on it
+# is refused before anything privileged runs. Adding to that list is an edit to
+# this file, which lands as a root-owned copy through root-helper.sh and so needs
+# Tim's password — which is the point.
+#
+# Installed as a copy at /usr/local/libexec/claude-root, root-owned under
+# root-owned directories, and never a symlink into the checkout: the account can
+# write the checkout, so a link would hand any session on this Mac root. Same
+# reasoning as the sshd drop-in, and the same answer.
+#
+# Every invocation goes to the unified log through `logger -t claude-root`,
+# allowed and refused alike, with the account that asked. Nothing is written to a
+# file the account could edit afterwards.
+
+# No -e. Every action here has a result worth reporting — an old pid and a new
+# one, which logs were over the cap — and an exit on the first non-zero would
+# report none of it.
+set -uo pipefail
+
+# sudo resets most of the environment, but not all of it, and this is also
+# runnable by any other route. A root script that inherits DYLD_INSERT_LIBRARIES,
+# IFS or a PATH of somebody else's choosing is a root script somebody else is
+# steering, so the first thing it does is re-exec itself with an environment this
+# file wrote: the four variables below and nothing else. CLAUDE_ROOT_DRY_RUN is
+# carried because it only ever makes an action do less, never more, and because
+# it cannot reach here through sudo at all — sudoers grants no SETENV.
+if [ "${CLAUDE_ROOT_SANITIZED:-}" != 1 ]; then
+  # Absolute before the PATH goes, since the re-exec names the file rather than
+  # trusting whatever the new PATH would find under the same name. Builtins only:
+  # dirname and basename are commands, and the PATH this was handed is exactly
+  # what is not to be relied on.
+  case "$0" in
+    /*) self="$0" ;;
+    */*) self="$(cd "${0%/*}" && pwd)/${0##*/}" ;;
+    *) self="$(command -v "$0")" ;;
+  esac
+
+  exec /usr/bin/env -i \
+    CLAUDE_ROOT_SANITIZED=1 \
+    CLAUDE_ROOT_DRY_RUN="${CLAUDE_ROOT_DRY_RUN:-}" \
+    PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+    SUDO_USER="${SUDO_USER:-}" \
+    /bin/bash "$self" "$@"
+fi
+
+# One entry per daemon: the name a caller types, then the launchd label it stands
+# for. To allow another, add a line here and re-run root-helper.sh.
+allowed_daemons=(
+  "dasd com.apple.dasd"
+)
+
+# Rendered at install time into /etc/newsyslog.d by root-helper.sh, which is also
+# what puts the account's own home in it — newsyslog expands no $HOME.
+newsyslog_conf=/etc/newsyslog.d/mac-mini.conf
+
+# The machine's logs whose writer holds the descriptor for its whole life:
+# boswell, the herdr server, hachiko's listener and the signing agent each
+# redirect their entire output once at startup and never reopen it. For those a
+# rename is worse than doing nothing — the writer keeps appending to the file
+# newsyslog moved aside, the fresh file at the path stays empty, and nothing ever
+# crosses the size that would rotate it again — so they are copied aside and
+# truncated in place instead. That keeps the descriptor and its offset working and
+# gives the space back at once, which is the same reason hachiko truncates a
+# runaway log rather than unlinking it.
+#
+# The two that are missing from this list are in the newsyslog config instead:
+# hachiko's check and the worktree sweep are launchd jobs started afresh every few
+# minutes, so each run opens the path and finds whatever is there.
+held_open_logs=(boswell herdr hachiko-listen ssh-agent)
+
+# Ten megabytes, which is a few weeks of boswell at the rate it writes and still
+# small enough to read. One generation is kept for the held-open logs, five for
+# the ones newsyslog rotates.
+cap_kb=10240
+
+caller="${SUDO_USER:-$(id -un)}"
+argv="$*"
+dry_run=false
+[ "${CLAUDE_ROOT_DRY_RUN:-}" = 1 ] && dry_run=true
+
+audit() {
+  logger -t claude-root "$caller: $*"
+}
+
+# Refusals are logged too, and with what was asked for: a session that tried
+# something outside the list is the thing worth being able to read back later.
+refuse() {
+  audit "refused [${argv:-no action}]: $1"
+  echo "claude-root: $1" >&2
+  echo "claude-root --list says what it allows. Anything else is a command for" >&2
+  echo "Tim to run." >&2
+  exit 64
+}
+
+# The actions themselves need root; the validation above does not, and neither
+# does --list. Separated so that the argument handling can be tested as the
+# account, with no sudo anywhere near it.
+require_root() {
+  if [ "$(id -u)" -ne 0 ]; then
+    echo "claude-root: $1 needs root. Run:" >&2
+    echo "  sudo /usr/local/libexec/claude-root $argv" >&2
+    exit 77
+  fi
+}
+
+daemon_label() {
+  local entry
+
+  for entry in "${allowed_daemons[@]}"; do
+    if [ "${entry%% *}" = "$1" ]; then
+      echo "${entry#* }"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+# launchd prints the running pid one tab in under the job's own dict, and prints
+# further `pid =` lines inside the nested sections further down. The first match
+# is the job's, which is why this stops at it.
+daemon_pid() {
+  launchctl print "system/$1" 2>/dev/null |
+    sed -n '/^[[:space:]]*pid = /{s/.*= *//;p;q;}'
+}
+
+list() {
+  local entry
+
+  echo "claude-root — the only command a session on this Mac runs under sudo."
+  echo
+  echo "Actions:"
+  echo "  restart-daemon <name>  restart one of the daemons below"
+  echo "  rotate-logs            cap this machine's own logs"
+  echo "  flush-dns              flush the DNS cache and signal mDNSResponder"
+  echo "  --list                 this"
+  echo
+  echo "Daemons:"
+  for entry in "${allowed_daemons[@]}"; do
+    printf '  %-12s %s\n' "${entry%% *}" "${entry#* }"
+  done
+  echo
+  echo "Anything else is refused. To add a daemon, edit"
+  echo "system/libexec/claude-root in ~/.mac-mini and re-run root-helper.sh,"
+  echo "which is Tim's password."
+}
+
+restart_daemon() {
+  local name="$1" label old new waited refusal
+
+  if ! label="$(daemon_label "$name")"; then
+    refuse "not an allowed daemon: $name"
+  fi
+
+  old="$(daemon_pid "$label")"
+
+  if [ "$dry_run" = true ]; then
+    echo "dry run: would restart system/$label (pid ${old:-none})"
+    audit "restart-daemon $name: dry run"
+    return 0
+  fi
+
+  require_root "restart-daemon"
+
+  if [ -z "$old" ]; then
+    echo "claude-root: system/$label is not running, so there is nothing to" >&2
+    echo "restart." >&2
+    audit "restart-daemon $name: not running"
+    return 69
+  fi
+
+  # `kickstart -k` is the whole of it where launchd allows it. Some of Apple's own
+  # daemons are protected from being told to restart and launchctl says so rather
+  # than doing half the job, so the fallback is to kill the process launchd is
+  # watching and let launchd bring it back — the same outcome by the only route
+  # left. SIGTERM rather than SIGKILL: a scheduler in a loop still has state worth
+  # flushing, and launchd respawns it either way.
+  if ! refusal="$(launchctl kickstart -k "system/$label" 2>&1)"; then
+    echo "launchctl would not kickstart system/$label: ${refusal:-no reason given}"
+    echo "Killing pid $old instead; launchd respawns it."
+    kill -TERM "$old" 2>/dev/null || true
+  fi
+
+  # The new pid is what says it worked, rather than the exit status of either
+  # route above: launchd respawns on its own schedule and a kickstart that
+  # returned 0 has only queued the work.
+  waited=0
+  new="$old"
+
+  while [ "$waited" -lt 50 ]; do
+    new="$(daemon_pid "$label")"
+    if [ -n "$new" ] && [ "$new" != "$old" ]; then
+      break
+    fi
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+
+  if [ -n "$new" ] && [ "$new" != "$old" ]; then
+    echo "restarted $label: pid $old is now $new"
+    audit "restart-daemon $name: pid $old -> $new"
+    return 0
+  fi
+
+  echo "claude-root: $label has not come back with a new pid in five seconds;" >&2
+  echo "it is still pid ${new:-none}." >&2
+  audit "restart-daemon $name: no new pid (was $old, now ${new:-none})"
+  return 69
+}
+
+# The account's own home, from the account record rather than from $HOME, which
+# under sudo is root's. dscl because macOS has no getent.
+account_logs() {
+  local home
+
+  home="$(dscl . -read "/Users/$caller" NFSHomeDirectory 2>/dev/null |
+            sed 's/^NFSHomeDirectory: //')"
+  [ -n "$home" ] || return 1
+  echo "$home/Library/Logs"
+}
+
+truncate_log() {
+  local path="$1" size_kb owner
+
+  [ -f "$path" ] || return 0
+
+  size_kb=$(( $(stat -f '%z' "$path" 2>/dev/null || echo 0) / 1024 ))
+  [ "$size_kb" -ge "$cap_kb" ] || return 0
+
+  if [ "$dry_run" = true ]; then
+    echo "dry run: would copy aside and truncate $path (${size_kb}KB)"
+    return 0
+  fi
+
+  # Copied before it is truncated rather than renamed, so the process appending
+  # to it keeps a descriptor pointing at the file it opened. All four of these
+  # were opened with `>>`, so each write seeks to the end first and the next line
+  # lands at zero — the file comes back empty rather than as a sparse hole the
+  # size of what was there. The handful of lines written between the copy and the
+  # truncate are lost, which is the price of not restarting the writer: restarting
+  # the herdr server would take every session on this Mac with it.
+  owner="$(stat -f '%u:%g' "$path" 2>/dev/null || true)"
+
+  if ! cp "$path" "$path.0"; then
+    echo "claude-root: could not copy $path aside, so it was left alone." >&2
+    return 1
+  fi
+
+  [ -z "$owner" ] || chown "$owner" "$path.0" 2>/dev/null || true
+  : >"$path"
+  echo "truncated $path (${size_kb}KB, kept as $path.0)"
+}
+
+rotate_logs() {
+  local logs name status=0
+
+  if [ "$dry_run" != true ]; then
+    require_root "rotate-logs"
+  fi
+
+  if [ ! -f "$newsyslog_conf" ]; then
+    echo "claude-root: $newsyslog_conf is not there, so the logs newsyslog" >&2
+    echo "rotates were left alone. Run ~/.mac-mini/root-helper.sh." >&2
+    audit "rotate-logs: no config at $newsyslog_conf"
+    status=1
+  elif [ "$dry_run" = true ]; then
+    # -r drops newsyslog's own insistence on being root, which a dry run has no
+    # need of, and -n is what makes it print rather than act.
+    newsyslog -r -n -f "$newsyslog_conf" || status=1
+  else
+    newsyslog -f "$newsyslog_conf" || status=1
+  fi
+
+  if ! logs="$(account_logs)"; then
+    echo "claude-root: no home directory for $caller, so the logs that are held" >&2
+    echo "open were not capped." >&2
+    status=1
+  else
+    for name in "${held_open_logs[@]}"; do
+      truncate_log "$logs/$name.log" || status=1
+    done
+  fi
+
+  if [ "$status" -eq 0 ]; then
+    audit "rotate-logs: done"
+  else
+    audit "rotate-logs: finished with errors"
+  fi
+
+  return "$status"
+}
+
+flush_dns() {
+  local status=0
+
+  if [ "$dry_run" = true ]; then
+    echo "dry run: would flush the DNS cache and signal mDNSResponder"
+    audit "flush-dns: dry run"
+    return 0
+  fi
+
+  require_root "flush-dns"
+
+  dscacheutil -flushcache || status=1
+
+  # mDNSResponder is the resolver itself and macOS keeps it running, so one that
+  # is not there to signal is worth saying rather than ignoring.
+  killall -HUP mDNSResponder || status=1
+
+  if [ "$status" -eq 0 ]; then
+    echo "flushed the DNS cache and signalled mDNSResponder"
+    audit "flush-dns: done"
+  else
+    echo "claude-root: the DNS flush did not fully succeed." >&2
+    audit "flush-dns: finished with errors"
+  fi
+
+  return "$status"
+}
+
+# `--` is the caller's way of saying the rest is arguments. Nothing here takes a
+# name that could start with a dash, so it changes no outcome — but a helper that
+# treated `--` as an action of its own would refuse for the wrong reason.
+if [ "${1:-}" = -- ]; then
+  shift
+fi
+
+[ $# -gt 0 ] || refuse "no action given"
+
+action="$1"
+shift
+
+# Every argument count is checked before anything privileged runs, and so is the
+# daemon name inside restart_daemon — which is why a dry run is not a way past any
+# of it: dry run only reaches the point where an action would act.
+case "$action" in
+  --list | list)
+    [ $# -eq 0 ] || refuse "--list takes no argument"
+    audit "--list"
+    list
+    ;;
+  restart-daemon)
+    [ $# -eq 1 ] || refuse "restart-daemon takes exactly one daemon name"
+    restart_daemon "$1"
+    ;;
+  rotate-logs)
+    [ $# -eq 0 ] || refuse "rotate-logs takes no argument"
+    rotate_logs
+    ;;
+  flush-dns)
+    [ $# -eq 0 ] || refuse "flush-dns takes no argument"
+    flush_dns
+    ;;
+  *)
+    refuse "not an allowed action: $action"
+    ;;
+esac

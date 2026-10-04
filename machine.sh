@@ -51,6 +51,12 @@ fi
 # yet, rather than locking you out of a machine that is nowhere near you.
 "$repo/harden-ssh.sh"
 
+# After the steps that decide how this Mac is reached, because none of them
+# depends on it and a run that stopped here would still leave a reachable Mac. It
+# skips itself rather than prompting where there is no terminal to type a password
+# at.
+"$repo/root-helper.sh"
+
 # After everything else, because it is an 11GB download and an Apple ID typed in
 # at the time: nothing in the run should wait behind that. A terminal is the whole
 # of the condition — with none there is nobody to type it, and the footer below
@@ -84,6 +90,15 @@ fi
 if [ ! -f /etc/ssh/sshd_config.d/10-hardening.conf ]; then
   echo "  - $repo/harden-ssh.sh — ssh still takes a password. Add the key you"
   echo "    connect with to ~/.ssh/authorized_keys and run it again."
+fi
+
+# root-helper.sh skips itself where sudo would have prompted with nobody there to
+# answer, and the helper at the end of it is the only thing that says whether it
+# did. Read rather than sudoed: the file is root-owned and world-executable, as is
+# every directory above it.
+if [ ! -x /usr/local/libexec/claude-root ]; then
+  echo "  - $repo/root-helper.sh — a session still has no sudo of its own, so"
+  echo "    every root command waits for you."
 fi
 
 if [ "$xcode_left" = true ]; then

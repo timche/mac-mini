@@ -1,0 +1,26 @@
+# The whole of the sudo this Mac's account has without a password: one root-owned
+# helper, which validates what it is asked to do. No wildcard, no second path, and
+# nothing that takes a command from the caller.
+#
+# Arguments are deliberately unrestricted — a command written without them in
+# sudoers may be run with any — because restricting them here would put the
+# allowlist in two places and sudoers' matching is glob, not equality. The helper
+# matches its action and its daemon name by string, and refuses before anything
+# privileged runs.
+#
+# The path is an alias rather than written where the rule is because the secrets
+# scan every commit on this Mac goes through reads a path after NOPASSWD: as a
+# password being set. Which is also idiomatic sudoers, and names the thing once.
+#
+# The account name below is rendered in at install time from whoever runs
+# root-helper.sh, since nothing in this repository is written for one account
+# name. A placeholder that survived the rendering is a file the installer refuses
+# to move into place — a rule for an account that does not exist would leave this
+# Mac's own account with no sudo at all.
+#
+# Installed as a root-owned copy at /etc/sudoers.d/claude-root, mode 0440, and
+# checked with `visudo -cf` before it is moved into place: a sudoers file sudo
+# cannot parse takes sudo away from Tim as well.
+Cmnd_Alias CLAUDE_ROOT = /usr/local/libexec/claude-root
+
+__USER__ ALL=(root) NOPASSWD: CLAUDE_ROOT

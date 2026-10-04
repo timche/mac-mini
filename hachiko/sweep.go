@@ -164,6 +164,23 @@ func (s sweeper) run() error {
 		raised = s.raise(state, now, kind, headline, details, free, truncated)
 	}
 
+	// Whether what fired an open incident is still firing. A reading where it is not is the
+	// other half of what the session needs and never got: dasd fell back to idle at about
+	// eight in the morning and nothing said so until Tim asked at twenty past nine.
+	//
+	// A reading that is missing is not a reading that is clear, so neither of these is taken
+	// from one: a walk that ran out of its seconds saw only part of the disk, and a check
+	// with no process sample saw no processes at all.
+	cleared := map[string]string{}
+	if level == 0 && !disk.cutShort && disk.report == "" && disk.truncated == "" {
+		cleared["disk"] = fmt.Sprintf("Nothing is growing fast any more, and free space is over every threshold at %s GB.",
+			gbStr(free))
+	}
+	if cpu.read && cpu.report == "" {
+		cleared["cpu"] = fmt.Sprintf("Nothing is over the CPU threshold any more, across the %d processes this check sampled.",
+			cpu.sampled)
+	}
+
 	// This minute's numbers, which every message about a question nobody has answered
 	// carries: the answer to a three-hour-old question is about a machine that has moved.
 	reading := nowReading{
@@ -176,6 +193,7 @@ func (s sweeper) run() error {
 		sizes:       disk.sizes,
 		writers:     disk.writers,
 		report:      disk.report + cpu.report + disk.truncated,
+		cleared:     cleared,
 	}
 
 	s.chaseLateReports(state, now)
@@ -266,6 +284,7 @@ func (s sweeper) rememberStalls(was []Stall, stalled, retried []string, now time
 }
 
 type diskFindings struct {
+	cutShort      bool
 	sizes         map[string]int64
 	growing       []Growing
 	stalled       []Stall
@@ -322,6 +341,7 @@ func (s sweeper) disk(state *State, now time.Time, free int64) diskFindings {
 
 	out.stalled = s.rememberStalls(state.Stalled, walk.Stalled, retried, now)
 
+	out.cutShort = walk.CutShort
 	if walk.CutShort {
 		s.say("the walk ran out of its %s, so this check saw only part of the disk", s.cfg.WalkTimeout)
 	}
@@ -396,7 +416,11 @@ func (s sweeper) disk(state *State, now time.Time, free int64) diskFindings {
 }
 
 type cpuFindings struct {
-	sample     CPUSample
+	sample CPUSample
+
+	// Whether there was a process sample at all. An empty one is a reading; a failed one is
+	// the absence of a reading, and nothing may be concluded from it about what is running.
+	read       bool
 	hot        []Hot
 	sampled    int
 	report     string
@@ -414,7 +438,7 @@ func (s sweeper) cpu(state *State, now time.Time) cpuFindings {
 	}
 
 	sample, hot := cpuHot(state.CPU, procs, now, s.cfg.CPUShare, s.cfg.CPUWindow)
-	out := cpuFindings{sample: sample, hot: hot, sampled: len(procs)}
+	out := cpuFindings{sample: sample, read: true, hot: hot, sampled: len(procs)}
 
 	mine := ownTree(procs, s.deps.Getpid())
 	allowlist := readAllowlist(s.cfg.CPUAllowPath)

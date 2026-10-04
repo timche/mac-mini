@@ -24,6 +24,10 @@ const (
 	// once per incident however long the handover goes on failing, and nothing about the
 	// failure stops repeating by itself.
 	stepStuck = "stuck"
+
+	// The news that what fired the incident has stopped by itself. Once per incident for the
+	// same reason: a quiet Mac is every check after the first one.
+	stepCleared = "cleared"
 )
 
 // What this check measured, which every reminder and every handover carries instead of
@@ -42,6 +46,12 @@ type nowReading struct {
 	// Whether the span is one the check had to invent rather than one it measured, which is
 	// what a clock that moved looks like from here.
 	spanClamped bool
+
+	// Per kind, what this check found is no longer firing, in hachiko's own words and with
+	// its own numbers: no file growing fast and room back on the volume, or nothing over the
+	// CPU share. Empty for a kind whose trigger is still going, and empty on a check whose
+	// reading of that half was missing rather than clear.
+	cleared map[string]string
 }
 
 func (r nowReading) snapshot(now time.Time) Asked {
@@ -188,6 +198,17 @@ func (s sweeper) escalate(state *State, now time.Time, kind string, w Waiting, r
 
 	waited := now.Sub(time.Unix(w.Since, 0))
 	handed := contains(w.Steps, stepHandover)
+	changed := materialChange(w, reading)
+
+	// Before anything on the clock, and the one change that outlives a handover already
+	// made: what fired the incident has stopped by itself. The authority to kill a process
+	// is no use against one that has already stopped, a reminder about options is the wrong
+	// message, and a session that was handed the decision and asked again is still the only
+	// thing that can verify this and close. dasd fell back to idle at about eight in the
+	// morning, four hours after its handover, and nothing said so until Tim asked.
+	if changed.once == stepCleared {
+		return s.refresh(now, kind, w, reading, changed, blocked)
+	}
 
 	// An early handover is a step of its own and not the deadline's. Recorded as the
 	// deadline's, a session that was handed the decision early and judged that waiting was
@@ -204,7 +225,7 @@ func (s sweeper) escalate(state *State, now time.Time, kind string, w Waiting, r
 		return w
 	}
 
-	if changed := materialChange(w, reading); changed.happened() {
+	if changed.happened() {
 		return s.refresh(now, kind, w, reading, changed, blocked)
 	}
 
@@ -416,12 +437,25 @@ func (s sweeper) refresh(now time.Time, kind string, w Waiting, reading nowReadi
 			changed.why, hmStr(waited), hmStr(s.cfg.HandoverAfter))
 	}
 
+	// An incident that has stopped by itself is not an incident to ask fresh options about:
+	// it is one to verify and close. Verify rather than take this reading for it — a process
+	// under the share for one sample is not a process that has finished, and hachiko's own
+	// reading is one five-minute interval of a machine the session can look at directly.
+	if changed.once == stepCleared {
+		cancelled := "You have no question up, so nothing of yours was cancelled."
+		if blocked {
+			cancelled = "Your question has been cancelled, since its options are about something that has stopped."
+		}
+		lead = fmt.Sprintf(`What fired this incident is no longer firing, by this minute's reading. %s Check for yourself whether it has really resolved — read the processes, the file and the free space again rather than taking that reading for it. If it has, send one message with `+"`hachiko notify --outcome <incident> <file>`"+` saying what happened and that it stopped by itself, write the incident note, and stop. If it has not, ask again with options that fit what it is now. Tim has been waiting %s.`,
+			cancelled, hmStr(waited))
+	}
+
 	escSent, err := s.hand(kind, blocked, lead, changed.detail+"\n\n"+s.handoverData(w, reading))
 	if err != nil {
 		if escSent {
 			// The question is gone whether or not the prompt landed, so what it was measured
 			// against goes with it and the next check owes the prompt alone.
-			w.Owed, w.OwedSteps = lead, nil
+			w.Owed, w.OwedSteps = lead, once(changed)
 			w.Asked = reading.snapshot(now)
 			w.Nudged = now.Unix()
 			s.say("%s changed while the %s on-call agent was waiting, and its question is cancelled but the prompt did not land, so the next check sends the prompt alone: %v",
@@ -442,8 +476,19 @@ func (s sweeper) refresh(now time.Time, kind string, w Waiting, reading nowReadi
 	}
 
 	w.Asked = reading.snapshot(now)
+	w.Steps = mergeSorted(w.Steps, once(changed))
 	w.Nudged = now.Unix()
 	return w
+}
+
+// The step a change marks once it has reached the agent, for the one kind that may only be
+// sent once. Nothing for every other kind, each of which is measured against the question
+// and so stops being a change the moment the question is asked again.
+func once(changed change) []string {
+	if changed.once == "" {
+		return nil
+	}
+	return []string{changed.once}
 }
 
 // The session is closed and the question went with it, so there is nobody to hand
@@ -597,6 +642,11 @@ func timeToCritical(cfg Config, reading nowReading) (time.Duration, bool) {
 type change struct {
 	why    string
 	detail string
+
+	// The step this change marks once it has reached the agent, for a change that may only
+	// be sent once per incident. Empty for every change measured against the question, which
+	// the next question stops being a change against by itself.
+	once string
 }
 
 func (c change) happened() bool { return c.why != "" }
@@ -605,6 +655,17 @@ func (c change) happened() bool { return c.why != "" }
 // one is measured against the question rather than against the last check, because the
 // question is what has gone stale.
 func materialChange(w Waiting, reading nowReading) change {
+	// First of all of them, because it is not a question gone stale but an incident that may
+	// be over: what fired it is not firing any more. Said once per incident, since every
+	// check after the first would say the same thing about the same quiet machine.
+	if detail, clear := reading.cleared[kindOf(w.Incident)]; clear && !contains(w.Steps, stepCleared) {
+		return change{
+			why:    "what fired this incident is no longer firing",
+			detail: detail,
+			once:   stepCleared,
+		}
+	}
+
 	if reading.level != w.Asked.Level {
 		if reading.level == 0 {
 			return change{

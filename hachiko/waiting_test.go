@@ -35,6 +35,13 @@ func waitingOn(t *testing.T, rel string) *fixture {
 	f.cfg.WarnAfter = warnAt * time.Second
 	f.cfg.HandoverAfter = handoverAt * time.Second
 
+	// The incident goes on happening for as long as the test walks the clock, because a
+	// trigger that has cleared is news hachiko takes the question away for. Kilobytes rather
+	// than megabytes: it has to stay over the growth threshold on every check without ever
+	// doubling the file on its own, which is a different piece of news again.
+	f.cfg.GrowthKB = 64
+	f.keepGrowing, f.keepKB = rel, 128
+
 	// The incident, the session, and the report that leaves the session on its question.
 	f.grow(rel, 3*mb)
 	f.at(0).sweep()
@@ -350,6 +357,117 @@ func TestAFileDoublingWhileTheAgentWaitsCancelsTheQuestionAndAsksAgain(t *testin
 
 	// And nothing of hachiko's own went out about it: the session is going to ask again.
 	equal(t, f.sentCount(), 1, "messages sent for the refresh")
+}
+
+// The other thing the cpu session needed and never got. dasd dropped to nothing by itself at
+// about eight in the morning and the session, still waiting on a question about a process
+// that had stopped, said nothing until Tim asked at twenty past nine.
+func TestATriggerThatHasClearedReachesTheAgentOnce(t *testing.T) {
+	f := waiting(t)
+
+	// The writer stops: nothing growing fast, and free space over every threshold.
+	f.keepGrowing = ""
+	out := f.at(900).sweep()
+
+	wants(t, out, "what fired this incident is no longer firing")
+	wants(t, out, "its question was cancelled and it was asked again")
+	equal(t, len(f.interrupts), 1, "questions cancelled")
+
+	prompt := f.lastInterrupt()
+	wants(t, prompt, "What fired this incident is no longer firing, by this minute's reading")
+	wants(t, prompt, "Check for yourself whether it has really resolved")
+	wants(t, prompt, "hachiko notify --outcome <incident> <file>")
+	wants(t, prompt, "that it stopped by itself")
+	// The number is in the data, below the fence, and not in the lead.
+	wants(t, prompt, "Nothing is growing fast any more, and free space is over every threshold at 500.0 GB.")
+
+	// Once per incident: a quiet Mac is every check after this one, and nothing of hachiko's
+	// own went to the channel about it either — the session's message is what says what
+	// happened.
+	for at := int64(1200); at <= 1800; at += 300 {
+		lacks(t, f.at(at).sweep(), "no longer firing")
+	}
+	equal(t, len(f.interrupts), 1, "questions cancelled after the first")
+	equal(t, f.sentCount(), 1, "messages sent by hachiko about the trigger clearing")
+}
+
+// It outlives the handover, which every other change does not: a session that was handed the
+// decision and asked again is still the only thing that can verify this and close. dasd
+// cleared four hours after its handover.
+func TestATriggerThatClearsAfterTheHandoverStillReachesTheAgent(t *testing.T) {
+	f := waiting(t)
+	f.at(600 + remindAt).sweep()
+	f.at(600 + warnAt).sweep()
+	f.at(600 + handoverAt).sweep()
+
+	// It judged that waiting was safe and asked again, and then the writer stopped.
+	f.blocks("disk")
+	f.keepGrowing = ""
+	out := f.at(600 + handoverAt + 300).sweep()
+
+	wants(t, out, "what fired this incident is no longer firing")
+	equal(t, len(f.interrupts), 2, "questions cancelled in all")
+	wants(t, f.lastInterrupt(), "Check for yourself whether it has really resolved")
+}
+
+// And with no question up it is the prompt alone, since there is nothing of the agent's to
+// cancel.
+func TestATriggerThatClearsWithNoQuestionUpIsThePromptAlone(t *testing.T) {
+	f := waiting(t)
+
+	f.status["disk"] = "idle"
+	f.keepGrowing = ""
+	out := f.at(900).sweep()
+
+	wants(t, out, "what fired this incident is no longer firing")
+	wants(t, out, "so it was asked again")
+	equal(t, len(f.interrupts), 0, "questions cancelled")
+	equal(t, len(f.prompts), 1, "prompts sent on their own")
+	wants(t, f.lastPrompt(), "You have no question up, so nothing of yours was cancelled")
+}
+
+// A hot process that drops under the share is the same news on the other half of the watch.
+func TestACPUTriggerThatHasClearedReachesTheAgent(t *testing.T) {
+	f := newFixture(t)
+	f.cfg.RemindAfter = remindAt * time.Second
+	f.cfg.WarnAfter = warnAt * time.Second
+	f.cfg.HandoverAfter = handoverAt * time.Second
+
+	// Thirteen samples of a process over half a core, which is the hour the rule is about.
+	f.cpuRuns(13, 240)
+	incident := f.onlyPendingID()
+	equal(t, kindOf(incident), "cpu", "the kind of the incident")
+
+	f.notifyWithFallback(incident, "leave it alone")
+	f.blocks("cpu")
+	f.proc(7018, 13*240, firstStart, "/usr/local/bin/node worker.js")
+	f.at(13 * 300).sweep()
+
+	// It is still there and has spent no CPU since, which is what dasd did at about eight in
+	// the morning: back under the share for a sample.
+	f.proc(7018, 13*240, firstStart, "/usr/local/bin/node worker.js")
+	out := f.at(14 * 300).sweep()
+
+	wants(t, out, "what fired this incident is no longer firing")
+	equal(t, len(f.interrupts), 1, "questions cancelled")
+	wants(t, f.lastInterrupt(), "Check for yourself whether it has really resolved")
+	wants(t, f.lastInterrupt(), "Nothing is over the CPU threshold any more")
+}
+
+// A reading that is missing is not a reading that is clear: a check with no process sample
+// saw no processes at all, and a walk that ran out of its seconds saw part of the disk.
+func TestAMissingReadingIsNotATriggerThatHasCleared(t *testing.T) {
+	f := waiting(t)
+
+	f.keepGrowing = ""
+	f.cutShort = true
+	lacks(t, f.at(900).sweep(), "no longer firing")
+	lacks(t, f.at(1200).sweep(), "no longer firing")
+	equal(t, len(f.interrupts), 0, "questions cancelled on a walk that saw part of the disk")
+
+	// And once it has seen the whole of it, the news goes.
+	f.cutShort = false
+	wants(t, f.at(1500).sweep(), "what fired this incident is no longer firing")
 }
 
 // A threshold crossed either way is a question whose options were written for a disk
@@ -923,6 +1041,8 @@ func TestOneIncidentGetsOneThreadAndEveryLaterMessageGoesIntoIt(t *testing.T) {
 	f.cfg.RemindAfter = remindAt * time.Second
 	f.cfg.WarnAfter = warnAt * time.Second
 	f.cfg.HandoverAfter = handoverAt * time.Second
+	f.cfg.GrowthKB = 64
+	f.keepGrowing, f.keepKB = "tmp/worker.log", 128
 
 	f.grow("tmp/worker.log", 3*mb)
 	f.at(0).sweep()

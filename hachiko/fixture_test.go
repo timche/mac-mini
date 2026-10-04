@@ -38,6 +38,12 @@ type fixture struct {
 	procs   []Process
 	pid     int
 
+	// A file the incident is about that gains keepKB on every check, which is what keeps an
+	// incident open across a test that walks the clock: a file that has stopped growing is a
+	// trigger that has cleared, and that is a test of its own.
+	keepGrowing string
+	keepKB      int64
+
 	// What the walk reports it could not look at, and what it was told to skip.
 	stalls   []string
 	cutShort bool
@@ -353,6 +359,9 @@ func (f *fixture) cpuRuns(samples int, per float64) string {
 
 func (f *fixture) sweep() string {
 	f.t.Helper()
+	if f.keepGrowing != "" {
+		f.grow(f.keepGrowing, f.keepKB)
+	}
 	f.log.Reset()
 
 	s := sweeper{cfg: f.cfg, deps: f.deps(), store: f.store, dry: false}

@@ -634,11 +634,25 @@ func (s sweeper) expectAQuestion(state *State, now time.Time, kind, incident str
 	if w.Incident != incident {
 		w.Incident, w.Opened = incident, now.Unix()
 		w.Steps, w.Default, w.Asked = nil, "", Asked{}
+
 		// Both of these are one check's half of a two-check judgement about the incident that
 		// has just been superseded: that it is about to fill the disk, and that it has stopped
 		// by itself. Neither carries over, least of all the second — a writer that stopped and
 		// started again is the thing that raised this one.
 		w.Worsening, w.Clear = 0, 0
+
+		// A prompt owed on the incident that has just been superseded is a prompt nothing
+		// owes any more: the brief above has reached the agent, and the lead that was owed
+		// says Tim has not answered a question that no longer exists. Sent against the new
+		// incident it handed over a decision on this minute's alert the moment it arrived,
+		// with the steps it came with, so the whole of the clock — reminder, warning, the
+		// three hours — was recorded as spent before Tim had seen anything.
+		w.Owed, w.OwedSteps = "", nil
+
+		// And the three graces, all of them "when the agent was last seen in this state": it
+		// has just been handed a new brief, so each of them starts from now rather than from
+		// something it was doing about the incident before this one.
+		w.Busy, w.Settled, w.Escs = 0, 0, 0
 	}
 	w.Tab = session.Tab
 	if session.Cancelled {

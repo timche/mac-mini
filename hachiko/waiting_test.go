@@ -783,6 +783,61 @@ func TestWhatCountsAsTheIncidentHavingMoved(t *testing.T) {
 	equal(t, materialChange(unknown, joined).happened(), false, "a writer with none recorded to compare against")
 }
 
+// A prompt owed on an incident a fresh alert has just superseded is a prompt nothing owes
+// any more. Sent against the new incident it handed the decision over on this minute's alert
+// the moment it arrived, with the steps it came with — so the reminder, the warning and the
+// three hours were all recorded as spent before Tim had seen anything about it.
+func TestAPromptOwedOnASupersededIncidentIsNotOwedOnTheNewOne(t *testing.T) {
+	f := waiting(t)
+
+	// A quarter of the free space goes, so the decision is handed over early — and its esc
+	// lands while its prompt does not, which is what leaves a prompt owed with the steps the
+	// early handover would have recorded.
+	f.freeGB = 374
+	f.interruptErr = errors.New("the agent is still on its question after the esc")
+	f.interruptEsc = true
+	f.at(900).sweep()
+
+	first := f.state().Waiting["disk"]
+	wants(t, first.Owed, "getting worse rapidly")
+	equal(t, contains(first.OwedSteps, stepEarly), true, "whether the owed prompt carries the early handover")
+
+	// Before the next check can send it, a second file starts filling the disk: a fresh alert
+	// for the same kind, whose brief reaches the agent. The owed prompt is about a question
+	// that no longer exists, and the steps it carries belong to the incident it was owed on.
+	f.interruptErr, f.interruptEsc = nil, false
+	f.grow("tmp/second.log", 3*mb)
+	out := f.at(1200).sweep()
+
+	wants(t, out, "growing fast:")
+	lacks(t, out, "the prompt owed to the disk on-call agent")
+
+	w := f.state().Waiting["disk"]
+	if w.Incident == first.Incident {
+		t.Fatal("the new incident did not replace the one the prompt was owed on")
+	}
+	equal(t, w.Owed, "", "the prompt still owed")
+	equal(t, len(w.OwedSteps), 0, "the steps the owed prompt carried")
+	equal(t, len(w.Steps), 0, "steps recorded on the new incident")
+	equal(t, w.Busy, int64(0), "when the agent started working on the new brief")
+	equal(t, w.Escs, 0, "attempts recorded against the question that is gone")
+	equal(t, len(f.prompts), 0, "prompts sent on their own")
+	// Measured from this check rather than carried over from something the agent was doing
+	// about the incident before this one.
+	equal(t, w.Settled, base.Unix()+1200, "when the agent last went quiet")
+
+	// So the new incident still has its own early handover coming, which the owed steps would
+	// have spent on it the moment it arrived.
+	f.blocks("disk")
+	f.freeGB = 280
+	wants(t, f.at(1500).sweep(), "one more check saying so hands the decision over")
+	f.blocks("disk")
+	f.freeGB = 200
+	out = f.at(1800).sweep()
+	wants(t, out, "handed the decision on "+w.Incident)
+	wants(t, out, "early:")
+}
+
 // A fresh alert for the same kind while the agent is on its question: the brief cannot be
 // delivered to a blocked agent, so the question goes and the session is asked again. The
 // clock is Tim's and does not restart with it; the steps do, because the handover is a

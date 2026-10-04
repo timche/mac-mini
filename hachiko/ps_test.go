@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-const psSample = `    1     0  24320  33:41.67 Mon Sep 28 20:06:06 2026 /sbin/launchd
- 7018     1 524288   2:03:04.12 Mon Sep  8 09:00:00 2026 /usr/local/bin/node  worker.js --flag
-  642     1   1616  1-02:00:00.00 Tue Sep 29 09:00:00 2026 /usr/libexec/smd
+const psSample = `    1     0     0  24320  33:41.67 Mon Sep 28 20:06:06 2026 root             /sbin/launchd
+ 7018     1   501 524288   2:03:04.12 Mon Sep  8 09:00:00 2026 timche           /usr/local/bin/node  worker.js --flag
+  642     1   244   1616  1-02:00:00.00 Tue Sep 29 09:00:00 2026 _appstore        /usr/libexec/smd
 `
 
 func TestParseProcessesReadsTheFieldsPsPrints(t *testing.T) {
@@ -19,9 +19,19 @@ func TestParseProcessesReadsTheFieldsPsPrints(t *testing.T) {
 	launchd := procs[0]
 	equal(t, launchd.PID, 1, "pid")
 	equal(t, launchd.PPID, 0, "ppid")
+	equal(t, launchd.UID, 0, "uid")
+	equal(t, launchd.User, "root", "owner")
+	equal(t, launchd.Owner(), "root", "what to call the owner")
 	equal(t, launchd.RSSKB, int64(24320), "rss")
 	equal(t, launchd.CPU, 33*time.Minute+41*time.Second+670*time.Millisecond, "cumulative cpu")
 	equal(t, launchd.Command, "/sbin/launchd", "command")
+
+	equal(t, procs[1].UID, 501, "the uid of this account's process")
+	equal(t, procs[2].Owner(), "_appstore", "a daemon account's name")
+
+	// A uid with no name against it is still an owner, since the number is the identity
+	// anything here decides by and the name is only what the message calls it.
+	equal(t, Process{UID: 244}.Owner(), "244", "an owner ps resolved no name for")
 
 	// The command keeps its own spacing, which is how an argument with two spaces in
 	// it reads the way it was started.
@@ -61,6 +71,24 @@ func TestThePsSampleIsTakenInTheCLocale(t *testing.T) {
 			t.Error("ps was asked for a per-cent figure of its own")
 		}
 	}
+
+	// The owner's name is the one fixed field that could hold a space, so it goes after
+	// lstart and immediately before the command: a name with one in it then costs a token off
+	// the front of the command line rather than shifting every number behind it.
+	if !slices.Contains(cmd.Args, "pid=,ppid=,uid=,rss=,time=,lstart=,user=,command=") {
+		t.Errorf("the fields are not in the order the parser reads them: %v", cmd.Args)
+	}
+}
+
+// A name with a space in it is not a name macOS will make, but a sample it broke would be a
+// hot process hachiko never saw. The numbers it decides by stay where they are.
+func TestAnOwnerNameWithASpaceInItDoesNotMoveTheNumbers(t *testing.T) {
+	procs := parseProcesses(" 7018     1   501 524288   2:03:04.12 Mon Sep  8 09:00:00 2026 odd name /usr/local/bin/node worker.js\n")
+
+	equal(t, len(procs), 1, "processes parsed")
+	equal(t, procs[0].PID, 7018, "pid")
+	equal(t, procs[0].UID, 501, "uid")
+	equal(t, procs[0].CPU, (2*3600+3*60+4)*time.Second+120*time.Millisecond, "cumulative cpu")
 }
 
 func TestOwnTreeIsEverythingBetweenAPidAndLaunchd(t *testing.T) {

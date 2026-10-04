@@ -21,6 +21,13 @@ type Process struct {
 	RSSKB int64
 	CPU   time.Duration
 
+	// Who owns it. The uid is what anything decides by, because it is a number ps cannot
+	// print ambiguously; the name is for the message, and ps is the only thing here that can
+	// resolve one — macOS keeps its daemon accounts in Directory Services and not in
+	// /etc/passwd, which is all a CGO_ENABLED=0 binary could read for itself.
+	UID  int
+	User string
+
 	// The start date as ps printed it, which is half of the identity: a pid is
 	// reused, and the history behind one belongs to whoever held it.
 	Start     string
@@ -39,12 +46,25 @@ func (p Process) Path() string {
 
 func (p Process) Name() string { return filepath.Base(p.Path()) }
 
+// What to call the owner in a message: the name ps resolved, or the uid when it gave none.
+func (p Process) Owner() string {
+	if p.User != "" {
+		return p.User
+	}
+	return strconv.Itoa(p.UID)
+}
+
 // One ps for the whole machine. `command` is last because it is the one field that
 // can hold a space, -ww because ps otherwise truncates it to a terminal width, and
 // LC_ALL=C because the start date is five tokens whose month and weekday names are
 // the locale's otherwise — and that date is an identity this compares as a string.
+//
+// `user` goes last of the fixed fields and after `lstart`, which is five tokens at a fixed
+// position: a name with a space in it would then cost a token off the front of the command
+// line rather than shifting every number behind it, and the numbers are what every rule
+// here decides by.
 func psCommand(ctx context.Context) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "ps", "-A", "-ww", "-o", "pid=,ppid=,rss=,time=,lstart=,command=")
+	cmd := exec.CommandContext(ctx, "ps", "-A", "-ww", "-o", "pid=,ppid=,uid=,rss=,time=,lstart=,user=,command=")
 	cmd.Env = append(cmd.Environ(), "LC_ALL=C")
 	return cmd
 }
@@ -73,9 +93,9 @@ func parseProcesses(out string) []Process {
 }
 
 func parseProcess(line string) (Process, bool) {
-	// pid, ppid, rss, time, then the five tokens of the start date; the command is
-	// whatever is left, with its own spacing kept.
-	head, rest, ok := splitFields(line, 9)
+	// pid, ppid, uid, rss, time, the five tokens of the start date, then the owner's name;
+	// the command is whatever is left, with its own spacing kept.
+	head, rest, ok := splitFields(line, 11)
 	if !ok || rest == "" {
 		return Process{}, false
 	}
@@ -88,16 +108,20 @@ func parseProcess(line string) (Process, bool) {
 	if err != nil {
 		return Process{}, false
 	}
-	rss, err := strconv.ParseInt(head[2], 10, 64)
+	uid, err := strconv.Atoi(head[2])
 	if err != nil {
 		return Process{}, false
 	}
-	cpu, ok := parseCPUTime(head[3])
+	rss, err := strconv.ParseInt(head[3], 10, 64)
+	if err != nil {
+		return Process{}, false
+	}
+	cpu, ok := parseCPUTime(head[4])
 	if !ok {
 		return Process{}, false
 	}
 
-	start := strings.Join(head[4:9], " ")
+	start := strings.Join(head[5:10], " ")
 	startedAt, err := time.ParseInLocation("Mon Jan 2 15:04:05 2006", start, time.Local)
 	if err != nil {
 		startedAt = time.Time{}
@@ -106,6 +130,8 @@ func parseProcess(line string) (Process, bool) {
 	return Process{
 		PID:       pid,
 		PPID:      ppid,
+		UID:       uid,
+		User:      head[10],
 		RSSKB:     rss,
 		CPU:       cpu,
 		Start:     start,

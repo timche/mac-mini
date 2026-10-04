@@ -103,9 +103,19 @@ func (s sweeper) chaseAnswers(state *State, now time.Time, reading nowReading) {
 
 		status, err := s.deps.AgentStatus(kind)
 		if err != nil {
-			s.say("herdr did not say what the %s on-call agent is doing, so the wait on %s is left as it was: %v",
-				kind, w.Incident, err)
+			if next, keep := s.unreachable(state, now, kind, w, reading, err); keep {
+				state.Waiting[kind] = next
+			} else {
+				delete(state.Waiting, kind)
+			}
 			continue
+		}
+
+		// Any answer at all ends the run, so the next outage is measured from itself rather
+		// than from one hours ago that came back.
+		if w.Unreachable != 0 {
+			w.Unreachable = 0
+			state.Waiting[kind] = w
 		}
 
 		// The message the session marked as the outcome, and only that one: it sends others
@@ -590,6 +600,54 @@ func once(changed change) []string {
 		return nil
 	}
 	return []string{changed.once}
+}
+
+// herdr not answering is neither an answer nor a closed session, so one check that cannot
+// reach it leaves the wait exactly as it was: a server being restarted or a configuration
+// being reloaded is not something to wake anybody about, and the next check asks again.
+//
+// An unbroken run of them is the other thing entirely. There is no session to remind, nothing
+// to hand a decision to and no way to tell whether anybody answered, so the wait is not a
+// wait any more — and hachiko going on counting one in silence is how an incident gets left
+// to nobody. It is given the minutes a session is given to report in, and then it says so
+// once and stops.
+func (s sweeper) unreachable(state *State, now time.Time, kind string, w Waiting, reading nowReading, err error) (Waiting, bool) {
+	if w.Unreachable == 0 {
+		w.Unreachable = now.Unix()
+	}
+
+	down := now.Sub(time.Unix(w.Unreachable, 0))
+	if down < s.cfg.OncallDeadline {
+		s.say("herdr did not say what the %s on-call agent is doing, so the wait on %s is left as it was: %v",
+			kind, w.Incident, err)
+		return w, true
+	}
+
+	// Briefed and never seen on a question: the report deadline has its own message about a
+	// session that said nothing, and a second one here would be about a question that was
+	// never asked. The same rule noAgent follows.
+	if w.Since == 0 {
+		s.say("herdr has not answered about the %s on-call agent for %s and it was never seen on a question, so the wait on %s is dropped",
+			kind, hmStr(down), w.Incident)
+		return w, false
+	}
+
+	message := fmt.Sprintf(`The %s on-call session cannot be reached on %s: herdr has not answered for %s, so nothing is being worked and nothing can be handed to it.
+
+%s
+
+Open a session on it yourself, or leave it to the next check to raise it again.`,
+		kind, w.Incident, hmStr(down), reading.numbers(s.cfg.Host))
+
+	if err := s.send(state, w.Incident, message); err != nil {
+		s.say("herdr has not answered about %s for %s and the message saying so did not send either: %v",
+			w.Incident, hmStr(down), err)
+		return w, true
+	}
+
+	s.say("herdr has not answered about the %s on-call agent for %s, so nothing is being worked on %s and the wait on it ends here",
+		kind, hmStr(down), w.Incident)
+	return w, false
 }
 
 // The session is closed and the question went with it, so there is nobody to hand

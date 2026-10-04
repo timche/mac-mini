@@ -143,6 +143,11 @@ type Waiting struct {
 	// a row nothing of the agent's is cancelled again until its state has moved.
 	Escs int `json:"escs,omitempty"`
 
+	// When herdr first failed to say what the agent is doing, cleared by any answer at all.
+	// One check that cannot reach it is a restart or a reload and nothing to report; an
+	// unbroken run of them is a wait on a session nothing can reach.
+	Unreachable int64 `json:"unreachable,omitempty"`
+
 	// When a check first projected that free space would reach the critical threshold before
 	// the handover. The second check to say so is what hands the decision over, because one
 	// interval is an extrapolation and the thing it authorises is a kill.

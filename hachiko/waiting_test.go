@@ -1397,7 +1397,8 @@ func TestTheEscCapIsSaidOnceInTheLog(t *testing.T) {
 }
 
 // herdr not answering at all is not an answer from Tim, so the wait is left exactly as
-// it was rather than being read as either.
+// it was rather than being read as either. One check is a server being restarted or a
+// configuration being reloaded, and not something to wake anybody about.
 func TestHerdrNotAnsweringLeavesTheWaitAsItWas(t *testing.T) {
 	f := waiting(t)
 	f.statusErr = errors.New("no server is listening")
@@ -1406,6 +1407,90 @@ func TestHerdrNotAnsweringLeavesTheWaitAsItWas(t *testing.T) {
 	equal(t, len(f.state().Waiting), 1, "waits still being counted")
 	equal(t, len(f.interrupts), 0, "questions cancelled")
 	equal(t, f.sentCount(), 1, "messages sent")
+	equal(t, f.state().Waiting["disk"].Unreachable, base.Unix()+600+handoverAt, "when herdr first did not answer")
+
+	// And any answer at all ends the run, so the next outage is measured from itself rather
+	// than from one that came back.
+	f.statusErr = nil
+	f.blocks("disk")
+	f.at(600 + handoverAt + 300).sweep()
+	equal(t, f.state().Waiting["disk"].Unreachable, int64(0), "when herdr first did not answer, after it answered")
+}
+
+// An unbroken run of them is the other thing entirely: there is no session to remind, nothing
+// to hand a decision to and no way to tell whether anybody answered. A wait counted on in
+// silence is how an incident gets left to nobody, so it says so once and stops.
+func TestHerdrNotAnsweringForLongEnoughSaysNothingIsBeingWorked(t *testing.T) {
+	f := waiting(t)
+	incident := f.state().Waiting["disk"].Incident
+	f.statusErr = errors.New("no server is listening")
+
+	// The minutes a session is given to report in, and not a check sooner.
+	for at := int64(900); at < 900+600; at += 300 {
+		wants(t, f.at(at).sweep(), "is left as it was")
+		equal(t, len(f.state().Waiting), 1, "waits still being counted")
+		equal(t, f.sentCount(), 1, "messages sent while herdr was down")
+	}
+
+	out := f.at(1500).sweep()
+	wants(t, out, "herdr has not answered about the disk on-call agent for")
+	wants(t, out, "the wait on it ends here")
+	equal(t, len(f.state().Waiting), 0, "waits still being counted")
+
+	equal(t, f.sentCount(), 2, "messages sent once herdr had been down long enough")
+	wants(t, f.lastSent(), "The disk on-call session cannot be reached on "+incident)
+	wants(t, f.lastSent(), "herdr has not answered for 0h10m")
+	wants(t, f.lastSent(), "nothing is being worked and nothing can be handed to it")
+	wants(t, f.lastSent(), "Now on mac-mini: 500.0 GB free")
+
+	// Said once: the wait is gone, so there is nothing left to say it about.
+	equal(t, f.at(1800).sweep(), "", "the log after the wait ended")
+	equal(t, f.sentCount(), 2, "messages sent after the wait ended")
+}
+
+// An outage that came back and went again is two outages, each measured from itself: the
+// first one's minutes are not the second one's.
+func TestAnAnswerInBetweenStartsTheOutageAgain(t *testing.T) {
+	f := waiting(t)
+	f.statusErr = errors.New("no server is listening")
+
+	f.at(900).sweep()
+	f.at(1200).sweep()
+
+	// herdr comes back for one check, on which the hour's reminder is also due.
+	f.statusErr = nil
+	f.blocks("disk")
+	wants(t, f.at(1500).sweep(), "reminded about disk-")
+
+	// And goes again. The ten minutes start from here, so the check that would have been the
+	// last of the first outage is only the second of this one.
+	f.statusErr = errors.New("no server is listening")
+	wants(t, f.at(1800).sweep(), "is left as it was")
+	wants(t, f.at(2100).sweep(), "is left as it was")
+	equal(t, len(f.state().Waiting), 1, "waits still being counted")
+	equal(t, f.sentCount(), 2, "messages sent before the second outage is long enough")
+
+	wants(t, f.at(2400).sweep(), "the wait on it ends here")
+	equal(t, f.sentCount(), 3, "messages sent in all")
+	equal(t, len(f.state().Waiting), 0, "waits still being counted")
+}
+
+// A send that did not leave the machine leaves the wait where it is, like every other message
+// here: the next check says it again rather than dropping the wait in silence.
+func TestAWaitOnAnUnreachableHerdrSurvivesASendThatFailed(t *testing.T) {
+	f := waiting(t)
+	f.statusErr = errors.New("no server is listening")
+	f.sendErr = errSendFailed
+
+	for at := int64(900); at <= 1500; at += 300 {
+		f.at(at).sweep()
+	}
+	wants(t, f.at(1800).sweep(), "the message saying so did not send either")
+	equal(t, len(f.state().Waiting), 1, "waits still being counted")
+
+	f.sendErr = nil
+	wants(t, f.at(2100).sweep(), "the wait on it ends here")
+	equal(t, len(f.state().Waiting), 0, "waits still being counted")
 }
 
 // The night of cpu-1791071900, walked through end to end. At the handover hachiko sent the

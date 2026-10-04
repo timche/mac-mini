@@ -317,7 +317,7 @@ func TestAReusedPidStartsItsHourAgain(t *testing.T) {
 
 // The shape that caused the incident this exists for: a worker whose session ended,
 // reparented to launchd and still spending a core on work nobody wants.
-func TestAHotProcessOrphanedInsideACheckoutIsNamedAsOne(t *testing.T) {
+func TestAHotProcessLeftBehindInsideACheckoutIsNamedAsOne(t *testing.T) {
 	f := newFixture(t)
 	checkout := filepath.Join(f.cfg.ProjectsRoot, "repeek")
 	if err := os.MkdirAll(checkout, 0o755); err != nil {
@@ -326,9 +326,70 @@ func TestAHotProcessOrphanedInsideACheckoutIsNamedAsOne(t *testing.T) {
 	f.cwd[7018] = checkout
 
 	out := f.cpuRuns(13, 240)
-	wants(t, out, "ppid 1 (orphaned)")
+	wants(t, out, "ppid 1")
 	wants(t, out, "in the repeek checkout")
-	wants(t, out, "the session that started it is gone")
+	wants(t, out, "left behind by the session that started it, which is gone")
+	lacks(t, out, "system process")
+}
+
+// Every daemon launchd starts has ppid 1, so hachiko called root's dasd orphaned — which was
+// a description of how macOS starts daemons and not of anything wrong with it. What is worth
+// saying instead is that it is not the session's to stop.
+func TestAHotSystemProcessIsNotCalledLeftBehind(t *testing.T) {
+	f := newFixture(t)
+
+	var out string
+	for i := range 13 {
+		f.systemProc(147, float64(i)*240, firstStart, "/usr/libexec/dasd")
+		out = f.at(int64(i) * 300).sweep()
+	}
+
+	wants(t, out, "ppid 1, system process owned by root")
+	lacks(t, out, "left behind")
+	lacks(t, out, "orphaned")
+}
+
+// A hot process the session cannot touch is a message about Tim, not about the session: sudo
+// is on its never list, so what he needs in the first line is what stopping it would take.
+func TestASystemProcessSaysWhatStoppingItWouldTakeUpFront(t *testing.T) {
+	f := newFixture(t)
+
+	for i := range 13 {
+		f.systemProc(147, float64(i)*240, firstStart, "/usr/libexec/dasd")
+		f.at(int64(i) * 300).sweep()
+	}
+
+	equal(t, f.sentCount(), 1, "messages sent")
+	const note = "system process, owned by root: stopping it needs sudo, e.g. sudo kill 147 (launchd restarts most system daemons)"
+	wants(t, f.lastSent(), note)
+	wants(t, f.lastSent(), "CPU: dasd pid 147")
+
+	// And in the brief, so the session knows before it writes a word that the fix it is
+	// about to recommend is not one it may take.
+	wants(t, f.oncallBrief, note)
+	equal(t, f.oncallName, "cpu", "the kind of session opened")
+}
+
+// Nothing of this happens to a process of Tim's own, which the session may stop inside its
+// limits without anybody being woken up.
+func TestAHotProcessOfThisAccountsSaysNothingAboutSudo(t *testing.T) {
+	f := newFixture(t)
+	f.cpuRuns(13, 240)
+
+	lacks(t, f.lastSent(), "sudo")
+	lacks(t, f.oncallBrief, "stopping it needs sudo")
+}
+
+// And this account's process with a parent of launchd outside a checkout is neither: there
+// is nothing to say about whose work it was.
+func TestAProcessOfThisAccountsOutsideACheckoutIsNeither(t *testing.T) {
+	f := newFixture(t)
+	f.cwd[7018] = filepath.Join(f.cfg.Home, "Downloads")
+
+	out := f.cpuRuns(13, 240)
+	wants(t, out, "ppid 1")
+	lacks(t, out, "left behind")
+	lacks(t, out, "system process")
 }
 
 // One message and one session for a run, however many things fired in it: two agents

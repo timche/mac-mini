@@ -22,6 +22,10 @@ const (
 	bigKB   = 1024
 	growKB  = 2048
 	oneCore = 300.0
+
+	// The account hachiko runs as, and one that is nobody's but macOS's.
+	accountUID = 501
+	systemUID  = 0
 )
 
 var base = time.Unix(1700000000, 0)
@@ -37,6 +41,7 @@ type fixture struct {
 	watched []string
 	procs   []Process
 	pid     int
+	uid     int
 
 	// A file the incident is about that gains keepKB on every check, which is what keeps an
 	// incident open across a test that walks the clock: a file that has stopped growing is a
@@ -133,7 +138,11 @@ func newFixture(t *testing.T) *fixture {
 		freeGB: 500,
 		// A pid no sample of the fixture's holds, so nothing is excluded for being
 		// hachiko's own unless a check says so.
-		pid:    999001,
+		pid: 999001,
+		// The account hachiko runs as, which every process the fixture makes belongs to
+		// unless a test says otherwise: a process of somebody else's is a system process, and
+		// that is a test of its own.
+		uid:    accountUID,
 		cwd:    map[int]string{},
 		writer: "4242 (fake-worker)",
 		// Nothing is waiting on a question until a test says so, which is what every
@@ -152,6 +161,7 @@ func (f *fixture) deps() Deps {
 		Now:    func() time.Time { return f.now },
 		Log:    &f.log,
 		Getpid: func() int { return f.pid },
+		Getuid: func() int { return f.uid },
 
 		FreeKB:   func() (int64, error) { return f.freeGB * gib, nil },
 		BigFiles: f.bigFiles,
@@ -330,12 +340,22 @@ func (f *fixture) proc(pid int, cpuSeconds float64, start string, command string
 	f.procs = []Process{{
 		PID:       pid,
 		PPID:      1,
+		UID:       accountUID,
+		User:      "timche",
 		RSSKB:     524288,
 		CPU:       time.Duration(cpuSeconds * float64(time.Second)),
 		Start:     start,
 		StartedAt: startedAt,
 		Command:   command,
 	}}
+}
+
+// The same as something launchd started and root owns, which is every daemon on the Mac and
+// the shape hachiko used to call orphaned.
+func (f *fixture) systemProc(pid int, cpuSeconds float64, start, command string) {
+	f.t.Helper()
+	f.proc(pid, cpuSeconds, start, command)
+	f.procs[0].UID, f.procs[0].User = systemUID, "root"
 }
 
 func (f *fixture) setProcs(procs ...Process) { f.procs = procs }

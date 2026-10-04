@@ -454,6 +454,55 @@ func TestACPUTriggerThatHasClearedReachesTheAgent(t *testing.T) {
 	wants(t, f.lastInterrupt(), "Nothing is over the CPU threshold any more")
 }
 
+// A system process is one the session may only recommend stopping, handover or not, so the
+// handover is still worth making — it is what lets it say so and stop asking — but it is
+// worth making once. Tim gets the warning, the handover's own message from the session, and
+// nothing of hachiko's every five minutes after it.
+func TestASystemProcessIncidentHandsOverOnceAndThenGoesQuiet(t *testing.T) {
+	f := newFixture(t)
+	f.cfg.RemindAfter = remindAt * time.Second
+	f.cfg.WarnAfter = warnAt * time.Second
+	f.cfg.HandoverAfter = handoverAt * time.Second
+
+	// Thirteen samples of a daemon over half a core, which is the hour the rule is about,
+	// and then a question in front of Tim about a fix that needs him.
+	for i := range 13 {
+		f.systemProc(147, float64(i)*240, firstStart, "/usr/libexec/dasd")
+		f.at(int64(i) * 300).sweep()
+	}
+	incident := f.onlyPendingID()
+	f.notifyWithFallback(incident, "leave dasd alone, it needs sudo")
+	f.blocks("cpu")
+	f.systemProc(147, 13*240, firstStart, "/usr/libexec/dasd")
+	start := int64(13 * 300)
+	f.at(start).sweep()
+
+	// The daemon goes on spinning, so nothing clears and the clock runs.
+	keepHot := func(at int64) string {
+		f.systemProc(147, float64(13+(at-start)/300)*240, firstStart, "/usr/libexec/dasd")
+		return f.at(at).sweep()
+	}
+
+	wants(t, keepHot(start+remindAt), "reminded about "+incident)
+	wants(t, keepHot(start+warnAt), "from the handover")
+	wants(t, f.lastSent(), "If no answer: leave dasd alone, it needs sudo")
+
+	out := keepHot(start + handoverAt)
+	wants(t, out, "handed the decision on "+incident)
+	equal(t, len(f.interrupts), 1, "questions cancelled")
+	equal(t, f.sentCount(), 3, "messages hachiko sent in all")
+
+	// It said what it said and asked again, which is what a fix needing sudo leaves it to do.
+	// One handover, and nothing of hachiko's after it.
+	for at := start + handoverAt + 300; at <= start+handoverAt+1800; at += 300 {
+		f.blocks("cpu")
+		equal(t, keepHot(at), "", "the log after the handover on an incident only Tim can fix")
+	}
+	equal(t, len(f.interrupts), 1, "questions cancelled after the handover")
+	equal(t, f.sentCount(), 3, "messages hachiko sent after the handover")
+	equal(t, len(f.state().Waiting), 1, "waits still being counted")
+}
+
 // A reading that is missing is not a reading that is clear: a check with no process sample
 // saw no processes at all, and a walk that ran out of its seconds saw part of the disk.
 func TestAMissingReadingIsNotATriggerThatHasCleared(t *testing.T) {

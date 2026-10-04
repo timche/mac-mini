@@ -19,6 +19,10 @@ type Deps struct {
 	Log    io.Writer
 	Getpid func() int
 
+	// The account hachiko is running as, which is Tim's. A hot process with another uid is
+	// one he alone can stop, since sudo is on the on-call session's never list.
+	Getuid func() int
+
 	FreeKB func() (int64, error)
 	// skip is what earlier sweeps found would not answer, on top of the folders this
 	// never opens at all.
@@ -81,6 +85,7 @@ func realDeps(cfg Config) Deps {
 		Now:    now,
 		Log:    os.Stdout,
 		Getpid: os.Getpid,
+		Getuid: os.Getuid,
 
 		FreeKB: func() (int64, error) { return freeKB(cfg.Home) },
 		BigFiles: func(skip []string) WalkResult {

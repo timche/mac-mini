@@ -121,6 +121,13 @@ func (s sweeper) run() error {
 		headline = fmt.Sprintf("Disk: truncated %s, %s GB free", safe(disk.truncatedPath, pathLimit), gbStr(free))
 	}
 
+	// Under the headline as well as in the detail, because the two are alternatives: the
+	// first message carries one or the other, and this is the line that decides whether Tim
+	// reads it at breakfast or reads a thread about a decision nobody could take.
+	if headline != "" {
+		headline += cpu.sudo
+	}
+
 	newIncident := disk.fired || cpu.fired || lowNow || truncated
 
 	// The full detail, which the first message carries when it is urgent and the
@@ -129,7 +136,7 @@ func (s sweeper) run() error {
 	if level != 0 {
 		details += fmt.Sprintf(", under the %d GB threshold", level)
 	}
-	details += "." + disk.report + cpu.report + disk.truncated
+	details += "." + disk.report + cpu.report + disk.truncated + cpu.sudo
 
 	// disk when anything about the disk fired, since that is the half with a deadline
 	// on it; the kind only decides which session the incident goes to, and one
@@ -420,10 +427,14 @@ type cpuFindings struct {
 
 	// Whether there was a process sample at all. An empty one is a reading; a failed one is
 	// the absence of a reading, and nothing may be concluded from it about what is running.
-	read       bool
-	hot        []Hot
-	sampled    int
-	report     string
+	read    bool
+	hot     []Hot
+	sampled int
+	report  string
+
+	// The line naming what stopping a hot system process would take, which is a line about
+	// Tim rather than about the session.
+	sudo       string
 	headline   string
 	fired      bool
 	stillGoing []string
@@ -451,8 +462,14 @@ func (s sweeper) cpu(state *State, now time.Time) cpuFindings {
 
 		line := fmt.Sprintf("pid %d %s — %.0f%% of a core for %s, up %s, %s MB resident, ppid %d",
 			p.PID, p.Name(), h.Share, hmStr(h.HotFor(now)), hmStr(now.Sub(p.StartedAt)), mbStr(p.RSSKB), p.PPID)
-		if p.PPID == 1 {
-			line += " (orphaned)"
+
+		// Every daemon launchd starts has ppid 1, so a parent of launchd on its own says
+		// nothing: "orphaned" about root's dasd described how macOS starts daemons rather
+		// than anything being wrong with it. What is worth saying about a process that is not
+		// this account's is the thing the session cannot do about it.
+		system := p.UID != s.deps.Getuid()
+		if system {
+			line += ", system process owned by " + safe(p.Owner(), userLimit)
 		}
 
 		if cwd := s.deps.CWD(p.PID); cwd != "" {
@@ -461,15 +478,24 @@ func (s sweeper) cpu(state *State, now time.Time) cpuFindings {
 				line += ", in " + where
 				// The shape that caused the incident this exists for: a worker whose
 				// session ended, reparented to launchd and still spending a core on
-				// work nobody wants.
-				if p.PPID == 1 {
-					line += " — orphaned inside a checkout, so the session that started it is gone"
+				// work nobody wants. This account's and inside a checkout, both: those two
+				// together are what make a parent of launchd mean a session that is gone.
+				if p.PPID == 1 && !system {
+					line += " — left behind by the session that started it, which is gone"
 				}
 			}
 		}
 
 		line += "\n    " + safe(p.Command, argsLimit)
 		out.report += "\n  " + line
+
+		// What the session cannot do about it, said once and up front. sudo is on its never
+		// list, so a system process is one it may only recommend stopping — and the whole of
+		// the dasd night turned on a fix that needed Tim and a message that never said so.
+		if system && out.sudo == "" {
+			out.sudo = fmt.Sprintf("\n  system process, owned by %s: stopping it needs sudo, e.g. sudo kill %d (launchd restarts most system daemons)",
+				safe(p.Owner(), userLimit), p.PID)
+		}
 
 		key := p.Key()
 		if !s.dry && state.alertedProc(key) {
@@ -501,6 +527,9 @@ const (
 	writerLimit   = 200
 	argsLimit     = 200
 	fallbackLimit = 200
+
+	// An account name, which is the one of these macOS itself keeps short.
+	userLimit = 64
 )
 
 func clip(s string, max int) string {

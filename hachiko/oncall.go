@@ -179,6 +179,42 @@ type oncaller struct {
 	run herdrRunner
 	now func() time.Time
 	log interface{ say(string, ...any) }
+
+	// How long herdr may go on calling an agent `blocked` after the esc that cancelled its
+	// question, and how often that is read back. Fields rather than constants so a test
+	// drives the loop without sleeping through it.
+	escWindow   time.Duration
+	escInterval time.Duration
+	sleep       func(time.Duration)
+}
+
+// Measured against the real herdr rather than guessed at: `agent get` answered `blocked`
+// on the first read after the esc and `done` on the second, 152 to 160 ms later, three
+// times out of three. The window is two orders of magnitude past that, because the cost of
+// waiting too long is a few seconds of one sweep and the cost of not waiting is an
+// incident nobody touches all night.
+const (
+	defaultEscWindow   = 5 * time.Second
+	defaultEscInterval = 250 * time.Millisecond
+)
+
+func (o oncaller) escWaits() (window, interval time.Duration) {
+	window, interval = o.escWindow, o.escInterval
+	if window <= 0 {
+		window = defaultEscWindow
+	}
+	if interval <= 0 {
+		interval = defaultEscInterval
+	}
+	return window, interval
+}
+
+func (o oncaller) nap(d time.Duration) {
+	if o.sleep != nil {
+		o.sleep(d)
+		return
+	}
+	time.Sleep(d)
 }
 
 type discard struct{}
@@ -323,7 +359,7 @@ func (o oncaller) interruptWith(name, lead, label, data string) error {
 		return fmt.Errorf("the question could not be cancelled, so nothing was prompted: %w", err)
 	}
 
-	status, _, err := o.agent(name)
+	status, err := o.awaitUnblocked(name)
 	if err != nil {
 		return err
 	}
@@ -335,6 +371,22 @@ func (o oncaller) interruptWith(name, lead, label, data string) error {
 	}
 
 	return o.promptWith(name, lead, label, data)
+}
+
+// herdr's answer to `agent get` is not the pane's: send-keys answers for the keys arriving
+// there, and the agent's own status follows once Claude Code has acted on the cancel. Read
+// once, straight after the esc, and the answer is still `blocked` — which is how a handover
+// at four in the morning concluded that the question was still up, sent no prompt, and left
+// an incident to nobody. So it is read until it moves, or until the window runs out.
+func (o oncaller) awaitUnblocked(name string) (string, error) {
+	window, interval := o.escWaits()
+
+	status, _, err := o.agent(name)
+	for left := window; err == nil && status == statusBlocked && left > 0; left -= interval {
+		o.nap(interval)
+		status, _, err = o.agent(name)
+	}
+	return status, err
 }
 
 // The prompt on its own, for an agent that has no question in the way: it queues behind

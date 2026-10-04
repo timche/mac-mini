@@ -27,6 +27,12 @@ type fakeHerdr struct {
 	agentGone  bool
 	escRefused bool
 	escIgnored bool
+
+	// herdr goes on calling the agent `blocked` for a moment after the esc, because
+	// send-keys answers for the keys arriving and the agent's own status follows. escLag is
+	// how many status reads that takes here; the real herdr was measured taking one.
+	escLag  int
+	escSent bool
 }
 
 // Blocked for as long as the question is up, and working once an esc has taken it away,
@@ -51,14 +57,24 @@ func (h *fakeHerdr) run(args ...string) ([]byte, error) {
 		if h.agentGone {
 			return []byte(`{"error":{"code":"agent_not_found","message":"agent target oncall-disk not found"},"id":"cli:agent:get"}`), nil
 		}
+		// Read before the lag is counted down, so escLag of one is one read that still says
+		// blocked rather than none.
+		status := h.status()
+		if h.escSent && !h.escIgnored && h.escLag > 0 {
+			h.escLag--
+			if h.escLag == 0 {
+				h.blockedPrompt = false
+			}
+		}
 		return []byte(fmt.Sprintf(`{"result":{"agent":{"agent":"claude","agent_status":%q,"name":"oncall-disk","pane_id":"w3:pB","tab_id":"w3:t9"},"type":"agent_info"}}`,
-			h.status())), nil
+			status)), nil
 
 	case "agent send-keys":
 		if h.escRefused {
 			return []byte(`{"error":{"code":"pane_not_found","message":"pane w3:pB not found"},"id":"cli:agent:send-keys"}`), nil
 		}
-		if !h.escIgnored {
+		h.escSent = true
+		if !h.escIgnored && h.escLag == 0 {
 			h.blockedPrompt = false
 		}
 		return []byte(`{"result":{"type":"keys_sent"}}`), nil
@@ -138,8 +154,15 @@ func newOncaller(t *testing.T, herdr *fakeHerdr) (oncaller, string, *bytes.Buffe
 	now := func() time.Time { return base }
 	log := &bytes.Buffer{}
 
-	return oncaller{cfg: cfg, run: herdr.run, now: now, log: logger{out: log, now: now}},
-		cfg.MachineDir, log
+	// The poll after the esc with its sleep taken out: what the test is about is how many
+	// times the status is read back, and sleeping the real window through would be five
+	// seconds of nothing per case.
+	o := oncaller{
+		cfg: cfg, run: herdr.run, now: now, log: logger{out: log, now: now},
+		escWindow: time.Second, escInterval: 100 * time.Millisecond,
+		sleep: func(time.Duration) {},
+	}
+	return o, cfg.MachineDir, log
 }
 
 func TestOncallRefusesANameHerdrWouldNotTake(t *testing.T) {
@@ -249,6 +272,33 @@ func TestAnUpdateToASessionWaitingOnAQuestionCancelsTheQuestionAndAsksAgain(t *t
 	// esc is one herdr refuses, and one sent without reading the state back is one that
 	// may have been refused.
 	assertOrder(t, herdr, "agent send-keys oncall-disk esc", "agent get oncall-disk", "agent prompt oncall-disk ")
+}
+
+// herdr's status is not the pane's: send-keys answers for the keys arriving there and the
+// agent's own status follows once Claude Code has acted on the cancel. The real herdr was
+// measured answering `blocked` on the first read after the esc and `done` 152 to 160 ms
+// later, three times out of three — so a single read concludes the question is still up,
+// sends no prompt, and leaves the incident to nobody, which is what happened at 04:04.
+func TestTheEscIsReadBackUntilTheAgentHasLeftItsQuestion(t *testing.T) {
+	herdr := &fakeHerdr{hasAgent: true, hasWorkspace: true, blockedPrompt: true, escLag: 1}
+	o, _, log := newOncaller(t, herdr)
+
+	session, err := o.open("disk", "brief")
+	if err != nil {
+		t.Fatalf("an agent that left its question on the second read was reported as a failure: %v", err)
+	}
+
+	equal(t, session.Delivered, true, "whether the update reached the session")
+	wants(t, log.String(), "it was cancelled and the session was asked again")
+	wants(t, herdr.prompt(), "The situation changed")
+
+	// Two reads to see it move, and the third is promptWith reading the tab back.
+	equal(t, herdr.count("agent get oncall-disk"), 3, "status reads for one esc")
+	assertOrder(t, herdr,
+		"agent send-keys oncall-disk esc",
+		"agent get oncall-disk",
+		"agent get oncall-disk",
+		"agent prompt oncall-disk ")
 }
 
 // send-keys answers for the keys reaching the pane and not for what the agent did with

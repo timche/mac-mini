@@ -13,12 +13,25 @@
 # of actions and refuses the rest, so what a session is trusted with is a list
 # somebody can read rather than the whole machine.
 #
-# So: no action takes a path, a command, a signal or a pid from the caller. The
-# only argument any of them takes is a name matched against a list compiled in
-# below, by string equality and never as a pattern, and a name that is not on it
-# is refused before anything privileged runs. Adding to that list is an edit to
-# this file, which lands as a root-owned copy through root-helper.sh and so needs
-# Tim's password — which is the point.
+# Two rules decide what may be an action here, and the second is the one that is
+# easy to get wrong.
+#
+# No action takes a path, a command, a signal or a pid from the caller. The only
+# argument any of them takes is a name matched against a list compiled in below,
+# by string equality and never as a pattern, and a name that is not on it is
+# refused before anything privileged runs. Adding to that list is an edit to this
+# file, which lands as a root-owned copy through root-helper.sh and so needs Tim's
+# password — which is the point.
+#
+# And no action touches a path the account can write, even one this file spells
+# out itself. A root command aimed at a file in a home directory is a root command
+# the account aims wherever it likes: it replaces the file with a symlink and the
+# copy writes through it, or the chown hands it a root-owned file, or the truncate
+# empties whatever the link points at. That is how a log-capping action here turned
+# into passwordless sudo for everything, and why there is no longer one — capping
+# the account's own logs needs no root at all, so it belongs in something that runs
+# as the account. An action that needs root needs it for a path only root can
+# write, and assert-machine.sh reads this file to say so.
 #
 # Installed as a copy at /usr/local/libexec/claude-root, root-owned under
 # root-owned directories, and never a symlink into the checkout: the account can
@@ -29,9 +42,9 @@
 # allowed and refused alike, with the account that asked. Nothing is written to a
 # file the account could edit afterwards.
 
-# No -e. Every action here has a result worth reporting — an old pid and a new
-# one, which logs were over the cap — and an exit on the first non-zero would
-# report none of it.
+# No -e. An action here has a result worth reporting — an old pid and a new one,
+# which half of a flush failed — and an exit on the first non-zero would report
+# none of it.
 set -uo pipefail
 
 # sudo resets most of the environment, but not all of it, and this is also
@@ -49,7 +62,14 @@ if [ "${CLAUDE_ROOT_SANITIZED:-}" != 1 ]; then
   case "$0" in
     /*) self="$0" ;;
     */*) self="$(cd "${0%/*}" && pwd)/${0##*/}" ;;
-    *) self="$(command -v "$0")" ;;
+    *)
+      # A bare name could only be resolved by asking the PATH this was handed,
+      # which is the one thing the re-exec exists to stop trusting. The sudoers
+      # rule names an absolute path and that is how it is run.
+      echo "claude-root: run it by its path," >&2
+      echo "/usr/local/libexec/claude-root, rather than by name." >&2
+      exit 64
+      ;;
   esac
 
   exec /usr/bin/env -i \
@@ -66,37 +86,23 @@ allowed_daemons=(
   "dasd com.apple.dasd"
 )
 
-# Rendered at install time into /etc/newsyslog.d by root-helper.sh, which is also
-# what puts the account's own home in it — newsyslog expands no $HOME.
-newsyslog_conf=/etc/newsyslog.d/mac-mini.conf
-
-# The machine's logs whose writer holds the descriptor for its whole life:
-# boswell, the herdr server, hachiko's listener and the signing agent each
-# redirect their entire output once at startup and never reopen it. For those a
-# rename is worse than doing nothing — the writer keeps appending to the file
-# newsyslog moved aside, the fresh file at the path stays empty, and nothing ever
-# crosses the size that would rotate it again — so they are copied aside and
-# truncated in place instead. That keeps the descriptor and its offset working and
-# gives the space back at once, which is the same reason hachiko truncates a
-# runaway log rather than unlinking it.
-#
-# The two that are missing from this list are in the newsyslog config instead:
-# hachiko's check and the worktree sweep are launchd jobs started afresh every few
-# minutes, so each run opens the path and finds whatever is there.
-held_open_logs=(boswell herdr hachiko-listen ssh-agent)
-
-# Ten megabytes, which is a few weeks of boswell at the rate it writes and still
-# small enough to read. One generation is kept for the held-open logs, five for
-# the ones newsyslog rotates.
-cap_kb=10240
+# A session chooses what it asks for, and a control character in it is a second
+# audit line somebody else wrote — or, in a terminal reading the log back, an
+# escape sequence it acts on. Nothing any action takes could legitimately contain
+# one, so they go before anything is logged or echoed.
+printable() {
+  printf '%s' "$1" | tr -d '\000-\037\177'
+}
 
 caller="${SUDO_USER:-$(id -un)}"
-argv="$*"
+argv="$(printable "$*")"
 dry_run=false
 [ "${CLAUDE_ROOT_DRY_RUN:-}" = 1 ] && dry_run=true
 
+# The one place anything reaches the log, so that no call site can forget the
+# stripping above.
 audit() {
-  logger -t claude-root "$caller: $*"
+  logger -t claude-root "$(printable "$caller: $*")"
 }
 
 # Refusals are logged too, and with what was asked for: a session that tried
@@ -148,7 +154,6 @@ list() {
   echo
   echo "Actions:"
   echo "  restart-daemon <name>  restart one of the daemons below"
-  echo "  rotate-logs            cap this machine's own logs"
   echo "  flush-dns              flush the DNS cache and signal mDNSResponder"
   echo "  --list                 this"
   echo
@@ -166,7 +171,7 @@ restart_daemon() {
   local name="$1" label old new current waited refusal
 
   if ! label="$(daemon_label "$name")"; then
-    refuse "not an allowed daemon: $name"
+    refuse "not an allowed daemon: $(printable "$name")"
   fi
 
   old="$(daemon_pid "$label")"
@@ -233,88 +238,6 @@ restart_daemon() {
   return 69
 }
 
-# The account's own home, from the account record rather than from $HOME, which
-# under sudo is root's. dscl because macOS has no getent.
-account_logs() {
-  local home
-
-  home="$(dscl . -read "/Users/$caller" NFSHomeDirectory 2>/dev/null |
-            sed 's/^NFSHomeDirectory: //')"
-  [ -n "$home" ] || return 1
-  echo "$home/Library/Logs"
-}
-
-truncate_log() {
-  local path="$1" size_kb owner
-
-  [ -f "$path" ] || return 0
-
-  size_kb=$(( $(stat -f '%z' "$path" 2>/dev/null || echo 0) / 1024 ))
-  [ "$size_kb" -ge "$cap_kb" ] || return 0
-
-  if [ "$dry_run" = true ]; then
-    echo "dry run: would copy aside and truncate $path (${size_kb}KB)"
-    return 0
-  fi
-
-  # Copied before it is truncated rather than renamed, so the process appending
-  # to it keeps a descriptor pointing at the file it opened. All four of these
-  # were opened with `>>`, so each write seeks to the end first and the next line
-  # lands at zero — the file comes back empty rather than as a sparse hole the
-  # size of what was there. The handful of lines written between the copy and the
-  # truncate are lost, which is the price of not restarting the writer: restarting
-  # the herdr server would take every session on this Mac with it.
-  owner="$(stat -f '%u:%g' "$path" 2>/dev/null || true)"
-
-  if ! cp "$path" "$path.0"; then
-    echo "claude-root: could not copy $path aside, so it was left alone." >&2
-    return 1
-  fi
-
-  [ -z "$owner" ] || chown "$owner" "$path.0" 2>/dev/null || true
-  : >"$path"
-  echo "truncated $path (${size_kb}KB, kept as $path.0)"
-}
-
-rotate_logs() {
-  local logs name status=0
-
-  if [ "$dry_run" != true ]; then
-    require_root "rotate-logs"
-  fi
-
-  if [ ! -f "$newsyslog_conf" ]; then
-    echo "claude-root: $newsyslog_conf is not there, so the logs newsyslog" >&2
-    echo "rotates were left alone. Run ~/.mac-mini/root-helper.sh." >&2
-    audit "rotate-logs: no config at $newsyslog_conf"
-    status=1
-  elif [ "$dry_run" = true ]; then
-    # -r drops newsyslog's own insistence on being root, which a dry run has no
-    # need of, and -n is what makes it print rather than act.
-    newsyslog -r -n -f "$newsyslog_conf" || status=1
-  else
-    newsyslog -f "$newsyslog_conf" || status=1
-  fi
-
-  if ! logs="$(account_logs)"; then
-    echo "claude-root: no home directory for $caller, so the logs that are held" >&2
-    echo "open were not capped." >&2
-    status=1
-  else
-    for name in "${held_open_logs[@]}"; do
-      truncate_log "$logs/$name.log" || status=1
-    done
-  fi
-
-  if [ "$status" -eq 0 ]; then
-    audit "rotate-logs: done"
-  else
-    audit "rotate-logs: finished with errors"
-  fi
-
-  return "$status"
-}
-
 flush_dns() {
   local status=0
 
@@ -368,15 +291,11 @@ case "$action" in
     [ $# -eq 1 ] || refuse "restart-daemon takes exactly one daemon name"
     restart_daemon "$1"
     ;;
-  rotate-logs)
-    [ $# -eq 0 ] || refuse "rotate-logs takes no argument"
-    rotate_logs
-    ;;
   flush-dns)
     [ $# -eq 0 ] || refuse "flush-dns takes no argument"
     flush_dns
     ;;
   *)
-    refuse "not an allowed action: $action"
+    refuse "not an allowed action: $(printable "$action")"
     ;;
 esac

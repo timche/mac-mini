@@ -433,31 +433,29 @@ fi
 check "sshd_config includes the drop-in directory" \
   'grep -qE "^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/" /etc/ssh/sshd_config'
 
-# The root helper, which is the whole of the sudo a session on this Mac has.
-# Three root-owned copies and nothing else, and both halves of it matter: that the
+# The root helper, which is the whole of the sudo a session on this Mac has. Two
+# root-owned copies and nothing else, and both halves of it matter: that the
 # helper runs with no password, and that sudo still refuses everything outside it.
 helper=/usr/local/libexec/claude-root
 helper_source="$root/system/libexec/claude-root"
 sudoers_file=/etc/sudoers.d/claude-root
-newsyslog_file=/etc/newsyslog.d/mac-mini.conf
-export helper helper_source sudoers_file newsyslog_file
 
-# The two files the installer renders are compared against the same rendering
-# rather than against the source, which carries an account name and a home
-# directory as placeholders because nothing here is written for one account.
+# An earlier shape of the helper capped the machine's logs and installed a
+# newsyslog config to do it with. A root newsyslog aimed at paths the account can
+# write is the same hole the log action was, so the installer takes the file back
+# out and this is what says it did.
+retired_newsyslog=/etc/newsyslog.d/mac-mini.conf
+export helper helper_source sudoers_file retired_newsyslog
+
+# The one file the installer renders is compared against the same rendering rather
+# than against the source, which carries the account name as a placeholder because
+# nothing here is written for one account.
 rendered="$(mktemp -d)"
 trap 'rm -rf "$rendered"' EXIT
 export rendered
 
-# dscl's record rather than $HOME, which is what the installer reads and the one
-# macOS answers; there is no getent here.
-account_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null |
-                  sed 's/^NFSHomeDirectory: //')"
-
 sed "s/__USER__/$(id -un)/g" "$root/system/sudoers/claude-root" \
   >"$rendered/sudoers"
-sed -e "s/__USER__/$(id -un)/g" -e "s|__HOME__|$account_home|g" \
-  "$root/system/newsyslog/mac-mini.conf" >"$rendered/newsyslog.conf"
 
 # Never a symlink, whatever else is true of it: the account can write the
 # checkout, so a link at this path would hand every session on this Mac root.
@@ -477,14 +475,15 @@ check "the sudoers rule belongs to root and only root may read it" \
 check "the sudoers rule is a copy rather than a link" \
   '[ -f "$sudoers_file" ] && [ ! -L "$sudoers_file" ]'
 
-check "the newsyslog config is the rendering of this repo's" \
-  'cmp -s "$rendered/newsyslog.conf" "$newsyslog_file"'
-check "the newsyslog config belongs to root" \
-  '[ "$(stat -f "%Su %Lp" "$newsyslog_file")" = "root 644" ]'
-# -r drops newsyslog's insistence on being root and -n makes it print rather than
-# act, which together is the only way to ask it whether it understands the file.
-check "newsyslog parses the config" \
-  'newsyslog -r -n -f "$newsyslog_file"'
+check "the retired newsyslog config is gone" '[ ! -e "$retired_newsyslog" ]'
+
+# No action may touch a path the account can write, which is the rule a log-capping
+# action here broke: the account replaces the file with a symlink and a root copy,
+# chown or truncate follows it wherever it points. Read off the helper rather than
+# only written in its header, so an action that reaches into a home directory
+# cannot be added without this failing.
+check "no action reaches into a path the account can write" \
+  '! grep -qE "NFSHomeDirectory|/Library/Logs|\\\$HOME" "$helper_source"'
 
 # What the account can actually run, which is the whole point of the thing. -k so
 # the answer comes from the sudoers rule rather than from a password typed a
@@ -541,23 +540,45 @@ check "the helper refuses restart-daemon with no name" \
   '! "$helper_source" restart-daemon'
 check "the helper refuses an argument the action does not take" \
   '! "$helper_source" restart-daemon dasd extra &&
-   ! "$helper_source" rotate-logs extra &&
    ! "$helper_source" flush-dns extra &&
    ! "$helper_source" --list extra'
+# The action a session was told about and this file no longer has, which is worth
+# a case of its own: it has to be refused rather than quietly do nothing.
+check "the helper refuses the log action it used to have" \
+  '! "$helper_source" rotate-logs'
 check "the helper reads -- as the end of its options" \
   '"$helper_source" -- --list | grep -q "restart-daemon"'
 check "a dry run is no way past the allowlist" \
   '! CLAUDE_ROOT_DRY_RUN=1 "$helper_source" restart-daemon not-on-the-list &&
    ! CLAUDE_ROOT_DRY_RUN=1 "$helper_source" uname'
 check "an allowed action refuses rather than half-doing it without root" \
-  '! "$helper_source" flush-dns && ! "$helper_source" rotate-logs'
+  '! "$helper_source" flush-dns'
 check "a dry run of an allowed action says what it would do and does nothing" \
   'CLAUDE_ROOT_DRY_RUN=1 "$helper_source" restart-daemon dasd | grep -q "dry run"'
+
+# What reaches the log and the terminal is stripped of control characters first: a
+# newline in an argument is otherwise a second audit line the caller wrote, and an
+# escape sequence is one a terminal reading the log back acts on. The refusal on
+# stderr is the observable half, and the log goes through the same function.
+check "the helper strips control characters out of what it reports" \
+  '"$helper_source" "$(printf "bad\nname")" 2>&1 |
+     grep -q "not an allowed action: badname"'
+
 # The re-exec through `env -i`, which is what keeps a root script from being
 # steered by the environment it was handed. A PATH of nothing is the observable
 # half: everything after that line runs on the PATH this repo wrote.
 check "the helper does not run on the PATH it was handed" \
   'PATH=/nonexistent "$helper_source" --list >/dev/null'
+# And it will not resolve itself off that PATH either, since working out which
+# file to re-exec is the one step that happens before the PATH is replaced. `bash
+# claude-root` from inside the directory is the way a $0 with no slash in it
+# actually arrives — a shebang run hands bash the path it was execed with, so an
+# argv[0] somebody faked never reaches the script.
+check "the helper refuses a name it would have to resolve on the PATH" \
+  'cd "${helper_source%/*}" && bash claude-root --list 2>&1 |
+     grep -q "run it by its path"'
+check "and still runs from a relative path, which names a file" \
+  'cd "${helper_source%/*}" && ./claude-root --list | grep -q "restart-daemon"'
 
 if [ "$failures" -gt 0 ]; then
   echo "  $failures check(s) failed"

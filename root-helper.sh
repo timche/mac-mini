@@ -1,14 +1,14 @@
 #!/bin/bash
 
 # Install the one thing a Claude Code session on this Mac may run under sudo
-# without Tim: the claude-root helper, the sudoers rule that lets this account run
-# it with no password, and the newsyslog config the helper's log action uses.
+# without Tim: the claude-root helper, and the sudoers rule that lets this account
+# run it with no password.
 #
-# Three root-owned copies, never links into the checkout. The account can write
-# the checkout, so a link at any of these paths would hand every session on this
-# Mac root — the same reasoning as the sshd drop-in, and the same answer. Which is
-# also why adding a daemon to the helper's allowlist is an edit here followed by a
-# run of this script: it costs Tim's password, deliberately.
+# Two root-owned copies, never links into the checkout. The account can write the
+# checkout, so a link at either path would hand every session on this Mac root —
+# the same reasoning as the sshd drop-in, and the same answer. Which is also why
+# adding a daemon to the helper's allowlist is an edit here followed by a run of
+# this script: it costs Tim's password, deliberately.
 #
 # Run after harden-ssh.sh in machine.sh. Nothing in the way this Mac is reached
 # depends on it, so it goes after the steps that do, and ahead of the Xcode
@@ -28,7 +28,13 @@ user="${1:-$(id -un)}"
 helper=/usr/local/libexec/claude-root
 helper_dir=/usr/local/libexec
 sudoers_file=/etc/sudoers.d/claude-root
-newsyslog_file=/etc/newsyslog.d/mac-mini.conf
+
+# An earlier shape of the helper capped the machine's logs, and installed a
+# newsyslog config here to do it with. Both are gone: a root newsyslog aimed at
+# paths in $HOME is a root write the account aims wherever it likes, which is the
+# same hole the log action itself was. Taken back out rather than left, so that a
+# Mac which ran that version converges on this one.
+retired_newsyslog=/etc/newsyslog.d/mac-mini.conf
 
 if [ "$(uname -s)" != Darwin ]; then
   echo "root-helper.sh is macOS only" >&2
@@ -46,12 +52,10 @@ if [ "$(id -u)" -eq 0 ]; then
   exit 1
 fi
 
-# No getent on a Mac; the account record is dscl's. The home directory is what
-# the newsyslog config needs spelled out, since newsyslog expands neither a ~ nor
-# a $HOME.
-home="$(dscl . -read "/Users/$user" NFSHomeDirectory 2>/dev/null |
-          sed 's/^NFSHomeDirectory: //')"
-if [ -z "$home" ]; then
+# Read rather than assumed, because the sudoers rule names this account and a
+# rule for an account that does not exist would leave the Mac's own with no sudo.
+# No getent on a Mac; the account record is dscl's.
+if ! dscl . -read "/Users/$user" NFSHomeDirectory >/dev/null 2>&1; then
   echo "no such user: $user" >&2
   exit 1
 fi
@@ -88,12 +92,9 @@ trap 'rm -rf "$staged"' EXIT
 # covers it too.
 cp "$repo/system/libexec/claude-root" "$staged/claude-root"
 sed "s/__USER__/$user/g" "$repo/system/sudoers/claude-root" >"$staged/sudoers"
-sed -e "s/__USER__/$user/g" -e "s|__HOME__|$home|g" \
-  "$repo/system/newsyslog/mac-mini.conf" >"$staged/newsyslog.conf"
 
-# A placeholder that survived rendering is a path or an account name that is not
-# there — a newsyslog line pointing at a literal __HOME__, or a sudoers rule for
-# an account called __USER__ which would leave this Mac's own account with no
+# A placeholder that survived rendering is an account that is not there: a
+# sudoers rule for one called __USER__ would leave this Mac's own account with no
 # sudo at all.
 for file in "$staged"/*; do
   if grep -q '__[A-Z]*__' "$file"; then
@@ -214,8 +215,17 @@ echo "The root helper:"
 # The helper first, so that the moment the sudoers rule exists there is something
 # at the path it names.
 install_copy "$staged/claude-root" "$helper" 0755
-install_copy "$staged/newsyslog.conf" "$newsyslog_file" 0644
 install_copy "$staged/sudoers" "$sudoers_file" 0440
+
+if [ -e "$retired_newsyslog" ]; then
+  if sudo rm -f "$retired_newsyslog"; then
+    echo "  removed    $retired_newsyslog (the log action it served is gone)"
+    changed=true
+  else
+    echo "warning: could not remove $retired_newsyslog, which a root newsyslog" >&2
+    echo "still reads every half hour against paths the account can write." >&2
+  fi
+fi
 
 echo
 

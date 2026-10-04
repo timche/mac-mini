@@ -77,18 +77,18 @@ jobs:
       # sudo can exercise — a runner is exactly that, and it is also why the
       # assert there cannot check that sudo refuses everything else.
       #
-      # rotate-logs rather than restart-daemon: a runner has SIP disabled, so a
-      # kickstart there succeeds where a real Mac may refuse it, which is the
-      # opposite of the case the fallback exists for, and bouncing the scheduler
-      # of the VM this job runs in buys nothing either way. rotate-logs touches
-      # only this account's own logs and finds every one of them well under the
-      # cap, so what it proves is that the whole path runs as root against the
-      # config the installer rendered.
+      # --list and the refusals rather than either action. A runner has SIP
+      # disabled, so a restart-daemon kickstart succeeds there where a real Mac
+      # may refuse it, which is the opposite of the case the fallback exists for,
+      # and bouncing the scheduler of the VM this job runs in buys nothing either
+      # way; flush-dns would leave the job's own resolver cold for no information.
+      # What is worth asserting as root is that the path runs at all and that the
+      # refusals happen on that side of sudo too.
       - name: the root helper under sudo
         run: |
           sudo -n /usr/local/libexec/claude-root --list
-          sudo -n /usr/local/libexec/claude-root rotate-logs
           ! sudo -n /usr/local/libexec/claude-root restart-daemon not-on-the-list
+          ! sudo -n /usr/local/libexec/claude-root rotate-logs
           ! sudo -n /usr/local/libexec/claude-root rm
 
       # Xcode itself, which machine.sh leaves to a run that has a terminal to type

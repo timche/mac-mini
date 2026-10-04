@@ -218,6 +218,7 @@ func (s sweeper) run() error {
 	state.Stalled = disk.stalled
 
 	expected := stillExpected(state)
+	s.sayDroppedOutcomes(expected)
 	s.store.ForgetReportedExcept(expected)
 
 	// A thread for an incident nobody is waiting on any more. Dropped here rather than when
@@ -666,6 +667,20 @@ func stillExpected(state *State) map[string]bool {
 		keep[w.Incident] = true
 	}
 	return keep
+}
+
+// A marker for an incident nothing is waiting on any more is dropped, which is right: the
+// report itself has already gone to the channel. An outcome dropped in silence is not.
+// `hachiko.log` has nothing at all after 04:09 on the day the wait on cpu-1791071900 was
+// lost, and the `--outcome` the session sent at 09:20 printed "reported on" in its own pane
+// and nowhere anybody would look afterwards.
+func (s sweeper) sayDroppedOutcomes(keep map[string]bool) {
+	for _, id := range s.store.ReportedIDs() {
+		if keep[id] || !s.store.ReportedOutcome(id) {
+			continue
+		}
+		s.say("the on-call session reported the outcome of %s, which nothing was waiting on any more", id)
+	}
 }
 
 func (s sweeper) rememberFallback(state *State, incident, fallback string) {

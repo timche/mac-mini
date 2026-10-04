@@ -211,6 +211,22 @@ func TestAWaitEndsWhenTheHandoverIsFollowedBySilence(t *testing.T) {
 	equal(t, f.at(600+handoverAt+1200).sweep(), "", "the log after the wait ended")
 }
 
+// An outcome for an incident nothing is waiting on any more: the wait was lost, or it was
+// superseded. The marker goes either way, the report itself having already reached the
+// channel — but it leaves a line, because `hachiko.log` had nothing at all after the wait on
+// cpu-1791071900 was dropped and the outcome at 09:20 went into the session's own pane.
+func TestAnOutcomeWithNoWaitIsLoggedAndTheMarkerCleared(t *testing.T) {
+	f := newFixture(t)
+	f.notifyOutcome("cpu-1700000000")
+
+	out := f.at(300).sweep()
+	wants(t, out, "reported the outcome of cpu-1700000000, which nothing was waiting on any more")
+	equal(t, len(f.store.ReportedIDs()), 0, "markers left behind")
+
+	// Said once: the marker is gone, so there is nothing left to say it about.
+	equal(t, f.at(600).sweep(), "", "the log on the next check")
+}
+
 // The message the session marks as the outcome is the other way a wait ends.
 func TestTheOutcomeReportEndsTheWait(t *testing.T) {
 	f := waiting(t)

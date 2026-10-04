@@ -155,6 +155,11 @@ func notify(cfg Config, incident, messageFile string, outcome bool) error {
 		return nil
 	}
 
+	if outcome {
+		log.say("the on-call session reported the outcome of %s", incident)
+		return nil
+	}
+
 	log.say("the on-call session reported on %s", incident)
 	return nil
 }

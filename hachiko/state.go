@@ -138,6 +138,11 @@ type Waiting struct {
 	// deferred to it for ever would have no reminder, no warning and no handover at all.
 	Busy int64 `json:"busy,omitempty"`
 
+	// Consecutive esc-and-prompt attempts that did not land. An esc that keeps failing is a
+	// question taken away every five minutes and nothing put in its place, so after a few in
+	// a row nothing of the agent's is cancelled again until its state has moved.
+	Escs int `json:"escs,omitempty"`
+
 	// When a check first projected that free space would reach the critical threshold before
 	// the handover. The second check to say so is what hands the decision over, because one
 	// interval is an extrapolation and the thing it authorises is a kill.

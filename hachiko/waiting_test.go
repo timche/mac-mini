@@ -1135,6 +1135,72 @@ func TestAWaitOnASessionThatNeverAsksAnythingIsDroppedAfterAnHour(t *testing.T) 
 	equal(t, len(f.state().Waiting), 0, "waits still being counted after an hour")
 }
 
+// An esc that keeps failing is a question taken away every five minutes with nothing put in
+// its place. herdr refuses a prompt to an agent on a question, so there is nothing else to
+// send it meanwhile — and a fourth attempt in the same state is churn rather than a retry.
+func TestARepeatedlyFailingEscIsCappedUntilTheAgentMoves(t *testing.T) {
+	f := waiting(t)
+	f.at(600 + remindAt).sweep()
+	f.at(600 + warnAt).sweep()
+
+	// Every attempt cancels the question and then fails to prompt, which is the shape that
+	// used to repeat for as long as the incident was open.
+	f.interruptErr = errors.New("the agent is still on its question after the esc")
+	f.interruptEsc = true
+
+	at := int64(600 + handoverAt)
+	for i := 0; i < escAttempts; i++ {
+		f.blocks("disk")
+		out := f.at(at).sweep()
+		wants(t, out, "the next check sends the prompt alone")
+		at += 300
+	}
+	equal(t, f.state().Waiting["disk"].Escs, escAttempts, "attempts recorded")
+
+	// The cap: nothing of the agent's is cancelled again while it sits on its question.
+	for i := 0; i < 4; i++ {
+		f.blocks("disk")
+		out := f.at(at).sweep()
+		lacks(t, out, "the next check sends the prompt alone")
+		lacks(t, out, "could not be handed")
+		at += 300
+	}
+	equal(t, f.state().Waiting["disk"].Escs, escAttempts, "attempts recorded while the cap held")
+	equal(t, len(f.state().Waiting), 1, "waits still being counted")
+
+	// Tim was told once, and the wait is still there to act on when herdr comes back.
+	equal(t, f.sentCount(), 4, "messages Tim had")
+	wants(t, f.lastSent(), "could not be handed to the disk on-call agent")
+
+	// And the agent leaving its question is what spends the cap: there is nothing left for an
+	// esc to take away, so the decision goes as a prompt and the count resets.
+	f.status["disk"] = "idle"
+	out := f.at(at).sweep()
+	wants(t, out, "handed the decision on disk-")
+	equal(t, len(f.prompts), 1, "prompts sent on their own")
+	equal(t, f.state().Waiting["disk"].Escs, 0, "attempts recorded once it was off its question")
+}
+
+// The line saying so goes out on the attempt that reaches the cap and not on every check
+// after it, since by then nothing is being attempted.
+func TestTheEscCapIsSaidOnceInTheLog(t *testing.T) {
+	f := waiting(t)
+	f.at(600 + remindAt).sweep()
+	f.at(600 + warnAt).sweep()
+	f.interruptErr = errors.New("the agent is still on its question after the esc")
+
+	at := int64(600 + handoverAt)
+	said := 0
+	for i := 0; i < escAttempts+3; i++ {
+		f.blocks("disk")
+		if strings.Contains(f.at(at).sweep(), "have not landed, so nothing of its is cancelled again") {
+			said++
+		}
+		at += 300
+	}
+	equal(t, said, 1, "times the cap was said")
+}
+
 // herdr not answering at all is not an answer from Tim, so the wait is left exactly as
 // it was rather than being read as either.
 func TestHerdrNotAnsweringLeavesTheWaitAsItWas(t *testing.T) {

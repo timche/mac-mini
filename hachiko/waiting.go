@@ -30,6 +30,23 @@ const (
 	stepCleared = "cleared"
 )
 
+// How many esc-and-prompt attempts in a row may fail before nothing of the agent's is
+// cancelled again until it is seen off its question. Three, because the failure this answers
+// is herdr taking the keys and the agent not acting on them, which the poll in interruptWith
+// already waits out — a fourth try in the same state is a question taken away for nothing.
+//
+// The cap holds only while the agent sits on a question that will not go, which is the one
+// state nothing can be delivered in at all: once there is no question, every step goes as a
+// prompt and the count is spent. A session stuck there is in the channel line the failed
+// handover sent, which is Tim's to look at.
+const escAttempts = 3
+
+// How long a briefed session has to get as far as a question before the wait on it is
+// dropped. Much longer than the report deadline, which is about its first message and has a
+// message of its own when it passes: the question comes after the reading, and a session
+// that asked at twelve minutes had its whole timeline thrown away when this was ten.
+const questionBound = time.Hour
+
 // What this check measured, which every reminder and every handover carries instead of
 // the numbers the question was asked with: an answer to a three-hour-old question is
 // about a machine that has moved on.
@@ -133,7 +150,7 @@ func (s sweeper) chaseAnswers(state *State, now time.Time, reading nowReading) {
 			// on top of it is hachiko talking over the work it asked for — but only for the
 			// minutes a session is given to report in, and escalate is what holds that grace,
 			// because a disk about to fill does not wait for a tool call either.
-			w.Settled = 0
+			w.Settled, w.Escs = 0, 0
 			if w.Busy == 0 {
 				w.Busy = now.Unix()
 			}
@@ -160,7 +177,10 @@ func (s sweeper) chaseAnswers(state *State, now time.Time, reading nowReading) {
 // what happened: the outcome, a fresh question, a closed session, or the deadline followed
 // by silence.
 func (s sweeper) settled(state *State, now time.Time, kind string, w Waiting, reading nowReading) (Waiting, bool) {
-	w.Busy = 0
+	// The agent has no question up, so there is nothing an esc could take away and the cap on
+	// cancelling one is spent: every step from here goes as a prompt. The cap holds only while
+	// it sits on a question that will not go, which is the state nothing can be delivered in.
+	w.Busy, w.Escs = 0, 0
 	if w.Settled == 0 {
 		w.Settled = now.Unix()
 	}
@@ -193,12 +213,6 @@ const (
 	agentBusy
 	agentQuiet
 )
-
-// How long a briefed session has to get as far as a question before the wait on it is
-// dropped. Much longer than the report deadline, which is about its first message and has a
-// message of its own when it passes: the question comes after the reading, and a session
-// that asked at twelve minutes had its whole timeline thrown away when this was ten.
-const questionBound = time.Hour
 
 // The clock, and the one message per step on it. The order is deliberate: a handover
 // that is due makes a reminder noise, and a question that is about to be cancelled and
@@ -241,6 +255,13 @@ func (s sweeper) escalate(state *State, now time.Time, kind string, w Waiting, r
 		return w
 	}
 
+	// An esc that keeps failing is an esc every five minutes, each one taking away whatever
+	// the session has asked since. After a few in a row that did not land, nothing of the
+	// agent's is cancelled again until its state has moved — herdr refuses a prompt to an
+	// agent on a question, so there is nothing else to send it meanwhile. Messages to Tim are
+	// not esc and go on either way.
+	escSpent := blocked && w.Escs >= escAttempts
+
 	changed := materialChange(w, reading)
 
 	// Before anything on the clock, and the one change that outlives a handover already
@@ -249,7 +270,7 @@ func (s sweeper) escalate(state *State, now time.Time, kind string, w Waiting, r
 	// message, and a session that was handed the decision and asked again is still the only
 	// thing that can verify this and close — which is why this one is not gated on the
 	// handover not having happened, as every other change is.
-	if changed.once == stepCleared {
+	if changed.once == stepCleared && !escSpent {
 		return s.refresh(now, kind, w, reading, changed, blocked)
 	}
 
@@ -257,17 +278,17 @@ func (s sweeper) escalate(state *State, now time.Time, kind string, w Waiting, r
 	// deadline's, a session that was handed the decision early and judged that waiting was
 	// safe had its three hours quietly cancelled: it re-asked, and the deadline that was the
 	// whole point of the clock never came.
-	if worse != "" && !handed && !contains(w.Steps, stepEarly) {
+	if worse != "" && !handed && !contains(w.Steps, stepEarly) && !escSpent {
 		return s.handOver(state, now, kind, w, reading, worse, blocked)
 	}
-	if waited >= s.cfg.HandoverAfter && !handed {
+	if waited >= s.cfg.HandoverAfter && !handed && !escSpent {
 		return s.handOver(state, now, kind, w, reading, "", blocked)
 	}
 	if handed {
 		return w
 	}
 
-	if changed.happened() {
+	if changed.happened() && !escSpent {
 		return s.refresh(now, kind, w, reading, changed, blocked)
 	}
 
@@ -396,6 +417,8 @@ Re-check the situation from scratch — the numbers below are this minute's — 
 
 	escSent, err := s.hand(kind, blocked, lead, s.handoverData(w, reading))
 	if err != nil {
+		w = s.escFailed(kind, w, blocked)
+
 		if escSent {
 			// The esc landed and the prompt did not, so the question is already gone and there
 			// is nothing left to cancel: the next check owes the agent that prompt alone.
@@ -427,7 +450,7 @@ Re-check the situation from scratch — the numbers below are this minute's — 
 	}
 
 	w.Steps = mergeSorted(w.Steps, steps)
-	w.Nudged, w.Settled = now.Unix(), 0
+	w.Nudged, w.Settled, w.Escs = now.Unix(), 0, 0
 	return w
 }
 
@@ -439,6 +462,22 @@ func (s sweeper) hand(kind string, blocked bool, lead, data string) (escSent boo
 		return false, s.deps.Prompt(kind, lead, data)
 	}
 	return s.deps.Interrupt(kind, lead, data)
+}
+
+// One more attempt that did not land, with the line saying nothing of the agent's will be
+// cancelled again until its state has moved. Said on the attempt that reaches the cap and
+// not on every check afterwards, since by then nothing is being attempted.
+func (s sweeper) escFailed(kind string, w Waiting, blocked bool) Waiting {
+	if !blocked {
+		return w
+	}
+
+	w.Escs++
+	if w.Escs == escAttempts {
+		s.say("%d attempts in a row to cancel the %s on-call agent's question on %s have not landed, so nothing of its is cancelled again until its state has moved",
+			w.Escs, kind, w.Incident)
+	}
+	return w
 }
 
 // The prompt hachiko's own esc left owing. No second esc: the question it was to replace is
@@ -457,7 +496,7 @@ func (s sweeper) retryOwed(now time.Time, kind string, w Waiting, reading nowRea
 
 	w.Steps = mergeSorted(w.Steps, w.OwedSteps)
 	w.Owed, w.OwedSteps = "", nil
-	w.Nudged, w.Settled = now.Unix(), 0
+	w.Nudged, w.Settled, w.Escs = now.Unix(), 0, 0
 	return w
 }
 
@@ -495,6 +534,8 @@ func (s sweeper) refresh(now time.Time, kind string, w Waiting, reading nowReadi
 
 	escSent, err := s.hand(kind, blocked, lead, changed.detail+"\n\n"+s.handoverData(w, reading))
 	if err != nil {
+		w = s.escFailed(kind, w, blocked)
+
 		if escSent {
 			// The question is gone whether or not the prompt landed, so what it was measured
 			// against goes with it and the next check owes the prompt alone.
@@ -520,7 +561,7 @@ func (s sweeper) refresh(now time.Time, kind string, w Waiting, reading nowReadi
 
 	w.Asked = reading.snapshot(now)
 	w.Steps = mergeSorted(w.Steps, once(changed))
-	w.Nudged, w.Settled = now.Unix(), 0
+	w.Nudged, w.Settled, w.Escs = now.Unix(), 0, 0
 	return w
 }
 

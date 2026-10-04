@@ -583,6 +583,21 @@ check "and the C1 controls with them" \
 # half: everything after that line runs on the PATH this repo wrote.
 check "the helper does not run on the PATH it was handed" \
   'PATH=/nonexistent "$helper_source" --list >/dev/null'
+# Neither source may hold a control character, which is what root-helper.sh
+# refuses to install and what keeps a review of either on a terminal honest. A tab
+# in the sudoers rule is the one exception sudoers itself allows; the C1 range is
+# matched as the bytes it is, since no character class tells it from an em dash.
+# Asserted against the checkout as well as refused at install time, because a
+# source that went wrong here would be a commit nobody could read the diff of.
+c1_controls="$(printf '\302[\200-\237]')"
+export c1_controls
+
+check "the helper's source holds no control character" \
+  '! LC_ALL=C grep -qaE "[[:cntrl:]]|$c1_controls" "$helper_source"'
+check "the sudoers source holds none either, tabs aside" \
+  '! LC_ALL=C tr -d "\011" <"$root/system/sudoers/claude-root" |
+       LC_ALL=C grep -qaE "[[:cntrl:]]|$c1_controls"'
+
 # And it will not resolve itself off that PATH either, since working out which
 # file to re-exec is the one step that happens before the PATH is replaced. `bash
 # claude-root` from inside the directory is the way a $0 with no slash in it
@@ -593,6 +608,14 @@ check "the helper refuses a name it would have to resolve on the PATH" \
      grep -q "run it by its path"'
 check "and still runs from a relative path, which names a file" \
   'cd "${helper_source%/*}" && ./claude-root --list | grep -q "restart-daemon"'
+
+# What root-helper.sh shows before it asks for a password is test/root-helper.sh's,
+# which runs the real installer against sources poisoned on purpose and so needs a
+# repository of its own to poison rather than a check line here. It installs
+# nothing and needs no root. It exits with the number that failed, which this total
+# takes over.
+"$root/test/root-helper.sh"
+failures=$((failures + $?))
 
 if [ "$failures" -gt 0 ]; then
   echo "  $failures check(s) failed"

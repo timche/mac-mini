@@ -90,13 +90,36 @@ for file in "$staged"/*; do
   fi
 done
 
+# Nothing from either staged file reaches the screen except through this, and that
+# is the part which is not cosmetic. diff, cat and visudo's own error all pass a
+# terminal escape straight through: a staged rule of
+#
+#   timche ALL=(root) NOPASSWD: ALL # <ESC>[2K<CR><a narrow-looking rule>
+#
+# parses for visudo, grants everything, and displays as the narrow rule, because
+# the escape erases the line and the carriage return reprints over it. So a review
+# of raw bytes is a review of whatever the bytes decided to show. `cat -v` writes
+# the ESC as ^[ and the CR as ^M instead, which is what makes the trick visible —
+# and the check further down then refuses to install it at all.
+#
+# The locale is left as it is rather than forced to C: under C, `cat -v` is
+# bytewise and writes every em dash in this repo's comments as M-bM-^@M-^T, which
+# would make the diff of the helper unreadable to defend against bytes the check
+# below refuses outright anyway.
+render() {
+  cat -v | sed 's/^/    /'
+}
+
 # Before it goes anywhere near /etc. A sudoers file sudo cannot parse takes sudo
 # away from Tim as well as from every session, and on this Mac that is only
 # fixable over Screen Sharing. visudo -c reads a file as an ordinary user, so this
 # is checked without root and before root is used for anything.
+#
+# Its complaint quotes the line it tripped on, which is a line somebody else may
+# have written, so it is rendered like everything else here.
 if ! visudo_says="$(/usr/sbin/visudo -cf "$staged/sudoers" 2>&1)"; then
   echo "visudo rejected the sudoers rule, so nothing was installed:" >&2
-  echo "$visudo_says" >&2
+  printf '%s\n' "$visudo_says" | render >&2
   exit 1
 fi
 
@@ -130,18 +153,62 @@ else
 
   # diff exits 1 for files that differ, which is the only reason it is being run,
   # and pipefail would make that end the script.
-  diff -u "$helper" "$staged/claude-root" | sed 's/^/    /' || true
+  { diff -u "$helper" "$staged/claude-root" || true; } | render
 fi
 
 echo
-echo "  $sudoers_file will say, comments aside:"
+echo "  $sudoers_file will grant:"
 echo
 
+# The effective rule, which is the lines with the comments taken off rather than
+# the lines that are not comments: the attack above hides in a trailing comment on
+# a real rule, so a line kept whole would still read as the narrow one. What is
+# left is what sudo acts on.
+#
 # visudo above has already read this file, so a grep that matches nothing would
 # mean a rule of nothing but comments. Guarded all the same, rather than letting
 # pipefail end the run without saying why.
-grep -vE '^[[:space:]]*(#|$)' "$staged/sudoers" | sed 's/^/    /' || true
+{ grep -vE '^[[:space:]]*(#|$)' "$staged/sudoers" || true; } |
+  sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' | render
 echo
+
+# And then refused outright, because neither file has any reason to hold a control
+# character: a sudoers rule is lines of words, and this repo's shell is indented
+# with spaces. A tab is the one exception, and only in the sudoers rule, where the
+# whitespace between fields is free — it is deleted before the match rather than
+# subtracted from the character class, which an ERE cannot do. Newlines never come
+# up, grep matching within a line.
+#
+# After the review above rather than before it, so that what Tim is shown is the
+# evidence and not only a refusal, and before anything needs a password, so that
+# the refusal costs him nothing.
+#
+# Two patterns, because one class cannot say this. [:cntrl:] is the C0 controls and
+# DEL, which is what the escape trick needs. The C1 controls are the rest — U+0080
+# to U+009F, which some terminals act on as their ASCII counterparts and which
+# arrive as the two bytes 0xC2 0x80-0x9F — and no character class tells those from
+# the em dashes this repo's comments are full of, so they are matched as the byte
+# range they are, under a C locale where grep compares bytes.
+c1_controls="$(printf '\302[\200-\237]')"
+
+offenders="$(
+  LC_ALL=C tr -d '\011' <"$staged/sudoers" |
+    LC_ALL=C grep -naE "[[:cntrl:]]|$c1_controls" |
+    sed 's|^|the sudoers rule, line |' || true
+
+  LC_ALL=C grep -naE "[[:cntrl:]]|$c1_controls" "$staged/claude-root" |
+    sed 's|^|the helper, line |' || true
+)"
+
+if [ -n "$offenders" ]; then
+  echo "Nothing was installed: the staged files hold control characters, which" >&2
+  echo "neither of them has any reason to. On a terminal they can print as" >&2
+  echo "something other than what they say, so read them with 'cat -v' before" >&2
+  echo "going any further:" >&2
+  echo >&2
+  printf '%s\n' "$offenders" | render >&2
+  exit 1
+fi
 
 # A drop-in under /etc/sudoers.d is a file nothing reads unless /etc/sudoers
 # includes the directory. macOS has shipped that line for years, but an

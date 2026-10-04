@@ -135,13 +135,13 @@ check "the copies are the formula's current binaries" \
 
 # The daemon is in the system domain, which needs root to read — and a Mac being
 # provisioned by hand should not meet a password prompt inside a test.
-if sudo -n true 2>/dev/null; then
+if /usr/bin/sudo -n /usr/bin/true 2>/dev/null; then
   check "tailscaled is a loaded system daemon" \
-    'sudo -n launchctl print "system/$tailscale_daemon"'
+    '/usr/bin/sudo -n /bin/launchctl print "system/$tailscale_daemon"'
   # Two tailscaled cannot share one tunnel, and brew services' one runs the
   # account-writable binary this replaced.
   check "brew services' tailscale daemon is gone" \
-    '! sudo -n launchctl print system/sh.brew.tailscale'
+    '! /usr/bin/sudo -n /bin/launchctl print system/sh.brew.tailscale'
 else
   echo "  --    sudo wants a password, so tailscaled's daemon was not checked"
 fi
@@ -150,7 +150,8 @@ fi
 # Readable without root on macOS; the sudo is the fallback for a daemon that
 # disagrees.
 prefs() {
-  tailscale debug prefs 2>/dev/null || sudo -n tailscale debug prefs 2>/dev/null
+  tailscale debug prefs 2>/dev/null ||
+    /usr/bin/sudo -n /usr/local/bin/tailscale debug prefs 2>/dev/null
 }
 export -f prefs
 
@@ -280,9 +281,11 @@ if [ -n "$xcode_app" ]; then
     'case "$(xcode-select -p)" in /Applications/Xcode*.app/Contents/Developer) ;; *) exit 1 ;; esac'
   check "xcodebuild answers" 'xcodebuild -version'
 
-  if sudo -n true 2>/dev/null; then
-    check "Xcode's licence is accepted" 'sudo -n xcodebuild -license check'
-    check "Xcode's first launch is done" 'sudo -n xcodebuild -checkFirstLaunchStatus'
+  if /usr/bin/sudo -n /usr/bin/true 2>/dev/null; then
+    check "Xcode's licence is accepted" \
+      '/usr/bin/sudo -n /usr/bin/xcodebuild -license check'
+    check "Xcode's first launch is done" \
+      '/usr/bin/sudo -n /usr/bin/xcodebuild -checkFirstLaunchStatus'
   else
     echo "  --    sudo wants a password, so Xcode's licence was not checked"
   fi
@@ -328,7 +331,8 @@ check "the screensaver never starts" \
 software_update() {
   local plist=/Library/Preferences/com.apple.SoftwareUpdate
 
-  defaults read "$plist" "$1" 2>/dev/null || sudo -n defaults read "$plist" "$1"
+  defaults read "$plist" "$1" 2>/dev/null ||
+    /usr/bin/sudo -n /usr/bin/defaults read "$plist" "$1"
 }
 export -f software_update
 
@@ -352,7 +356,7 @@ check "macOS checks for updates on its own" \
 # re-run safe: a second pass has nothing left to change and says nothing. `is now`
 # is what each setter prints when it writes. Given no stdin, because a Mac being
 # checked by hand has a terminal and unattended.sh would ask it for a password.
-if sudo -n true 2>/dev/null; then
+if /usr/bin/sudo -n /usr/bin/true 2>/dev/null; then
   export rerun="$("$root/unattended.sh" </dev/null 2>/dev/null || true)"
 
   check "a second unattended.sh changes nothing" \
@@ -391,9 +395,9 @@ check "Spotlight indexing is off" \
 
 # Reading the system domain needs root, and a Mac being provisioned by hand should
 # not have this script sitting on a password prompt.
-if sudo -n true 2>/dev/null; then
+if /usr/bin/sudo -n /usr/bin/true 2>/dev/null; then
   check "Remote Login is on" \
-    'sudo -n launchctl print system/com.openssh.sshd'
+    '/usr/bin/sudo -n /bin/launchctl print system/com.openssh.sshd'
 else
   echo "  --    sudo wants a password, so Remote Login was not checked"
 fi
@@ -416,8 +420,8 @@ if ssh-keygen -l -f "$HOME/.ssh/authorized_keys" >/dev/null 2>&1; then
   # daemon, so a drop-in it cannot parse breaks every login rather than waiting
   # for a restart. Only sshd can be asked, and only as root, so a Mac whose sudo
   # wants a password is told what was skipped — as the reads above are.
-  if sudo -n true 2>/dev/null; then
-    check "sshd accepts the drop-in" 'sudo -n /usr/sbin/sshd -t'
+  if /usr/bin/sudo -n /usr/bin/true 2>/dev/null; then
+    check "sshd accepts the drop-in" '/usr/bin/sudo -n /usr/sbin/sshd -t'
   else
     echo "  --    sudo wants a password, so the drop-in was not parsed"
   fi
@@ -497,11 +501,11 @@ check "no action reaches into a path the account can write" \
 # minute ago: it makes sudo ignore the cached credentials for the one call without
 # clearing them.
 check "sudo runs the helper with no password" \
-  'sudo -n -k "$helper" --list'
+  '/usr/bin/sudo -n -k "$helper" --list'
 # The helper's own refusal rather than only a non-zero exit, which sudo would
 # give for having refused to run it at all.
 check "sudo refuses a daemon the helper does not allow" \
-  'sudo -n -k "$helper" restart-daemon not-on-the-list 2>&1 |
+  '/usr/bin/sudo -n -k "$helper" restart-daemon not-on-the-list 2>&1 |
      grep -q "not an allowed daemon"'
 
 # And the half that says it is narrow rather than blanket. A machine whose sudoers
@@ -509,19 +513,20 @@ check "sudo refuses a daemon the helper does not allow" \
 # that way, which is also what lets the installer run there at all — so what is
 # asked first is whether some other command runs too, and the answer decides
 # whether this is a check or a line saying it could not be made.
-if sudo -n -k /usr/bin/true 2>/dev/null; then
+if /usr/bin/sudo -n -k /usr/bin/true 2>/dev/null; then
   echo "  --    this account's sudoers grants more than the helper, as a CI"
   echo "        runner's does, so the refusal of everything outside it was not"
   echo "        checked"
 else
-  check "sudo runs nothing outside the helper" '! sudo -n -k /bin/ls /'
+  check "sudo runs nothing outside the helper" \
+  '! /usr/bin/sudo -n -k /bin/ls /'
 fi
 
-if sudo -n true 2>/dev/null; then
+if /usr/bin/sudo -n /usr/bin/true 2>/dev/null; then
   check "the sudoers rule is the rendering of this repo's" \
-    'sudo -n cmp -s "$rendered/sudoers" "$sudoers_file"'
+    '/usr/bin/sudo -n /usr/bin/cmp -s "$rendered/sudoers" "$sudoers_file"'
   check "sudo parses the sudoers rule" \
-    'sudo -n /usr/sbin/visudo -cf "$sudoers_file"'
+    '/usr/bin/sudo -n /usr/sbin/visudo -cf "$sudoers_file"'
 else
   echo "  --    sudo wants a password, so the sudoers rule's contents were not"
   echo "        read back"
@@ -591,6 +596,30 @@ check "the helper does not run on the PATH it was handed" \
 # source that went wrong here would be a commit nobody could read the diff of.
 c1_controls="$(printf '\302[\200-\237]')"
 export c1_controls
+
+# And root-helper.sh names every command it runs by its absolute path, sudo
+# included. sudoers here sets no secure_path, so a bare name after sudo is
+# whichever one the caller's PATH finds first, and this account's PATH starts with
+# ~/.local/bin, which the account can write — so a bare `sudo cat` is a session's
+# cat running as root the moment Tim types his password. test/root-helper.sh runs a
+# review with a PATH full of recording fakes and asserts none of them was called;
+# this is the half that covers the branches such a run does not reach, a first
+# install never reaching the diff or the comparison.
+#
+# A command position is the start of a line, or what follows a pipe, a semicolon,
+# an opening parenthesis, a `!`, an `&&`, a `$(` or one of the keywords that take a
+# command after them. Which is what keeps this script's own prose out of it: the
+# names appear in plenty of comments and messages, and none of those is a command
+# position.
+shell_commands='sudo|sh|cat|cmp|install|rm|diff|grep|sed|tr|shasum|stat'
+shell_commands="$shell_commands|dscl|id|uname|mktemp|dirname|chown|chmod"
+shell_commands="$shell_commands|mv|visudo|logger|launchctl"
+command_position='(^|[;|(!]|\|\||&&|\$\(|(^|[[:space:]])(if|elif|while|until|then|else|do))[[:space:]]*'
+export shell_commands command_position
+
+check "root-helper.sh names every command it runs by its absolute path" \
+  '! grep -vE "^[[:space:]]*#" "$root/root-helper.sh" |
+     grep -qE "$command_position($shell_commands)[[:space:]]"'
 
 check "the helper's source holds no control character" \
   '! LC_ALL=C grep -qaE "[[:cntrl:]]|$c1_controls" "$helper_source"'

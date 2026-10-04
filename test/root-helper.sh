@@ -72,23 +72,23 @@ cat >"$sandbox/bin/sudo" <<'STUB'
 if [ "$1" = -n ]; then
   shift
   case "$*" in
-    true) exit 0 ;;
+    /usr/bin/true) exit 0 ;;
   esac
 fi
 
 case "$*" in
-  "cat /etc/sudoers")
+  "/bin/cat /etc/sudoers")
     if [ -n "${REWRITE:-}" ]; then
-      cat "$REWRITE/sudoers" >"$SOURCES/system/sudoers/claude-root"
-      cat "$REWRITE/helper" >"$SOURCES/system/libexec/claude-root"
+      /bin/cat "$REWRITE/sudoers" >"$SOURCES/system/sudoers/claude-root"
+      /bin/cat "$REWRITE/helper" >"$SOURCES/system/libexec/claude-root"
     fi
 
     echo "@includedir /private/etc/sudoers.d"
     exit 0
     ;;
-  install\ -d*) exit 0 ;;
-  cmp\ *)
-    cat >/dev/null
+  /usr/bin/install\ -d*) exit 0 ;;
+  /usr/bin/cmp\ *)
+    /bin/cat >/dev/null
     exit 1
     ;;
 esac
@@ -97,9 +97,9 @@ esac
 # bytes to write. They are written here instead, under the whole destination path
 # with its slashes turned into underscores — both destinations are called
 # claude-root, so the basename alone would have one overwrite the other.
-if [ "$1" = sh ] && [ "$2" = -c ]; then
-  name="$(printf '%s' "$5" | tr / _)"
-  cat >"$CAPTURE/$name"
+if [ "$1" = /bin/sh ] && [ "$2" = -c ]; then
+  name="$(printf '%s' "$5" | /usr/bin/tr / _)"
+  /bin/cat >"$CAPTURE/$name"
   echo "$6" >"$CAPTURE/$name.mode"
   exit 0
 fi
@@ -118,7 +118,13 @@ stage() {
   local copy="$sandbox/$1"
 
   mkdir -p "$copy/system/libexec" "$copy/system/sudoers"
-  cp "$repo/root-helper.sh" "$copy/root-helper.sh"
+
+  # The one patch: root-helper.sh names /usr/bin/sudo absolutely, which is the
+  # point of it and is why a stub cannot be put on the PATH instead, so the copy
+  # has that path pointed at the stub. Nothing else about the script is touched.
+  sed "s|/usr/bin/sudo|$sandbox/bin/sudo|g" "$repo/root-helper.sh" \
+    >"$copy/root-helper.sh"
+
   cp "$repo/system/libexec/claude-root" "$copy/system/libexec/claude-root"
   cp "$repo/system/sudoers/claude-root" "$copy/system/sudoers/claude-root"
   echo "$copy"
@@ -252,6 +258,50 @@ export unrendered_output
 
 check "a placeholder that survived rendering is refused" \
   'printf "%s\n" "$unrendered_output" | grep -q "placeholder survived"'
+
+# Every command named by its absolute path, which is the other half of the same
+# idea. sudoers here resets the environment but sets no secure_path, so a bare
+# `sudo cat` would be whichever cat the caller's PATH found first — and the first
+# entry on this account's PATH is ~/.local/bin, which the account can write. So a
+# directory of recording fakes goes at the front of the PATH, and what is asserted
+# is that not one of them was called: the ones sudo would have run as root, and the
+# ones that decide what Tim sees in the review.
+#
+# home/.zshenv is a symlink into this checkout, so a session can set any variable
+# Tim's shell starts with; the PATH here stands in for that as much as for a
+# dropped binary.
+shadow="$sandbox/shadow"
+mkdir -p "$shadow"
+
+for name in sh cat cmp install rm diff grep sed tr shasum stat dscl id uname \
+            mktemp dirname chown chmod mv visudo sudo true; do
+  {
+    echo '#!/bin/sh'
+    echo "echo $name >>\"\$SHADOW_CALLS\""
+    echo 'exit 1'
+  } >"$shadow/$name"
+  chmod 0755 "$shadow/$name"
+done
+
+shadowed="$(stage shadowed)"
+shadow_calls="$sandbox/shadow-calls"
+: >"$shadow_calls"
+export shadow_calls
+
+shadow_output="$(
+  PATH="$shadow:$sandbox/bin:$PATH" CAPTURE="$capture" SOURCES="$shadowed" \
+    SHADOW_CALLS="$shadow_calls" bash "$shadowed/root-helper.sh" 2>&1
+)"
+export shadow_output
+
+check "a review runs none of the commands a poisoned PATH would have supplied" \
+  '[ ! -s "$shadow_calls" ]'
+# Named rather than only counted, because which command went looking on the PATH
+# is the whole of what makes this fixable.
+[ ! -s "$shadow_calls" ] ||
+  sort -u "$shadow_calls" | sed 's/^/        called: /'
+check "and the review still happened, so the run was not simply refused" \
+  'printf "%s\n" "$shadow_output" | grep -qE "$granted[[:space:]]+CLAUDE_ROOT"'
 
 # And the race, which is the reason the installer reads its two files once and
 # installs from memory. Every session on this Mac runs as the account that owns the

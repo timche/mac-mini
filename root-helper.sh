@@ -18,12 +18,24 @@
 # contents, owner and mode, and only a file that differs is written. A run with
 # nothing to change says so and writes nothing.
 #
+# Every command here is named by its absolute path, sudo included, and so is every
+# command sudo is asked to run. sudoers on this Mac resets the environment but sets
+# no secure_path, so `sudo cat` is whichever cat the caller's PATH finds first —
+# and the first entry on this account's PATH is ~/.local/bin, which the account can
+# write. A session that drops a cat there has it run as root the moment Tim runs
+# this. Nothing is read from the environment either, no ${SUDO:-} and no PATH of
+# our own: home/.zshenv is a symlink into this checkout, so a session can set any
+# variable Tim's shell starts with, and a default that can be overridden is the
+# same hole wearing a different hat. The account-side tools are spelled out for the
+# same reason one step removed — a shadowed cat or diff would show Tim a review
+# that is not what gets installed.
+#
 # Takes the account to grant as its argument, defaulting to whoever runs it.
 
 set -euo pipefail
 
-repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-user="${1:-$(id -un)}"
+repo="$(cd "$(/usr/bin/dirname "${BASH_SOURCE[0]}")" && pwd)"
+user="${1:-$(/usr/bin/id -un)}"
 
 helper=/usr/local/libexec/claude-root
 helper_dir=/usr/local/libexec
@@ -36,7 +48,7 @@ sudoers_file=/etc/sudoers.d/claude-root
 # Mac which ran that version converges on this one.
 retired_newsyslog=/etc/newsyslog.d/mac-mini.conf
 
-if [ "$(uname -s)" != Darwin ]; then
+if [ "$(/usr/bin/uname -s)" != Darwin ]; then
   echo "root-helper.sh is macOS only" >&2
   exit 1
 fi
@@ -45,7 +57,7 @@ fi
 # already run every one of these commands — so a run as root would write a rule
 # for root and grant the account nothing. machine.sh refuses root for its own
 # reasons and sudos the steps that need it, which is what this does below.
-if [ "$(id -u)" -eq 0 ]; then
+if [ "$(/usr/bin/id -u)" -eq 0 ]; then
   echo "root-helper.sh runs as the account the helper is for, not as root: the" >&2
   echo "sudoers rule it writes names that account, and root needs none of it." >&2
   echo "It sudos the three installs itself." >&2
@@ -55,7 +67,7 @@ fi
 # Read rather than assumed, because the sudoers rule names this account and a
 # rule for an account that does not exist would leave the Mac's own with no sudo.
 # No getent on a Mac; the account record is dscl's.
-if ! dscl . -read "/Users/$user" NFSHomeDirectory >/dev/null 2>&1; then
+if ! /usr/bin/dscl . -read "/Users/$user" NFSHomeDirectory >/dev/null 2>&1; then
   echo "no such user: $user" >&2
   exit 1
 fi
@@ -64,7 +76,7 @@ fi
 # terminal to type it at. Checked before anything is read, so what happens is a
 # message rather than a prompt nothing answers — the same shape as the Xcode step
 # machine.sh skips.
-if ! sudo -n true 2>/dev/null && [ ! -t 0 ]; then
+if ! /usr/bin/sudo -n /usr/bin/true 2>/dev/null && [ ! -t 0 ]; then
   echo
   echo "Skipped the root helper: sudo wants a password and there is no terminal" >&2
   echo "to type it at. Run $repo/root-helper.sh from a terminal." >&2
@@ -88,7 +100,7 @@ fi
 # would make the diff of the helper unreadable to defend against bytes the check
 # below refuses outright anyway.
 render() {
-  cat -v | sed 's/^/    /'
+  /bin/cat -v | /usr/bin/sed 's/^/    /'
 }
 
 # Read once, here, and never again. Everything below — the placeholder scan, the
@@ -108,7 +120,7 @@ render() {
 # hold one — and would then be missing from what is installed rather than smuggled
 # into it, with assert-machine.sh's byte comparison against the source the thing
 # that notices.
-if ! helper_bytes="$(cat "$repo/system/libexec/claude-root" && printf x)"; then
+if ! helper_bytes="$(/bin/cat "$repo/system/libexec/claude-root" && printf x)"; then
   echo "could not read $repo/system/libexec/claude-root" >&2
   exit 1
 fi
@@ -117,7 +129,7 @@ helper_bytes="${helper_bytes%x}"
 
 # The one rendering, in the same single read: nothing here is written for one
 # account name.
-if ! sudoers_bytes="$(sed "s/__USER__/$user/g" \
+if ! sudoers_bytes="$(/usr/bin/sed "s/__USER__/$user/g" \
                         "$repo/system/sudoers/claude-root" && printf x)"; then
   echo "could not read $repo/system/sudoers/claude-root" >&2
   exit 1
@@ -129,11 +141,11 @@ sudoers_bytes="${sudoers_bytes%x}"
 # rule for one called __USER__ would leave this Mac's own account with no sudo at
 # all.
 placeholders="$(
-  printf '%s' "$sudoers_bytes" | grep -n '__[A-Z]*__' |
-    sed 's|^|the sudoers rule, line |' || true
+  printf '%s' "$sudoers_bytes" | /usr/bin/grep -n '__[A-Z]*__' |
+    /usr/bin/sed 's|^|the sudoers rule, line |' || true
 
-  printf '%s' "$helper_bytes" | grep -n '__[A-Z]*__' |
-    sed 's|^|the helper, line |' || true
+  printf '%s' "$helper_bytes" | /usr/bin/grep -n '__[A-Z]*__' |
+    /usr/bin/sed 's|^|the helper, line |' || true
 )"
 
 if [ -n "$placeholders" ]; then
@@ -192,8 +204,8 @@ echo
 # pipefail end the run without saying why.
 grant="$(
   printf '%s' "$sudoers_bytes" |
-    grep -vE '^[[:space:]]*(#|$)' |
-    sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' || true
+    /usr/bin/grep -vE '^[[:space:]]*(#|$)' |
+    /usr/bin/sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' || true
 )"
 printf '%s\n' "$grant" | render
 echo
@@ -206,18 +218,19 @@ if [ ! -r "$helper" ]; then
   echo "  $helper is new, so there is nothing to diff against. What will be"
   echo "  installed hashes to:"
   echo
-  printf '%s' "$helper_bytes" | shasum -a 256 | sed 's/ *-$//' | render
+  printf '%s' "$helper_bytes" | /usr/bin/shasum -a 256 |
+    /usr/bin/sed 's/ *-$//' | render
   echo
   echo "  Read it, and check the file it came from still matches:"
-  echo "    shasum -a 256 $repo/system/libexec/claude-root"
-elif printf '%s' "$helper_bytes" | cmp -s - "$helper"; then
+  echo "    /usr/bin/shasum -a 256 $repo/system/libexec/claude-root"
+elif printf '%s' "$helper_bytes" | /usr/bin/cmp -s - "$helper"; then
   echo "  $helper is unchanged."
 else
   echo "  $helper changes:"
   echo
 
   # diff exits 1 for files that differ, which is the only reason it is being run.
-  changes="$(printf '%s' "$helper_bytes" | diff -u "$helper" - || true)"
+  changes="$(printf '%s' "$helper_bytes" | /usr/bin/diff -u "$helper" - || true)"
   printf '%s\n' "$changes" | render
 fi
 
@@ -243,13 +256,13 @@ echo
 c1_controls="$(printf '\302[\200-\237]')"
 
 offenders="$(
-  printf '%s' "$sudoers_bytes" | LC_ALL=C tr -d '\011' |
-    LC_ALL=C grep -naE "[[:cntrl:]]|$c1_controls" |
-    sed 's|^|the sudoers rule, line |' || true
+  printf '%s' "$sudoers_bytes" | LC_ALL=C /usr/bin/tr -d '\011' |
+    LC_ALL=C /usr/bin/grep -naE "[[:cntrl:]]|$c1_controls" |
+    /usr/bin/sed 's|^|the sudoers rule, line |' || true
 
   printf '%s' "$helper_bytes" |
-    LC_ALL=C grep -naE "[[:cntrl:]]|$c1_controls" |
-    sed 's|^|the helper, line |' || true
+    LC_ALL=C /usr/bin/grep -naE "[[:cntrl:]]|$c1_controls" |
+    /usr/bin/sed 's|^|the helper, line |' || true
 )"
 
 if [ -n "$offenders" ]; then
@@ -273,7 +286,7 @@ fi
 # that found nothing and a sudo that was refused both exit non-zero, and telling
 # Tim his sudoers is missing a line when the truth is that nobody typed a password
 # would send him after the wrong thing.
-if ! sudoers_text="$(sudo cat /etc/sudoers 2>/dev/null)"; then
+if ! sudoers_text="$(/usr/bin/sudo /bin/cat /etc/sudoers 2>/dev/null)"; then
   echo
   echo "Skipped the root helper: /etc/sudoers could not be read, so whether a" >&2
   echo "drop-in there is included is unknown. Run $repo/root-helper.sh from a" >&2
@@ -282,7 +295,7 @@ if ! sudoers_text="$(sudo cat /etc/sudoers 2>/dev/null)"; then
 fi
 
 if ! printf '%s\n' "$sudoers_text" |
-       grep -qE '^[[:space:]]*[#@]includedir[[:space:]]+(/private)?/etc/sudoers\.d'; then
+       /usr/bin/grep -qE '^[[:space:]]*[#@]includedir[[:space:]]+(/private)?/etc/sudoers\.d'; then
   echo
   echo "Skipped the root helper: /etc/sudoers has no includedir for" >&2
   echo "/etc/sudoers.d, so a drop-in there would do nothing. Add the line with" >&2
@@ -298,19 +311,19 @@ root_owned_path() {
   local path="$1" owner mode
 
   while :; do
-    owner="$(stat -f '%Su' "$path" 2>/dev/null)" || return 1
-    mode="$(stat -f '%OLp' "$path" 2>/dev/null)" || return 1
+    owner="$(/usr/bin/stat -f '%Su' "$path" 2>/dev/null)" || return 1
+    mode="$(/usr/bin/stat -f '%OLp' "$path" 2>/dev/null)" || return 1
 
     [ ! -L "$path" ] || return 1
     [ "$owner" = root ] || return 1
     [ $((8#$mode & 8#022)) -eq 0 ] || return 1
 
     case "$path" in /) return 0 ;; esac
-    path="$(dirname "$path")"
+    path="$(/usr/bin/dirname "$path")"
   done
 }
 
-if ! sudo install -d -m 0755 -o root -g wheel "$helper_dir"; then
+if ! /usr/bin/sudo /usr/bin/install -d -m 0755 -o root -g wheel "$helper_dir"; then
   echo "warning: could not make $helper_dir root-owned, so nothing was" >&2
   echo "installed. $repo/root-helper.sh will try again." >&2
   exit 0
@@ -347,14 +360,14 @@ difference() {
   # decision is about something else. sudo cmp because the sudoers rule is
   # installed 0440 and the account cannot read what it is being compared against —
   # a plain cmp would fail for want of permission and reinstall on every run.
-  if ! printf '%s' "$bytes" | sudo cmp -s - "$destination"; then
+  if ! printf '%s' "$bytes" | /usr/bin/sudo /usr/bin/cmp -s - "$destination"; then
     echo "contents differ from this repo's"
     return 0
   fi
 
   # %OLp prints the three octal digits with no leading zero, which is what the
   # modes below are stripped to rather than written twice.
-  found="$(stat -f '%Su:%Sg %OLp' "$destination" 2>/dev/null || true)"
+  found="$(/usr/bin/stat -f '%Su:%Sg %OLp' "$destination" 2>/dev/null || true)"
   if [ "$found" != "root:wheel ${mode#0}" ]; then
     echo "is $found, want root:wheel ${mode#0}"
     return 0
@@ -391,15 +404,18 @@ install_copy() {
   # two only mean anything together, and a sudoers rule naming a helper that did
   # not land would be worse than neither. Not fatal to machine.sh, which names the
   # step among what is left.
-  if ! printf '%s' "$bytes" | sudo sh -c '
+  if ! printf '%s' "$bytes" | /usr/bin/sudo /bin/sh -c '
+        PATH=/usr/bin:/bin:/usr/sbin:/sbin
+        export PATH
         umask 077
-        temporary="$(mktemp "$1.XXXXXX")" || exit 1
-        trap "rm -f \"\$temporary\"" EXIT
 
-        cat >"$temporary" &&
-          chown root:wheel "$temporary" &&
-          chmod "$2" "$temporary" &&
-          mv -f "$temporary" "$1"
+        temporary="$(/usr/bin/mktemp "$1.XXXXXX")" || exit 1
+        trap "/bin/rm -f \"\$temporary\"" EXIT
+
+        /bin/cat >"$temporary" &&
+          /usr/sbin/chown root:wheel "$temporary" &&
+          /bin/chmod "$2" "$temporary" &&
+          /bin/mv -f "$temporary" "$1"
       ' sh "$destination" "$mode"; then
     echo "warning: could not install $destination, so the root helper is" >&2
     echo "incomplete. $repo/root-helper.sh will try again." >&2
@@ -419,7 +435,7 @@ install_copy "$helper_bytes" "$helper" 0755
 install_copy "$sudoers_bytes" "$sudoers_file" 0440
 
 if [ -e "$retired_newsyslog" ]; then
-  if sudo rm -f "$retired_newsyslog"; then
+  if /usr/bin/sudo /bin/rm -f "$retired_newsyslog"; then
     echo "  removed    $retired_newsyslog (the log action it served is gone)"
     changed=true
   else
@@ -435,7 +451,7 @@ echo
 # clearing them, so the steps after this still have the timestamp machine.sh
 # warmed up. -n so a rule that is not working prints a refusal instead of a
 # prompt.
-if sudo -n -k "$helper" --list >/dev/null 2>&1; then
+if /usr/bin/sudo -n -k "$helper" --list >/dev/null 2>&1; then
   if [ "$changed" = true ]; then
     echo "Done. '$helper --list' says what it allows."
   else

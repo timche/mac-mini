@@ -209,8 +209,32 @@ func sendThroughBot(bot discordBot, channel string, out Outgoing) (string, error
 	return thread, nil
 }
 
+// A webhook on a forum channel refuses a message that names no thread, and one on a text
+// channel refuses a message that does, so the first try opens a post and a 400 tries again
+// as a plain message.
 func postDiscord(client *http.Client, webhook, message string) error {
-	body, err := json.Marshal(map[string]string{"content": capMessage(message)})
+	err := postDiscordBody(client, webhook, map[string]string{
+		"content":     capMessage(message),
+		"thread_name": threadName(message),
+	})
+	if err != nil && strings.HasSuffix(err.Error(), "answered 400") {
+		return postDiscordBody(client, webhook, map[string]string{"content": capMessage(message)})
+	}
+	return err
+}
+
+// Discord caps a thread's name at 100 characters.
+func threadName(message string) string {
+	first, _, _ := strings.Cut(strings.TrimSpace(message), "\n")
+	name := safe(strings.TrimPrefix(first, "hachiko on "), 96)
+	if strings.TrimSpace(name) == "" {
+		return "hachiko"
+	}
+	return name
+}
+
+func postDiscordBody(client *http.Client, webhook string, fields map[string]string) error {
+	body, err := json.Marshal(fields)
 	if err != nil {
 		return err
 	}

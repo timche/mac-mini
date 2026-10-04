@@ -92,63 +92,89 @@ func (s sweeper) chaseAnswers(state *State, now time.Time, reading nowReading) {
 			// It is on a question again, so nothing is owing: the prompt hachiko owed was to
 			// replace the question it took away, and this is not that one. Whatever step
 			// wanted that prompt is unrecorded and comes round again.
-			w.Owed, w.OwedSteps = "", nil
-			state.Waiting[kind] = s.escalate(state, now, kind, w, reading)
+			w.Owed, w.OwedSteps, w.Settled = "", nil, 0
+			state.Waiting[kind] = s.escalate(state, now, kind, w, reading, true)
 
 		case w.Owed != "":
 			state.Waiting[kind] = s.retryOwed(now, kind, w, reading)
 
-		case status == statusWorking && w.Nudged != 0:
-			// hachiko took the question away itself and the agent is working on what it
-			// was handed instead. It will ask again or report, and the clock goes on
-			// running meanwhile — the wait is Tim's, not the agent's.
-
-		case w.Since != 0:
-			// It was on a question and it is not any more, and hachiko did not take the
-			// question away — so that was Tim, and the clock he was being waited for stops
-			// with it.
-			if w.Nudged == 0 {
-				s.say("%s was answered after %s, so the %s on-call agent is no longer waiting",
-					w.Incident, hmStr(now.Sub(time.Unix(w.Since, 0))), kind)
-			} else {
-				// hachiko took the question away and the session finished its turn without
-				// asking anything else. Nothing more is owed on it, but the watch on this kind
-				// stops here, and a wait that ended in silence is the one thing somebody
-				// reading the log afterwards would otherwise have to infer.
-				s.say("the %s on-call agent finished what it was handed on %s without asking anything else, so the wait on it ends after %s",
-					kind, w.Incident, hmStr(now.Sub(time.Unix(w.Since, 0))))
+		case w.Since == 0:
+			// Briefed and never got as far as a question in the time it was given to report
+			// in, so it is not going to ask one. The deadline has already said so to Tim in a
+			// message of its own.
+			if now.Sub(time.Unix(w.Opened, 0)) >= s.cfg.OncallDeadline {
+				delete(state.Waiting, kind)
 			}
-			delete(state.Waiting, kind)
 
-		case now.Sub(time.Unix(w.Opened, 0)) >= s.cfg.OncallDeadline:
-			// It was briefed and never got as far as a question in the time it was given to
-			// report in, so it is not going to ask one. The deadline has already said so
-			// to Tim in its own message.
-			delete(state.Waiting, kind)
+		case status == statusWorking:
+			// Something is happening: the answer Tim gave it, or what hachiko handed it in
+			// place of the question. A reminder, a warning or a handover on top of that would
+			// be hachiko talking over the work it asked for, so the timeline waits — and
+			// nothing but an outcome, a fresh question or a closed session ends the wait, since
+			// working is not a report.
+			w.Settled = 0
+			state.Waiting[kind] = w
+
+		default:
+			if next, keep := s.settled(state, now, kind, w, reading); keep {
+				state.Waiting[kind] = next
+			} else {
+				delete(state.Waiting, kind)
+			}
 		}
 	}
+}
+
+// Not blocked, not working, and nothing has reported anything: the question is gone and the
+// agent has nothing in flight. That is what Tim answering looks like from here — and it is
+// equally what hachiko's own esc looks like, and what a session that gave up on its turn
+// looks like. herdr cannot tell them apart and neither can this, so ending the wait here was
+// ending it on the weakest evidence there is, which is how a whole night's incident went by
+// with nothing acting and nothing said.
+//
+// So the timeline runs on instead, and what ends the wait is something that actually says
+// what happened: the outcome, a fresh question, a closed session, or the deadline followed
+// by silence.
+func (s sweeper) settled(state *State, now time.Time, kind string, w Waiting, reading nowReading) (Waiting, bool) {
+	if w.Settled == 0 {
+		w.Settled = now.Unix()
+	}
+
+	// The decision has been handed over and the agent has gone quiet without reporting. It
+	// has had the minutes it was given to report its findings in to say what it did, so the
+	// wait stops being counted rather than being counted for ever.
+	if contains(w.Steps, stepHandover) && now.Sub(time.Unix(w.Settled, 0)) >= s.cfg.OncallDeadline {
+		s.say("nothing reported the outcome of %s and the %s on-call agent has nothing left in flight, so the wait on it ends after %s",
+			w.Incident, kind, hmStr(now.Sub(time.Unix(w.Since, 0))))
+		return w, false
+	}
+
+	return s.escalate(state, now, kind, w, reading, false), true
 }
 
 // The clock, and the one message per step on it. The order is deliberate: a handover
 // that is due makes a reminder noise, and a question that is about to be cancelled and
 // asked again is not one to remind him about either.
-func (s sweeper) escalate(state *State, now time.Time, kind string, w Waiting, reading nowReading) Waiting {
-	if w.Since == 0 {
-		w.Since = now.Unix()
-		s.say("the %s on-call agent is waiting for an answer on %s", kind, w.Incident)
-	}
-	// A question with no numbers behind it yet: the first one, or one asked again under a
-	// brief this agent has not been measured against. Everything a stale question is
-	// found out by is measured from here.
-	if w.Asked.At == 0 {
-		w.Asked = reading.snapshot(now)
+func (s sweeper) escalate(state *State, now time.Time, kind string, w Waiting, reading nowReading, blocked bool) Waiting {
+	if blocked {
+		if w.Since == 0 {
+			w.Since = now.Unix()
+			s.say("the %s on-call agent is waiting for an answer on %s", kind, w.Incident)
+		}
+		// A question with no numbers behind it yet: the first one, or one asked again under a
+		// brief this agent has not been measured against. Everything a stale question is
+		// found out by is measured from here.
+		if w.Asked.At == 0 {
+			w.Asked = reading.snapshot(now)
+		}
+		// There is a question up, so it is not one hachiko took away.
+		w.Nudged = 0
 	}
 	// A session that named no fallback option in its first report may have named one in a
 	// message since, and the marker keeps the earliest it was given.
 	if w.Default == "" {
 		w.Default = s.store.ReportedFallback(w.Incident)
 	}
-	w.Nudged = 0
 
 	waited := now.Sub(time.Unix(w.Since, 0))
 	handed := contains(w.Steps, stepHandover)
@@ -159,17 +185,17 @@ func (s sweeper) escalate(state *State, now time.Time, kind string, w Waiting, r
 	// whole point of the clock never came.
 	w, worse := s.worsening(w, reading, waited, now)
 	if worse != "" && !handed && !contains(w.Steps, stepEarly) {
-		return s.handOver(now, kind, w, reading, worse)
+		return s.handOver(now, kind, w, reading, worse, blocked)
 	}
 	if waited >= s.cfg.HandoverAfter && !handed {
-		return s.handOver(now, kind, w, reading, "")
+		return s.handOver(now, kind, w, reading, "", blocked)
 	}
 	if handed {
 		return w
 	}
 
 	if changed := materialChange(w, reading); changed.happened() {
-		return s.refresh(now, kind, w, reading, changed)
+		return s.refresh(now, kind, w, reading, changed, blocked)
 	}
 
 	switch {
@@ -234,7 +260,7 @@ func (s sweeper) step(state *State, w Waiting, step, message, said string) Waiti
 // The handover itself: the question goes, and the session is told to decide. Nothing of
 // hachiko's own goes to the channel here — the session's own message is what says what
 // it did and why, and two messages about one decision would be one too many.
-func (s sweeper) handOver(now time.Time, kind string, w Waiting, reading nowReading, worse string) Waiting {
+func (s sweeper) handOver(now time.Time, kind string, w Waiting, reading nowReading, worse string, blocked bool) Waiting {
 	waited := now.Sub(time.Unix(w.Since, 0))
 
 	lead := fmt.Sprintf(`Tim has not answered for %s, so the autonomy in your standing orders is handed over to you now. Re-check the situation from scratch first — the numbers below are this minute's, not the ones you asked about — then pick and carry out the least destructive option that resolves it, inside the limits those orders give you. Spawn the oncall-partner agent with your proposed action first and act only if it agrees. Verify it worked, send one message with what you did, why, which limit allowed it and what the partner said, write the incident note, and stop.`,
@@ -255,7 +281,7 @@ Re-check the situation from scratch — the numbers below are this minute's — 
 		steps = []string{stepRemind, stepWarn, stepEarly}
 	}
 
-	escSent, err := s.deps.Interrupt(kind, lead, s.handoverData(w, reading))
+	escSent, err := s.hand(kind, blocked, lead, s.handoverData(w, reading))
 	if err != nil {
 		if escSent {
 			// The esc landed and the prompt did not, so the question is already gone and there
@@ -286,6 +312,16 @@ Re-check the situation from scratch — the numbers below are this minute's — 
 	return w
 }
 
+// esc and then the prompt when there is a question in the way, and the prompt alone when
+// there is not: the question is the only thing hachiko means to take away, and an esc to an
+// agent that is not on one cancels whatever it has started instead.
+func (s sweeper) hand(kind string, blocked bool, lead, data string) (escSent bool, err error) {
+	if !blocked {
+		return false, s.deps.Prompt(kind, lead, data)
+	}
+	return s.deps.Interrupt(kind, lead, data)
+}
+
 // The prompt hachiko's own esc left owing. No second esc: the question it was to replace is
 // already gone, and an esc to an agent that is not on one cancels whatever it has started
 // instead. The data is this minute's rather than the data the attempt that failed carried,
@@ -311,7 +347,7 @@ func (s sweeper) retryOwed(now time.Time, kind string, w Waiting, reading nowRea
 // update it cannot read. The clock does not restart: Tim has been unanswered since the
 // first question, and a writer that worsens every hour would otherwise push the
 // handover out for ever.
-func (s sweeper) refresh(now time.Time, kind string, w Waiting, reading nowReading, changed change) Waiting {
+func (s sweeper) refresh(now time.Time, kind string, w Waiting, reading nowReading, changed change, blocked bool) Waiting {
 	waited := now.Sub(time.Unix(w.Since, 0))
 
 	// The reason in hachiko's own words, because a lead is above the fence: which file and
@@ -320,7 +356,12 @@ func (s sweeper) refresh(now time.Time, kind string, w Waiting, reading nowReadi
 	lead := fmt.Sprintf(`The incident changed while you were waiting, so your question has been cancelled: %s. What changed is named in the data below, with this minute's numbers. Re-check the situation and ask again with options that fit what it is now. Tim has been waiting %s and the handover at %s is still counted from the first question, not from this one, so say in your question what you would do if he does not answer.`,
 		changed.why, hmStr(waited), hmStr(s.cfg.HandoverAfter))
 
-	escSent, err := s.deps.Interrupt(kind, lead, changed.detail+"\n\n"+s.handoverData(w, reading))
+	if !blocked {
+		lead = fmt.Sprintf(`The incident changed while nobody was answering: %s. You have no question up, so nothing of yours was cancelled. What changed is named in the data below, with this minute's numbers. Ask again with options that fit what it is now. Tim has been waiting %s and the handover at %s is still counted from the first question, not from this one, so say in your question what you would do if he does not answer.`,
+			changed.why, hmStr(waited), hmStr(s.cfg.HandoverAfter))
+	}
+
+	escSent, err := s.hand(kind, blocked, lead, changed.detail+"\n\n"+s.handoverData(w, reading))
 	if err != nil {
 		if escSent {
 			// The question is gone whether or not the prompt landed, so what it was measured
@@ -332,13 +373,18 @@ func (s sweeper) refresh(now time.Time, kind string, w Waiting, reading nowReadi
 				w.Incident, kind, err)
 			return w
 		}
-		s.say("%s changed while the %s on-call agent was waiting, and its question could not be cancelled: %v",
+		s.say("%s changed while the %s on-call agent was waiting, and it could not be told so: %v",
 			w.Incident, kind, err)
 		return w
 	}
 
-	s.say("%s changed while the %s on-call agent was waiting (%s), so its question was cancelled and it was asked again",
-		w.Incident, kind, changed.why)
+	if blocked {
+		s.say("%s changed while the %s on-call agent was waiting (%s), so its question was cancelled and it was asked again",
+			w.Incident, kind, changed.why)
+	} else {
+		s.say("%s changed while the %s on-call agent was waiting (%s), so it was asked again",
+			w.Incident, kind, changed.why)
+	}
 
 	w.Asked = reading.snapshot(now)
 	w.Nudged = now.Unix()

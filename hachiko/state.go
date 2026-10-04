@@ -102,9 +102,10 @@ type Pending struct {
 // it has been there. Since is zero until a check has actually seen the agent blocked,
 // so the clock starts at the question rather than at the brief.
 //
-// Nudged is when hachiko itself cancelled the question. Without it the working state
-// that follows reads exactly like Tim answering, and the clock would stop every time
-// hachiko asked the agent to think again.
+// Nudged is when hachiko itself cancelled the question, kept as the record of it: the
+// agent leaving `blocked` is what Tim answering and what hachiko's own esc both look like
+// from herdr, so neither of them ends a wait — only an outcome, a fresh question, a closed
+// session or the deadline followed by silence does.
 type Waiting struct {
 	Incident string   `json:"incident"`
 	Tab      string   `json:"tab"`
@@ -123,6 +124,12 @@ type Waiting struct {
 	// measured again when the retry goes out.
 	Owed      string   `json:"owed,omitempty"`
 	OwedSteps []string `json:"owed_steps,omitempty"`
+
+	// When the agent was first seen with no question up and nothing in flight, which is the
+	// start of the grace it gets to report an outcome before hachiko says that nothing did.
+	// Cleared whenever it has something to say again, so the grace is measured from the
+	// moment it went quiet rather than from the prompt it went quiet after.
+	Settled int64 `json:"settled,omitempty"`
 
 	// When a check first projected that free space would reach the critical threshold before
 	// the handover. The second check to say so is what hands the decision over, because one

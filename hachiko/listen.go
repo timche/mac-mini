@@ -358,9 +358,9 @@ func (l listener) recordAttempt(incident, action string) int {
 func (l listener) clearAttempts(incident string) { os.Remove(l.attemptsPath(incident)) }
 
 // Straight to the agent, through the same cancel-then-prompt the sweep uses: herdr refuses
-// a prompt to an agent on a question, and this is the answer to that question. The esc is
-// hachiko's, but the clock is not — nothing records it as a nudge, so the next sweep reads
-// the agent leaving blocked as Tim having answered, which is exactly what happened.
+// a prompt to an agent on a question, and this is the answer to that question. Nothing
+// records this esc against the wait, and nothing needs to: no sweep reads an agent leaving
+// `blocked` as an answer any more, whoever took the question away.
 func (l *listener) handTo(incident, lead, data string) error {
 	kind := kindOf(incident)
 

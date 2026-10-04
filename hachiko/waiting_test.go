@@ -135,47 +135,80 @@ func TestTheDecisionIsHandedOverAtTheDeadlineAndOnlyOnce(t *testing.T) {
 	equal(t, len(f.interrupts), 1, "questions cancelled after the deadline")
 }
 
-// An answer stops the clock, and everything on it: the session is working on what he
-// picked, and a reminder about a question he has already answered is noise.
-func TestAnAnswerBeforeTheDeadlineStopsTheClock(t *testing.T) {
+// An answer from Tim leaves the agent working on what he picked, which is the one thing
+// nothing may be sent on top of: no reminder, no warning, no handover over the work hachiko
+// asked for. It is not the end of the wait either — working is not a report, and the agent
+// leaving `blocked` is equally what hachiko's own esc looks like — so the outcome is what
+// ends it.
+func TestAnAnswerPausesTheClockAndTheOutcomeEndsTheWait(t *testing.T) {
 	f := waiting(t)
 
-	// He picks an option, so herdr shows the agent working rather than blocked — and
-	// hachiko did not cancel anything, so that is him.
+	// He picks an option, so herdr shows the agent working rather than blocked.
 	f.status["disk"] = statusWorking
-	out := f.at(600 + remindAt).sweep()
+	equal(t, f.at(600+remindAt).sweep(), "", "the log while the agent works on his answer")
+	equal(t, len(f.state().Waiting), 1, "waits still being counted")
 
-	wants(t, out, "was answered after 0h12m")
-	equal(t, len(f.state().Waiting), 0, "waits still being counted")
-	equal(t, f.sentCount(), 1, "messages sent after the answer")
-
+	// Nothing fires while it is working, the deadline included.
 	for at := 600 + warnAt; at <= 600+handoverAt+600; at += 300 {
-		equal(t, f.at(int64(at)).sweep(), "", "the log after the answer")
+		equal(t, f.at(int64(at)).sweep(), "", "the log while the agent works on his answer")
 	}
-	equal(t, f.sentCount(), 1, "messages sent after the deadline would have passed")
+	equal(t, f.sentCount(), 1, "messages sent after the answer")
 	equal(t, len(f.interrupts), 0, "questions cancelled after the answer")
+	equal(t, len(f.prompts), 0, "prompts sent after the answer")
+
+	// And the message it marks as the outcome is what ends it.
+	incident := f.state().Waiting["disk"].Incident
+	f.notifyOutcome(incident)
+	wants(t, f.at(600+handoverAt+900).sweep(), "reported the outcome of "+incident)
+	equal(t, len(f.state().Waiting), 0, "waits still being counted")
 }
 
-// A session that was handed something and finished its turn without asking anything else owes
-// nothing more — but the watch on that kind stops there, and a wait that ended in silence is
-// the one thing somebody reading the log afterwards would otherwise have to work out.
-func TestAWaitThatEndsWithoutANewQuestionSaysSo(t *testing.T) {
+// A question that is gone with nothing in flight and nothing said about it is the weakest
+// evidence there is: Tim answering, hachiko's own esc and a session that gave up on its turn
+// are the same reading from herdr. So the timeline runs on rather than the wait ending on it.
+func TestASilentUnblockKeepsTheTimeline(t *testing.T) {
+	f := waiting(t)
+
+	f.status["disk"] = "idle"
+	out := f.at(600 + remindAt).sweep()
+
+	lacks(t, out, "was answered after")
+	wants(t, out, "reminded about disk-")
+	equal(t, len(f.state().Waiting), 1, "waits still being counted")
+
+	wants(t, f.at(600+warnAt).sweep(), "from the handover")
+
+	// And the handover comes, as the prompt alone: there is no question of its own to cancel,
+	// and an esc would take away whatever it has started instead.
+	out = f.at(600 + handoverAt).sweep()
+	wants(t, out, "handed the decision on disk-")
+	equal(t, len(f.interrupts), 0, "questions cancelled")
+	equal(t, len(f.prompts), 1, "prompts sent on their own")
+	wants(t, f.lastPrompt(), "Tim has not answered for 0h36m")
+}
+
+// What ends a wait that has nothing to show: the decision was handed over, the session went
+// quiet, and no outcome ever came. It is given the minutes it had to report its findings in
+// to say what it did, and then the watch on that kind stops.
+func TestAWaitEndsWhenTheHandoverIsFollowedBySilence(t *testing.T) {
 	f := waiting(t)
 	f.at(600 + remindAt).sweep()
 	f.at(600 + warnAt).sweep()
 	f.at(600 + handoverAt).sweep()
 
-	// It acted on what it was handed and went quiet rather than asking again.
+	// It acted on what it was handed and went quiet rather than reporting.
 	f.status["disk"] = "done"
-	out := f.at(600 + handoverAt + 300).sweep()
+	equal(t, f.at(600+handoverAt+300).sweep(), "", "the log the moment it went quiet")
+	equal(t, len(f.state().Waiting), 1, "waits still being counted")
 
-	wants(t, out, "the disk on-call agent finished what it was handed on disk-")
-	wants(t, out, "without asking anything else, so the wait on it ends after")
+	out := f.at(600 + handoverAt + 900).sweep()
+	wants(t, out, "nothing reported the outcome of disk-")
+	wants(t, out, "has nothing left in flight, so the wait on it ends after")
 	lacks(t, out, "was answered after")
 	equal(t, len(f.state().Waiting), 0, "waits still being counted")
 
 	// Said once, and nothing afterwards.
-	equal(t, f.at(600+handoverAt+600).sweep(), "", "the log after the wait ended")
+	equal(t, f.at(600+handoverAt+1200).sweep(), "", "the log after the wait ended")
 }
 
 // The message the session marks as the outcome is the other way a wait ends.
@@ -812,7 +845,7 @@ func TestOneIncidentGetsOneThreadAndEveryLaterMessageGoesIntoIt(t *testing.T) {
 
 	// And the thread goes once nothing is open on it, so the listener stops polling it and
 	// the state does not keep one per incident for the life of the Mac.
-	f.status["disk"] = statusWorking
+	f.notifyOutcome(incident)
 	f.at(600 + remindAt + 300).sweep()
 	equal(t, len(f.state().Threads), 0, "threads still recorded")
 }

@@ -18,7 +18,8 @@
 
 set -uo pipefail
 
-export repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export repo
 
 failures=0
 
@@ -36,6 +37,10 @@ check() {
 sandbox="$(mktemp -d)"
 trap 'rm -rf "$sandbox"' EXIT
 
+capture="$sandbox/capture"
+mkdir -p "$capture"
+export capture
+
 # What the poisoned rules below grant, passed to printf rather than written into
 # its format string: the secrets scan every commit on this Mac goes through reads
 # a word after NOPASSWD: as a password being set, which is the same reason the real
@@ -50,20 +55,55 @@ alias_name=CLAUDE_ROOT
 granted='NOPASSWD:'
 export everything granted
 
-# A stub sudo, so that a case which gets past the review reaches a refusal rather
-# than the machine. `-n true` answers yes, which is what gets the run past the
-# guard that would otherwise skip it for want of a terminal; the sudoers read is
-# answered with a line that has the includedir in it; everything else — every
-# install, every write — refuses. So the furthest any case here can get is the
-# warning root-helper.sh prints when it cannot write, and nothing outside this
-# directory is touched.
+# A stub sudo, which is what keeps every case here off the machine: nothing it
+# answers writes anything outside this sandbox, and nothing it refuses can.
+#
+# `-n true` answers yes, which is what gets a run past the guard that would
+# otherwise skip it for want of a terminal. The sudoers read is answered with a
+# line that has the includedir in it, and is also the moment a run would have
+# stopped for Tim's password — so $REWRITE, when a case sets it, rewrites the
+# sources there: after the review, before the install, which is exactly where a
+# session racing the installer would get in. The directory creation is answered
+# without creating anything. A write is captured rather than performed, and the
+# bytes are what the case then asserts on. Anything else refuses.
 mkdir -p "$sandbox/bin"
 cat >"$sandbox/bin/sudo" <<'STUB'
 #!/bin/sh
+if [ "$1" = -n ]; then
+  shift
+  case "$*" in
+    true) exit 0 ;;
+  esac
+fi
+
 case "$*" in
-  "-n true") exit 0 ;;
-  "cat /etc/sudoers") echo "@includedir /private/etc/sudoers.d"; exit 0 ;;
+  "cat /etc/sudoers")
+    if [ -n "${REWRITE:-}" ]; then
+      cat "$REWRITE/sudoers" >"$SOURCES/system/sudoers/claude-root"
+      cat "$REWRITE/helper" >"$SOURCES/system/libexec/claude-root"
+    fi
+
+    echo "@includedir /private/etc/sudoers.d"
+    exit 0
+    ;;
+  install\ -d*) exit 0 ;;
+  cmp\ *)
+    cat >/dev/null
+    exit 1
+    ;;
 esac
+
+# `sudo sh -c <script> sh <destination> <mode>`, which is how root is handed the
+# bytes to write. They are written here instead, under the whole destination path
+# with its slashes turned into underscores — both destinations are called
+# claude-root, so the basename alone would have one overwrite the other.
+if [ "$1" = sh ] && [ "$2" = -c ]; then
+  name="$(printf '%s' "$5" | tr / _)"
+  cat >"$CAPTURE/$name"
+  echo "$6" >"$CAPTURE/$name.mode"
+  exit 0
+fi
+
 echo "stub sudo refuses: $*" >&2
 exit 1
 STUB
@@ -84,8 +124,14 @@ stage() {
   echo "$copy"
 }
 
+run_with_rewrite() {
+  PATH="$sandbox/bin:$PATH" CAPTURE="$capture" SOURCES="$1" REWRITE="$2" \
+    bash "$1/root-helper.sh" 2>&1
+}
+
 run() {
-  PATH="$sandbox/bin:$PATH" bash "$1/root-helper.sh" 2>&1
+  PATH="$sandbox/bin:$PATH" CAPTURE="$capture" SOURCES="$1" \
+    bash "$1/root-helper.sh" 2>&1
 }
 export -f run
 
@@ -98,10 +144,11 @@ check "the review names the rule that is about to be granted" \
   'printf "%s\n" "$clean_output" | grep -qE "$granted[[:space:]]+CLAUDE_ROOT"'
 check "and says it is about to install as root" \
   'printf "%s\n" "$clean_output" | grep -q "Read this before typing a password"'
-check "a clean pair installs nothing only because sudo refused" \
-  'printf "%s\n" "$clean_output" | grep -q "stub sudo refuses"'
-check "and nothing in the review is reported as a control character" \
-  '! printf "%s\n" "$clean_output" | grep -q "control characters"'
+check "a clean pair trips no gate about its contents" \
+  '! printf "%s\n" "$clean_output" |
+     grep -qE "hold control characters|visudo rejected|placeholder survived"'
+check "and reaches the install rather than a refusal" \
+  'printf "%s\n" "$clean_output" | grep -qE "installed|unchanged|not root-owned"'
 
 # The attack this exists for. The rule grants everything and displays as the
 # narrow one: visudo parses it, the trailing comment carries an escape that erases
@@ -123,7 +170,7 @@ check "the escape is rendered rather than acted on" \
 check "the review shows what the rule really grants" \
   'printf "%s\n" "$escaped_output" | grep -qE "$granted[[:space:]]+$everything( |$)"'
 check "the escaped rule is refused" \
-  'printf "%s\n" "$escaped_output" | grep -q "Nothing was installed"'
+  'printf "%s\n" "$escaped_output" | grep -q "hold control characters"'
 check "and refused before sudo was asked for anything" \
   '! printf "%s\n" "$escaped_output" | grep -q "stub sudo refuses"'
 
@@ -140,7 +187,7 @@ export returned_output
 
 check "a bare carriage return in the rule is refused" \
   'printf "%s\n" "$returned_output" |
-     grep -qE "Nothing was installed|visudo rejected"'
+     grep -qE "hold control characters|visudo rejected"'
 check "and visudo's own complaint is rendered, not echoed" \
   'printf "%s\n" "$returned_output" | grep -q "\^M"'
 check "and it never reached sudo either" \
@@ -158,7 +205,7 @@ export c1_output
 check "a C1 control in the rule is one sudo would have accepted" \
   '/usr/sbin/visudo -cf "'"$c1"'/system/sudoers/claude-root"'
 check "and it is refused all the same" \
-  'printf "%s\n" "$c1_output" | grep -q "Nothing was installed"'
+  'printf "%s\n" "$c1_output" | grep -q "hold control characters"'
 
 # And the em dashes the refusal must not trip over, since every comment in both
 # files is full of them and they are high bytes too.
@@ -169,7 +216,7 @@ dashed_output="$(run "$dashed")"
 export dashed_output
 
 check "an em dash is not mistaken for a control character" \
-  '! printf "%s\n" "$dashed_output" | grep -q "Nothing was installed"'
+  '! printf "%s\n" "$dashed_output" | grep -q "hold control characters"'
 
 # The helper is the other half, and the one that gets no tab: this repo's shell is
 # indented with spaces, so a tab there is as much a surprise as an escape.
@@ -179,7 +226,7 @@ tabbed_output="$(run "$tabbed")"
 export tabbed_output
 
 check "a tab in the helper is refused" \
-  'printf "%s\n" "$tabbed_output" | grep -q "Nothing was installed"'
+  'printf "%s\n" "$tabbed_output" | grep -q "hold control characters"'
 check "and the helper is named as the file that holds it" \
   'printf "%s\n" "$tabbed_output" | grep -q "the helper, line"'
 
@@ -193,7 +240,7 @@ sudo_tab_output="$(run "$sudo_tab")"
 export sudo_tab_output
 
 check "a tab between sudoers fields is allowed" \
-  '! printf "%s\n" "$sudo_tab_output" | grep -q "Nothing was installed"'
+  '! printf "%s\n" "$sudo_tab_output" | grep -q "hold control characters"'
 
 # The placeholder check, which is the older half of the same idea: a rule for an
 # account that does not exist leaves this Mac's own with no sudo.
@@ -205,6 +252,52 @@ export unrendered_output
 
 check "a placeholder that survived rendering is refused" \
   'printf "%s\n" "$unrendered_output" | grep -q "placeholder survived"'
+
+# And the race, which is the reason the installer reads its two files once and
+# installs from memory. Every session on this Mac runs as the account that owns the
+# checkout, so a session can rewrite either source the moment Tim starts typing his
+# password — after the review has passed, before root reads anything. The rewrite
+# happens on the stub's sudoers read, which is that moment, and what is asserted is
+# that the bytes root was handed are the ones that were reviewed.
+#
+# It needs somewhere root-owned for the helper to go, which only a Mac that has had
+# a real install has; machine.sh makes it, and CI runs that before this. A Mac that
+# has not says so rather than failing on something this repo did not do.
+if [ "$(stat -f '%Su' /usr/local/libexec 2>/dev/null)" = root ]; then
+  raced="$(stage raced)"
+
+  mkdir -p "$sandbox/rewrite"
+  printf 'timche ALL=(root) %s %s\n' "$granted" "$everything" \
+    >"$sandbox/rewrite/sudoers"
+  printf '#!/bin/bash\necho a helper nobody reviewed\n' \
+    >"$sandbox/rewrite/helper"
+
+  raced_output="$(run_with_rewrite "$raced" "$sandbox/rewrite")"
+  export raced_output raced
+  export installed_rule="$capture/_etc_sudoers.d_claude-root"
+  export installed_helper="$capture/_usr_local_libexec_claude-root"
+
+  check "the rewrite landed in the sources, so the race really happened" \
+    'grep -q "a helper nobody reviewed" "$raced/system/libexec/claude-root" &&
+     grep -qE "$granted[[:space:]]+$everything( |$)" \
+       "$raced/system/sudoers/claude-root"'
+  check "the review showed the rule as it was before the rewrite" \
+    'printf "%s\n" "$raced_output" | grep -qE "$granted[[:space:]]+CLAUDE_ROOT"'
+  check "root was handed both files" \
+    '[ -s "$installed_rule" ] && [ -s "$installed_helper" ]'
+  check "the rule root was handed is the one that was reviewed" \
+    'grep -qE "$granted[[:space:]]+CLAUDE_ROOT" "$installed_rule" &&
+     ! grep -qE "$granted[[:space:]]+$everything( |$)" "$installed_rule"'
+  check "and the helper root was handed is not the one the race swapped in" \
+    '! grep -q "a helper nobody reviewed" "$installed_helper" &&
+     grep -q "restart-daemon" "$installed_helper"'
+  check "each went out at the mode it is meant to have" \
+    '[ "$(cat "$installed_rule.mode")" = 0440 ] &&
+     [ "$(cat "$installed_helper.mode")" = 0755 ]'
+else
+  echo "  --    /usr/local/libexec is not root-owned yet, so the race against a"
+  echo "        rewritten source was not run — machine.sh makes that directory"
+fi
 
 if [ "$failures" -gt 0 ]; then
   echo "  $failures check(s) failed"

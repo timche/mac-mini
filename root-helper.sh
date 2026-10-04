@@ -61,7 +61,7 @@ if ! dscl . -read "/Users/$user" NFSHomeDirectory >/dev/null 2>&1; then
 fi
 
 # sudo on this Mac asks for Tim's password, and a run with nobody watching has no
-# terminal to type it at. Checked before anything is staged, so what happens is a
+# terminal to type it at. Checked before anything is read, so what happens is a
 # message rather than a prompt nothing answers — the same shape as the Xcode step
 # machine.sh skips.
 if ! sudo -n true 2>/dev/null && [ ! -t 0 ]; then
@@ -71,28 +71,9 @@ if ! sudo -n true 2>/dev/null && [ ! -t 0 ]; then
   exit 0
 fi
 
-staged="$(mktemp -d)"
-trap 'rm -rf "$staged"' EXIT
-
-# Staged although it needs no rendering, so that the placeholder check below
-# covers it too.
-cp "$repo/system/libexec/claude-root" "$staged/claude-root"
-sed "s/__USER__/$user/g" "$repo/system/sudoers/claude-root" >"$staged/sudoers"
-
-# A placeholder that survived rendering is an account that is not there: a
-# sudoers rule for one called __USER__ would leave this Mac's own account with no
-# sudo at all.
-for file in "$staged"/*; do
-  if grep -q '__[A-Z]*__' "$file"; then
-    echo "a placeholder survived rendering in ${file##*/}:" >&2
-    grep -n '__[A-Z]*__' "$file" >&2
-    exit 1
-  fi
-done
-
-# Nothing from either staged file reaches the screen except through this, and that
-# is the part which is not cosmetic. diff, cat and visudo's own error all pass a
-# terminal escape straight through: a staged rule of
+# Nothing from either file reaches the screen except through this, and that is the
+# part which is not cosmetic. diff, cat and visudo's own error all pass a terminal
+# escape straight through: a rule of
 #
 #   timche ALL=(root) NOPASSWD: ALL # <ESC>[2K<CR><a narrow-looking rule>
 #
@@ -110,14 +91,68 @@ render() {
   cat -v | sed 's/^/    /'
 }
 
-# Before it goes anywhere near /etc. A sudoers file sudo cannot parse takes sudo
-# away from Tim as well as from every session, and on this Mac that is only
-# fixable over Screen Sharing. visudo -c reads a file as an ordinary user, so this
-# is checked without root and before root is used for anything.
+# Read once, here, and never again. Everything below — the placeholder scan, the
+# control characters, visudo, the review, and the bytes root is handed — works on
+# what these two variables hold and on nothing on disk.
 #
-# Its complaint quotes the line it tripped on, which is a line somebody else may
-# have written, so it is rendered like everything else here.
-if ! visudo_says="$(/usr/sbin/visudo -cf "$staged/sudoers" 2>&1)"; then
+# Which is the whole of why they exist. The sources are in a checkout the account
+# can write, and every session on this Mac runs as that account, so a file read
+# twice is a file that can differ between the reads: one shape to be reviewed and
+# passed, another for root to install a moment later. Hashing between the two does
+# not close that, since content that alternates wins about half the time, and
+# neither does a staging copy under $TMPDIR, which is the same account's. The only
+# thing that does is to stop reading.
+#
+# The sentinel is because command substitution strips trailing newlines, and both
+# files end in one. A NUL would be dropped as well, no shell variable being able to
+# hold one — and would then be missing from what is installed rather than smuggled
+# into it, with assert-machine.sh's byte comparison against the source the thing
+# that notices.
+if ! helper_bytes="$(cat "$repo/system/libexec/claude-root" && printf x)"; then
+  echo "could not read $repo/system/libexec/claude-root" >&2
+  exit 1
+fi
+
+helper_bytes="${helper_bytes%x}"
+
+# The one rendering, in the same single read: nothing here is written for one
+# account name.
+if ! sudoers_bytes="$(sed "s/__USER__/$user/g" \
+                        "$repo/system/sudoers/claude-root" && printf x)"; then
+  echo "could not read $repo/system/sudoers/claude-root" >&2
+  exit 1
+fi
+
+sudoers_bytes="${sudoers_bytes%x}"
+
+# A placeholder that survived rendering is an account that is not there: a sudoers
+# rule for one called __USER__ would leave this Mac's own account with no sudo at
+# all.
+placeholders="$(
+  printf '%s' "$sudoers_bytes" | grep -n '__[A-Z]*__' |
+    sed 's|^|the sudoers rule, line |' || true
+
+  printf '%s' "$helper_bytes" | grep -n '__[A-Z]*__' |
+    sed 's|^|the helper, line |' || true
+)"
+
+if [ -n "$placeholders" ]; then
+  echo "a placeholder survived rendering, so nothing was installed:" >&2
+  printf '%s\n' "$placeholders" | render >&2
+  exit 1
+fi
+
+# Before anything goes near /etc. A sudoers file sudo cannot parse takes sudo away
+# from Tim as well as from every session, and on this Mac that is only fixable over
+# Screen Sharing. visudo -c reads a file as an ordinary user, so this is checked
+# without root and before root is used for anything.
+#
+# From stdin, so that what visudo passes is the same bytes that will be installed
+# rather than a file that could have changed since. Its complaint quotes the line
+# it tripped on, which is a line somebody else may have written, so it is rendered
+# like everything else here.
+if ! visudo_says="$(printf '%s' "$sudoers_bytes" |
+                      /usr/sbin/visudo -cf - 2>&1)"; then
   echo "visudo rejected the sudoers rule, so nothing was installed:" >&2
   printf '%s\n' "$visudo_says" | render >&2
   exit 1
@@ -134,42 +169,58 @@ fi
 # every few seconds, and a local edit matches no commit at all — where the diff
 # is exactly what will change, whatever produced it.
 #
-# The helper is world-readable, so this needs no root. The sudoers rule is 0440
+# The helper is world-readable, so the diff needs no root. The sudoers rule is 0440
 # and cannot be read back without it, so what is printed there is what the rule
-# will say rather than a diff against what it says now.
+# will say rather than a diff against what it says now. Both are read out of the
+# bytes above, which is what makes the review a review of what gets installed.
 echo
 echo "About to install as root. Read this before typing a password:"
 echo
 
+# The grant first, being the shorter of the two and the one that decides what the
+# other is allowed to do.
+echo "  $sudoers_file will grant:"
+echo
+
+# The effective rule, which is the lines with their comments taken off rather than
+# the lines that are not comments: the attack above hides in a trailing comment on
+# a real rule, so a line kept whole would still read as the narrow one. What is left
+# is what sudo acts on.
+#
+# visudo above has already passed these bytes, so a grep that matches nothing would
+# mean a rule of nothing but comments. Guarded all the same, rather than letting
+# pipefail end the run without saying why.
+grant="$(
+  printf '%s' "$sudoers_bytes" |
+    grep -vE '^[[:space:]]*(#|$)' |
+    sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' || true
+)"
+printf '%s\n' "$grant" | render
+echo
+
 if [ ! -r "$helper" ]; then
-  echo "  $helper"
-  echo "  is new. Nothing to diff against, so read the whole of it:"
-  echo "    less $repo/system/libexec/claude-root"
-elif cmp -s "$staged/claude-root" "$helper"; then
+  # A first install has nothing to diff against, and the file cannot be offered for
+  # reading in its place — it is in a checkout the account can rewrite, and these
+  # bytes are already out of its reach. So the digest of what will be installed
+  # goes up, and reading the file means checking it still hashes to this.
+  echo "  $helper is new, so there is nothing to diff against. What will be"
+  echo "  installed hashes to:"
+  echo
+  printf '%s' "$helper_bytes" | shasum -a 256 | sed 's/ *-$//' | render
+  echo
+  echo "  Read it, and check the file it came from still matches:"
+  echo "    shasum -a 256 $repo/system/libexec/claude-root"
+elif printf '%s' "$helper_bytes" | cmp -s - "$helper"; then
   echo "  $helper is unchanged."
 else
   echo "  $helper changes:"
   echo
 
-  # diff exits 1 for files that differ, which is the only reason it is being run,
-  # and pipefail would make that end the script.
-  { diff -u "$helper" "$staged/claude-root" || true; } | render
+  # diff exits 1 for files that differ, which is the only reason it is being run.
+  changes="$(printf '%s' "$helper_bytes" | diff -u "$helper" - || true)"
+  printf '%s\n' "$changes" | render
 fi
 
-echo
-echo "  $sudoers_file will grant:"
-echo
-
-# The effective rule, which is the lines with the comments taken off rather than
-# the lines that are not comments: the attack above hides in a trailing comment on
-# a real rule, so a line kept whole would still read as the narrow one. What is
-# left is what sudo acts on.
-#
-# visudo above has already read this file, so a grep that matches nothing would
-# mean a rule of nothing but comments. Guarded all the same, rather than letting
-# pipefail end the run without saying why.
-{ grep -vE '^[[:space:]]*(#|$)' "$staged/sudoers" || true; } |
-  sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' | render
 echo
 
 # And then refused outright, because neither file has any reason to hold a control
@@ -192,19 +243,20 @@ echo
 c1_controls="$(printf '\302[\200-\237]')"
 
 offenders="$(
-  LC_ALL=C tr -d '\011' <"$staged/sudoers" |
+  printf '%s' "$sudoers_bytes" | LC_ALL=C tr -d '\011' |
     LC_ALL=C grep -naE "[[:cntrl:]]|$c1_controls" |
     sed 's|^|the sudoers rule, line |' || true
 
-  LC_ALL=C grep -naE "[[:cntrl:]]|$c1_controls" "$staged/claude-root" |
+  printf '%s' "$helper_bytes" |
+    LC_ALL=C grep -naE "[[:cntrl:]]|$c1_controls" |
     sed 's|^|the helper, line |' || true
 )"
 
 if [ -n "$offenders" ]; then
-  echo "Nothing was installed: the staged files hold control characters, which" >&2
-  echo "neither of them has any reason to. On a terminal they can print as" >&2
-  echo "something other than what they say, so read them with 'cat -v' before" >&2
-  echo "going any further:" >&2
+  echo "Nothing was installed: the files hold control characters, which neither" >&2
+  echo "of them has any reason to. On a terminal they can print as something" >&2
+  echo "other than what they say, so read them with 'cat -v' before going any" >&2
+  echo "further:" >&2
   echo >&2
   printf '%s\n' "$offenders" | render >&2
   exit 1
@@ -278,7 +330,7 @@ fi
 # What differs, or nothing. Printed rather than only acted on: a re-run that
 # changed a file is worth seeing, and so is the reason.
 difference() {
-  local source="$1" destination="$2" mode="$3" found
+  local bytes="$1" destination="$2" mode="$3" found
 
   if [ ! -e "$destination" ]; then
     echo "not installed yet"
@@ -290,10 +342,12 @@ difference() {
     return 0
   fi
 
-  # sudo cmp, because the sudoers rule is installed 0440 and the account cannot
-  # read what it is being compared against — a plain cmp would fail for want of
-  # permission and reinstall the file on every run.
-  if ! sudo cmp -s "$source" "$destination"; then
+  # Against the bytes that were reviewed, down a pipe, rather than against a file
+  # on disk: what decides whether to write has to be what gets written, or the
+  # decision is about something else. sudo cmp because the sudoers rule is
+  # installed 0440 and the account cannot read what it is being compared against —
+  # a plain cmp would fail for want of permission and reinstall on every run.
+  if ! printf '%s' "$bytes" | sudo cmp -s - "$destination"; then
     echo "contents differ from this repo's"
     return 0
   fi
@@ -312,18 +366,41 @@ difference() {
 changed=false
 
 install_copy() {
-  local source="$1" destination="$2" mode="$3" why
+  local bytes="$1" destination="$2" mode="$3" why
 
-  if ! why="$(difference "$source" "$destination" "$mode")"; then
+  if ! why="$(difference "$bytes" "$destination" "$mode")"; then
     echo "  unchanged  $destination"
     return 0
   fi
 
-  # A failed install stops the run here rather than going on to the next file:
-  # the three only mean anything together, and a sudoers rule pointing at a
-  # helper that did not land would be worse than none. Not fatal to machine.sh,
-  # which names the step among what is left.
-  if ! sudo install -m "$mode" -o root -g wheel "$source" "$destination"; then
+  # The bytes go to root down a pipe and root writes them itself. There is no file
+  # for a session to swap between the review and the install, because there is no
+  # file: `install` would have had to be handed a path, and BSD install will not
+  # take /dev/stdin — "Inappropriate file type or format" — so root does the three
+  # steps itself.
+  #
+  # The temporary is made in the destination's own directory, which is root's and
+  # writable by nobody else, and moved over the destination in one step: nothing
+  # ever sees a half-written helper, and a run that dies leaves the previous one
+  # in place. mktemp's suffix puts a dot in the name, which is also what keeps a
+  # stray harmless — sudo ignores every file in sudoers.d whose name has one — and
+  # the trap takes it away in any case. umask first, so the file is never readable
+  # by anyone else while it is being written.
+  #
+  # A failed install stops the run here rather than going on to the next file: the
+  # two only mean anything together, and a sudoers rule naming a helper that did
+  # not land would be worse than neither. Not fatal to machine.sh, which names the
+  # step among what is left.
+  if ! printf '%s' "$bytes" | sudo sh -c '
+        umask 077
+        temporary="$(mktemp "$1.XXXXXX")" || exit 1
+        trap "rm -f \"\$temporary\"" EXIT
+
+        cat >"$temporary" &&
+          chown root:wheel "$temporary" &&
+          chmod "$2" "$temporary" &&
+          mv -f "$temporary" "$1"
+      ' sh "$destination" "$mode"; then
     echo "warning: could not install $destination, so the root helper is" >&2
     echo "incomplete. $repo/root-helper.sh will try again." >&2
     exit 0
@@ -338,8 +415,8 @@ echo "The root helper:"
 
 # The helper first, so that the moment the sudoers rule exists there is something
 # at the path it names.
-install_copy "$staged/claude-root" "$helper" 0755
-install_copy "$staged/sudoers" "$sudoers_file" 0440
+install_copy "$helper_bytes" "$helper" 0755
+install_copy "$sudoers_bytes" "$sudoers_file" 0440
 
 if [ -e "$retired_newsyslog" ]; then
   if sudo rm -f "$retired_newsyslog"; then

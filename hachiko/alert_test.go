@@ -41,7 +41,53 @@ func TestPostDiscordSendsTheMessageAsContent(t *testing.T) {
 	if err := postDiscord(server.Client(), server.URL, "the disk is filling"); err != nil {
 		t.Fatal(err)
 	}
-	equal(t, body, `{"content":"the disk is filling"}`, "the request body")
+	equal(t, body, `{"content":"the disk is filling","thread_name":"the disk is filling"}`, "the request body")
+}
+
+func TestPostDiscordOpensAForumPostNamedForTheFirstLine(t *testing.T) {
+	var body string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		body = string(raw)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	message := "hachiko on Tims-Mac-mini: test alert, 790.0 GB free.\n  details"
+	if err := postDiscord(server.Client(), server.URL, message); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, `"thread_name":"Tims-Mac-mini: test alert, 790.0 GB free."`) {
+		t.Fatalf("the post is not named for the first line: %s", body)
+	}
+}
+
+func TestPostDiscordFallsBackToAPlainMessageWhereThreadsAreRefused(t *testing.T) {
+	var bodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(raw))
+		if strings.Contains(string(raw), "thread_name") {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	if err := postDiscord(server.Client(), server.URL, "the disk is filling"); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, len(bodies), 2, "the tries")
+	equal(t, bodies[1], `{"content":"the disk is filling"}`, "the second try")
+}
+
+func TestAThreadNameIsOneLineAndFitsDiscordsLimit(t *testing.T) {
+	name := threadName(strings.Repeat("x", 300) + "\nsecond line")
+	if len(name) > 100 || strings.Contains(name, "\n") {
+		t.Fatalf("thread name of %d bytes: %q", len(name), name)
+	}
+	equal(t, threadName("\n\n"), "hachiko", "an empty message's thread name")
 }
 
 func TestPostDiscordReportsTheStatusWithoutTheWebhook(t *testing.T) {
@@ -118,7 +164,7 @@ func TestSendModeTrimsTheResolvedReference(t *testing.T) {
 	if _, err := sendMode(strings.NewReader("the disk is filling"), Outgoing{}, ""); err != nil {
 		t.Fatalf("a reference with a trailing newline was not sent: %v", err)
 	}
-	equal(t, got, `{"content":"the disk is filling"}`, "the request body")
+	equal(t, got, `{"content":"the disk is filling","thread_name":"the disk is filling"}`, "the request body")
 }
 
 // Discord takes 2,000 characters. What is over that is detail, and the on-call tab has

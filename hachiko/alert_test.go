@@ -158,6 +158,72 @@ func TestAPostThatIsGoneIsOpenedAgain(t *testing.T) {
 	equal(t, strings.Join(queries, " "), "thread_id=800 wait=true", "the two tries")
 }
 
+// A 400 to a thread_id is the webhook refusing the id rather than the post being missing: a
+// text channel, which has no posts to address at all. Opening a new one on that would be a
+// new post every five minutes for the life of the incident, so the message goes to the
+// channel and the recorded post is left where it is for the next check to try.
+func TestAWebhookThatRefusesThePostDoesNotOpenANewOne(t *testing.T) {
+	var queries, bodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		queries = append(queries, r.URL.RawQuery)
+		raw, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(raw))
+		if strings.HasPrefix(r.URL.RawQuery, "thread_id=") {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	thread, err := postDiscord(server.Client(), server.URL,
+		Outgoing{Text: "still waiting after 1h00m", Thread: "800"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, thread, "", "the post recorded after a refusal")
+	equal(t, strings.Join(queries, " "), "thread_id=800 ", "the two tries")
+	equal(t, bodies[1], `{"content":"still waiting after 1h00m"}`, "the message that reached the channel")
+	for _, body := range bodies {
+		lacks(t, body, "thread_name")
+	}
+}
+
+// A thread id is a snowflake, and anything else in that field is a state file somebody
+// edited or a bug rather than a post to look for. It may not reach a request path.
+func TestAPostIdThatIsNotASnowflakeNeverReachesTheURL(t *testing.T) {
+	var queries []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		queries = append(queries, r.URL.RawQuery)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	for _, bad := range []string{"../../channels/999", "800x", "abc", "-1", "8 0 0"} {
+		queries = nil
+		thread, err := postDiscord(server.Client(), server.URL,
+			Outgoing{Text: "the disk is filling", Thread: bad})
+		if err != nil {
+			t.Fatalf("a message with %q recorded against it was not sent: %v", bad, err)
+		}
+
+		equal(t, thread, "", "the post recorded for "+bad)
+		equal(t, strings.Join(queries, " "), "", "the queries sent for "+bad)
+	}
+
+	// And the form that goes into the URL is the checked one, so a field with whitespace
+	// around it addresses the post rather than a percent-escaped space.
+	queries = nil
+	thread, err := postDiscord(server.Client(), server.URL,
+		Outgoing{Text: "the disk is filling", Thread: " 800\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, thread, "800", "the post recorded")
+	equal(t, strings.Join(queries, " "), "thread_id=800", "the query sent")
+}
+
 // A webhook URL with a query of its own, which Tim's has none of: the one it is handed may
 // not be appended behind a second question mark.
 func TestAQueryIsAppendedToAWebhookThatAlreadyHasOne(t *testing.T) {

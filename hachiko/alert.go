@@ -221,18 +221,37 @@ func sendThroughBot(bot discordBot, channel string, out Outgoing) (string, error
 // message that found it gone opens a new one.
 func postDiscord(client *http.Client, webhook string, out Outgoing) (string, error) {
 	if out.Thread != "" {
-		_, err := postDiscordBody(client, webhook, "thread_id="+url.QueryEscape(out.Thread),
-			map[string]string{"content": capMessage(out.Text)})
-		if err == nil {
-			return out.Thread, nil
-		}
-		if !webhookAnswered(err, http.StatusNotFound, http.StatusBadRequest) {
-			return "", err
+		// Never into a request path unchecked, and the checked form is the one that goes:
+		// a post id is a snowflake, and anything else in that field is a state file somebody
+		// edited or a bug rather than a post to look for.
+		thread := discordID(out.Thread)
+		if thread == "" {
+			say("the post recorded for this incident is not a Discord id, so this message goes to the channel instead")
+			return "", postPlain(client, webhook, out.Text)
 		}
 
-		// stderr, because stdout is where the id of the post goes.
-		logger{out: os.Stderr, now: clockFromEnv()}.say(
-			"the post this incident was in is not there any more, so this message opens a new one: %v", err)
+		_, err := postDiscordBody(client, webhook, "thread_id="+url.QueryEscape(thread),
+			map[string]string{"content": capMessage(out.Text)})
+		switch {
+		case err == nil:
+			return thread, nil
+
+		// The post is gone — Tim deleted it, or it was archived away. There is somewhere for
+		// the incident to go on being talked about, so a new post is opened for it below.
+		case webhookAnswered(err, http.StatusNotFound):
+			say("the post this incident was in is not there any more, so this message opens a new one: %v", err)
+
+		// A 400 is the webhook refusing the id rather than the post being missing — a text
+		// channel, which has no posts to address, or an id it will not take. Opening a new post
+		// on that would be a new post every five minutes for the life of the incident, so the
+		// message goes to the channel and the recorded post is left alone for the next check.
+		case webhookAnswered(err, http.StatusBadRequest):
+			say("the webhook would not take the post recorded for this incident, so this message goes to the channel: %v", err)
+			return "", postPlain(client, webhook, out.Text)
+
+		default:
+			return "", err
+		}
 	}
 
 	// `wait=true` so Discord answers with the message it made rather than an empty 204: the
@@ -251,8 +270,19 @@ func postDiscord(client *http.Client, webhook string, out Outgoing) (string, err
 	// A text channel, where a post is not a thing and a plain message is. Nothing comes back
 	// to remember, so the next message tries to open a post again — two requests rather than
 	// one, on a channel where there is nothing to find out once and for all.
-	_, err = postDiscordBody(client, webhook, "", map[string]string{"content": capMessage(out.Text)})
-	return "", err
+	return "", postPlain(client, webhook, out.Text)
+}
+
+// The message and nothing else, which is what a webhook on a text channel takes and what
+// anything that could not find its post falls back to.
+func postPlain(client *http.Client, webhook, text string) error {
+	_, err := postDiscordBody(client, webhook, "", map[string]string{"content": capMessage(text)})
+	return err
+}
+
+// stderr, because stdout is where the id of the post goes.
+func say(format string, args ...any) {
+	logger{out: os.Stderr, now: clockFromEnv()}.say(format, args...)
 }
 
 // Which post a message landed in. A forum webhook answers with the message, whose

@@ -447,6 +447,11 @@ func TestTheOpeningPromptCarriesTheAutonomyLimits(t *testing.T) {
 		"restarting herdr, boswell, a launchd service or the Mac",
 		"unless that process is itself the one causing the incident",
 		"least destructive option that actually resolves it",
+		// The cpu session read hachiko's own esc as Tim declining and told him so, which was
+		// false: the only thing that cancels a question here is hachiko, on its way to
+		// prompting about something the question is too old for.
+		"was cancelled by hachiko, not by Tim declining it",
+		"Never report that he declined, picked nothing or does not want to proceed",
 		"spawn the oncall-partner agent",
 		"act only if it agrees",
 		"keep waiting for him",

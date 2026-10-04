@@ -191,6 +191,16 @@ func (s sweeper) settled(state *State, now time.Time, kind string, w Waiting, re
 		w.Settled = now.Unix()
 	}
 
+	// An unblock hachiko did not cause may well be Tim answering in herdr, with the agent
+	// between turns for a moment. He gets the minutes a session is given to report in before
+	// the timeline resumes over the top of it — and no more than that, because an answer that
+	// was really an answer ends in an outcome, and this one has not. Nothing of the kind is
+	// extended to an unblock hachiko caused itself: that is the reading the whole of this
+	// exists to stop being trusted.
+	if w.Nudged == 0 && now.Sub(time.Unix(w.Settled, 0)) < s.cfg.OncallDeadline {
+		return w, true
+	}
+
 	// The decision has been handed over and the agent has gone quiet without reporting. It
 	// has had the minutes it was given to report its findings in to say what it did, so the
 	// wait stops being counted rather than being counted for ever.

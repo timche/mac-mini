@@ -228,12 +228,19 @@ func TestAWorseningDiskHandsOverEvenWhileTheAgentIsWorking(t *testing.T) {
 func TestASilentUnblockKeepsTheTimeline(t *testing.T) {
 	f := waiting(t)
 
+	// It may be him answering in herdr with the agent between turns, so he gets the minutes a
+	// session is given to report in before anything is said over the top of it.
 	f.status["disk"] = "idle"
 	out := f.at(600 + remindAt).sweep()
+	lacks(t, out, "was answered after")
+	equal(t, out, "", "the log while the unblock is fresh")
+	equal(t, len(f.state().Waiting), 1, "waits still being counted")
 
+	// And then the timeline runs on, because an answer that was really an answer ends in an
+	// outcome and this one has not.
+	out = f.at(600 + remindAt + 600).sweep()
 	lacks(t, out, "was answered after")
 	wants(t, out, "reminded about disk-")
-	equal(t, len(f.state().Waiting), 1, "waits still being counted")
 
 	wants(t, f.at(600+warnAt).sweep(), "from the handover")
 
@@ -244,6 +251,28 @@ func TestASilentUnblockKeepsTheTimeline(t *testing.T) {
 	equal(t, len(f.interrupts), 0, "questions cancelled")
 	equal(t, len(f.prompts), 1, "prompts sent on their own")
 	wants(t, f.lastPrompt(), "Tim has not answered for 0h36m")
+}
+
+// The pause an unblock gets is for an unblock hachiko did not cause. One it caused itself is
+// the reading this whole timeline exists to stop trusting, so it is given nothing: the esc at
+// 04:04 was followed five minutes later by an agent off its question, and that is the moment
+// the prompt it was owed has to go.
+func TestAnUnblockHachikoCausedItselfGetsNoPause(t *testing.T) {
+	f := waiting(t)
+	f.at(600 + remindAt).sweep()
+	f.at(600 + warnAt).sweep()
+
+	f.interruptErr = errors.New("the agent is still on its question after the esc")
+	f.interruptEsc = true
+	f.at(600 + handoverAt).sweep()
+
+	// The very next check, with no grace in between.
+	f.interruptErr, f.interruptEsc = nil, false
+	out := f.at(600 + handoverAt + 300).sweep()
+
+	wants(t, out, "the prompt owed to the disk on-call agent on disk-")
+	lacks(t, out, "was answered after")
+	equal(t, len(f.prompts), 1, "prompts sent on their own")
 }
 
 // The grace for an outcome runs from the moment the agent went quiet and never from before
@@ -501,10 +530,12 @@ func TestATriggerThatClearsAfterTheHandoverStillReachesTheAgent(t *testing.T) {
 func TestATriggerThatClearsWithNoQuestionUpIsThePromptAlone(t *testing.T) {
 	f := waiting(t)
 
+	// The pause an unblock hachiko did not cause gets comes first, and then the two readings.
 	f.status["disk"] = "idle"
 	f.keepGrowing = ""
 	f.at(900).sweep()
-	out := f.at(1200).sweep()
+	f.at(1500).sweep()
+	out := f.at(1800).sweep()
 
 	wants(t, out, "what fired this incident is no longer firing")
 	wants(t, out, "so it was asked again")
@@ -1280,9 +1311,11 @@ func TestARepeatedlyFailingEscIsCappedUntilTheAgentMoves(t *testing.T) {
 	wants(t, f.lastSent(), "could not be handed to the disk on-call agent")
 
 	// And the agent leaving its question is what spends the cap: there is nothing left for an
-	// esc to take away, so the decision goes as a prompt and the count resets.
+	// esc to take away, so the decision goes as a prompt and the count resets. After the
+	// minutes an unblock nothing cancelled is given, which this one has to count as.
 	f.status["disk"] = "idle"
-	out := f.at(at).sweep()
+	equal(t, f.at(at).sweep(), "", "the log while the unblock is fresh")
+	out := f.at(at + 600).sweep()
 	wants(t, out, "handed the decision on disk-")
 	equal(t, len(f.prompts), 1, "prompts sent on their own")
 	equal(t, f.state().Waiting["disk"].Escs, 0, "attempts recorded once it was off its question")

@@ -175,7 +175,7 @@ func sendMode(stdin io.Reader, out Outgoing, channel string) (string, error) {
 	if webhook == "" {
 		return "", errors.New("HACHIKO_DISCORD_URL is empty, so the op:// reference did not resolve")
 	}
-	return "", postDiscord(&http.Client{Timeout: 20 * time.Second}, webhook, out.Text)
+	return postDiscord(&http.Client{Timeout: 20 * time.Second}, webhook, out)
 }
 
 // One incident, one thread: the first message opens it and every message after it goes
@@ -209,18 +209,82 @@ func sendThroughBot(bot discordBot, channel string, out Outgoing) (string, error
 	return thread, nil
 }
 
-// A webhook on a forum channel refuses a message that names no thread, and one on a text
-// channel refuses a message that does, so the first try opens a post and a 400 tries again
-// as a plain message.
-func postDiscord(client *http.Client, webhook, message string) error {
-	err := postDiscordBody(client, webhook, map[string]string{
-		"content":     capMessage(message),
-		"thread_name": threadName(message),
-	})
-	if err != nil && strings.HasSuffix(err.Error(), "answered 400") {
-		return postDiscordBody(client, webhook, map[string]string{"content": capMessage(message)})
+// One incident, one post, over the webhook as well as over the bot — and the same field of
+// the state remembers which, so both halves have one notion of where an incident is being
+// talked about.
+//
+// A webhook on a forum channel refuses a message that names no thread and one on a text
+// channel refuses a message that does, and nothing tells hachiko which it has: so the first
+// message of an incident opens a post, asks Discord for the message back and reads the post's
+// id off it, every message after it goes into that post by id, and the 400 a text channel
+// answers is what sends a plain message instead. A post Tim deleted answers 404, and the
+// message that found it gone opens a new one.
+func postDiscord(client *http.Client, webhook string, out Outgoing) (string, error) {
+	if out.Thread != "" {
+		_, err := postDiscordBody(client, webhook, "thread_id="+url.QueryEscape(out.Thread),
+			map[string]string{"content": capMessage(out.Text)})
+		if err == nil {
+			return out.Thread, nil
+		}
+		if !webhookAnswered(err, http.StatusNotFound, http.StatusBadRequest) {
+			return "", err
+		}
+
+		// stderr, because stdout is where the id of the post goes.
+		logger{out: os.Stderr, now: clockFromEnv()}.say(
+			"the post this incident was in is not there any more, so this message opens a new one: %v", err)
 	}
-	return err
+
+	// `wait=true` so Discord answers with the message it made rather than an empty 204: the
+	// channel that message landed in is the post, and its id is the only way back into it.
+	answer, err := postDiscordBody(client, webhook, "wait=true", map[string]string{
+		"content":     capMessage(out.Text),
+		"thread_name": threadName(out.Text),
+	})
+	if err == nil {
+		return postedThread(answer), nil
+	}
+	if !webhookAnswered(err, http.StatusBadRequest) {
+		return "", err
+	}
+
+	// A text channel, where a post is not a thing and a plain message is. Nothing comes back
+	// to remember, so the next message tries to open a post again — two requests rather than
+	// one, on a channel where there is nothing to find out once and for all.
+	_, err = postDiscordBody(client, webhook, "", map[string]string{"content": capMessage(out.Text)})
+	return "", err
+}
+
+// Which post a message landed in. A forum webhook answers with the message, whose
+// `channel_id` is the post it opened rather than the channel the webhook is on.
+func postedThread(answer []byte) string {
+	var message struct {
+		ChannelID string `json:"channel_id"`
+	}
+	if json.Unmarshal(answer, &message) != nil {
+		return ""
+	}
+	return message.ChannelID
+}
+
+// The status a webhook answered with, because the difference between two of them is the whole
+// of what this has to work out for itself: a 400 is a channel that is not a forum, and a 404
+// is a post that is not there any more.
+type webhookStatus struct{ code int }
+
+func (e *webhookStatus) Error() string { return fmt.Sprintf("the webhook answered %d", e.code) }
+
+func webhookAnswered(err error, codes ...int) bool {
+	var status *webhookStatus
+	if !errors.As(err, &status) {
+		return false
+	}
+	for _, code := range codes {
+		if status.code == code {
+			return true
+		}
+	}
+	return false
 }
 
 // Discord caps a thread's name at 100 characters.
@@ -233,29 +297,42 @@ func threadName(message string) string {
 	return name
 }
 
-func postDiscordBody(client *http.Client, webhook string, fields map[string]string) error {
+func postDiscordBody(client *http.Client, webhook, query string, fields map[string]string) ([]byte, error) {
 	body, err := json.Marshal(fields)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, webhook, bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, withQuery(webhook, query), bytes.NewReader(body))
 	if err != nil {
-		return errors.New(redact(err.Error(), webhook))
+		return nil, errors.New(redact(err.Error(), webhook))
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return errors.New(redact(err.Error(), webhook))
+		return nil, errors.New(redact(err.Error(), webhook))
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	answer, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("the webhook answered %d", resp.StatusCode)
+		return nil, &webhookStatus{code: resp.StatusCode}
 	}
-	return nil
+	return answer, nil
+}
+
+// A webhook URL of Tim's carries no query of its own, but one that did would otherwise have
+// `?wait=true` appended to a URL that already has a `?` in it.
+func withQuery(webhook, query string) string {
+	switch {
+	case query == "":
+		return webhook
+	case strings.Contains(webhook, "?"):
+		return webhook + "&" + query
+	default:
+		return webhook + "?" + query
+	}
 }
 
 func capMessage(message string) string {

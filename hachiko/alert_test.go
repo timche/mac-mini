@@ -38,7 +38,7 @@ func TestPostDiscordSendsTheMessageAsContent(t *testing.T) {
 	}))
 	defer server.Close()
 
-	if err := postDiscord(server.Client(), server.URL, "the disk is filling"); err != nil {
+	if _, err := postDiscord(server.Client(), server.URL, Outgoing{Text: "the disk is filling"}); err != nil {
 		t.Fatal(err)
 	}
 	equal(t, body, `{"content":"the disk is filling","thread_name":"the disk is filling"}`, "the request body")
@@ -54,7 +54,7 @@ func TestPostDiscordOpensAForumPostNamedForTheFirstLine(t *testing.T) {
 	defer server.Close()
 
 	message := "hachiko on Tims-Mac-mini: test alert, 790.0 GB free.\n  details"
-	if err := postDiscord(server.Client(), server.URL, message); err != nil {
+	if _, err := postDiscord(server.Client(), server.URL, Outgoing{Text: message}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(body, `"thread_name":"Tims-Mac-mini: test alert, 790.0 GB free."`) {
@@ -75,11 +75,115 @@ func TestPostDiscordFallsBackToAPlainMessageWhereThreadsAreRefused(t *testing.T)
 	}))
 	defer server.Close()
 
-	if err := postDiscord(server.Client(), server.URL, "the disk is filling"); err != nil {
+	thread, err := postDiscord(server.Client(), server.URL, Outgoing{Text: "the disk is filling"})
+	if err != nil {
 		t.Fatal(err)
 	}
+	equal(t, thread, "", "the post recorded for a text channel")
 	equal(t, len(bodies), 2, "the tries")
 	equal(t, bodies[1], `{"content":"the disk is filling"}`, "the second try")
+}
+
+// One incident, one forum post. The first message of it opens the post and asks for the
+// message back, whose channel is the post: that id is the only way into it again, so a
+// reminder three hours later is under the alert it is about rather than further down a feed.
+func TestTheFirstMessageOfAnIncidentOpensAPostAndNamesIt(t *testing.T) {
+	var query, body string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query = r.URL.RawQuery
+		raw, _ := io.ReadAll(r.Body)
+		body = string(raw)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":"900","channel_id":"800","content":"x"}`))
+	}))
+	defer server.Close()
+
+	thread, err := postDiscord(server.Client(), server.URL,
+		Outgoing{Text: "Disk: /private/tmp/x.log growing fast", OpenThread: "disk-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, thread, "800", "the post the message landed in")
+	equal(t, query, "wait=true", "the query the opening message carried")
+	wants(t, body, `"thread_name":"Disk: /private/tmp/x.log growing fast"`)
+}
+
+// And every message after it goes into that post by id, with no name: a name is what opens a
+// post, and this one is already open.
+func TestALaterMessageGoesIntoThePostTheIncidentAlreadyHas(t *testing.T) {
+	var query, body string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query = r.URL.RawQuery
+		raw, _ := io.ReadAll(r.Body)
+		body = string(raw)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	thread, err := postDiscord(server.Client(), server.URL,
+		Outgoing{Text: "still waiting after 1h00m", Thread: "800"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, thread, "800", "the post it stays in")
+	equal(t, query, "thread_id=800", "the query a later message carried")
+	equal(t, body, `{"content":"still waiting after 1h00m"}`, "the request body")
+	lacks(t, body, "thread_name")
+}
+
+// A post Tim deleted answers 404, which is not a message that cannot be sent: it is a post
+// that has to be opened again, and the id of the new one is what the next message uses.
+func TestAPostThatIsGoneIsOpenedAgain(t *testing.T) {
+	var queries []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		queries = append(queries, r.URL.RawQuery)
+		if strings.HasPrefix(r.URL.RawQuery, "thread_id=") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":"901","channel_id":"801"}`))
+	}))
+	defer server.Close()
+
+	thread, err := postDiscord(server.Client(), server.URL,
+		Outgoing{Text: "handed the decision over", Thread: "800"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, thread, "801", "the post opened in place of the one that went")
+	equal(t, strings.Join(queries, " "), "thread_id=800 wait=true", "the two tries")
+}
+
+// A webhook URL with a query of its own, which Tim's has none of: the one it is handed may
+// not be appended behind a second question mark.
+func TestAQueryIsAppendedToAWebhookThatAlreadyHasOne(t *testing.T) {
+	equal(t, withQuery("https://discord.invalid/api/webhooks/1/t", "wait=true"),
+		"https://discord.invalid/api/webhooks/1/t?wait=true", "a webhook with no query")
+	equal(t, withQuery("https://discord.invalid/api/webhooks/1/t?x=1", "wait=true"),
+		"https://discord.invalid/api/webhooks/1/t?x=1&wait=true", "a webhook with one")
+	equal(t, withQuery("https://discord.invalid/api/webhooks/1/t", ""),
+		"https://discord.invalid/api/webhooks/1/t", "no query at all")
+}
+
+// What `op run --send` prints, which is what the sweep records against the incident: the two
+// halves of the Discord side keep one notion of where an incident is being talked about.
+func TestSendModeAnswersWithThePostItOpened(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":"900","channel_id":"800"}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("HACHIKO_DISCORD_URL", server.URL)
+	thread, err := sendMode(strings.NewReader("Disk: filling"), Outgoing{OpenThread: "disk-1"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, thread, "800", "the post the sweep records")
 }
 
 func TestAThreadNameIsOneLineAndFitsDiscordsLimit(t *testing.T) {
@@ -96,7 +200,7 @@ func TestPostDiscordReportsTheStatusWithoutTheWebhook(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := postDiscord(server.Client(), server.URL, "the disk is filling")
+	_, err := postDiscord(server.Client(), server.URL, Outgoing{Text: "the disk is filling"})
 	if err == nil {
 		t.Fatal("a 500 was not reported")
 	}
@@ -110,7 +214,7 @@ func TestAFailedRequestDoesNotPutTheWebhookInTheError(t *testing.T) {
 	url := server.URL + "/api/webhooks/123/NOT-A-REAL-TOKEN"
 	server.Close()
 
-	err := postDiscord(server.Client(), url, "the disk is filling")
+	_, err := postDiscord(server.Client(), url, Outgoing{Text: "the disk is filling"})
 	if err == nil {
 		t.Fatal("a request to a closed server did not fail")
 	}

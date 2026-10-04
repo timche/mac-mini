@@ -40,7 +40,7 @@ func (s sweeper) send(state *State, incident, message string) error {
 	if err != nil {
 		return err
 	}
-	if thread != "" {
+	if thread != "" && incident != "" {
 		if state.Threads == nil {
 			state.Threads = map[string]string{}
 		}

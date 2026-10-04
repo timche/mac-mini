@@ -172,8 +172,9 @@ func (s sweeper) run() error {
 	}
 
 	// Whether what fired an open incident is still firing. A reading where it is not is the
-	// other half of what the session needs and never got: dasd fell back to idle at about
-	// eight in the morning and nothing said so until Tim asked at twenty past nine.
+	// other half of what the session needs: without it a daemon that stops spinning by
+	// itself leaves a session waiting on a question about a process that is not there any
+	// more, and nobody is told until somebody asks.
 	//
 	// A reading that is missing is not a reading that is clear, so neither of these is taken
 	// from one: a walk that ran out of its seconds saw only part of the disk, and a check
@@ -723,10 +724,9 @@ func stillExpected(state *State) map[string]bool {
 }
 
 // A marker for an incident nothing is waiting on any more is dropped, which is right: the
-// report itself has already gone to the channel. An outcome dropped in silence is not.
-// `hachiko.log` has nothing at all after 04:09 on the day the wait on cpu-1791071900 was
-// lost, and the `--outcome` the session sent at 09:20 printed "reported on" in its own pane
-// and nowhere anybody would look afterwards.
+// report itself has already gone to the channel. An outcome dropped in silence is not. The
+// line `hachiko notify` prints goes to the session's own pane, so an outcome that arrives
+// after the wait on it has gone leaves nothing anywhere a person would look.
 func (s sweeper) sayDroppedOutcomes(keep map[string]bool) {
 	for _, id := range s.store.ReportedIDs() {
 		if keep[id] || !s.store.ReportedOutcome(id) {

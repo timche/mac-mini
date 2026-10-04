@@ -204,8 +204,8 @@ func (s sweeper) escalate(state *State, now time.Time, kind string, w Waiting, r
 	// made: what fired the incident has stopped by itself. The authority to kill a process
 	// is no use against one that has already stopped, a reminder about options is the wrong
 	// message, and a session that was handed the decision and asked again is still the only
-	// thing that can verify this and close. dasd fell back to idle at about eight in the
-	// morning, four hours after its handover, and nothing said so until Tim asked.
+	// thing that can verify this and close — which is why this one is not gated on the
+	// handover not having happened, as every other change is.
 	if changed.once == stepCleared {
 		return s.refresh(now, kind, w, reading, changed, blocked)
 	}
@@ -290,10 +290,11 @@ func (s sweeper) step(state *State, w Waiting, step, message, said string) Waiti
 	return w
 }
 
-// A handover that reaches nobody used to be silent in the channel. Tim's last message about
-// cpu-1791071900 was the 03:49 warning that the agent would decide in a quarter of an hour,
-// and when the prompt did not land nothing followed it at all — so one line says so, once,
-// however long the handover goes on failing.
+// Nothing of hachiko's own goes to the channel at a handover that worked, the session's own
+// message being what says what it did. One that reaches nobody is the opposite case: without
+// this line the last word in the channel is the warning that the agent would decide in a
+// quarter of an hour, and nothing after it. Once per incident, however long it goes on
+// failing, since nothing about the failure stops repeating by itself.
 func (s sweeper) sayHandoverStuck(state *State, kind string, w Waiting, reading nowReading, why string) Waiting {
 	if contains(w.Steps, stepStuck) {
 		return w

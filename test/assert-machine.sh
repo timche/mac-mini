@@ -30,8 +30,11 @@ check() {
 # runner, and a path hardcoded for either is a script that silently does nothing
 # on the other. The dscl and launchctl reads that build a path from a variable are
 # what this has to leave alone, which is why the pattern needs a literal name.
+# claude-root is named rather than matched, being the one script here that is not
+# a *.sh: it is installed under a fixed system path and so carries no extension.
 check "no hardcoded home directory in the scripts" \
   '! grep -rhoE --include="*.sh" --include="*.plist" --include="mise.toml" \
+       --include="claude-root" \
        "/Users/[A-Za-z0-9_.-]+" "$root" |
      grep -q .'
 
@@ -429,6 +432,132 @@ fi
 # is a file nothing reads.
 check "sshd_config includes the drop-in directory" \
   'grep -qE "^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/" /etc/ssh/sshd_config'
+
+# The root helper, which is the whole of the sudo a session on this Mac has.
+# Three root-owned copies and nothing else, and both halves of it matter: that the
+# helper runs with no password, and that sudo still refuses everything outside it.
+helper=/usr/local/libexec/claude-root
+helper_source="$root/system/libexec/claude-root"
+sudoers_file=/etc/sudoers.d/claude-root
+newsyslog_file=/etc/newsyslog.d/mac-mini.conf
+export helper helper_source sudoers_file newsyslog_file
+
+# The two files the installer renders are compared against the same rendering
+# rather than against the source, which carries an account name and a home
+# directory as placeholders because nothing here is written for one account.
+rendered="$(mktemp -d)"
+trap 'rm -rf "$rendered"' EXIT
+export rendered
+
+# dscl's record rather than $HOME, which is what the installer reads and the one
+# macOS answers; there is no getent here.
+account_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null |
+                  sed 's/^NFSHomeDirectory: //')"
+
+sed "s/__USER__/$(id -un)/g" "$root/system/sudoers/claude-root" \
+  >"$rendered/sudoers"
+sed -e "s/__USER__/$(id -un)/g" -e "s|__HOME__|$account_home|g" \
+  "$root/system/newsyslog/mac-mini.conf" >"$rendered/newsyslog.conf"
+
+# Never a symlink, whatever else is true of it: the account can write the
+# checkout, so a link at this path would hand every session on this Mac root.
+# root_owned_path above refuses a link anywhere on the way up for the same reason.
+check "the root helper is a copy rather than a link into the checkout" \
+  '[ -f "$helper" ] && [ ! -L "$helper" ]'
+check "the root helper is this repo's, byte for byte" \
+  'cmp -s "$helper_source" "$helper"'
+check "the root helper belongs to root" \
+  '[ "$(stat -f "%Su %Lp" "$helper")" = "root 755" ]'
+check "the root helper is root-owned all the way up" 'root_owned_path "$helper"'
+
+# stat reads a 0440 file the account cannot open, so the owner and the mode are
+# asserted here and the contents below, where there is sudo to read them with.
+check "the sudoers rule belongs to root and only root may read it" \
+  '[ "$(stat -f "%Su %Lp" "$sudoers_file")" = "root 440" ]'
+check "the sudoers rule is a copy rather than a link" \
+  '[ -f "$sudoers_file" ] && [ ! -L "$sudoers_file" ]'
+
+check "the newsyslog config is the rendering of this repo's" \
+  'cmp -s "$rendered/newsyslog.conf" "$newsyslog_file"'
+check "the newsyslog config belongs to root" \
+  '[ "$(stat -f "%Su %Lp" "$newsyslog_file")" = "root 644" ]'
+# -r drops newsyslog's insistence on being root and -n makes it print rather than
+# act, which together is the only way to ask it whether it understands the file.
+check "newsyslog parses the config" \
+  'newsyslog -r -n -f "$newsyslog_file"'
+
+# What the account can actually run, which is the whole point of the thing. -k so
+# the answer comes from the sudoers rule rather than from a password typed a
+# minute ago: it makes sudo ignore the cached credentials for the one call without
+# clearing them.
+check "sudo runs the helper with no password" \
+  'sudo -n -k "$helper" --list'
+# The helper's own refusal rather than only a non-zero exit, which sudo would
+# give for having refused to run it at all.
+check "sudo refuses a daemon the helper does not allow" \
+  'sudo -n -k "$helper" restart-daemon not-on-the-list 2>&1 |
+     grep -q "not an allowed daemon"'
+
+# And the half that says it is narrow rather than blanket. A machine whose sudoers
+# already grants the account everything cannot answer this — a CI runner arrives
+# that way, which is also what lets the installer run there at all — so what is
+# asked first is whether some other command runs too, and the answer decides
+# whether this is a check or a line saying it could not be made.
+if sudo -n -k /usr/bin/true 2>/dev/null; then
+  echo "  --    this account's sudoers grants more than the helper, as a CI"
+  echo "        runner's does, so the refusal of everything outside it was not"
+  echo "        checked"
+else
+  check "sudo runs nothing outside the helper" '! sudo -n -k /bin/ls /'
+fi
+
+if sudo -n true 2>/dev/null; then
+  check "the sudoers rule is the rendering of this repo's" \
+    'sudo -n cmp -s "$rendered/sudoers" "$sudoers_file"'
+  check "sudo parses the sudoers rule" \
+    'sudo -n /usr/sbin/visudo -cf "$sudoers_file"'
+else
+  echo "  --    sudo wants a password, so the sudoers rule's contents were not"
+  echo "        read back"
+fi
+
+# The helper's own argument handling, against the copy in the checkout and with no
+# sudo anywhere near it. Every refusal below happens before anything privileged is
+# reached, which is what makes it testable at all — and CLAUDE_ROOT_DRY_RUN, which
+# stands in for root, is deliberately not a way past any of it.
+check "the helper is executable in the checkout" '[ -x "$helper_source" ]'
+check "the helper lists the actions and the daemons it allows" \
+  '"$helper_source" --list | grep -q "restart-daemon" &&
+   "$helper_source" --list | grep -q "com.apple.dasd"'
+check "the helper refuses no action at all" '! "$helper_source"'
+check "the helper refuses an action that is not on the list" \
+  '! "$helper_source" uname'
+check "the helper refuses a daemon that is not on the list" \
+  '! "$helper_source" restart-daemon not-on-the-list'
+check "the helper matches a daemon by string rather than as a pattern" \
+  '! "$helper_source" restart-daemon "das*" &&
+   ! "$helper_source" restart-daemon "*"'
+check "the helper refuses restart-daemon with no name" \
+  '! "$helper_source" restart-daemon'
+check "the helper refuses an argument the action does not take" \
+  '! "$helper_source" restart-daemon dasd extra &&
+   ! "$helper_source" rotate-logs extra &&
+   ! "$helper_source" flush-dns extra &&
+   ! "$helper_source" --list extra'
+check "the helper reads -- as the end of its options" \
+  '"$helper_source" -- --list | grep -q "restart-daemon"'
+check "a dry run is no way past the allowlist" \
+  '! CLAUDE_ROOT_DRY_RUN=1 "$helper_source" restart-daemon not-on-the-list &&
+   ! CLAUDE_ROOT_DRY_RUN=1 "$helper_source" uname'
+check "an allowed action refuses rather than half-doing it without root" \
+  '! "$helper_source" flush-dns && ! "$helper_source" rotate-logs'
+check "a dry run of an allowed action says what it would do and does nothing" \
+  'CLAUDE_ROOT_DRY_RUN=1 "$helper_source" restart-daemon dasd | grep -q "dry run"'
+# The re-exec through `env -i`, which is what keeps a root script from being
+# steered by the environment it was handed. A PATH of nothing is the observable
+# half: everything after that line runs on the PATH this repo wrote.
+check "the helper does not run on the PATH it was handed" \
+  'PATH=/nonexistent "$helper_source" --list >/dev/null'
 
 if [ "$failures" -gt 0 ]; then
   echo "  $failures check(s) failed"

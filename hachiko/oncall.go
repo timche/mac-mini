@@ -247,7 +247,7 @@ func (o oncaller) open(name, brief string) (OncallSession, error) {
 			// to ask. Its options are about the incident as it stood when it asked, and
 			// this is newer — so the question goes and the session is asked again, rather
 			// than the commonest update of an incident reaching nobody.
-			if err := o.interrupt(name, updateLead(name), brief); err != nil {
+			if _, err := o.interrupt(name, updateLead(name), brief); err != nil {
 				o.log.say("the on-call session in tab %s is waiting on a question that could not be cancelled, so the update was not delivered: %v", existing, err)
 				return OncallSession{
 					Tab: existing,
@@ -345,32 +345,37 @@ func (o oncaller) agent(name string) (status, tabID string, err error) {
 // The esc is read back rather than assumed. send-keys answers for the keys reaching the
 // pane and not for what the agent did with them, and a Claude Code that stayed on its
 // question would otherwise have its reminder, or its handover, counted as delivered.
-func (o oncaller) interrupt(name, lead, data string) error {
+//
+// Whether the esc went is answered separately from whether the whole of it worked, because
+// the two failures are nothing alike: an esc that was refused leaves the question in front
+// of Tim, and an esc that landed without its prompt leaves him nothing to answer and the
+// agent nothing to do. The second is the one hachiko has to remember doing.
+func (o oncaller) interrupt(name, lead, data string) (bool, error) {
 	return o.interruptWith(name, lead, "INCIDENT DATA", data)
 }
 
-func (o oncaller) interruptWith(name, lead, label, data string) error {
+func (o oncaller) interruptWith(name, lead, label, data string) (bool, error) {
 	if !oncallName.MatchString(name) {
-		return fmt.Errorf("%s is not a name herdr will take", name)
+		return false, fmt.Errorf("%s is not a name herdr will take", name)
 	}
 	agent := "oncall-" + name
 
 	if _, err := herdrCall(o.run, "agent", "send-keys", agent, "esc"); err != nil {
-		return fmt.Errorf("the question could not be cancelled, so nothing was prompted: %w", err)
+		return false, fmt.Errorf("the question could not be cancelled, so nothing was prompted: %w", err)
 	}
 
 	status, err := o.awaitUnblocked(name)
 	if err != nil {
-		return err
+		return true, err
 	}
 	switch status {
 	case statusBlocked:
-		return errors.New("the agent is still on its question after the esc, so nothing was prompted")
+		return true, errors.New("the agent is still on its question after the esc, so nothing was prompted")
 	case statusGone:
-		return errors.New("the agent is gone, so nothing was prompted")
+		return true, errors.New("the agent is gone, so nothing was prompted")
 	}
 
-	return o.promptWith(name, lead, label, data)
+	return true, o.promptWith(name, lead, label, data)
 }
 
 // herdr's answer to `agent get` is not the pane's: send-keys answers for the keys arriving

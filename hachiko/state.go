@@ -113,6 +113,17 @@ type Waiting struct {
 	Nudged   int64    `json:"nudged,omitempty"`
 	Steps    []string `json:"steps,omitempty"`
 
+	// The prompt hachiko's own esc left owing, and the steps it completes once it lands: the
+	// question went and what was to replace it did not, so the next check sends that prompt
+	// alone. A second esc there would cancel whatever the session asked or started in the
+	// meantime, and nothing is owed to the question any more — it is gone.
+	//
+	// Safe to keep and send again because it is hachiko's own words and nothing else: every
+	// name a path or a command line could have put in the prompt is in the data, which is
+	// measured again when the retry goes out.
+	Owed      string   `json:"owed,omitempty"`
+	OwedSteps []string `json:"owed_steps,omitempty"`
+
 	// When a check first projected that free space would reach the critical threshold before
 	// the handover. The second check to say so is what hands the decision over, because one
 	// interval is an extrapolation and the thing it authorises is a kill.

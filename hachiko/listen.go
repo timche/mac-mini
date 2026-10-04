@@ -374,7 +374,8 @@ func (l *listener) handTo(incident, lead, data string) error {
 	case statusGone:
 		return errors.New("there is no on-call session open on it any more")
 	case statusBlocked:
-		return o.interruptWith(kind, lead, "REPLY FROM TIM", data)
+		_, err := o.interruptWith(kind, lead, "REPLY FROM TIM", data)
+		return err
 	}
 
 	// Working or finished, so there is no question in the way: the prompt queues behind

@@ -40,7 +40,15 @@ type Deps struct {
 	// Cancels the question the agent is waiting on and hands it a prompt in its place.
 	// It fails rather than prompting if the question is still up, since herdr refuses a
 	// prompt to a blocked agent and a step recorded as done would never be tried again.
-	Interrupt func(kind, lead, data string) error
+	//
+	// The first value says whether the esc went, which is the difference between a question
+	// still in front of Tim and one hachiko took away and then failed to replace.
+	Interrupt func(kind, lead, data string) (bool, error)
+
+	// The prompt on its own, for an agent with no question in the way: what hachiko owes
+	// one whose question its own esc already took away, where a second esc would cancel
+	// whatever the session has asked or started since.
+	Prompt func(kind, lead, data string) error
 
 	// Reaches the channel Tim watches. The only thing that ever sees the webhook or the bot
 	// token, and it answers with the thread it opened when the message was the first of an
@@ -99,8 +107,11 @@ func realDeps(cfg Config) Deps {
 		AgentStatus: func(kind string) (string, error) {
 			return oncaller{cfg: cfg, run: herdrCLI, now: now, log: log}.status(kind)
 		},
-		Interrupt: func(kind, lead, data string) error {
+		Interrupt: func(kind, lead, data string) (bool, error) {
 			return oncaller{cfg: cfg, run: herdrCLI, now: now, log: log}.interrupt(kind, lead, data)
+		},
+		Prompt: func(kind, lead, data string) error {
+			return oncaller{cfg: cfg, run: herdrCLI, now: now, log: log}.promptWith(kind, lead, "INCIDENT DATA", data)
 		},
 		Send: func(out Outgoing) (string, error) { return sendThroughOP(cfg, out) },
 	}

@@ -611,6 +611,97 @@ func TestAHandoverThatCouldNotBeDeliveredIsTriedAgainOnTheNextCheck(t *testing.T
 	equal(t, len(f.interrupts), 1, "questions cancelled")
 }
 
+// The other half of it: the esc landed and the prompt did not, so the agent has no question
+// and nothing to do. Read as Tim answering, that is an incident closed on the strength of
+// hachiko's own cancel — which is what 04:09 on cpu-1791071900 was.
+func TestAnEscThatLandedWithoutItsPromptIsRetriedAsThePromptAlone(t *testing.T) {
+	f := waiting(t)
+	f.at(600 + remindAt).sweep()
+	f.at(600 + warnAt).sweep()
+
+	// The handover: the esc goes, herdr goes on calling the agent blocked for the whole
+	// window, and so nothing is prompted.
+	f.interruptErr = errors.New("the agent is still on its question after the esc, so nothing was prompted")
+	f.interruptEsc = true
+	out := f.at(600 + handoverAt).sweep()
+
+	wants(t, out, "its question is already cancelled, so the next check sends the prompt alone")
+	w := f.state().Waiting["disk"]
+	wants(t, w.Owed, "Tim has not answered for")
+	equal(t, contains(w.Steps, stepHandover), false, "whether the handover is recorded while its prompt is owing")
+
+	// The next check finds it idle, which is exactly what an agent whose question was taken
+	// away looks like. The prompt goes on its own: a second esc would cancel whatever the
+	// session started in the meantime, and there is no question left to cancel.
+	f.interruptErr, f.interruptEsc = nil, false
+	out = f.at(600 + handoverAt + 300).sweep()
+
+	lacks(t, out, "was answered after")
+	wants(t, out, "the prompt owed to the disk on-call agent on disk-")
+	equal(t, len(f.interrupts), 0, "cancel-and-prompts that went through whole")
+	equal(t, len(f.prompts), 1, "prompts sent on their own")
+	wants(t, f.lastPrompt(), "Tim has not answered for")
+	// This minute's numbers rather than the ones the attempt that failed carried.
+	wants(t, f.lastPrompt(), "Now on mac-mini: 500.0 GB free")
+	wants(t, f.lastPrompt(), "hachiko notify disk-")
+
+	// Nothing is owing any more, the handover counts as made so it does not go twice, and
+	// the wait is still being counted.
+	w = f.state().Waiting["disk"]
+	equal(t, w.Owed, "", "the prompt still owing")
+	equal(t, contains(w.Steps, stepHandover), true, "whether the handover is recorded")
+	equal(t, len(f.state().Waiting), 1, "waits still being counted")
+}
+
+// A prompt that is owed and asked for again is still one prompt: nothing sends it twice,
+// and nothing sends a second esc after it.
+func TestAnOwedPromptThatCannotBeSentEitherIsLeftToTheNextCheck(t *testing.T) {
+	f := waiting(t)
+	f.at(600 + remindAt).sweep()
+	f.at(600 + warnAt).sweep()
+
+	f.interruptErr = errors.New("the agent is still on its question after the esc")
+	f.interruptEsc = true
+	f.at(600 + handoverAt).sweep()
+
+	f.interruptErr, f.interruptEsc = nil, false
+	f.promptErr = errors.New("herdr would not take the prompt")
+	out := f.at(600 + handoverAt + 300).sweep()
+
+	wants(t, out, "did not reach it either, so the next check tries again")
+	wants(t, f.state().Waiting["disk"].Owed, "Tim has not answered for")
+	equal(t, len(f.prompts), 0, "prompts sent on their own")
+
+	f.promptErr = nil
+	wants(t, f.at(600+handoverAt+600).sweep(), "the prompt owed to the disk on-call agent")
+	equal(t, len(f.prompts), 1, "prompts sent on their own once herdr took it")
+	equal(t, len(f.interrupts), 0, "cancel-and-prompts that went through whole")
+}
+
+// An agent that put a question of its own up after hachiko's esc is one with something in
+// front of Tim again, so the prompt hachiko owed is for a question that no longer exists.
+func TestAnAgentThatAsksAgainAfterTheEscIsOwedNothing(t *testing.T) {
+	f := waiting(t)
+	f.at(600 + remindAt).sweep()
+	f.at(600 + warnAt).sweep()
+
+	f.interruptErr = errors.New("the agent is still on its question after the esc")
+	f.interruptEsc = true
+	f.at(600 + handoverAt).sweep()
+
+	// It asked again by itself.
+	f.interruptErr, f.interruptEsc = nil, false
+	f.blocks("disk")
+	out := f.at(600 + handoverAt + 300).sweep()
+
+	equal(t, len(f.prompts), 0, "prompts sent on their own")
+	equal(t, f.state().Waiting["disk"].Owed, "", "the prompt still owing")
+
+	// And the handover, which was never recorded, comes round again as the whole of it.
+	wants(t, out, "handed the decision on disk-")
+	equal(t, len(f.interrupts), 1, "questions cancelled")
+}
+
 // herdr not answering at all is not an answer from Tim, so the wait is left exactly as
 // it was rather than being read as either.
 func TestHerdrNotAnsweringLeavesTheWaitAsItWas(t *testing.T) {

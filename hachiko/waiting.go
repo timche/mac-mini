@@ -89,7 +89,14 @@ func (s sweeper) chaseAnswers(state *State, now time.Time, reading nowReading) {
 			s.noAgent(state, now, kind, w, reading)
 
 		case status == statusBlocked:
+			// It is on a question again, so nothing is owing: the prompt hachiko owed was to
+			// replace the question it took away, and this is not that one. Whatever step
+			// wanted that prompt is unrecorded and comes round again.
+			w.Owed, w.OwedSteps = "", nil
 			state.Waiting[kind] = s.escalate(state, now, kind, w, reading)
+
+		case w.Owed != "":
+			state.Waiting[kind] = s.retryOwed(now, kind, w, reading)
 
 		case status == statusWorking && w.Nudged != 0:
 			// hachiko took the question away itself and the agent is working on what it
@@ -240,7 +247,28 @@ Re-check the situation from scratch — the numbers below are this minute's — 
 			worse, hmStr(waited))
 	}
 
-	if err := s.deps.Interrupt(kind, lead, s.handoverData(w, reading)); err != nil {
+	// Early marks itself and the two messages it makes pointless, and leaves the deadline
+	// alone: if the session judged that waiting was safe and asked again, three hours with no
+	// answer is still three hours with no answer.
+	steps := []string{stepRemind, stepWarn, stepEarly, stepHandover}
+	if worse != "" {
+		steps = []string{stepRemind, stepWarn, stepEarly}
+	}
+
+	escSent, err := s.deps.Interrupt(kind, lead, s.handoverData(w, reading))
+	if err != nil {
+		if escSent {
+			// The esc landed and the prompt did not, so the question is already gone and there
+			// is nothing left to cancel: the next check owes the agent that prompt alone.
+			// Without this the esc was hachiko's and the record of it was nobody's — the agent
+			// left `blocked`, the wait read that as Tim answering, and the line below promising
+			// another try was never kept.
+			w.Owed, w.OwedSteps = lead, steps
+			w.Nudged = now.Unix()
+			s.say("the decision on %s did not reach the %s on-call agent, but its question is already cancelled, so the next check sends the prompt alone: %v",
+				w.Incident, kind, err)
+			return w
+		}
 		s.say("the decision on %s could not be handed to the %s on-call agent, so the next check tries again: %v",
 			w.Incident, kind, err)
 		return w
@@ -253,14 +281,27 @@ Re-check the situation from scratch — the numbers below are this minute's — 
 			w.Incident, kind, hmStr(waited))
 	}
 
-	// Early marks itself and the two messages it makes pointless, and leaves the deadline
-	// alone: if the session judged that waiting was safe and asked again, three hours with no
-	// answer is still three hours with no answer.
-	if worse != "" {
-		w.Steps = mergeSorted(w.Steps, []string{stepRemind, stepWarn, stepEarly})
-	} else {
-		w.Steps = mergeSorted(w.Steps, []string{stepRemind, stepWarn, stepEarly, stepHandover})
+	w.Steps = mergeSorted(w.Steps, steps)
+	w.Nudged = now.Unix()
+	return w
+}
+
+// The prompt hachiko's own esc left owing. No second esc: the question it was to replace is
+// already gone, and an esc to an agent that is not on one cancels whatever it has started
+// instead. The data is this minute's rather than the data the attempt that failed carried,
+// since five more minutes have moved the numbers again.
+func (s sweeper) retryOwed(now time.Time, kind string, w Waiting, reading nowReading) Waiting {
+	if err := s.deps.Prompt(kind, w.Owed, s.handoverData(w, reading)); err != nil {
+		s.say("the prompt owed to the %s on-call agent on %s, after hachiko cancelled its question, did not reach it either, so the next check tries again: %v",
+			kind, w.Incident, err)
+		return w
 	}
+
+	s.say("the prompt owed to the %s on-call agent on %s reached it, after hachiko cancelled its question and the first attempt did not land",
+		kind, w.Incident)
+
+	w.Steps = mergeSorted(w.Steps, w.OwedSteps)
+	w.Owed, w.OwedSteps = "", nil
 	w.Nudged = now.Unix()
 	return w
 }
@@ -279,7 +320,18 @@ func (s sweeper) refresh(now time.Time, kind string, w Waiting, reading nowReadi
 	lead := fmt.Sprintf(`The incident changed while you were waiting, so your question has been cancelled: %s. What changed is named in the data below, with this minute's numbers. Re-check the situation and ask again with options that fit what it is now. Tim has been waiting %s and the handover at %s is still counted from the first question, not from this one, so say in your question what you would do if he does not answer.`,
 		changed.why, hmStr(waited), hmStr(s.cfg.HandoverAfter))
 
-	if err := s.deps.Interrupt(kind, lead, changed.detail+"\n\n"+s.handoverData(w, reading)); err != nil {
+	escSent, err := s.deps.Interrupt(kind, lead, changed.detail+"\n\n"+s.handoverData(w, reading))
+	if err != nil {
+		if escSent {
+			// The question is gone whether or not the prompt landed, so what it was measured
+			// against goes with it and the next check owes the prompt alone.
+			w.Owed, w.OwedSteps = lead, nil
+			w.Asked = reading.snapshot(now)
+			w.Nudged = now.Unix()
+			s.say("%s changed while the %s on-call agent was waiting, and its question is cancelled but the prompt did not land, so the next check sends the prompt alone: %v",
+				w.Incident, kind, err)
+			return w
+		}
 		s.say("%s changed while the %s on-call agent was waiting, and its question could not be cancelled: %v",
 			w.Incident, kind, err)
 		return w

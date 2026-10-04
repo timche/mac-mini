@@ -60,6 +60,14 @@ type fixture struct {
 	interrupts   []string
 	interruptErr error
 
+	// Whether the esc landed before the interrupt failed. That is the failure that leaves the
+	// agent with no question, nothing to do, and hachiko owing it a prompt.
+	interruptEsc bool
+
+	// The prompts that went on their own, with no esc before them.
+	prompts   []string
+	promptErr error
+
 	sent         []string
 	sendAttempts int
 	sendErr      error
@@ -195,13 +203,29 @@ func (f *fixture) deps() Deps {
 			}
 			return "idle", nil
 		},
-		Interrupt: func(kind, lead, data string) error {
+		Interrupt: func(kind, lead, data string) (bool, error) {
 			if f.interruptErr != nil {
-				return f.interruptErr
+				// An esc that landed without its prompt leaves the agent off its question and
+				// with nothing to do, which from herdr is indistinguishable from Tim having
+				// answered it.
+				if f.interruptEsc {
+					f.status[kind] = "idle"
+				}
+				return f.interruptEsc, f.interruptErr
 			}
 			f.interrupts = append(f.interrupts, lead+"\n"+data)
 			// The agent herdr refuses a prompt to is the one still on its question, so a
 			// cancelled question leaves it working on what it was handed instead.
+			f.status[kind] = statusWorking
+			return true, nil
+		},
+		Prompt: func(kind, lead, data string) error {
+			if f.promptErr != nil {
+				return f.promptErr
+			}
+			f.prompts = append(f.prompts, lead+"\n"+data)
+			// A prompt queues behind whatever the agent is doing, and an agent that has been
+			// handed one is working on it.
 			f.status[kind] = statusWorking
 			return nil
 		},
@@ -404,6 +428,16 @@ func (f *fixture) lastInterrupt() string {
 		f.t.Fatal("no question was cancelled")
 	}
 	return f.interrupts[len(f.interrupts)-1]
+}
+
+// The last prompt that went on its own, with no esc before it: what hachiko owes an agent
+// whose question its own esc already took away.
+func (f *fixture) lastPrompt() string {
+	f.t.Helper()
+	if len(f.prompts) == 0 {
+		f.t.Fatal("no prompt went on its own")
+	}
+	return f.prompts[len(f.prompts)-1]
 }
 
 func (f *fixture) onlyPendingID() string {

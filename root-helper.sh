@@ -71,20 +71,6 @@ if ! sudo -n true 2>/dev/null && [ ! -t 0 ]; then
   exit 0
 fi
 
-# A drop-in under /etc/sudoers.d is a file nothing reads unless /etc/sudoers
-# includes the directory. macOS has shipped that line for years, but an
-# sudoers replaced by hand would silently ignore everything here — and a run that
-# reported success while the account still had no sudo would be worse than one
-# that refused.
-if ! sudo grep -qE '^[[:space:]]*[#@]includedir[[:space:]]+(/private)?/etc/sudoers\.d' \
-       /etc/sudoers; then
-  echo
-  echo "Skipped the root helper: /etc/sudoers has no includedir for" >&2
-  echo "/etc/sudoers.d, so a drop-in there would do nothing. Add the line with" >&2
-  echo "'sudo visudo' and run this again." >&2
-  exit 0
-fi
-
 staged="$(mktemp -d)"
 trap 'rm -rf "$staged"' EXIT
 
@@ -112,6 +98,77 @@ if ! visudo_says="$(/usr/sbin/visudo -cf "$staged/sudoers" 2>&1)"; then
   echo "visudo rejected the sudoers rule, so nothing was installed:" >&2
   echo "$visudo_says" >&2
   exit 1
+fi
+
+# What a session can shape is exactly this: it cannot run root-helper.sh, but it
+# can edit the two files a run of it copies into place, and one of them is a
+# command sudo will then run as root without asking again. So what is about to
+# change goes up before the first password prompt rather than after it, and the
+# password is the moment to read it.
+#
+# The diff rather than a log of the commits behind it: a commit range from the
+# installed copy would have to be guessed at — boswell commits this repository
+# every few seconds, and a local edit matches no commit at all — where the diff
+# is exactly what will change, whatever produced it.
+#
+# The helper is world-readable, so this needs no root. The sudoers rule is 0440
+# and cannot be read back without it, so what is printed there is what the rule
+# will say rather than a diff against what it says now.
+echo
+echo "About to install as root. Read this before typing a password:"
+echo
+
+if [ ! -r "$helper" ]; then
+  echo "  $helper"
+  echo "  is new. Nothing to diff against, so read the whole of it:"
+  echo "    less $repo/system/libexec/claude-root"
+elif cmp -s "$staged/claude-root" "$helper"; then
+  echo "  $helper is unchanged."
+else
+  echo "  $helper changes:"
+  echo
+
+  # diff exits 1 for files that differ, which is the only reason it is being run,
+  # and pipefail would make that end the script.
+  diff -u "$helper" "$staged/claude-root" | sed 's/^/    /' || true
+fi
+
+echo
+echo "  $sudoers_file will say, comments aside:"
+echo
+
+# visudo above has already read this file, so a grep that matches nothing would
+# mean a rule of nothing but comments. Guarded all the same, rather than letting
+# pipefail end the run without saying why.
+grep -vE '^[[:space:]]*(#|$)' "$staged/sudoers" | sed 's/^/    /' || true
+echo
+
+# A drop-in under /etc/sudoers.d is a file nothing reads unless /etc/sudoers
+# includes the directory. macOS has shipped that line for years, but an
+# sudoers replaced by hand would silently ignore everything here — and a run that
+# reported success while the account still had no sudo would be worse than one
+# that refused. The first thing here that needs root, and so the prompt the review
+# above is meant to be read at.
+#
+# Read into a variable rather than grepped under sudo directly, because a grep
+# that found nothing and a sudo that was refused both exit non-zero, and telling
+# Tim his sudoers is missing a line when the truth is that nobody typed a password
+# would send him after the wrong thing.
+if ! sudoers_text="$(sudo cat /etc/sudoers 2>/dev/null)"; then
+  echo
+  echo "Skipped the root helper: /etc/sudoers could not be read, so whether a" >&2
+  echo "drop-in there is included is unknown. Run $repo/root-helper.sh from a" >&2
+  echo "terminal that can answer sudo." >&2
+  exit 0
+fi
+
+if ! printf '%s\n' "$sudoers_text" |
+       grep -qE '^[[:space:]]*[#@]includedir[[:space:]]+(/private)?/etc/sudoers\.d'; then
+  echo
+  echo "Skipped the root helper: /etc/sudoers has no includedir for" >&2
+  echo "/etc/sudoers.d, so a drop-in there would do nothing. Add the line with" >&2
+  echo "'sudo visudo' and run this again." >&2
+  exit 0
 fi
 
 # Every directory on the way to something root executes has to be root's and

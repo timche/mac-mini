@@ -90,8 +90,17 @@ allowed_daemons=(
 # audit line somebody else wrote — or, in a terminal reading the log back, an
 # escape sequence it acts on. Nothing any action takes could legitimately contain
 # one, so they go before anything is logged or echoed.
+#
+# A whitelist of printable ASCII rather than a list of controls to chase: an
+# action and a daemon name are ASCII by construction, so anything else is either
+# a control character or something no audit line needs. Which also catches the C1
+# controls, where a deny list would not — U+0080 to U+009F arrive as the two
+# bytes 0xC2 0x80-0x9F, one character to a tr reading UTF-8 and so outside any
+# range written in ASCII. LC_ALL=C is what makes tr work on bytes; `env -i` above
+# has already left this in the C locale, and it is named here rather than relied
+# on.
 printable() {
-  printf '%s' "$1" | tr -d '\000-\037\177'
+  LC_ALL=C printf '%s' "$1" | LC_ALL=C tr -cd '\040-\176'
 }
 
 caller="${SUDO_USER:-$(id -un)}"
@@ -101,8 +110,19 @@ dry_run=false
 
 # The one place anything reaches the log, so that no call site can forget the
 # stripping above.
+#
+# The name is in the message as well as in the tag because the unified log keeps
+# none of the tag: a `logger -t claude-root` record carries the message and
+# /usr/bin/logger as the process, and no subsystem, category or sender to tell it
+# from every other logger call on the machine. So the message is the only field
+# there is to search, and
+#
+#   log show --predicate 'eventMessage beginswith "claude-root:"' --last 1d
+#
+# is what reads the audit trail back. The tag stays for anything reading syslog
+# rather than the unified log.
 audit() {
-  logger -t claude-root "$(printable "$caller: $*")"
+  logger -t claude-root "$(printable "claude-root: $caller: $*")"
 }
 
 # Refusals are logged too, and with what was asked for: a session that tried
@@ -163,8 +183,8 @@ list() {
   done
   echo
   echo "Anything else is refused. To add a daemon, edit"
-  echo "system/libexec/claude-root in ~/.mac-mini and re-run root-helper.sh,"
-  echo "which is Tim's password."
+  echo "system/libexec/claude-root in the mac-mini checkout and re-run"
+  echo "root-helper.sh, which is Tim's password."
 }
 
 restart_daemon() {

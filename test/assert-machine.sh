@@ -480,10 +480,17 @@ check "the retired newsyslog config is gone" '[ ! -e "$retired_newsyslog" ]'
 # No action may touch a path the account can write, which is the rule a log-capping
 # action here broke: the account replaces the file with a symlink and a root copy,
 # chown or truncate follows it wherever it points. Read off the helper rather than
-# only written in its header, so an action that reaches into a home directory
-# cannot be added without this failing.
+# only written in its header, so an action that reaches into one cannot be added
+# without this failing.
+#
+# A home directory is one of them and the temporary directories are the rest: any
+# account can write /tmp, and $TMPDIR is per account already. One pattern covers
+# the three spellings, /private/tmp and /var/tmp both having /tmp inside them. A
+# bare ~ counts as well, which is why nothing in the helper's own output spells a
+# path that way.
 check "no action reaches into a path the account can write" \
-  '! grep -qE "NFSHomeDirectory|/Library/Logs|\\\$HOME" "$helper_source"'
+  '! grep -qE "NFSHomeDirectory|/Library/Logs|\\\$HOME|\\\$TMPDIR|/tmp|~/" \
+       "$helper_source"'
 
 # What the account can actually run, which is the whole point of the thing. -k so
 # the answer comes from the sudoers rule rather than from a password typed a
@@ -562,6 +569,13 @@ check "a dry run of an allowed action says what it would do and does nothing" \
 # stderr is the observable half, and the log goes through the same function.
 check "the helper strips control characters out of what it reports" \
   '"$helper_source" "$(printf "bad\nname")" 2>&1 |
+     grep -q "not an allowed action: badname"'
+# The C1 controls separately, because they are the ones a deny list written in
+# ASCII misses: U+009B arrives as the two bytes 0xC2 0x9B and is one character to
+# a tr in a UTF-8 locale. Both bytes have to be gone, which is what asking for the
+# bare name back checks.
+check "and the C1 controls with them" \
+  '"$helper_source" "$(printf "bad\302\233name")" 2>&1 |
      grep -q "not an allowed action: badname"'
 
 # The re-exec through `env -i`, which is what keeps a root script from being

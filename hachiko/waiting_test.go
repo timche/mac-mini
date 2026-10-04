@@ -965,6 +965,53 @@ func TestHerdrNotAnsweringLeavesTheWaitAsItWas(t *testing.T) {
 	equal(t, f.sentCount(), 1, "messages sent")
 }
 
+// The night of cpu-1791071900, walked through end to end. At the handover hachiko sent the
+// esc, read the status once, found herdr still saying `blocked`, logged that the next check
+// would try again and sent no prompt. Five minutes later the agent was no longer blocked
+// with nothing recorded against the wait, so the sweep logged "was answered after 3h05m" and
+// dropped it: nothing acted, and Tim's last message was the warning at 03:49.
+func TestTheNightOfTheHandoverThatWentNowhereNowHandsOver(t *testing.T) {
+	f := waiting(t)
+	incident := f.state().Waiting["disk"].Incident
+
+	// 02:03 and 03:49: the reminder and the warning, which did go out.
+	wants(t, f.at(600+remindAt).sweep(), "reminded about "+incident)
+	wants(t, f.at(600+warnAt).sweep(), "from the handover")
+	equal(t, f.sentCount(), 3, "messages Tim had before the handover")
+
+	// 04:04: the esc lands and herdr goes on calling the agent blocked, so nothing is
+	// prompted. The difference is that hachiko now knows it took the question away.
+	f.interruptErr = errors.New("the agent is still on its question after the esc, so nothing was prompted")
+	f.interruptEsc = true
+	out := f.at(600 + handoverAt).sweep()
+
+	wants(t, out, "the next check sends the prompt alone")
+	equal(t, f.sentCount(), 4, "messages Tim had once the handover reached nobody")
+	wants(t, f.lastSent(), "Nothing has acted on it")
+
+	// 04:09: the agent is off its question with nothing in flight, which is what the sweep
+	// read as Tim answering. It is not an answer, and the prompt it was owed goes.
+	f.interruptErr, f.interruptEsc = nil, false
+	out = f.at(600 + handoverAt + 300).sweep()
+
+	lacks(t, out, "was answered after")
+	wants(t, out, "the prompt owed to the disk on-call agent on "+incident)
+	wants(t, f.lastPrompt(), "the autonomy in your standing orders is handed over to you now")
+	wants(t, f.lastPrompt(), "Spawn the oncall-partner agent")
+	equal(t, len(f.state().Waiting), 1, "waits still being counted")
+
+	// And the wait does not end in silence either: the session is given the minutes it had
+	// to report its findings in, and then one line says nothing reported an outcome.
+	f.status["disk"] = "done"
+	f.at(600 + handoverAt + 600).sweep()
+	out = f.at(600 + handoverAt + 1200).sweep()
+
+	wants(t, out, "nothing reported the outcome of "+incident)
+	equal(t, f.sentCount(), 5, "messages Tim had in all")
+	wants(t, f.lastSent(), "No outcome was reported on "+incident)
+	equal(t, len(f.state().Waiting), 0, "waits still being counted")
+}
+
 // A dry run changes nothing and says nothing to anybody, the wait included.
 func TestADryRunDoesNothingAboutAQuestionNobodyAnswered(t *testing.T) {
 	f := waiting(t)

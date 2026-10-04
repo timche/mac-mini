@@ -132,6 +132,12 @@ type Waiting struct {
 	// it was asked.
 	Settled int64 `json:"settled,omitempty"`
 
+	// When the agent was first seen with something in flight, which is the start of the grace
+	// the clock gives it before resuming over the top of its work. Bounded, because a turn
+	// hung on a tool call reads as `working` for as long as the Mac is up and a wait that
+	// deferred to it for ever would have no reminder, no warning and no handover at all.
+	Busy int64 `json:"busy,omitempty"`
+
 	// When a check first projected that free space would reach the critical threshold before
 	// the handover. The second check to say so is what hands the decision over, because one
 	// interval is an extrapolation and the thing it authorises is a kill.

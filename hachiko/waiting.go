@@ -107,8 +107,9 @@ func (s sweeper) chaseAnswers(state *State, now time.Time, reading nowReading) {
 			// It is on a question again, so nothing is owing: the prompt hachiko owed was to
 			// replace the question it took away, and this is not that one. Whatever step
 			// wanted that prompt is unrecorded and comes round again.
-			w.Owed, w.OwedSteps, w.Settled = "", nil, 0
-			state.Waiting[kind] = s.escalate(state, now, kind, w, reading, true)
+			w.Owed, w.OwedSteps = "", nil
+			w.Settled, w.Busy = 0, 0
+			state.Waiting[kind] = s.escalate(state, now, kind, w, reading, agentOnQuestion)
 
 		case w.Owed != "":
 			state.Waiting[kind] = s.retryOwed(now, kind, w, reading)
@@ -122,13 +123,16 @@ func (s sweeper) chaseAnswers(state *State, now time.Time, reading nowReading) {
 			}
 
 		case status == statusWorking:
-			// Something is happening: the answer Tim gave it, or what hachiko handed it in
-			// place of the question. A reminder, a warning or a handover on top of that would
-			// be hachiko talking over the work it asked for, so the timeline waits — and
-			// nothing but an outcome, a fresh question or a closed session ends the wait, since
-			// working is not a report.
+			// Something is in flight: the answer Tim gave it, or what hachiko handed it in
+			// place of the question. The clock defers to that, since a reminder or a handover
+			// on top of it is hachiko talking over the work it asked for — but only for the
+			// minutes a session is given to report in, and escalate is what holds that grace,
+			// because a disk about to fill does not wait for a tool call either.
 			w.Settled = 0
-			state.Waiting[kind] = w
+			if w.Busy == 0 {
+				w.Busy = now.Unix()
+			}
+			state.Waiting[kind] = s.escalate(state, now, kind, w, reading, agentBusy)
 
 		default:
 			if next, keep := s.settled(state, now, kind, w, reading); keep {
@@ -151,6 +155,7 @@ func (s sweeper) chaseAnswers(state *State, now time.Time, reading nowReading) {
 // what happened: the outcome, a fresh question, a closed session, or the deadline followed
 // by silence.
 func (s sweeper) settled(state *State, now time.Time, kind string, w Waiting, reading nowReading) (Waiting, bool) {
+	w.Busy = 0
 	if w.Settled == 0 {
 		w.Settled = now.Unix()
 	}
@@ -169,13 +174,26 @@ func (s sweeper) settled(state *State, now time.Time, kind string, w Waiting, re
 		return w, false
 	}
 
-	return s.escalate(state, now, kind, w, reading, false), true
+	return s.escalate(state, now, kind, w, reading, agentQuiet), true
 }
+
+// How a check found the agent. It decides two things: what may be sent to it — an esc only
+// to a question, a prompt to either of the other two — and how much of the clock runs, since
+// an agent with something in flight is given a grace before the timeline resumes over the
+// top of it.
+type agentState int
+
+const (
+	agentOnQuestion agentState = iota
+	agentBusy
+	agentQuiet
+)
 
 // The clock, and the one message per step on it. The order is deliberate: a handover
 // that is due makes a reminder noise, and a question that is about to be cancelled and
 // asked again is not one to remind him about either.
-func (s sweeper) escalate(state *State, now time.Time, kind string, w Waiting, reading nowReading, blocked bool) Waiting {
+func (s sweeper) escalate(state *State, now time.Time, kind string, w Waiting, reading nowReading, found agentState) Waiting {
+	blocked := found == agentOnQuestion
 	if blocked {
 		if w.Since == 0 {
 			w.Since = now.Unix()
@@ -198,6 +216,20 @@ func (s sweeper) escalate(state *State, now time.Time, kind string, w Waiting, r
 
 	waited := now.Sub(time.Unix(w.Since, 0))
 	handed := contains(w.Steps, stepHandover)
+
+	// Read on every check whatever the agent is doing, and before the grace below, because a
+	// disk that will be full before he wakes does not wait for a tool call to finish — and
+	// because the rule it answers is two checks in a row, which skipping a check breaks.
+	w, worse := s.worsening(w, reading, waited, now)
+
+	// The grace the clock gives work in flight. Everything below is either a message to Tim
+	// about a question the agent has already asked or a prompt on top of what it is doing,
+	// and neither belongs over the first minutes of a turn. The early handover above is the
+	// exception, since what it is for is the case where waiting costs more than interrupting.
+	if found == agentBusy && worse == "" && now.Sub(time.Unix(w.Busy, 0)) < s.cfg.OncallDeadline {
+		return w
+	}
+
 	changed := materialChange(w, reading)
 
 	// Before anything on the clock, and the one change that outlives a handover already
@@ -214,7 +246,6 @@ func (s sweeper) escalate(state *State, now time.Time, kind string, w Waiting, r
 	// deadline's, a session that was handed the decision early and judged that waiting was
 	// safe had its three hours quietly cancelled: it re-asked, and the deadline that was the
 	// whole point of the clock never came.
-	w, worse := s.worsening(w, reading, waited, now)
 	if worse != "" && !handed && !contains(w.Steps, stepEarly) {
 		return s.handOver(state, now, kind, w, reading, worse, blocked)
 	}

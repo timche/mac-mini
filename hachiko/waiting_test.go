@@ -143,10 +143,10 @@ func TestTheDecisionIsHandedOverAtTheDeadlineAndOnlyOnce(t *testing.T) {
 }
 
 // An answer from Tim leaves the agent working on what he picked, which is the one thing
-// nothing may be sent on top of: no reminder, no warning, no handover over the work hachiko
-// asked for. It is not the end of the wait either — working is not a report, and the agent
-// leaving `blocked` is equally what hachiko's own esc looks like — so the outcome is what
-// ends it.
+// nothing may be sent on top of while it is fresh: no reminder, no warning, no handover over
+// the work hachiko asked for. It is not the end of the wait either — working is not a report,
+// and the agent leaving `blocked` is equally what hachiko's own esc looks like — so the
+// outcome is what ends it.
 func TestAnAnswerPausesTheClockAndTheOutcomeEndsTheWait(t *testing.T) {
 	f := waiting(t)
 
@@ -154,20 +154,71 @@ func TestAnAnswerPausesTheClockAndTheOutcomeEndsTheWait(t *testing.T) {
 	f.status["disk"] = statusWorking
 	equal(t, f.at(600+remindAt).sweep(), "", "the log while the agent works on his answer")
 	equal(t, len(f.state().Waiting), 1, "waits still being counted")
+	equal(t, f.state().Waiting["disk"].Busy, base.Unix()+600+remindAt, "when it started working")
 
-	// Nothing fires while it is working, the deadline included.
-	for at := 600 + warnAt; at <= 600+handoverAt+600; at += 300 {
-		equal(t, f.at(int64(at)).sweep(), "", "the log while the agent works on his answer")
-	}
+	// Still paused five minutes later, which is what the grace is for.
+	equal(t, f.at(600+remindAt+300).sweep(), "", "the log while the turn is still fresh")
+	equal(t, f.sentCount(), 1, "messages sent while the turn is still fresh")
+
+	// And the message it marks as the outcome is what ends it, with nothing of hachiko's
+	// having gone out in between.
+	incident := f.state().Waiting["disk"].Incident
+	f.notifyOutcome(incident)
+	wants(t, f.at(600+remindAt+600).sweep(), "reported the outcome of "+incident)
+	equal(t, len(f.state().Waiting), 0, "waits still being counted")
 	equal(t, f.sentCount(), 1, "messages sent after the answer")
 	equal(t, len(f.interrupts), 0, "questions cancelled after the answer")
 	equal(t, len(f.prompts), 0, "prompts sent after the answer")
+}
 
-	// And the message it marks as the outcome is what ends it.
-	incident := f.state().Waiting["disk"].Incident
-	f.notifyOutcome(incident)
-	wants(t, f.at(600+handoverAt+900).sweep(), "reported the outcome of "+incident)
-	equal(t, len(f.state().Waiting), 0, "waits still being counted")
+// The grace is a grace and not a hole. A turn hung on a tool call reads as `working` for as
+// long as the Mac is up, and a wait that deferred to it without bound had no reminder, no
+// warning, no handover and no line to Tim at all — the silence this whole timeline exists to
+// prevent, reached by the one state hachiko was treating as reassuring.
+func TestAnAgentWorkingForEverStillGetsTheWholeTimeline(t *testing.T) {
+	f := waiting(t)
+	f.status["disk"] = statusWorking
+
+	// Nothing while the turn is fresh, through the hour the reminder was due in.
+	equal(t, f.at(900).sweep(), "", "the log while the turn is fresh")
+	equal(t, f.at(600+remindAt).sweep(), "", "the log while the turn is still inside its grace")
+
+	// Then the clock resumes over the top of it, with every step Tim's.
+	wants(t, f.at(1500).sweep(), "reminded about disk-")
+	wants(t, f.at(600+warnAt).sweep(), "from the handover")
+
+	out := f.at(600 + handoverAt).sweep()
+	wants(t, out, "handed the decision on disk-")
+	equal(t, f.sentCount(), 3, "messages Tim had")
+
+	// The decision went as a prompt, which queues behind the turn rather than cancelling it:
+	// an esc to an agent that is not on a question takes away whatever it has started.
+	equal(t, len(f.interrupts), 0, "questions cancelled")
+	equal(t, len(f.prompts), 1, "prompts sent on their own")
+	wants(t, f.lastPrompt(), "Tim has not answered for 0h36m")
+	equal(t, contains(f.state().Waiting["disk"].Steps, stepHandover), true, "whether the handover is recorded")
+}
+
+// And an early handover is the exception the grace does not hold: a disk that will be full
+// before he wakes does not wait for a tool call to finish.
+func TestAWorseningDiskHandsOverEvenWhileTheAgentIsWorking(t *testing.T) {
+	f := waiting(t)
+	f.cfg.CriticalKB = 300 * gib
+	f.status["disk"] = statusWorking
+
+	// The projection is read on every check whatever the agent is doing, so the two checks in
+	// a row the rule wants are two checks and not two checks after a grace.
+	f.freeGB = 470
+	out := f.at(900).sweep()
+	wants(t, out, "looks like reaching 300 GB in about")
+	lacks(t, out, "handed the decision")
+
+	f.freeGB = 440
+	out = f.at(1200).sweep()
+	wants(t, out, "handed the decision on disk-")
+	wants(t, out, "early: free space reaches 300 GB in about")
+	equal(t, len(f.prompts), 1, "prompts sent on their own")
+	wants(t, f.lastPrompt(), "getting worse rapidly")
 }
 
 // A question that is gone with nothing in flight and nothing said about it is the weakest
@@ -408,13 +459,12 @@ func TestATriggerThatHasClearedReachesTheAgentOnce(t *testing.T) {
 	wants(t, prompt, "Nothing is growing fast any more, and free space is over every threshold at 500.0 GB.")
 
 	// Once per incident: a quiet Mac is every check after this one, and nothing of hachiko's
-	// own went to the channel about it either — the session's message is what says what
-	// happened.
-	for at := int64(1200); at <= 1800; at += 300 {
+	// own goes to the channel about it — the session's message is what says what happened.
+	for at := int64(1500); at <= 2100; at += 300 {
 		lacks(t, f.at(at).sweep(), "no longer firing")
 	}
 	equal(t, len(f.interrupts), 1, "questions cancelled after the first")
-	equal(t, f.sentCount(), 1, "messages sent by hachiko about the trigger clearing")
+	equal(t, len(f.prompts), 0, "prompts sent about the trigger clearing")
 }
 
 // It outlives the handover, which every other change does not: a session that was handed the

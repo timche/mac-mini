@@ -1078,6 +1078,63 @@ func TestASessionClosedAfterTheHandoverSaysNothingReportedAnOutcome(t *testing.T
 	equal(t, len(f.state().Waiting), 0, "waits still being counted")
 }
 
+// The question comes after the reading, and the reading may take longer than the ten minutes
+// the first message is owed in. A wait dropped at the report deadline threw the whole
+// timeline away for a session that asked two minutes later: no clock, no reminder, no
+// warning and no handover, on an incident with a live agent waiting on Tim.
+func TestAQuestionAskedAfterTheReportDeadlineStillGetsTheWholeTimeline(t *testing.T) {
+	f := newFixture(t)
+	f.cfg.RemindAfter = remindAt * time.Second
+	f.cfg.WarnAfter = warnAt * time.Second
+	f.cfg.HandoverAfter = handoverAt * time.Second
+
+	f.grow("tmp/worker.log", 3*mb)
+	f.at(0).sweep()
+	f.grow("tmp/worker.log", 4*mb)
+	f.at(300).sweep()
+	incident := f.onlyPendingID()
+
+	// It reports at nine minutes and goes on reading, so the report deadline passes with the
+	// agent alive and nothing in front of Tim yet.
+	f.notifyWithFallback(incident, "stop pid 4242")
+	f.cfg.GrowthKB = 64
+	f.keepGrowing, f.keepKB = "tmp/worker.log", 128
+	f.at(840).sweep()
+	f.at(1200).sweep()
+	equal(t, len(f.state().Waiting), 1, "waits still being counted past the report deadline")
+
+	// And then it asks, which is where Tim's clock starts.
+	f.blocks("disk")
+	out := f.at(1500).sweep()
+	wants(t, out, "the disk on-call agent is waiting for an answer on "+incident)
+	equal(t, f.state().Waiting["disk"].Since, base.Unix()+1500, "when the question went up")
+
+	// The whole of the timeline follows from there.
+	wants(t, f.at(1500+remindAt).sweep(), "reminded about "+incident)
+	wants(t, f.at(1500+warnAt).sweep(), "from the handover")
+	wants(t, f.at(1500+handoverAt).sweep(), "handed the decision on "+incident)
+}
+
+// An agent that is alive and has asked nothing at all is still dropped, an hour later: by
+// then it is not going to, and a wait nothing can happen on is a wait to stop counting.
+func TestAWaitOnASessionThatNeverAsksAnythingIsDroppedAfterAnHour(t *testing.T) {
+	f := newFixture(t)
+
+	f.grow("tmp/worker.log", 3*mb)
+	f.at(0).sweep()
+	f.grow("tmp/worker.log", 4*mb)
+	f.at(300).sweep()
+	incident := f.onlyPendingID()
+	f.notify(incident)
+
+	f.at(1200).sweep()
+	equal(t, len(f.state().Waiting), 1, "waits still being counted at fifteen minutes")
+
+	out := f.at(300 + 3600).sweep()
+	wants(t, out, "never asked anything about "+incident)
+	equal(t, len(f.state().Waiting), 0, "waits still being counted after an hour")
+}
+
 // herdr not answering at all is not an answer from Tim, so the wait is left exactly as
 // it was rather than being read as either.
 func TestHerdrNotAnsweringLeavesTheWaitAsItWas(t *testing.T) {

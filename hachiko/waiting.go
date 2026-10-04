@@ -115,10 +115,15 @@ func (s sweeper) chaseAnswers(state *State, now time.Time, reading nowReading) {
 			state.Waiting[kind] = s.retryOwed(now, kind, w, reading)
 
 		case w.Since == 0:
-			// Briefed and never got as far as a question in the time it was given to report
-			// in, so it is not going to ask one. The deadline has already said so to Tim in a
-			// message of its own.
-			if now.Sub(time.Unix(w.Opened, 0)) >= s.cfg.OncallDeadline {
+			// Briefed and not yet on a question. The clock starts whenever the first blocked
+			// sighting comes, however late: a session that reported inside its ten minutes and
+			// then read for another two before asking is a session that asked, and dropping the
+			// wait at the report deadline threw away the whole timeline for it. So the only
+			// thing that drops it here is an hour of a live agent never asking anything, by
+			// which point it is not going to.
+			if now.Sub(time.Unix(w.Opened, 0)) >= questionBound {
+				s.say("the %s on-call agent never asked anything about %s in %s, so the wait on it is dropped",
+					kind, w.Incident, hmStr(questionBound))
 				delete(state.Waiting, kind)
 			}
 
@@ -188,6 +193,12 @@ const (
 	agentBusy
 	agentQuiet
 )
+
+// How long a briefed session has to get as far as a question before the wait on it is
+// dropped. Much longer than the report deadline, which is about its first message and has a
+// message of its own when it passes: the question comes after the reading, and a session
+// that asked at twelve minutes had its whole timeline thrown away when this was ten.
+const questionBound = time.Hour
 
 // The clock, and the one message per step on it. The order is deliberate: a handover
 // that is due makes a reminder noise, and a question that is about to be cancelled and

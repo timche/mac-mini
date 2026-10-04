@@ -637,7 +637,8 @@ func TestAHandoverThatCouldNotBeDeliveredIsTriedAgainOnTheNextCheck(t *testing.T
 
 	f.interruptErr = errors.New("the agent is still on its question after the esc")
 	wants(t, f.at(600+handoverAt).sweep(), "could not be handed to the disk on-call agent")
-	equal(t, len(f.state().Waiting["disk"].Steps), 2, "steps recorded while herdr refused")
+	equal(t, contains(f.state().Waiting["disk"].Steps, stepHandover), false,
+		"whether the handover is recorded while herdr refused")
 
 	f.interruptErr = nil
 	wants(t, f.at(600+handoverAt+300).sweep(), "handed the decision on disk-")
@@ -733,6 +734,89 @@ func TestAnAgentThatAsksAgainAfterTheEscIsOwedNothing(t *testing.T) {
 	// And the handover, which was never recorded, comes round again as the whole of it.
 	wants(t, out, "handed the decision on disk-")
 	equal(t, len(f.interrupts), 1, "questions cancelled")
+}
+
+// A handover that reaches nobody was silent in the channel. Tim's last message about
+// cpu-1791071900 was the warning that the agent would decide in a quarter of an hour, and
+// nothing followed it at all.
+func TestAHandoverThatReachesNobodySaysSoInTheChannel(t *testing.T) {
+	f := waiting(t)
+	f.at(600 + remindAt).sweep()
+	f.at(600 + warnAt).sweep()
+	equal(t, f.sentCount(), 3, "messages sent up to the warning")
+
+	f.interruptErr = errors.New("the agent is still on its question after the esc")
+	out := f.at(600 + handoverAt).sweep()
+
+	wants(t, out, "could not be handed to the disk on-call agent")
+	wants(t, out, "said in the channel that the decision on disk-")
+	equal(t, f.sentCount(), 4, "messages sent once the handover reached nobody")
+	wants(t, f.lastSent(), "could not be handed to the disk on-call agent")
+	wants(t, f.lastSent(), "its question could not be cancelled, so nothing was prompted")
+	wants(t, f.lastSent(), "Nothing has acted on it")
+	wants(t, f.lastSent(), "Now on mac-mini: 500.0 GB free")
+
+	// One line, however many checks go on failing.
+	lacks(t, f.at(600+handoverAt+300).sweep(), "said in the channel")
+	equal(t, f.sentCount(), 4, "messages sent after a second check that failed too")
+}
+
+// The same for the half of it that fails after the esc: the question is gone, the prompt
+// never landed, and nothing is going to act until the next check gets through.
+func TestAnEscThatLandedWithoutItsPromptSaysSoInTheChannelToo(t *testing.T) {
+	f := waiting(t)
+	f.at(600 + remindAt).sweep()
+	f.at(600 + warnAt).sweep()
+
+	f.interruptErr = errors.New("the agent is still on its question after the esc")
+	f.interruptEsc = true
+	f.at(600 + handoverAt).sweep()
+
+	equal(t, f.sentCount(), 4, "messages sent once the prompt was left owing")
+	wants(t, f.lastSent(), "its question was cancelled but the prompt telling it to decide did not reach it")
+}
+
+// A wait that ends with nothing to show says so, since the alternative is a channel whose
+// last word was a warning about a decision a quarter of an hour away.
+func TestAWaitEndingWithNoOutcomeSaysSoInTheChannel(t *testing.T) {
+	f := waiting(t)
+	f.at(600 + remindAt).sweep()
+	f.at(600 + warnAt).sweep()
+	f.at(600 + handoverAt).sweep()
+	equal(t, f.sentCount(), 3, "messages sent up to the handover")
+
+	f.status["disk"] = "done"
+	f.at(600 + handoverAt + 300).sweep()
+	out := f.at(600 + handoverAt + 900).sweep()
+
+	wants(t, out, "nothing reported the outcome of disk-")
+	equal(t, f.sentCount(), 4, "messages sent once the wait ended with nothing")
+	wants(t, f.lastSent(), "No outcome was reported on disk-")
+	wants(t, f.lastSent(), "gone quiet without sending")
+	wants(t, f.lastSent(), "Now on mac-mini: 500.0 GB free")
+	equal(t, len(f.state().Waiting), 0, "waits still being counted")
+
+	// Said once, and the wait is not counted again afterwards.
+	equal(t, f.at(600+handoverAt+1200).sweep(), "", "the log after the wait ended")
+	equal(t, f.sentCount(), 4, "messages sent after the wait ended")
+}
+
+// And a session Tim closed after the decision was handed to it: whatever it did went with
+// the tab, which is the one ending nobody reading the channel could work out.
+func TestASessionClosedAfterTheHandoverSaysNothingReportedAnOutcome(t *testing.T) {
+	f := waiting(t)
+	f.at(600 + remindAt).sweep()
+	f.at(600 + warnAt).sweep()
+	f.at(600 + handoverAt).sweep()
+
+	f.status["disk"] = statusGone
+	out := f.at(600 + handoverAt + 300).sweep()
+
+	wants(t, out, "has since been closed without reporting an outcome")
+	equal(t, f.sentCount(), 4, "messages sent once the session went")
+	wants(t, f.lastSent(), "No outcome was reported on disk-")
+	wants(t, f.lastSent(), "has since been closed")
+	equal(t, len(f.state().Waiting), 0, "waits still being counted")
 }
 
 // herdr not answering at all is not an answer from Tim, so the wait is left exactly as

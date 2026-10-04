@@ -19,6 +19,11 @@ const (
 	stepWarn     = "warn"
 	stepEarly    = "early"
 	stepHandover = "handover"
+
+	// The one line saying the decision reached nobody. A step of its own because it is sent
+	// once per incident however long the handover goes on failing, and nothing about the
+	// failure stops repeating by itself.
+	stepStuck = "stuck"
 )
 
 // What this check measured, which every reminder and every handover carries instead of
@@ -144,6 +149,11 @@ func (s sweeper) settled(state *State, now time.Time, kind string, w Waiting, re
 	// has had the minutes it was given to report its findings in to say what it did, so the
 	// wait stops being counted rather than being counted for ever.
 	if contains(w.Steps, stepHandover) && now.Sub(time.Unix(w.Settled, 0)) >= s.cfg.OncallDeadline {
+		if !s.sayNoOutcome(state, kind, w, reading,
+			fmt.Sprintf("The %s on-call agent was handed the decision and has gone quiet without sending `hachiko notify --outcome`", kind)) {
+			return w, true
+		}
+
 		s.say("nothing reported the outcome of %s and the %s on-call agent has nothing left in flight, so the wait on it ends after %s",
 			w.Incident, kind, hmStr(now.Sub(time.Unix(w.Since, 0))))
 		return w, false
@@ -185,10 +195,10 @@ func (s sweeper) escalate(state *State, now time.Time, kind string, w Waiting, r
 	// whole point of the clock never came.
 	w, worse := s.worsening(w, reading, waited, now)
 	if worse != "" && !handed && !contains(w.Steps, stepEarly) {
-		return s.handOver(now, kind, w, reading, worse, blocked)
+		return s.handOver(state, now, kind, w, reading, worse, blocked)
 	}
 	if waited >= s.cfg.HandoverAfter && !handed {
-		return s.handOver(now, kind, w, reading, "", blocked)
+		return s.handOver(state, now, kind, w, reading, "", blocked)
 	}
 	if handed {
 		return w
@@ -253,14 +263,53 @@ func (s sweeper) step(state *State, w Waiting, step, message, said string) Waiti
 		w.Steps = mergeSorted(w.Steps, []string{stepRemind})
 	case stepWarn:
 		w.Steps = mergeSorted(w.Steps, []string{stepRemind, stepWarn})
+	case stepStuck:
+		w.Steps = mergeSorted(w.Steps, []string{stepStuck})
 	}
 	return w
+}
+
+// A handover that reaches nobody used to be silent in the channel. Tim's last message about
+// cpu-1791071900 was the 03:49 warning that the agent would decide in a quarter of an hour,
+// and when the prompt did not land nothing followed it at all — so one line says so, once,
+// however long the handover goes on failing.
+func (s sweeper) sayHandoverStuck(state *State, kind string, w Waiting, reading nowReading, why string) Waiting {
+	if contains(w.Steps, stepStuck) {
+		return w
+	}
+
+	message := fmt.Sprintf(`The decision on %s could not be handed to the %s on-call agent: %s. Nothing has acted on it, and hachiko tries again every five minutes.
+
+%s
+
+It is in herdr (workspace %s, tab %s).`,
+		w.Incident, kind, why, reading.numbers(s.cfg.Host), s.cfg.WorkspaceLabel(), w.Tab)
+
+	return s.step(state, w, stepStuck, message,
+		fmt.Sprintf("said in the channel that the decision on %s has reached nobody", w.Incident))
+}
+
+// And a wait that ends with nothing to show says so, for the same reason: the alternative is
+// a channel whose last word was a warning about a decision a quarter of an hour away.
+func (s sweeper) sayNoOutcome(state *State, kind string, w Waiting, reading nowReading, why string) bool {
+	message := fmt.Sprintf(`No outcome was reported on %s. %s, so hachiko has stopped waiting on it and does not know whether anything was done.
+
+%s
+
+Check the %s session in herdr (workspace %s, tab %s), or leave it to the next check to raise it again.`,
+		w.Incident, why, reading.numbers(s.cfg.Host), kind, s.cfg.WorkspaceLabel(), w.Tab)
+
+	if err := s.send(state, w.Incident, message); err != nil {
+		s.say("nothing reported the outcome of %s and the message saying so did not send either: %v", w.Incident, err)
+		return false
+	}
+	return true
 }
 
 // The handover itself: the question goes, and the session is told to decide. Nothing of
 // hachiko's own goes to the channel here — the session's own message is what says what
 // it did and why, and two messages about one decision would be one too many.
-func (s sweeper) handOver(now time.Time, kind string, w Waiting, reading nowReading, worse string, blocked bool) Waiting {
+func (s sweeper) handOver(state *State, now time.Time, kind string, w Waiting, reading nowReading, worse string, blocked bool) Waiting {
 	waited := now.Sub(time.Unix(w.Since, 0))
 
 	lead := fmt.Sprintf(`Tim has not answered for %s, so the autonomy in your standing orders is handed over to you now. Re-check the situation from scratch first — the numbers below are this minute's, not the ones you asked about — then pick and carry out the least destructive option that resolves it, inside the limits those orders give you. Spawn the oncall-partner agent with your proposed action first and act only if it agrees. Verify it worked, send one message with what you did, why, which limit allowed it and what the partner said, write the incident note, and stop.`,
@@ -293,11 +342,17 @@ Re-check the situation from scratch — the numbers below are this minute's — 
 			w.Nudged = now.Unix()
 			s.say("the decision on %s did not reach the %s on-call agent, but its question is already cancelled, so the next check sends the prompt alone: %v",
 				w.Incident, kind, err)
-			return w
+			return s.sayHandoverStuck(state, kind, w, reading,
+				"its question was cancelled but the prompt telling it to decide did not reach it")
 		}
 		s.say("the decision on %s could not be handed to the %s on-call agent, so the next check tries again: %v",
 			w.Incident, kind, err)
-		return w
+
+		why := "the prompt telling it to decide did not reach it"
+		if blocked {
+			why = "its question could not be cancelled, so nothing was prompted"
+		}
+		return s.sayHandoverStuck(state, kind, w, reading, why)
 	}
 
 	if worse != "" {
@@ -394,12 +449,29 @@ func (s sweeper) refresh(now time.Time, kind string, w Waiting, reading nowReadi
 // The session is closed and the question went with it, so there is nobody to hand
 // anything to. This is the one place in the wait where hachiko speaks for itself.
 func (s sweeper) noAgent(state *State, now time.Time, kind string, w Waiting, reading nowReading) {
-	if w.Since == 0 || contains(w.Steps, stepHandover) {
+	// Briefed and never got as far as a question: the report deadline has its own message
+	// about a session that said nothing, and a second one here would be about a question
+	// that was never asked.
+	if w.Since == 0 {
 		delete(state.Waiting, kind)
 		return
 	}
 
 	waited := now.Sub(time.Unix(w.Since, 0))
+
+	// Handed the decision and then closed, so whatever it did or did not do went with the
+	// tab. That is a wait ending with nothing to show, which is the one thing nobody reading
+	// the channel afterwards could work out for themselves.
+	if contains(w.Steps, stepHandover) {
+		if !s.sayNoOutcome(state, kind, w, reading,
+			fmt.Sprintf("The %s session was handed the decision and has since been closed", kind)) {
+			return
+		}
+		s.say("%s had its decision handed over and the %s session has since been closed without reporting an outcome",
+			w.Incident, kind)
+		delete(state.Waiting, kind)
+		return
+	}
 	if waited < s.cfg.HandoverAfter {
 		return
 	}

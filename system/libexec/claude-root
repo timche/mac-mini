@@ -163,7 +163,7 @@ list() {
 }
 
 restart_daemon() {
-  local name="$1" label old new waited refusal
+  local name="$1" label old new current waited refusal
 
   if ! label="$(daemon_label "$name")"; then
     refuse "not an allowed daemon: $name"
@@ -194,8 +194,16 @@ restart_daemon() {
   # flushing, and launchd respawns it either way.
   if ! refusal="$(launchctl kickstart -k "system/$label" 2>&1)"; then
     echo "launchctl would not kickstart system/$label: ${refusal:-no reason given}"
-    echo "Killing pid $old instead; launchd respawns it."
-    kill -TERM "$old" 2>/dev/null || true
+
+    # Read back rather than killing the pid from a moment ago: a pid is reused,
+    # and one that has moved since means the daemon restarted anyway and this has
+    # nothing left to do.
+    current="$(daemon_pid "$label")"
+
+    if [ "$current" = "$old" ]; then
+      echo "Killing pid $old instead; launchd respawns it."
+      kill -TERM "$old" 2>/dev/null || true
+    fi
   fi
 
   # The new pid is what says it worked, rather than the exit status of either

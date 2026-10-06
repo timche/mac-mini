@@ -13,7 +13,8 @@
 # signing-key.sh puts the commit-signing key into an agent. install.sh first,
 # because login.sh logs in to a Claude Code it installs and signing-key.sh needs
 # the user.email install.sh's .gitconfig carries; login.sh runs it again for the
-# half that wanted a token.
+# half that wanted a token. shibuya is deployed and its ping token made after all
+# three, since both reach 1Password with the token signing-key.sh stores.
 #
 # Safe to re-run: logins already in place are left alone.
 
@@ -69,6 +70,38 @@ signing_failed=0
 # After install.sh, because the principal this writes into allowed_signers is
 # the user.email out of the .gitconfig it links.
 "$repo/claude/signing-key.sh" || signing_failed=1
+
+# shibuya, the dead man's switch, after signing-key.sh rather than with install.sh's own
+# deploy at the top of this script: both steps here reach 1Password through `op run`, and
+# the service-account token they need is what signing-key.sh has just stored. A Mac that
+# never got this far is one hachiko cannot check in with, so shibuya reports it offline a
+# quarter of an hour after the first sweep — the switch has to be made on the way in.
+#
+# Reported rather than fatal, exactly as install.sh treats the same deploy: a Cloudflare
+# that is down or a service account with nothing left for the day is not a reason for the
+# account side to fail. Neither script prompts, so a provision with nobody watching
+# finishes either way, and deploy.sh does nothing at all when the sources have not moved.
+op_token_file="${OP_SERVICE_ACCOUNT_TOKEN_FILE:-$HOME/.config/op/service-account-token}"
+shibuya_token="${SHIBUYA_TOKEN_FILE:-$HOME/.config/hachiko/shibuya-token}"
+
+if [ ! -f "$op_token_file" ]; then
+  echo "no service-account token, so shibuya was left alone — the deploy and the ping" >&2
+  echo "token both reach 1Password through \`op run\`. Run $repo/claude/signing-key.sh," >&2
+  echo "then $repo/shibuya/deploy.sh and $repo/shibuya/secrets.sh." >&2
+elif ! "$repo/shibuya/deploy.sh"; then
+  echo "shibuya was not deployed, so the dead man's switch is whatever was deployed" >&2
+  echo "last — run $repo/shibuya/deploy.sh when Cloudflare and 1Password are both" >&2
+  echo "reachable." >&2
+elif [ ! -f "$shibuya_token" ]; then
+  # Only when there is no token file, because this makes one and replaces the Worker's
+  # PING_TOKEN with it: there is one Mac checking in, so the token it just generated is
+  # the only one that has to work, and a Mac that already has a file keeps the token
+  # hachiko is using rather than spending an `op run` to set the same value again.
+  if ! "$repo/shibuya/secrets.sh"; then
+    echo "shibuya has no ping token, so nothing is watching hachiko — run" >&2
+    echo "$repo/shibuya/secrets.sh when 1Password is reachable" >&2
+  fi
+fi
 
 echo
 echo "The account side is done. What is left:"

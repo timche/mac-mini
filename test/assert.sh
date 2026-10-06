@@ -932,6 +932,25 @@ check "install.sh deploys shibuya and does not fail on a Cloudflare that is down
   'grep -q "shibuya/deploy.sh\"; then" "$repo/install.sh" &&
    grep -q "shibuya was not deployed" "$repo/install.sh"'
 
+# The two steps install.sh cannot take on a Mac being provisioned: the deploy needs the
+# service-account token signing-key.sh stores a moment earlier, and the ping token is made
+# only where there is no file holding one. Both are guarded on that service-account token,
+# which is what makes CI's `claude.sh` deploy nothing — a runner has no vault — and both are
+# the condition of an `if` rather than a bare call, so `set -e` cannot end the script on a
+# Cloudflare that is down.
+check "claude.sh makes the dead man's switch after the signing key, and skips it with no vault" \
+  'c="$repo/claude.sh" &&
+   k=$(grep -n "signing_failed=1$" "$c" | head -1 | cut -d: -f1) &&
+   d=$(grep -n "shibuya/deploy.sh\"; then" "$c" | head -1 | cut -d: -f1) &&
+   [ "$k" -lt "$d" ] &&
+   grep -q "OP_SERVICE_ACCOUNT_TOKEN_FILE:-\$HOME/.config/op/service-account-token" "$c" &&
+   grep -q "if \[ ! -f \"\$op_token_file\" \]; then" "$c" &&
+   grep -q "elif ! \"\$repo/shibuya/deploy.sh\"; then" "$c" &&
+   grep -q "elif \[ ! -f \"\$shibuya_token\" \]; then" "$c" &&
+   grep -q "if ! \"\$repo/shibuya/secrets.sh\"; then" "$c" &&
+   grep -q "shibuya was not deployed" "$c" &&
+   grep -q "nothing is watching hachiko" "$c"'
+
 check "the CPU allowlist is a live symlink and names the VMs and the indexer" \
   '[ -L "$HOME/.config/hachiko/cpu-allow" ] &&
    [ -e "$HOME/.config/hachiko/cpu-allow" ] &&

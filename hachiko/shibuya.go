@@ -89,7 +89,7 @@ func (s switchClient) send(in Checkin) (string, string) {
 
 func (s switchClient) post(target, token string, in Checkin) error {
 	path, body := "/ping", map[string]any{
-		"host":           s.cfg.Host,
+		"host":           switchHost(s.cfg.Host),
 		"free_gb":        in.FreeGB,
 		"open_incidents": in.OpenIncidents,
 		"hot_processes":  in.HotProcesses,

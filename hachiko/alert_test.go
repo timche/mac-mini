@@ -41,7 +41,8 @@ func TestPostDiscordSendsTheMessageAsContent(t *testing.T) {
 	if _, err := postDiscord(server.Client(), server.URL, Outgoing{Text: "the disk is filling"}); err != nil {
 		t.Fatal(err)
 	}
-	equal(t, body, `{"content":"the disk is filling","thread_name":"the disk is filling"}`, "the request body")
+	equal(t, body, `{"allowed_mentions":{"parse":[]},"content":"the disk is filling","thread_name":"the disk is filling"}`,
+		"the request body")
 }
 
 func TestPostDiscordOpensAForumPostNamedForTheFirstLine(t *testing.T) {
@@ -81,7 +82,7 @@ func TestPostDiscordFallsBackToAPlainMessageWhereThreadsAreRefused(t *testing.T)
 	}
 	equal(t, thread, "", "the post recorded for a text channel")
 	equal(t, len(bodies), 2, "the tries")
-	equal(t, bodies[1], `{"content":"the disk is filling"}`, "the second try")
+	equal(t, bodies[1], `{"allowed_mentions":{"parse":[]},"content":"the disk is filling"}`, "the second try")
 }
 
 // One incident, one forum post. The first message of it opens the post and asks for the
@@ -129,7 +130,7 @@ func TestALaterMessageGoesIntoThePostTheIncidentAlreadyHas(t *testing.T) {
 
 	equal(t, thread, "800", "the post it stays in")
 	equal(t, query, "thread_id=800", "the query a later message carried")
-	equal(t, body, `{"content":"still waiting after 1h00m"}`, "the request body")
+	equal(t, body, `{"allowed_mentions":{"parse":[]},"content":"still waiting after 1h00m"}`, "the request body")
 	lacks(t, body, "thread_name")
 }
 
@@ -184,7 +185,7 @@ func TestAWebhookThatRefusesThePostDoesNotOpenANewOne(t *testing.T) {
 
 	equal(t, thread, "", "the post recorded after a refusal")
 	equal(t, strings.Join(queries, " "), "thread_id=800 ", "the two tries")
-	equal(t, bodies[1], `{"content":"still waiting after 1h00m"}`, "the message that reached the channel")
+	equal(t, bodies[1], `{"allowed_mentions":{"parse":[]},"content":"still waiting after 1h00m"}`, "the message that reached the channel")
 	for _, body := range bodies {
 		lacks(t, body, "thread_name")
 	}
@@ -334,7 +335,7 @@ func TestSendModeTrimsTheResolvedReference(t *testing.T) {
 	if _, err := sendMode(strings.NewReader("the disk is filling"), Outgoing{}, ""); err != nil {
 		t.Fatalf("a reference with a trailing newline was not sent: %v", err)
 	}
-	equal(t, got, `{"content":"the disk is filling","thread_name":"the disk is filling"}`, "the request body")
+	equal(t, got, `{"allowed_mentions":{"parse":[]},"content":"the disk is filling","thread_name":"the disk is filling"}`, "the request body")
 }
 
 // Discord takes 2,000 characters. What is over that is detail, and the on-call tab has
@@ -365,4 +366,41 @@ func TestSendModeRefusesWithNothingToSendAndWithNoReferenceResolved(t *testing.T
 		t.Fatal("an empty message was not reported")
 	}
 	wants(t, err.Error(), "nothing to send")
+}
+
+// Every alert here quotes a path, a command line or a log line chosen by whatever filled the
+// disk, so a worker writing "@everyone" into the log it is flooding would otherwise page the
+// whole server from inside hachiko's own alert. Asserted on all three of the webhook's
+// shapes, because the one that forgot it is the one that would be reached.
+func TestNoMessageTheWebhookSendsCanMentionAnybody(t *testing.T) {
+	var bodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(raw))
+
+		// A text channel refuses a post id and refuses a post name both, which is what drives
+		// the plain-message shape out of the other two.
+		if r.URL.Query().Get("thread_id") != "" || strings.Contains(string(raw), "thread_name") {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	for _, out := range []Outgoing{
+		{Text: "@everyone the disk is filling"},
+		{Text: "@everyone still waiting", Thread: "800"},
+	} {
+		if _, err := postDiscord(server.Client(), server.URL, out); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if len(bodies) < 3 {
+		t.Fatalf("the three shapes the webhook has were not all exercised: %v", bodies)
+	}
+	for _, body := range bodies {
+		wants(t, body, `"allowed_mentions":{"parse":[]}`)
+	}
 }

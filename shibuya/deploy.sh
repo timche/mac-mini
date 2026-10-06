@@ -20,6 +20,7 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dir="$repo/shibuya"
 state="${XDG_STATE_HOME:-$HOME/.local/state}/mac-mini"
 stamp="$state/shibuya.sha256"
+installed="$state/shibuya.package-lock.sha256"
 token_file="${SHIBUYA_TOKEN_FILE:-$HOME/.config/hachiko/shibuya-token}"
 
 force=false
@@ -73,11 +74,19 @@ export PATH
 
 cd "$dir"
 
-# npm's own record of what it installed from, which is what says the tree matches the
-# lockfile. `npm ci` deletes node_modules and installs it again, so it is not something to
-# run on a tree that is already right.
-if ! cmp -s node_modules/.package-lock.json package-lock.json; then
+# `npm ci` deletes node_modules and installs it again from the lockfile, which is half a
+# minute this script has no reason to spend when the tree is already what the lockfile says.
+# What says it is: a hash of the lockfile written here after an install that worked.
+#
+# Not npm's own `node_modules/.package-lock.json`, which looks like the file to compare
+# against and is not — it is npm's resolved tree in a shape of its own, so it never equals
+# the lockfile and the comparison was an `npm ci` on every single run.
+lock_hash="$(shasum -a 256 package-lock.json | cut -d' ' -f1)"
+
+if [ ! -d node_modules ] || [ "$lock_hash" != "$(cat "$installed" 2>/dev/null)" ]; then
   npm ci
+  mkdir -p "$state"
+  printf '%s\n' "$lock_hash" >"$installed"
 fi
 
 npm test

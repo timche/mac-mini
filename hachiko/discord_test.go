@@ -421,6 +421,24 @@ func botAt(bot discordBot, api string) discordBot {
 	return bot
 }
 
+// The bot half of the same rule the webhook obeys: a message carrying a log line somebody
+// wrote "@everyone" into may not page the server it is posted in.
+func TestNoMessageTheBotSendsCanMentionAnybody(t *testing.T) {
+	var body string
+	bot, _ := fakeBotWith(t, func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		body = string(raw)
+		w.Write([]byte(`{"id":"9001"}`))
+	})
+
+	if _, err := bot.post("4242", "@everyone the disk is filling"); err != nil {
+		t.Fatal(err)
+	}
+
+	wants(t, body, `"allowed_mentions":{"parse":[]}`)
+	wants(t, body, `"content":"@everyone the disk is filling"`)
+}
+
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {

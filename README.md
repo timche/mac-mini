@@ -550,10 +550,15 @@ Wrangler rather than Cloudflare's own `cf` CLI, which is in beta and short three
 To see where it is:
 
 ```sh
-curl -s https://shibuya.timche.dev                      # shibuya, and nothing else
-curl -s -H "Authorization: Bearer $(cat ~/.config/hachiko/shibuya-token)" \
-  'https://shibuya.timche.dev/status?host=mac-mini'     # up or down, the last check-in and its reading
-cd ~/.mac-mini/shibuya && npx wrangler tail             # what the Worker is saying, live
+curl -s https://shibuya.timche.dev            # shibuya, and nothing else
+
+# up or down, the last check-in and its reading. The header goes down a pipe as a curl
+# config rather than in -H, because `ps` shows one process's arguments to every other on
+# this Mac; printf is a shell builtin, so the token is in no command line either.
+printf 'header = "Authorization: Bearer %s"\n' "$(cat ~/.config/hachiko/shibuya-token)" |
+  curl -s -K - 'https://shibuya.timche.dev/status?host=mac-mini'
+
+cd ~/.mac-mini/shibuya && npx wrangler tail   # what the Worker is saying, live
 ```
 
 ## Preferences

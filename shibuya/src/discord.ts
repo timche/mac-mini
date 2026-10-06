@@ -77,13 +77,19 @@ interface Answer {
   body: string;
 }
 
+// Discord resolves @everyone, @here and a role mention in a message body unless the body
+// says otherwise, and what shibuya posts carries a reason written by a sweep — so a path or
+// a log line holding "@everyone" would page the whole server from inside an outage alert.
+// `parse` with nothing in it allows no mention of any kind.
+//
+// Added here rather than at each call site, so nothing that posts can forget it.
 async function send(webhook: string, query: string, fields: Record<string, string>): Promise<Answer> {
   let response: Response;
   try {
     response = await fetch(withQuery(webhook, query), {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(fields),
+      body: JSON.stringify({ ...fields, allowed_mentions: { parse: [] } }),
     });
   } catch (err) {
     throw new Error(redact(String(err), webhook));

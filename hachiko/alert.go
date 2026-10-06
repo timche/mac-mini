@@ -231,7 +231,7 @@ func postDiscord(client *http.Client, webhook string, out Outgoing) (string, err
 		}
 
 		_, err := postDiscordBody(client, webhook, "thread_id="+url.QueryEscape(thread),
-			map[string]string{"content": capMessage(out.Text)})
+			map[string]any{"content": capMessage(out.Text)})
 		switch {
 		case err == nil:
 			return thread, nil
@@ -256,7 +256,7 @@ func postDiscord(client *http.Client, webhook string, out Outgoing) (string, err
 
 	// `wait=true` so Discord answers with the message it made rather than an empty 204: the
 	// channel that message landed in is the post, and its id is the only way back into it.
-	answer, err := postDiscordBody(client, webhook, "wait=true", map[string]string{
+	answer, err := postDiscordBody(client, webhook, "wait=true", map[string]any{
 		"content":     capMessage(out.Text),
 		"thread_name": threadName(out.Text),
 	})
@@ -276,7 +276,7 @@ func postDiscord(client *http.Client, webhook string, out Outgoing) (string, err
 // The message and nothing else, which is what a webhook on a text channel takes and what
 // anything that could not find its post falls back to.
 func postPlain(client *http.Client, webhook, text string) error {
-	_, err := postDiscordBody(client, webhook, "", map[string]string{"content": capMessage(text)})
+	_, err := postDiscordBody(client, webhook, "", map[string]any{"content": capMessage(text)})
 	return err
 }
 
@@ -327,7 +327,18 @@ func threadName(message string) string {
 	return name
 }
 
-func postDiscordBody(client *http.Client, webhook, query string, fields map[string]string) ([]byte, error) {
+// Discord resolves @everyone, @here and a role mention in a message body unless the body
+// says otherwise, and every alert here quotes paths, command lines and log lines chosen by
+// whatever filled the disk — so a worker writing "@everyone" into the log it is flooding
+// would page the whole server from inside hachiko's own alert. `parse` with nothing in it
+// allows no mention of any kind.
+//
+// Set here rather than at each call site, so nothing that posts can forget it.
+func noMentions() map[string]any { return map[string]any{"parse": []string{}} }
+
+func postDiscordBody(client *http.Client, webhook, query string, fields map[string]any) ([]byte, error) {
+	fields["allowed_mentions"] = noMentions()
+
 	body, err := json.Marshal(fields)
 	if err != nil {
 		return nil, err

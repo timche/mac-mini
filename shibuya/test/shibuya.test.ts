@@ -17,7 +17,11 @@ interface Reply {
 
 interface Request_ {
   url: string;
-  fields: Record<string, string>;
+  fields: {
+    content?: string;
+    thread_name?: string;
+    allowed_mentions?: unknown;
+  };
 }
 
 // The pool runs the tests in the same isolate as the Worker, so a stubbed global fetch is
@@ -28,7 +32,7 @@ function discord(...replies: Reply[]): Request_[] {
   const queue = [...replies];
 
   vi.stubGlobal("fetch", async (input: unknown, init?: RequestInit): Promise<Response> => {
-    sent.push({ url: String(input), fields: JSON.parse(String(init?.body ?? "{}")) as Record<string, string> });
+    sent.push({ url: String(input), fields: JSON.parse(String(init?.body ?? "{}")) as Request_["fields"] });
 
     const reply = queue.shift() ?? { status: 200, body: { channel_id: "999" } };
     if (reply.throws !== undefined) {
@@ -293,6 +297,28 @@ it("retries an outage alert Discord refused, soon and then less often", async ()
   expect(sent).toHaveLength(2);
   expect((second.live.queue as { attempt: number }[])[0]!.attempt).toBe(2);
   expect(second.alarm! - before).toBeGreaterThan(60_000);
+});
+
+// A reason is written by a sweep, which names paths and quotes log lines chosen by whatever
+// filled the disk — so a worker writing "@everyone" into the log it is flooding would page
+// the whole server from inside an outage alert. The three shapes a post can take are all
+// exercised, because the one that forgot the flag is the one that would be reached. The text
+// is not scrubbed and should not be: what Tim reads is what the sweep found.
+it("lets nothing it posts mention anybody", async () => {
+  const sent = discord({ status: 200, body: { channel_id: "7" } }, { status: 400 }, { status: 204 });
+
+  await ping({ ...checkin, reason: "@everyone the walk ran out of its seconds" }, TOKEN, "/fail");
+  await ping(checkin);
+
+  expect(sent).toHaveLength(3);
+  expect(sent[0]!.url).toBe(`${WEBHOOK}?wait=true`);
+  expect(sent[1]!.url).toBe(`${WEBHOOK}?thread_id=7`);
+  expect(sent[2]!.url).toBe(WEBHOOK);
+
+  for (const request of sent) {
+    expect(request.fields.allowed_mentions).toEqual({ parse: [] });
+  }
+  expect(sent[0]!.fields.content).toContain("@everyone the walk ran out of its seconds");
 });
 
 it("never writes the webhook anywhere, whatever Discord says about it", async () => {

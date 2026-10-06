@@ -205,7 +205,7 @@ func (b discordBot) scrub(err error) error {
 
 func (b discordBot) post(channel, content string) (string, error) {
 	answer, err := b.call(http.MethodPost, "/channels/"+channel+"/messages",
-		map[string]string{"content": capMessage(content)})
+		map[string]any{"content": capMessage(content), "allowed_mentions": noMentions()})
 	if err != nil {
 		return "", err
 	}

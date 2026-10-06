@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "shibuya",
+  "main": "src/index.ts",
+  "account_id": "375ceaf0d84575d84fd7a2e567ad1749",
+  // The newest date the workerd that @cloudflare/vitest-pool-workers bundles will start on,
+  // so the runtime the tests run against and the runtime the deploy asks for are the same
+  // one. A later date makes every test fail to boot rather than fail an assertion.
+  "compatibility_date": "2026-08-22",
+
+  // One entrance. A workers.dev subdomain and a version preview URL are each a
+  // second hostname serving the same Worker, and the ping token is the only thing
+  // in front of it.
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "shibuya.timche.dev", "custom_domain": true }],
+
+  // SQLite-backed, which is the only Durable Object class the free plan runs.
+  "durable_objects": { "bindings": [{ "name": "SWITCH", "class_name": "Switch" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Switch"] }],
+
+  "vars": { "GRACE_MINUTES": "15" }
+}

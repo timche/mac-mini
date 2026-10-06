@@ -19,3 +19,10 @@ home/.claude/skills/synced/
 *.pem
 .env
 .env.*
+# shibuya's is the one exception, named for what `op run --env-file` reads: it holds two
+# op:// references and nothing else, which test/assert.sh reads back. Exempted by its one
+# path rather than by its name, so a `.env` anywhere here is still ignored.
+!/shibuya/.env.op
+# A JS project's dependencies, and wrangler's local state and build output.
+node_modules/
+.wrangler/

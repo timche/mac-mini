@@ -44,6 +44,11 @@ type State struct {
 	// puts a reminder under the alert it is about, what `hachiko notify` posts into, and
 	// what `hachiko listen` reads a reply out of.
 	Threads map[string]string `json:"threads,omitempty"`
+
+	// What the last check-in with shibuya came to. Kept so that a token that is missing, a
+	// file anyone can read or a Worker that will not answer is one line rather than twelve
+	// an hour for the life of the Mac.
+	Switch string `json:"switch,omitempty"`
 }
 
 type DiskSample struct {

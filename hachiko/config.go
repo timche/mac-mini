@@ -60,6 +60,12 @@ type Config struct {
 	// the channel and the user are configured, which is the same moment those fields exist.
 	DiscordEnvFile string
 
+	// Where shibuya is and the token it takes. The URL is in the checkout, being no secret;
+	// the token is not, being one — and it is generated on this Mac rather than resolved from
+	// 1Password, so a sweep that happens twice an hour costs no `op run` at all.
+	SwitchConfig string
+	SwitchToken  string
+
 	StateDir string
 
 	// The channel and the one account replies are taken from, both empty unless Tim has
@@ -131,6 +137,11 @@ func configFromEnv() Config {
 		EnvFile:      envFile,
 		DiscordEnvFile: envString("HACHIKO_DISCORD_ENV_FILE",
 			filepath.Join(home, ".local", "bin", "hachiko.discord.env.op")),
+		SwitchConfig: envString("HACHIKO_SWITCH_CONFIG",
+			filepath.Join(home, ".config", "hachiko", "shibuya")),
+		SwitchToken: envString("HACHIKO_SWITCH_TOKEN",
+			filepath.Join(home, ".config", "hachiko", "shibuya-token")),
+
 		StateDir: envString("HACHIKO_STATE_DIR", filepath.Join(cache, "hachiko")),
 
 		Discord: readDiscordConfig(envString("HACHIKO_DISCORD_CONFIG",

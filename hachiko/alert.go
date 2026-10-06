@@ -378,24 +378,28 @@ func capMessage(message string) string {
 // *url.Error prints the target through %q, which escapes a newline or a byte outside
 // ASCII and so spells the same URL differently; net/url hands back the percent-escaped
 // forms. Longest first, so a prefix of one does not break the match for another.
-func redact(text, webhook string) string {
-	webhook = strings.TrimSpace(webhook)
-	if webhook == "" {
+func redact(text, webhook string) string { return redactSecret(text, webhook, "the webhook") }
+
+// The same for any secret that could reach an error text — shibuya's ping token is the
+// other one — since what it is called is the only thing that differs.
+func redactSecret(text, secret, name string) string {
+	secret = strings.TrimSpace(secret)
+	if secret == "" {
 		return text
 	}
 
-	quoted := strconv.Quote(webhook)
+	quoted := strconv.Quote(secret)
 	forms := []string{
-		webhook,
+		secret,
 		quoted[1 : len(quoted)-1],
-		url.QueryEscape(webhook),
-		url.PathEscape(webhook),
+		url.QueryEscape(secret),
+		url.PathEscape(secret),
 	}
 	sort.Slice(forms, func(i, j int) bool { return len(forms[i]) > len(forms[j]) })
 
 	for _, form := range forms {
 		if form != "" {
-			text = strings.ReplaceAll(text, form, "the webhook")
+			text = strings.ReplaceAll(text, form, name)
 		}
 	}
 	return text

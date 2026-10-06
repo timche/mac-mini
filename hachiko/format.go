@@ -2,10 +2,15 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"time"
 )
 
 func gbStr(kb int64) string { return fmt.Sprintf("%.1f", float64(kb)/gib) }
+
+// The same number gbStr prints, as a number: shibuya is handed it as JSON and writes the
+// message about it itself, so the rounding has to happen before it leaves.
+func gbNum(kb int64) float64 { return math.Round(float64(kb)/gib*10) / 10 }
 
 func mbStr(kb int64) string { return fmt.Sprintf("%.0f", float64(kb)/1024) }
 

@@ -58,6 +58,11 @@ type Deps struct {
 	// token, and it answers with the thread it opened when the message was the first of an
 	// incident and the bot is configured.
 	Send func(out Outgoing) (string, error)
+
+	// Tells shibuya this sweep happened, which is the half of the watch that is not on this
+	// Mac. It answers with the state to remember and the one line to log when that state is
+	// new, since a Mac with no token configured has nothing to say every five minutes.
+	CheckIn func(in Checkin) (string, string)
 }
 
 const logTime = "2006-01-02T15:04:05-0700"
@@ -118,7 +123,8 @@ func realDeps(cfg Config) Deps {
 		Prompt: func(kind, lead, data string) error {
 			return oncaller{cfg: cfg, run: herdrCLI, now: now, log: log}.promptWith(kind, lead, "INCIDENT DATA", data)
 		},
-		Send: func(out Outgoing) (string, error) { return sendThroughOP(cfg, out) },
+		Send:    func(out Outgoing) (string, error) { return sendThroughOP(cfg, out) },
+		CheckIn: newSwitch(cfg).send,
 	}
 }
 

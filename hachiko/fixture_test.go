@@ -36,12 +36,13 @@ type fixture struct {
 	store Store
 	log   bytes.Buffer
 
-	now     time.Time
-	freeGB  int64
-	watched []string
-	procs   []Process
-	pid     int
-	uid     int
+	now      time.Time
+	freeGB   int64
+	watched  []string
+	procs    []Process
+	procsErr error
+	pid      int
+	uid      int
 
 	// A file the incident is about that gains keepKB on every check, which is what keeps an
 	// incident open across a test that walks the clock: a file that has stopped growing is a
@@ -89,6 +90,12 @@ type fixture struct {
 	threads bool
 	sentTo  []string
 	opened  []string
+
+	// What each sweep told shibuya, and what the switch answered: the state to remember and
+	// the line to log when that state is new.
+	checkins     []Checkin
+	checkinState string
+	checkinSay   string
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -139,6 +146,9 @@ func newFixture(t *testing.T) *fixture {
 		// A pid no sample of the fixture's holds, so nothing is excluded for being
 		// hachiko's own unless a check says so.
 		pid: 999001,
+		// A switch that takes every check-in, which is the Mac with shibuya configured and
+		// answering; a test that wants it otherwise says so.
+		checkinState: checkinSent,
 		// The account hachiko runs as, which every process the fixture makes belongs to
 		// unless a test says otherwise: a process of somebody else's is a system process, and
 		// that is a test of its own.
@@ -175,8 +185,13 @@ func (f *fixture) deps() Deps {
 			return nil
 		},
 
-		Processes: func() ([]Process, error) { return f.procs, nil },
-		CWD:       func(pid int) string { return f.cwd[pid] },
+		Processes: func() ([]Process, error) {
+			if f.procsErr != nil {
+				return nil, f.procsErr
+			}
+			return f.procs, nil
+		},
+		CWD: func(pid int) string { return f.cwd[pid] },
 
 		Oncall: func(name, brief string) (OncallSession, error) {
 			f.oncallCalls++
@@ -260,6 +275,10 @@ func (f *fixture) deps() Deps {
 				return "thread-" + out.OpenThread, nil
 			}
 			return "", nil
+		},
+		CheckIn: func(in Checkin) (string, string) {
+			f.checkins = append(f.checkins, in)
+			return f.checkinState, f.checkinSay
 		},
 	}
 }

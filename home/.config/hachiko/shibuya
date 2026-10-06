@@ -1,0 +1,14 @@
+# Where hachiko checks in after every sweep. shibuya is the dead man's switch at the other
+# end: a quarter of an hour without a check-in and it posts to the same Discord channel
+# hachiko alerts to, which is the one failure nothing on this Mac can report about itself.
+#
+# Not a secret. It is one hostname on Tim's own zone, it holds no data, and the whole of
+# what it answers without a token is its own name. The token is the file beside this one,
+# ~/.config/hachiko/shibuya-token, which shibuya/secrets.sh makes and which is in no
+# repository and in no vault — README has why under shibuya.
+#
+# An https URL on a line of its own, and nothing else. A file that is not here at all is a
+# Mac with this switched off rather than a Mac with a broken switch: hachiko says so once
+# and goes on watching.
+
+https://shibuya.timche.dev

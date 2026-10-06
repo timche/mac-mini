@@ -82,9 +82,11 @@ func (s sweeper) run() error {
 	}
 
 	state, err := s.store.Load()
+	corrupt := false
 	switch {
 	case errors.Is(err, errStateCorrupt):
 		s.say("%v", err)
+		corrupt = true
 	case err != nil:
 		return err
 	}
@@ -155,6 +157,15 @@ func (s sweeper) run() error {
 		}
 		s.say("%s GB free, %d file(s) growing fast, %d over %s GB, %d process(es) hot of %d sampled, %d director(ies) skipped for not answering",
 			gbStr(free), len(disk.growing), len(disk.sizes), gbStr(s.cfg.BigKB), len(cpu.hot), cpu.sampled, len(disk.stalled))
+
+		// Said rather than sent: a dry run that checked in would tell shibuya this Mac is
+		// being watched on a run that watched nothing.
+		if reasons := sweepFaults(corrupt, disk, cpu); len(reasons) > 0 {
+			s.say("would tell shibuya this sweep did not finish its job: %s", strings.Join(reasons, "; "))
+		} else {
+			s.say("would check in with shibuya")
+		}
+
 		s.say("dry run over")
 		return nil
 	}
@@ -259,7 +270,63 @@ func (s sweeper) run() error {
 		}
 	}
 
+	// Last, so that what shibuya is told about this Mac is what the check decided rather
+	// than what it had got to — and so that a Worker that will not answer costs the sweep
+	// its ten seconds after everything else is done.
+	s.checkIn(state, corrupt, disk, cpu, free, len(expected))
+
 	return s.store.Save(state)
+}
+
+// What shibuya is told, and the one line about it. A sweep that ran is liveness whatever it
+// found: the alert about a disk is hachiko's own, and all this says is that the watch is
+// still running — or that it ran and did not finish its job, which is a Mac whose monitor is
+// half blind and nothing a dead man's switch would ever notice by itself.
+func (s sweeper) checkIn(state *State, corrupt bool, disk diskFindings, cpu cpuFindings, free int64, open int) {
+	in := Checkin{
+		FreeGB:        gbNum(free),
+		OpenIncidents: open,
+		HotProcesses:  len(cpu.hot),
+	}
+
+	if reasons := sweepFaults(corrupt, disk, cpu); len(reasons) > 0 {
+		in.Failed, in.Reason = true, strings.Join(reasons, "; ")
+	}
+
+	was := state.Switch
+	now, line := s.deps.CheckIn(in)
+	state.Switch = now
+
+	// One line per state change and nothing on a check that went the way the last one did.
+	// This runs every five minutes for ever, and twelve lines an hour about a token that is
+	// still missing would bury the lines that matter.
+	if now == was {
+		return
+	}
+	if line != "" {
+		s.say("%s", line)
+	}
+	if now == checkinSent && was != "" {
+		s.say("shibuya is hearing from this Mac again")
+	}
+}
+
+// The honest set: the three ways a sweep runs and comes back knowing less than it should.
+// Not an incident, because none of them is a fault of the Mac's — they are faults of the
+// watch, and the only thing that can report them is something off the machine.
+func sweepFaults(corrupt bool, disk diskFindings, cpu cpuFindings) []string {
+	var reasons []string
+
+	if disk.cutShort {
+		reasons = append(reasons, "the walk ran out of its seconds and saw only part of the disk")
+	}
+	if !cpu.read {
+		reasons = append(reasons, "there was no process sample, so nothing was watching the CPU")
+	}
+	if corrupt {
+		reasons = append(reasons, "the state file could not be read, so this check measured nothing against the last")
+	}
+	return reasons
 }
 
 // What the next sweep inherits: the ones still being skipped, the ones that stalled

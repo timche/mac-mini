@@ -200,7 +200,11 @@ func sendThroughBot(bot discordBot, channel string, out Outgoing) (string, error
 	// and saying otherwise sent it a second time down the webhook. The next message of this
 	// incident goes to the channel instead, which is a thread missing rather than an alert
 	// missing.
-	thread, err := bot.openThread(channel, posted, out.OpenThread)
+	// Named by the message's lead, the same line the forum webhook names a post by, so a
+	// thread in the sidebar says what fired rather than giving an id back to the one person
+	// who was never going to type it. The id is in the message's own subtext line, and the
+	// thread is found by the id Discord answers with rather than by its name.
+	thread, err := bot.openThread(channel, posted, threadName(out.Text))
 	if err != nil {
 		logger{out: os.Stderr, now: clockFromEnv()}.say(
 			"the message was posted but no thread could be opened on it, so the rest of this incident goes to the channel: %v", err)

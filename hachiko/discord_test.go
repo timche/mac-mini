@@ -109,6 +109,30 @@ func TestTheFirstMessageOpensAThreadAndTheRestGoIntoIt(t *testing.T) {
 		"what the bot was asked to do")
 }
 
+// The thread is named by the message's lead, the same line the forum webhook names a post
+// by: what Tim sees in the sidebar is what fired, not the id of the incident it fired for.
+func TestTheThreadIsNamedByTheMessagesLead(t *testing.T) {
+	var name string
+	bot, _ := fakeBotWith(t, func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		if strings.HasSuffix(r.URL.Path, "/threads") {
+			var body struct{ Name string }
+			json.Unmarshal(raw, &body)
+			name = body.Name
+		}
+		w.Write([]byte(`{"id":"9001"}`))
+	})
+
+	if _, err := sendThroughBot(bot, "chan", Outgoing{
+		Text:       "💾 Disk filling: devbackend.log is growing fast\n**Free space:** 1 GB",
+		OpenThread: "disk-1700000300",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, name, "💾 Disk filling: devbackend.log is growing fast", "the thread's name")
+}
+
 // Discord bans a bot that ignores a 429 rather than slowing it down, so the wait is the one
 // it asked for — and it is the body's, which has sub-second resolution.
 func TestARateLimitIsWaitedOutForAsLongAsDiscordAsked(t *testing.T) {

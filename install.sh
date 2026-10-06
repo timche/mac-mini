@@ -666,3 +666,17 @@ else
   echo "could not load $herdr_label — the gui/$uid domain needs a GUI session" \
        "logged in on the Mac" >&2
 fi
+
+# shibuya, the dead man's switch hachiko checks in with: the only thing here that is not on
+# this Mac at all, and the only reason there is a second kind of tool at the repo root.
+#
+# Reported rather than fatal, like every other optional step above. A Cloudflare that is
+# down, a service account with nothing left for the day and a runner with no `op` at all are
+# none of them reasons for an install to fail — what they cost is the switch staying on the
+# version it is already running, and the next install deploying it. deploy.sh does nothing
+# at all when the sources have not moved, so a re-run on a settled Mac reaches neither
+# 1Password nor the network.
+if ! "$repo/shibuya/deploy.sh"; then
+  echo "shibuya was not deployed, so the dead man's switch is whatever was deployed last —" \
+       "run $repo/shibuya/deploy.sh when Cloudflare and 1Password are both reachable" >&2
+fi

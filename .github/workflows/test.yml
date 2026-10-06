@@ -14,6 +14,7 @@ on:
       - Brewfile
       - mise.toml
       - hachiko/**
+      - shibuya/**
       - claude/**
       - launchd/**
       - system/**
@@ -123,6 +124,27 @@ jobs:
           "$mise" exec -C "$repo" -- go vet -C "$repo/hachiko" ./...
           "$mise" exec -C "$repo" -- go test -C "$repo/hachiko" ./...
           test -z "$("$mise" exec -C "$repo" -- gofmt -l "$repo/hachiko")"
+
+      # shibuya, which needs no Mac: the tests run in workerd and would be happier on
+      # ubuntu. They are here anyway, because this is the job that has mise's node — the
+      # one every project on the Mac uses — and a second job would mean a second way to
+      # install node and a second place saying which version. install.sh calls deploy.sh,
+      # which runs these before it deploys, but reports rather than fails on a runner with
+      # no `op`, so without this step a broken Worker would land green.
+      #
+      # `tsc --noEmit` is in `npm test` as well as vitest: a Durable Object's whole
+      # interface is a type, and the pool cannot run what does not compile.
+      - name: npm test in shibuya/
+        run: |
+          mise="$HOME/.local/bin/mise"
+          repo="$GITHUB_WORKSPACE"
+          node="$("$mise" which -C "$repo" node)"
+          PATH="$(dirname "$node"):$PATH"
+          export PATH
+          cd "$repo/shibuya"
+          npm ci
+          npm test
+          npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/shibuya-dry"
 
       # The signing key and the agent that holds it, with a stub op standing in
       # for 1Password. The one thing here that cannot be checked without a vault.

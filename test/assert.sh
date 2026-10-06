@@ -885,6 +885,53 @@ check "the bot token and the approval secret are op:// references in a file of t
    ! grep -q "bot token" "$HOME/.local/bin/hachiko.env.op" &&
    ! grep -qE "^[A-Z_]+=[^o]" "$HOME/.local/bin/hachiko.discord.env.op"'
 
+# shibuya, the half of the watch that is not on this Mac. Its own behaviour is `npm test` in
+# shibuya/, against the same wrangler config the deploy reads; what is left for this script
+# is the wiring — the config file hachiko reads, the token file's mode, and the one script
+# that deploys it.
+check "the shibuya URL is a live symlink and holds one https URL and no token" \
+  '[ -L "$HOME/.config/hachiko/shibuya" ] && [ -e "$HOME/.config/hachiko/shibuya" ] &&
+   [ "$(grep -cE "^[^#]" "$HOME/.config/hachiko/shibuya" | tr -d " ")" -ge 1 ] &&
+   grep -qx "https://shibuya.timche.dev" "$HOME/.config/hachiko/shibuya" &&
+   ! grep -qE "^[^#]*(token|Bearer|op://)" "$HOME/.config/hachiko/shibuya"'
+
+# Not in the repository and not in 1Password: generated on the Mac by shibuya/secrets.sh,
+# because hachiko reads it twice an hour and every `op run` counts against the service
+# account's day. A Mac that has never run that script has no file here, which is a switch
+# nothing checks in with rather than a broken one — so this asserts the mode and only when
+# there is a file to assert it on.
+check "the ping token, if it is there, is readable by nobody but the account" \
+  't="$HOME/.config/hachiko/shibuya-token";
+   [ ! -e "$t" ] || [ "$(stat -f %Lp "$t")" = 600 ]'
+
+check "the ping token is in no .env.op and in no op:// reference" \
+  '! grep -rq "shibuya-token" "$HOME/.local/bin/hachiko.env.op" \
+     "$HOME/.local/bin/hachiko.discord.env.op" &&
+   ! grep -q "PING_TOKEN" "$repo/shibuya/.env.op"'
+
+check "shibuya's .env.op is op:// references and nothing resolved" \
+  'grep -qx "CLOUDFLARE_API_TOKEN=op://dev/shibuya/api token" "$repo/shibuya/.env.op" &&
+   grep -qx "DISCORD_WEBHOOK_URL=op://dev/hachiko-discord/webhook url" "$repo/shibuya/.env.op" &&
+   ! grep -qE "^[A-Z_]+=[^o]" "$repo/shibuya/.env.op"'
+
+check "the two shibuya scripts are executable and parse" \
+  '[ -x "$repo/shibuya/deploy.sh" ] && [ -x "$repo/shibuya/secrets.sh" ] &&
+   bash -n "$repo/shibuya/deploy.sh" && bash -n "$repo/shibuya/secrets.sh"'
+
+# One entrance. A workers.dev subdomain or a version preview URL is a second hostname
+# serving the same Worker, with the ping token as the only thing in front of it.
+check "shibuya is deployed to its custom domain alone" \
+  'grep -q "\"workers_dev\": false" "$repo/shibuya/wrangler.jsonc" &&
+   grep -q "\"preview_urls\": false" "$repo/shibuya/wrangler.jsonc" &&
+   grep -q "shibuya.timche.dev" "$repo/shibuya/wrangler.jsonc" &&
+   grep -q "new_sqlite_classes" "$repo/shibuya/wrangler.jsonc"'
+
+# install.sh reports a deploy that did not happen and carries on, the way it does for every
+# other step that needs something off this Mac.
+check "install.sh deploys shibuya and does not fail on a Cloudflare that is down" \
+  'grep -q "shibuya/deploy.sh\"; then" "$repo/install.sh" &&
+   grep -q "shibuya was not deployed" "$repo/install.sh"'
+
 check "the CPU allowlist is a live symlink and names the VMs and the indexer" \
   '[ -L "$HOME/.config/hachiko/cpu-allow" ] &&
    [ -e "$HOME/.config/hachiko/cpu-allow" ] &&

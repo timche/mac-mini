@@ -12,6 +12,11 @@ const NAME_LIMIT = 100;
 
 const SNOWFLAKE = /^[0-9]{1,24}$/;
 
+// The webhook is hachiko's own, so without this every message here arrives under hachiko's
+// name — and what an outage post has to be clear about is that the watch is not the thing
+// talking. A webhook body overrides the name per message.
+const USERNAME = "shibuya";
+
 export interface Post {
   content: string;
   threadId?: string;
@@ -82,14 +87,15 @@ interface Answer {
 // a log line holding "@everyone" would page the whole server from inside an outage alert.
 // `parse` with nothing in it allows no mention of any kind.
 //
-// Added here rather than at each call site, so nothing that posts can forget it.
+// Both this and the name are added here rather than at each call site, so nothing that posts
+// can forget either.
 async function send(webhook: string, query: string, fields: Record<string, string>): Promise<Answer> {
   let response: Response;
   try {
     response = await fetch(withQuery(webhook, query), {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...fields, allowed_mentions: { parse: [] } }),
+      body: JSON.stringify({ ...fields, username: USERNAME, allowed_mentions: { parse: [] } }),
     });
   } catch (err) {
     throw new Error(redact(String(err), webhook));

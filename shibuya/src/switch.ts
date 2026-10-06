@@ -171,7 +171,7 @@ export class Switch extends DurableObject<Env> {
           `${live.host} has not checked in for ${span(now - live.lastPing)}.`,
           `Last ping: ${london(live.lastPing)}.`,
           `Last reading: ${live.summary === "" ? "none" : live.summary}.`,
-          live.version === "" ? "" : `hachiko ${live.version}.`,
+          live.version === "" ? "" : `Running hachiko build ${live.version}.`,
         ]
           .filter((line) => line !== "")
           .join("\n"),

@@ -20,6 +20,7 @@ interface Request_ {
   fields: {
     content?: string;
     thread_name?: string;
+    username?: string;
     allowed_mentions?: unknown;
   };
 }
@@ -176,10 +177,41 @@ it("opens one forum post when the deadline passes with no check-in", async () =>
   expect(sent[0]!.fields.thread_name!.length).toBeLessThanOrEqual(100);
   expect(sent[0]!.fields.content).toContain(SUMMARY);
   expect(sent[0]!.fields.content).toContain("has not checked in for 20 min");
+  expect(sent[0]!.fields.content).toContain("Running hachiko build abc1234.");
 
   const { live } = await stored();
   expect(live.downSince).toBeGreaterThan(0);
   expect(live.outageThread).toBe("4242");
+});
+
+it("leaves the build line out of an outage alert when no check-in has named one", async () => {
+  const sent = discord({ status: 200, body: { channel_id: "4242" } });
+  await seed({ host: HOST, lastPing: Date.now() - 20 * 60_000, summary: SUMMARY });
+
+  expect(await runDurableObjectAlarm(switchFor())).toBe(true);
+
+  expect(sent[0]!.fields.content).toContain(SUMMARY);
+  expect(sent[0]!.fields.content).not.toContain("hachiko");
+});
+
+// The webhook is hachiko's own, so every one of these arrives under hachiko's name unless
+// the body says otherwise — and an outage post is the one message that has to be clearly
+// not the watch talking. The three shapes a post can take are all exercised, because the
+// one that forgot the name is the one that would be reached.
+it("posts under its own name rather than the webhook's", async () => {
+  const sent = discord({ status: 200, body: { channel_id: "7" } }, { status: 400 }, { status: 204 });
+
+  await ping({ ...checkin, reason: "the walk ran out of its seconds" }, TOKEN, "/fail");
+  await ping(checkin);
+
+  expect(sent).toHaveLength(3);
+  expect(sent[0]!.url).toBe(`${WEBHOOK}?wait=true`);
+  expect(sent[1]!.url).toBe(`${WEBHOOK}?thread_id=7`);
+  expect(sent[2]!.url).toBe(WEBHOOK);
+
+  for (const request of sent) {
+    expect(request.fields.username).toBe("shibuya");
+  }
 });
 
 it("does not post a second time on the next alarm of the same outage", async () => {

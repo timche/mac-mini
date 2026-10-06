@@ -357,3 +357,18 @@ func TestAReasonIsOneLineAndClipped(t *testing.T) {
 		t.Fatalf("the reason was %d characters, which is more than the 300 shibuya keeps", len(reason))
 	}
 }
+
+func TestTheSwitchHostIsTheNameShibuyaAccepts(t *testing.T) {
+	for in, want := range map[string]string{
+		"Tims-Mac-mini.fritz.box": "tims-mac-mini",
+		"Tims-Mac-mini.local":     "tims-mac-mini",
+		"mac-mini":                "mac-mini",
+		"Tim's Mac_mini":          "tim-s-mac-mini",
+		strings.Repeat("a", 40):   strings.Repeat("a", 32),
+		"...":                     "mac",
+	} {
+		if got := switchHost(in); got != want {
+			t.Errorf("switchHost(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

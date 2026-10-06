@@ -188,6 +188,25 @@ func switchToken(path string) (string, error) {
 	return token, nil
 }
 
+// shibuya names a host in [a-z0-9-]{1,32}, and macOS hands back "Tims-Mac-mini.fritz.box":
+// capitals, and a search domain the router chose that changes with the network.
+func switchHost(hostname string) string {
+	label, _, _ := strings.Cut(strings.ToLower(hostname), ".")
+	slug := strings.Trim(strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			return r
+		}
+		return '-'
+	}, label), "-")
+	if len(slug) > 32 {
+		slug = strings.Trim(slug[:32], "-")
+	}
+	if slug == "" {
+		return "mac"
+	}
+	return slug
+}
+
 // Which commit of this repository the running binary was built from, which is the one thing
 // shibuya can say about a Mac it cannot reach. go stamps it for a build inside a work tree
 // and stamps nothing when there is no repository, so a binary built from a tarball says

@@ -5,6 +5,10 @@ import { defineConfig } from "vitest/config";
 // wrong in the tests too. The two secrets are the exception: they are set with
 // `wrangler secret put` against the deployed Worker and exist nowhere on disk.
 export default defineConfig({
+  // The default reporter keeps what a passing test printed to itself, and one test here
+  // prints every message shibuya can send so that a reviewer reads the six of them out of
+  // `npm test` rather than out of the assertions about them.
+  test: { reporters: ["verbose"] },
   plugins: [
     cloudflareTest({
       wrangler: { configPath: "./wrangler.jsonc" },

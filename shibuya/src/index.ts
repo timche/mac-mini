@@ -22,6 +22,10 @@ const HOST = /^[a-z0-9-]{1,32}$/;
 const REASON_LIMIT = 300;
 const VERSION_LIMIT = 64;
 
+// What the Mac calls itself, which is what Tim calls it: a title's worth and no more, since
+// it is the first thing in a lead line and in a forum post's name.
+const DISPLAY_LIMIT = 40;
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -166,6 +170,18 @@ function validate(payload: unknown, failing: boolean): Checkin | string {
   }
 
   const checkin: Checkin = { host: fields.host };
+
+  // A display name that cleans away to nothing is one that was not sent: the slug stands in
+  // for it, rather than a message about a Mac with no name.
+  if (fields.display !== undefined) {
+    if (typeof fields.display !== "string") {
+      return "display";
+    }
+    const display = clean(fields.display, DISPLAY_LIMIT);
+    if (display !== "") {
+      checkin.display = display;
+    }
+  }
 
   const free = count(fields.free_gb);
   if (free === "bad") {

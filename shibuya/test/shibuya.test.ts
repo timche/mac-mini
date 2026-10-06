@@ -11,8 +11,20 @@ import { Switch } from "../src/switch";
 const TOKEN = "a-token-only-the-tests-know";
 const WEBHOOK = "https://discord.invalid/api/webhooks/1/secret";
 
+// Every test spies on console.log, to assert the webhook reaches no log, so the one test that
+// prints for a reader to read takes the real one before any of that happens.
+const print = console.log.bind(console);
+
 const HOST = "mac-mini";
-const SUMMARY = "787 GB free, no open incidents, 0 hot";
+
+// The golden messages are rendered for the Mac as it really reports itself, so what a
+// reviewer reads out of `npm test` is what Discord would show.
+const GOLDEN_HOST = "tims-mac-mini";
+const DISPLAY = "Mac mini";
+const BUILD = "1a2b3c4d5e6f";
+const READING = "1 GB free, no open incidents, nothing busy";
+
+const SUMMARY = "787 GB free, no open incidents, nothing busy";
 
 interface Reply {
   status: number;
@@ -59,15 +71,15 @@ function switchFor(host = HOST) {
   return env.SWITCH.get(env.SWITCH.idFromName(host));
 }
 
-async function seed(live: Record<string, unknown>, alarmAt = Date.now() + 600_000): Promise<void> {
-  await runInDurableObject(switchFor(), async (_instance, state) => {
+async function seed(live: Record<string, unknown>, host = HOST, alarmAt = Date.now() + 600_000): Promise<void> {
+  await runInDurableObject(switchFor(host), async (_instance, state) => {
     await state.storage.put("live", live);
     await state.storage.setAlarm(alarmAt);
   });
 }
 
-async function stored(): Promise<{ live: Record<string, unknown>; alarm: number | null }> {
-  return runInDurableObject(switchFor(), async (_instance, state) => ({
+async function stored(host = HOST): Promise<{ live: Record<string, unknown>; alarm: number | null }> {
+  return runInDurableObject(switchFor(host), async (_instance, state) => ({
     live: (await state.storage.get<Record<string, unknown>>("live")) ?? {},
     alarm: await state.storage.getAlarm(),
   }));
@@ -90,12 +102,18 @@ function forget(host: string, token = TOKEN, method = "DELETE"): Promise<Respons
 
 const checkin = { host: HOST, free_gb: 787, open_incidents: 0, hot_processes: 0, version: "abc1234" };
 
+// The reason as Discord would show it, out of the line that carries it.
+function why(content: string): string {
+  const line = content.split("\n").find((candidate) => candidate.startsWith("**Why:** ")) ?? "";
+  return line.slice("**Why:** ".length);
+}
+
 let logged: string[] = [];
 
 beforeEach(async () => {
   // A Durable Object outlives the test that made it, so one left down or failing would be
   // that test deciding this one's assertions.
-  for (const host of [HOST, "other-mac"]) {
+  for (const host of [HOST, "other-mac", GOLDEN_HOST]) {
     await runInDurableObject(switchFor(host), async (_instance, state) => {
       await state.storage.deleteAll();
       await state.storage.deleteAlarm();
@@ -178,11 +196,11 @@ it("opens one forum post when the deadline passes with no check-in", async () =>
 
   expect(sent).toHaveLength(1);
   expect(sent[0]!.url).toBe(`${WEBHOOK}?wait=true`);
-  expect(sent[0]!.fields.thread_name).toMatch(/^mac-mini offline · /);
+  expect(sent[0]!.fields.thread_name).toMatch(/^🔴 mac-mini offline · /);
   expect(sent[0]!.fields.thread_name!.length).toBeLessThanOrEqual(100);
-  expect(sent[0]!.fields.content).toContain(SUMMARY);
-  expect(sent[0]!.fields.content).toContain("has not checked in for 20 min");
-  expect(sent[0]!.fields.content).toContain("Running hachiko build abc1234.");
+  expect(sent[0]!.fields.content).toContain(`**Last reading:** ${SUMMARY}`);
+  expect(sent[0]!.fields.content).toMatch(/^🔴 mac-mini has gone quiet — no check-in for 20 minutes$/m);
+  expect(sent[0]!.fields.content).toContain("-# mac-mini · hachiko build abc1234");
 
   const { live } = await stored();
   expect(live.downSince).toBeGreaterThan(0);
@@ -196,6 +214,7 @@ it("leaves the build line out of an outage alert when no check-in has named one"
   expect(await runDurableObjectAlarm(switchFor())).toBe(true);
 
   expect(sent[0]!.fields.content).toContain(SUMMARY);
+  expect(sent[0]!.fields.content).toContain("-# mac-mini");
   expect(sent[0]!.fields.content).not.toContain("hachiko");
 });
 
@@ -242,9 +261,11 @@ it("posts the recovery into the outage's own post", async () => {
 
   expect(sent).toHaveLength(2);
   expect(sent[1]!.url).toBe(`${WEBHOOK}?thread_id=4242`);
+  // A message going back into a post names no post: the title it carries is only for the
+  // post it would have to open if this one were gone.
   expect(sent[1]!.fields.thread_name).toBeUndefined();
-  expect(sent[1]!.fields.content).toContain("is checking in again after 20 min");
-  expect(sent[1]!.fields.content).toContain(SUMMARY);
+  expect(sent[1]!.fields.content).toContain("🟢 mac-mini is back — it checked in after 20 minutes of silence");
+  expect(sent[1]!.fields.content).toContain(`**Reading now:** ${SUMMARY}`);
 
   const { live } = await stored();
   expect(live.downSince).toBe(0);
@@ -257,8 +278,8 @@ it("opens one post for a failing streak, posts nothing for the next fail, and cl
   expect(first.status).toBe(200);
   expect(sent).toHaveLength(1);
   expect(sent[0]!.url).toBe(`${WEBHOOK}?wait=true`);
-  expect(sent[0]!.fields.thread_name).toMatch(/^mac-mini · hachiko runs are failing · /);
-  expect(sent[0]!.fields.content).toContain("the walk ran out of its 1m0s");
+  expect(sent[0]!.fields.thread_name).toMatch(/^⚠️ mac-mini: hachiko's checks are failing · /);
+  expect(sent[0]!.fields.content).toContain("**Why:** the walk ran out of its 1m0s");
 
   await ping({ ...checkin, reason: "the walk ran out of its 1m0s" }, TOKEN, "/fail");
   expect(sent).toHaveLength(1);
@@ -266,7 +287,7 @@ it("opens one post for a failing streak, posts nothing for the next fail, and cl
   await ping(checkin);
   expect(sent).toHaveLength(2);
   expect(sent[1]!.url).toBe(`${WEBHOOK}?thread_id=7`);
-  expect(sent[1]!.fields.content).toContain("runs are clean again");
+  expect(sent[1]!.fields.content).toContain("hachiko's checks are finishing again after");
 
   const { live } = await stored();
   expect(live.failingSince).toBe(0);
@@ -288,7 +309,7 @@ it("strips the control characters out of a reason and caps it", async () => {
 
   await ping({ ...checkin, reason: `ps failed\n\u001b and said so ${"x".repeat(400)}` }, TOKEN, "/fail");
 
-  const reason = sent[0]!.fields.content!.split("\n")[1]!;
+  const reason = why(sent[0]!.fields.content!);
   expect(reason).not.toMatch(/[\u0000-\u001f]/);
   expect(reason.startsWith("ps failed   and said so xxx")).toBe(true);
   expect(reason.length).toBeLessThanOrEqual(300);
@@ -303,7 +324,7 @@ it("opens a new post when the one it recorded is gone", async () => {
   expect(sent).toHaveLength(2);
   expect(sent[0]!.url).toBe(`${WEBHOOK}?thread_id=7`);
   expect(sent[1]!.url).toBe(`${WEBHOOK}?wait=true`);
-  expect(sent[1]!.fields.thread_name).toBeDefined();
+  expect(sent[1]!.fields.thread_name).toMatch(/^🟢 mac-mini: hachiko's checks are clean · /);
   expect((await stored()).live.failingThread).toBe("8080");
 });
 
@@ -391,6 +412,7 @@ it("reports where a host stands, to a caller with the token", async () => {
 
   const status = (await response.json()) as Record<string, unknown>;
   expect(status.host).toBe(HOST);
+  expect(status.display).toBe("");
   expect(status.state).toBe("up");
   expect(status.last_summary).toBe(SUMMARY);
   expect(status.down_since).toBeNull();
@@ -577,4 +599,191 @@ it("answers nothing else", async () => {
   // /host is the one route with a method of its own, so the method is the route.
   expect((await forget(HOST, TOKEN, "GET")).status).toBe(404);
   expect((await forget(HOST, TOKEN, "POST")).status).toBe(404);
+});
+
+// The slug is a storage key that happens to be readable; the display name is what the Mac
+// calls itself. Everything Tim reads is the second one and falls back to the first.
+it("takes a display name, cleans it, and refuses one that is not a string", async () => {
+  discord();
+
+  expect((await ping({ ...checkin, display: 42 })).status).toBe(400);
+  expect(await (await ping({ ...checkin, display: [] })).text()).toBe("display\n");
+
+  await ping({ ...checkin, display: "  Tim's\u001b Mac\nmini  " });
+  expect((await stored()).live.display).toBe("Tim's  Mac mini");
+
+  await ping({ ...checkin, display: "M".repeat(60) });
+  const clipped = String((await stored()).live.display);
+  expect(clipped).toHaveLength(40);
+  expect(clipped.endsWith("…")).toBe(true);
+});
+
+it("treats a display name that cleans away to nothing as one that was never sent", async () => {
+  discord();
+
+  await ping({ ...checkin, display: DISPLAY });
+  await ping({ ...checkin, display: " \u0007 " });
+
+  expect((await stored()).live.display).toBe(DISPLAY);
+});
+
+it("calls the Mac what it calls itself, in the post's name and in the first line", async () => {
+  const sent = discord({ status: 200, body: { channel_id: "4242" } });
+  await seed(
+    {
+      host: GOLDEN_HOST,
+      display: DISPLAY,
+      lastPing: Date.now() - 20 * 60_000,
+      summary: READING,
+      version: BUILD,
+    },
+    GOLDEN_HOST,
+  );
+
+  await runDurableObjectAlarm(switchFor(GOLDEN_HOST));
+
+  expect(sent[0]!.fields.thread_name).toMatch(/^🔴 Mac mini offline · /);
+  expect(sent[0]!.fields.content).toContain("🔴 Mac mini has gone quiet");
+  // The slug stays honest, in the one line Tim does not act on.
+  expect(sent[0]!.fields.content).toContain("-# tims-mac-mini · hachiko build 1a2b3c4d5e6f");
+  expect(sent[0]!.fields.content).not.toContain("tims-mac-mini has");
+});
+
+it("keeps the display name across a check-in that does not repeat it, and reports it", async () => {
+  discord();
+
+  await ping({ ...checkin, host: GOLDEN_HOST, display: DISPLAY });
+  await ping({ host: GOLDEN_HOST, free_gb: 1 });
+
+  const response = await SELF.fetch(`https://shibuya.test/status?host=${GOLDEN_HOST}`, {
+    headers: { authorization: `Bearer ${TOKEN}` },
+  });
+  const status = (await response.json()) as Record<string, unknown>;
+
+  expect(status.display).toBe(DISPLAY);
+  expect(status.host).toBe(GOLDEN_HOST);
+  expect(status.last_summary).toBe("1 GB free");
+});
+
+it("reads a reading in words, however many of each there are", async () => {
+  discord();
+
+  await ping({ host: GOLDEN_HOST, free_gb: 0.9, open_incidents: 1, hot_processes: 1 });
+  expect((await stored(GOLDEN_HOST)).live.summary).toBe("922 MB free, 1 open incident, 1 process busy");
+
+  await ping({ host: GOLDEN_HOST, free_gb: 4.25, open_incidents: 2, hot_processes: 3 });
+  expect((await stored(GOLDEN_HOST)).live.summary).toBe("4.3 GB free, 2 open incidents, 3 processes busy");
+});
+
+// A reading with nothing in it is a check-in that reported nothing, so the line it would have
+// been on is missing rather than there and empty.
+it("leaves the reading line out when a check-in carried no reading", async () => {
+  const sent = discord({ status: 200, body: { channel_id: "4242" } });
+  await seed({ host: GOLDEN_HOST, display: DISPLAY, lastPing: Date.now() - 20 * 60_000 }, GOLDEN_HOST);
+
+  await runDurableObjectAlarm(switchFor(GOLDEN_HOST));
+
+  expect(sent[0]!.fields.content).toContain("🔴 Mac mini has gone quiet");
+  expect(sent[0]!.fields.content).not.toContain("Last reading");
+});
+
+// Every message shibuya can send, rendered in full and printed, so the six of them can be
+// read end to end out of one `npm test` rather than inferred from assertions. The real path
+// to Discord and the real clock: a fake one here is an alarm armed in the past, which workerd
+// then fires for itself in the middle of the test. So the clock in what is printed is
+// whenever the suite ran, and every interval in it is exact.
+it("renders the six messages, in full", async () => {
+  const NOW = Date.now();
+
+  const shown: string[] = [];
+  const reading = {
+    host: GOLDEN_HOST,
+    display: DISPLAY,
+    version: BUILD,
+    free_gb: 1,
+    open_incidents: 0,
+    hot_processes: 0,
+  };
+
+  function show(what: string, sent: Request_[]): void {
+    expect(sent).toHaveLength(1);
+    const title = sent[0]!.fields.thread_name;
+    const head = title === undefined ? `── ${what} (into the post already open)` : `── ${what}\npost title: ${title}`;
+    shown.push(`${head}\n\n${sent[0]!.fields.content}\n`);
+  }
+
+  async function fresh(live: Record<string, unknown>): Promise<void> {
+    await runInDurableObject(switchFor(GOLDEN_HOST), async (_instance, state) => {
+      await state.storage.deleteAll();
+      await state.storage.deleteAlarm();
+    });
+    if (Object.keys(live).length > 0) {
+      await seed({ host: GOLDEN_HOST, display: DISPLAY, version: BUILD, ...live }, GOLDEN_HOST);
+    }
+  }
+
+  // 1. The deadline passed with no check-in, which opens the post.
+  let sent = discord({ status: 200, body: { channel_id: "4242" } });
+  await fresh({ lastPing: NOW - 15 * 60_000, summary: READING });
+  await runDurableObjectAlarm(switchFor(GOLDEN_HOST));
+  expect(sent[0]!.fields.thread_name).toMatch(/^🔴 Mac mini offline · \w{3} \d\d:\d\d$/);
+  expect(sent[0]!.fields.content).toContain("🔴 Mac mini has gone quiet — no check-in for 15 minutes");
+  expect(sent[0]!.fields.content).toMatch(/\*\*Last check-in:\*\* (at|yesterday at|on) /);
+  show("offline", sent);
+
+  // 2. Six hours into the outage, into the same post.
+  sent = discord();
+  await fresh({
+    lastPing: NOW - 6 * 60 * 60_000 - 15 * 60_000,
+    summary: READING,
+    downSince: NOW - 6 * 60 * 60_000,
+    outageThread: "4242",
+  });
+  await runDurableObjectAlarm(switchFor(GOLDEN_HOST));
+  expect(sent[0]!.fields.content).toContain("🔴 Mac mini is still offline, 6 hours after the first alert");
+  show("still offline, six hours on", sent);
+
+  // 3. The check-in that comes back, into the same post.
+  sent = discord();
+  await fresh({ lastPing: NOW - 16 * 60_000, summary: READING, downSince: NOW - 60_000, outageThread: "4242" });
+  await ping(reading);
+  expect(sent[0]!.fields.content).toContain("🟢 Mac mini is back — it checked in after 16 minutes of silence");
+  show("recovered", sent);
+
+  // 4. The first failing check-in, which opens a post of its own.
+  sent = discord({ status: 200, body: { channel_id: "7" } });
+  await fresh({});
+  await ping({ ...reading, reason: "the walk ran out of its seconds and saw only part of the disk" }, TOKEN, "/fail");
+  expect(sent[0]!.fields.thread_name).toMatch(/^⚠️ Mac mini: hachiko's checks are failing · \w{3} \d\d:\d\d$/);
+  show("hachiko's checks are failing", sent);
+
+  // 5. An hour of them, into that post.
+  sent = discord();
+  await fresh({
+    lastPing: NOW - 60_000,
+    summary: READING,
+    failingSince: NOW - 60 * 60_000,
+    failingReason: "the walk ran out of its seconds and saw only part of the disk",
+    failingThread: "7",
+  });
+  await runDurableObjectAlarm(switchFor(GOLDEN_HOST));
+  expect(sent[0]!.fields.content).toContain("⚠️ Mac mini: hachiko's checks have been failing for 1 hour");
+  show("still failing, an hour on", sent);
+
+  // 6. The check that finishes, into that post.
+  sent = discord();
+  await fresh({
+    lastPing: NOW - 5 * 60_000,
+    summary: READING,
+    failingSince: NOW - 65 * 60_000,
+    failingReason: "the walk ran out of its seconds and saw only part of the disk",
+    failingThread: "7",
+  });
+  await ping(reading);
+  expect(sent[0]!.fields.content).toContain(
+    "🟢 Mac mini: hachiko's checks are finishing again after 1 hour 5 minutes",
+  );
+  show("clean again", sent);
+
+  print(`\nEvery message shibuya sends, as Discord shows it:\n\n${shown.join("\n")}`);
 });

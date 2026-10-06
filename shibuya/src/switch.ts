@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 
 import { graceMs, type Env } from "./env";
 import { postToForum, redact } from "./discord";
+import { code, duration, machine, markers, plural, render, size, title, when } from "./message";
 
 // One object per host, so the alarm that decides a Mac has gone quiet is the same object
 // that holds its last check-in, with no coordination between the two.
@@ -19,8 +20,12 @@ const RETRY_FIRST = 60_000;
 const RETRY_MAX = 30 * 60_000;
 const RETRY_ATTEMPTS = 12;
 
+// The one file a failing watch is explained in, and the only thing to do about one.
+const LOG = "~/Library/Logs/hachiko.log";
+
 export interface Checkin {
   host: string;
+  display?: string;
   free_gb?: number;
   open_incidents?: number;
   hot_processes?: number;
@@ -30,6 +35,7 @@ export interface Checkin {
 
 export interface Status {
   host: string;
+  display: string;
   state: "up" | "down" | "unknown";
   last_ping: string | null;
   last_summary: string;
@@ -42,13 +48,18 @@ type Where = "outage" | "failing";
 interface Queued {
   where: Where;
   text: string;
-  title?: string;
+  // Every message carries one, because a post Tim deleted is a post the next message has to
+  // open; `open` is what says which of the two this message is.
+  title: string;
+  open: boolean;
   attempt: number;
   at: number;
 }
 
 interface Live {
   host: string;
+  // What the Mac calls itself, which is what Tim calls it. The slug is the storage key.
+  display: string;
   lastPing: number;
   summary: string;
   version: string;
@@ -64,6 +75,7 @@ interface Live {
 
 const empty: Live = {
   host: "",
+  display: "",
   lastPing: 0,
   summary: "",
   version: "",
@@ -103,11 +115,12 @@ export class Switch extends DurableObject<Env> {
     const silence = live.lastPing === 0 ? 0 : now - live.lastPing;
 
     live.host = checkin.host;
+    live.display = checkin.display ?? live.display;
     live.summary = summarize(checkin);
     live.version = checkin.version ?? live.version;
     live.lastPing = now;
 
-    await this.recover(live, silence);
+    await this.recover(live, silence, now);
     await this.clean(live, now);
 
     await this.settle(live, forgets);
@@ -124,21 +137,34 @@ export class Switch extends DurableObject<Env> {
     const silence = live.lastPing === 0 ? 0 : now - live.lastPing;
 
     live.host = checkin.host;
+    live.display = checkin.display ?? live.display;
     live.summary = summarize(checkin);
     live.version = checkin.version ?? live.version;
     live.lastPing = now;
 
-    await this.recover(live, silence);
+    await this.recover(live, silence, now);
 
-    const reason = checkin.reason ?? "no reason given";
+    const reason = checkin.reason === undefined || checkin.reason === "" ? "hachiko did not say" : checkin.reason;
     live.failingReason = reason;
 
     if (live.failingSince === 0) {
       live.failingSince = now;
+
+      const named = name(live);
       await this.post(live, {
         where: "failing",
-        title: `${live.host} · hachiko runs are failing · ${london(now)}`,
-        text: [`${live.host}: a hachiko sweep ran and did not finish its job.`, reason, live.summary].join("\n"),
+        open: true,
+        title: title(markers.warn, `${named}: hachiko's checks are failing`, now),
+        text: render({
+          marker: markers.warn,
+          lead: `${named} is still checking in, but hachiko's checks are not finishing`,
+          details: [
+            { label: "Why", value: reason },
+            { label: "Last reading", value: live.summary },
+          ],
+          action: `The Mac is up and the watch is half blind: read ${code(LOG)}.`,
+          machine: machine(live.host, live.version),
+        }),
       });
     }
 
@@ -167,6 +193,7 @@ export class Switch extends DurableObject<Env> {
 
     return {
       host: live.host === "" ? host : live.host,
+      display: live.display,
       state: live.lastPing === 0 ? "unknown" : live.downSince === 0 ? "up" : "down",
       last_ping: iso(live.lastPing),
       last_summary: live.summary,
@@ -186,34 +213,54 @@ export class Switch extends DurableObject<Env> {
     // alarm that fired is about an interval that is no longer the newest one.
     if (live.downSince === 0 && live.lastPing !== 0 && now - live.lastPing >= graceMs(this.env)) {
       live.downSince = now;
+
+      const named = name(live);
       await this.post(live, {
         where: "outage",
-        title: `${live.host} offline · ${london(now)}`,
-        text: [
-          `${live.host} has not checked in for ${span(now - live.lastPing)}.`,
-          `Last ping: ${london(live.lastPing)}.`,
-          `Last reading: ${live.summary === "" ? "none" : live.summary}.`,
-          live.version === "" ? "" : `Running hachiko build ${live.version}.`,
-        ]
-          .filter((line) => line !== "")
-          .join("\n"),
+        open: true,
+        title: title(markers.down, `${named} offline`, now),
+        text: render({
+          marker: markers.down,
+          lead: `${named} has gone quiet — no check-in for ${duration(now - live.lastPing)}`,
+          details: [
+            { label: "Last check-in", value: when(live.lastPing, now) },
+            { label: "Last reading", value: live.summary },
+          ],
+          action: "Check that the Mac is powered up and on the network. shibuya posts here when it checks in again.",
+          machine: machine(live.host, live.version),
+        }),
       });
     } else if (live.downSince !== 0 && live.downReminded === 0 && now - live.downSince >= REMIND_DOWN_AFTER) {
       live.downReminded = now;
+
+      const named = name(live);
       await this.post(live, {
         where: "outage",
-        text: `${live.host} has still not checked in, ${span(now - live.downSince)} after the first alert.`,
+        open: false,
+        title: title(markers.down, `${named} still offline`, now),
+        text: render({
+          marker: markers.down,
+          lead: `${named} is still offline, ${duration(now - live.downSince)} after the first alert`,
+          details: [{ label: "Last check-in", value: when(live.lastPing, now) }],
+          action: "Check that the Mac is powered up and on the network.",
+        }),
       });
     }
 
     if (live.failingSince !== 0 && live.failingReminded === 0 && now - live.failingSince >= REMIND_FAILING_AFTER) {
       live.failingReminded = now;
+
+      const named = name(live);
       await this.post(live, {
         where: "failing",
-        text: [
-          `${live.host}: hachiko runs have been failing for ${span(now - live.failingSince)}.`,
-          live.failingReason,
-        ].join("\n"),
+        open: false,
+        title: title(markers.warn, `${named}: hachiko's checks still failing`, now),
+        text: render({
+          marker: markers.warn,
+          lead: `${named}: hachiko's checks have been failing for ${duration(now - live.failingSince)}`,
+          details: [{ label: "Why", value: live.failingReason }],
+          action: `Read ${code(LOG)} to see what is failing.`,
+        }),
       });
     }
 
@@ -222,7 +269,7 @@ export class Switch extends DurableObject<Env> {
 
   // The whole silence rather than the time since the alert, because what Tim wants from a
   // recovery is how long the Mac was gone, and the alert went out a grace into that.
-  private async recover(live: Live, silence: number): Promise<void> {
+  private async recover(live: Live, silence: number, now: number): Promise<void> {
     if (live.downSince === 0) {
       return;
     }
@@ -230,9 +277,17 @@ export class Switch extends DurableObject<Env> {
     live.downSince = 0;
     live.downReminded = 0;
 
+    const named = name(live);
     await this.post(live, {
       where: "outage",
-      text: [`${live.host} is checking in again after ${span(silence)}.`, live.summary].join("\n"),
+      open: false,
+      title: title(markers.clear, `${named} back online`, now),
+      text: render({
+        marker: markers.clear,
+        lead: `${named} is back — it checked in after ${duration(silence)} of silence`,
+        details: [{ label: "Reading now", value: live.summary }],
+        action: "Nothing to do.",
+      }),
     });
   }
 
@@ -246,9 +301,17 @@ export class Switch extends DurableObject<Env> {
     live.failingReason = "";
     live.failingReminded = 0;
 
+    const named = name(live);
     await this.post(live, {
       where: "failing",
-      text: [`${live.host}: hachiko runs are clean again after ${span(failing)}.`, live.summary].join("\n"),
+      open: false,
+      title: title(markers.clear, `${named}: hachiko's checks are clean`, now),
+      text: render({
+        marker: markers.clear,
+        lead: `${named}: hachiko's checks are finishing again after ${duration(failing)}`,
+        details: [{ label: "Reading now", value: live.summary }],
+        action: "Nothing to do.",
+      }),
     });
   }
 
@@ -263,11 +326,13 @@ export class Switch extends DurableObject<Env> {
     const thread = message.where === "outage" ? live.outageThread : live.failingThread;
 
     try {
-      // A title is a post to open rather than one to go back into, which is what makes a new
-      // outage a new post under a thread id this object is still holding.
+      // `open` is a post to open rather than one to go back into, which is what makes a new
+      // outage a new post under a thread id this object is still holding. The title rides
+      // along either way: a post Tim deleted answers 404, and the message that found it gone
+      // opens one of its own under a name of its own rather than its first line.
       const landed = await postToForum(this.env.DISCORD_WEBHOOK_URL, {
         content: message.text,
-        threadId: message.title === undefined ? thread : "",
+        threadId: message.open ? "" : thread,
         threadName: message.title,
       });
 
@@ -351,41 +416,35 @@ export class Switch extends DurableObject<Env> {
   }
 }
 
+// What the Mac is called, falling back to the slug it is keyed by. The slug is a storage key
+// that happens to be readable, so it belongs in the subtext line and nowhere Tim is reading
+// a sentence.
+function name(live: Live): string {
+  return live.display === "" ? live.host : live.display;
+}
+
+// One line of reading, in the words the rest of a message is written in: no counts of things
+// with no unit on them, and nothing that reads as a field name.
 export function summarize(checkin: Checkin): string {
   const parts: string[] = [];
 
   if (checkin.free_gb !== undefined) {
-    parts.push(`${checkin.free_gb} GB free`);
+    parts.push(`${size(checkin.free_gb)} free`);
   }
   if (checkin.open_incidents !== undefined) {
-    parts.push(checkin.open_incidents === 0 ? "no open incidents" : `${checkin.open_incidents} open incident(s)`);
+    parts.push(
+      checkin.open_incidents === 0
+        ? "no open incidents"
+        : plural(checkin.open_incidents, "open incident", "open incidents"),
+    );
   }
   if (checkin.hot_processes !== undefined) {
-    parts.push(`${checkin.hot_processes} hot`);
+    parts.push(
+      checkin.hot_processes === 0 ? "nothing busy" : `${plural(checkin.hot_processes, "process", "processes")} busy`,
+    );
   }
 
   return parts.join(", ");
-}
-
-// Tim's own zone, because the only person who reads these is in it and a time he has to
-// convert is a time he misreads at four in the morning.
-export function london(at: number): string {
-  return new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Europe/London",
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(at));
-}
-
-export function span(ms: number): string {
-  const minutes = Math.round(ms / 60_000);
-  if (minutes < 1) {
-    return "less than a minute";
-  }
-  if (minutes < 60) {
-    return `${minutes} min`;
-  }
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
 function iso(at: number): string | null {

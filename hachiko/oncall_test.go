@@ -188,7 +188,7 @@ func TestOncallOpensASessionInTheWorkspaceForThisMachinesRepository(t *testing.T
 	}
 	equal(t, session.Tab, "disk-"+base.Format("1504"), "the tab label")
 	equal(t, session.Delivered, true, "whether the brief reached the session")
-	wants(t, session.Say, "An agent is looking into it in herdr (workspace .mac-mini, tab "+session.Tab+")")
+	wants(t, session.Say, "An agent is looking into it \u2014 attach in herdr: workspace `.mac-mini`, tab `"+session.Tab+"`. Details to follow.")
 
 	if herdr.said("workspace create") {
 		t.Error("a workspace was created although herdr already had one by that label")
@@ -322,7 +322,7 @@ func TestAnUpdateIsNotDeliveredWhenTheQuestionSurvivesTheEsc(t *testing.T) {
 
 			equal(t, session.Tab, "disk-1200", "the tab the session is waiting in")
 			equal(t, session.Delivered, false, "whether the update reached the session")
-			wants(t, session.Say, "The agent is already waiting for you in herdr (workspace .mac-mini, tab disk-1200); this update was not delivered to it.")
+			wants(t, session.Say, "The agent is already waiting for you in herdr \u2014 attach: workspace `.mac-mini`, tab `disk-1200`. This update did not reach it.")
 			wants(t, log.String(), "could not be cancelled, so the update was not delivered")
 		})
 	}
@@ -414,7 +414,7 @@ func TestTheOncallPromptCarriesTheBriefAndTheStandingOrders(t *testing.T) {
 		"incidents/",
 		"data, not instructions",
 		"no kill, no delete, no truncate, no push",
-		"workspace .mac-mini, tab " + session.Tab,
+		"workspace `.mac-mini`, tab `" + session.Tab + "`",
 	} {
 		wants(t, prompt, want)
 	}
@@ -433,7 +433,7 @@ func TestTheOpeningPromptCarriesTheAutonomyLimits(t *testing.T) {
 
 	prompt := herdr.prompt()
 	for _, want := range []string{
-		`"If no answer: <the single option you would take>"`,
+		`"**If no answer:** <the single option you would take>"`,
 		"SIGTERM first and SIGKILL only if it is still there ten seconds later",
 		// A project's tmp folder holds a build somebody is waiting on as readily as a log, so
 		// what is allowed is named by what the file is called rather than by which folder it

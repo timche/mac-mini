@@ -81,10 +81,10 @@ func TestAReminderGoesOutAtAnHourAndOnlyOnce(t *testing.T) {
 	wants(t, out, "reminded about disk-")
 	equal(t, f.sentCount(), 2, "messages sent once the reminder is due")
 
-	wants(t, f.lastSent(), "is still waiting for you after 0h12m")
-	wants(t, f.lastSent(), "still waiting for you in herdr (workspace .mac-mini, tab disk-0000)")
+	wants(t, f.lastSent(), "\u26a0\ufe0f Still no answer on the disk incident after 12 minutes")
+	wants(t, f.lastSent(), "Answer in herdr: workspace `.mac-mini`, tab `disk-0000`.")
 	// Re-measured this run rather than quoted from the question.
-	wants(t, f.lastSent(), "Now on mac-mini: 500.0 GB free")
+	wants(t, f.lastSent(), "**Now:** 500 GB free")
 
 	// Never twice, however many checks go by.
 	for at := 600 + remindAt + 300; at < 600+warnAt; at += 300 {
@@ -103,9 +103,13 @@ func TestTheWarningQuotesTheOptionTheSessionWouldFallBackOn(t *testing.T) {
 	wants(t, out, "from the handover")
 	equal(t, f.sentCount(), 3, "messages sent once the warning is due")
 
-	wants(t, f.lastSent(), "In 0h03m the agent will decide and act on its own")
-	wants(t, f.lastSent(), "If no answer: stop pid 4242 and empty the log")
-	wants(t, f.lastSent(), "Now on mac-mini: 500.0 GB free")
+	wants(t, f.lastSent(), "\u26a0\ufe0f No answer on the disk incident \u2014 the agent decides in 3 minutes")
+	wants(t, f.lastSent(), "\n**If no answer:** stop pid 4242 and empty the log\n")
+
+	// And the line hachiko parses a session's own option out of still parses, which is the
+	// whole of why it is a line of its own.
+	equal(t, fallbackOption(f.lastSent()), "stop pid 4242 and empty the log", "the option read back")
+	wants(t, f.lastSent(), "**Now:** 500 GB free")
 
 	lacks(t, f.at(600+warnAt+60).sweep(), "from the handover")
 	equal(t, f.sentCount(), 3, "messages sent after the warning")
@@ -126,13 +130,13 @@ func TestTheDecisionIsHandedOverAtTheDeadlineAndOnlyOnce(t *testing.T) {
 	equal(t, f.sentCount(), 3, "messages sent by hachiko for the handover itself")
 
 	handover := f.lastInterrupt()
-	wants(t, handover, "Tim has not answered for 0h36m")
+	wants(t, handover, "Tim has not answered for 36 minutes")
 	wants(t, handover, "least destructive option that resolves it")
 	wants(t, handover, "Spawn the oncall-partner agent")
 	wants(t, handover, "Re-check the situation from scratch")
 	wants(t, handover, "hachiko notify disk-")
 	wants(t, handover, "What you said you would do if nobody answered: stop pid 4242 and empty the log")
-	wants(t, handover, "Now on mac-mini: 500.0 GB free")
+	wants(t, handover, "**Now:** 500 GB free")
 
 	// Once per incident. The agent is working on what it was handed, and a second
 	// handover would be a second decision on one question.
@@ -196,7 +200,7 @@ func TestAnAgentWorkingForEverStillGetsTheWholeTimeline(t *testing.T) {
 	// an esc to an agent that is not on a question takes away whatever it has started.
 	equal(t, len(f.interrupts), 0, "questions cancelled")
 	equal(t, len(f.prompts), 1, "prompts sent on their own")
-	wants(t, f.lastPrompt(), "Tim has not answered for 0h36m")
+	wants(t, f.lastPrompt(), "Tim has not answered for 36 minutes")
 	equal(t, contains(f.state().Waiting["disk"].Steps, stepHandover), true, "whether the handover is recorded")
 }
 
@@ -250,7 +254,7 @@ func TestASilentUnblockKeepsTheTimeline(t *testing.T) {
 	wants(t, out, "handed the decision on disk-")
 	equal(t, len(f.interrupts), 0, "questions cancelled")
 	equal(t, len(f.prompts), 1, "prompts sent on their own")
-	wants(t, f.lastPrompt(), "Tim has not answered for 0h36m")
+	wants(t, f.lastPrompt(), "Tim has not answered for 36 minutes")
 }
 
 // The pause an unblock gets is for an unblock hachiko did not cause. One it caused itself is
@@ -380,7 +384,7 @@ func TestASecondReportThatIsNotTheOutcomeKeepsTheTimelineAndTheDefault(t *testin
 	wants(t, f.at(600+remindAt).sweep(), "reminded about "+incident)
 	out = f.at(600 + warnAt).sweep()
 	wants(t, out, "from the handover")
-	wants(t, f.lastSent(), "If no answer: stop pid 4242 and empty the log")
+	wants(t, f.lastSent(), "**If no answer:** stop pid 4242 and empty the log")
 
 	wants(t, f.at(600+handoverAt).sweep(), "handed the decision on "+incident)
 }
@@ -430,9 +434,9 @@ func TestASessionClosedBeforeTheDeadlineGetsAMessageSayingNothingWasDone(t *test
 	out := f.at(600 + handoverAt).sweep()
 	wants(t, out, "has no on-call agent left after 0h36m")
 	equal(t, f.sentCount(), 2, "messages sent once the deadline passed with no agent")
-	wants(t, f.lastSent(), "no on-call agent left to decide")
-	wants(t, f.lastSent(), "nothing was done about it")
-	wants(t, f.lastSent(), "Now on mac-mini: 500.0 GB free")
+	wants(t, f.lastSent(), "\U0001f534 No answer on the disk incident, and no agent left to decide")
+	wants(t, f.lastSent(), "**Why:** the session is closed, so nothing was done about it")
+	wants(t, f.lastSent(), "**Now:** 500 GB free")
 
 	equal(t, len(f.interrupts), 0, "questions cancelled with no agent")
 	equal(t, len(f.state().Waiting), 0, "waits still being counted")
@@ -493,7 +497,7 @@ func TestATriggerThatHasClearedReachesTheAgentOnce(t *testing.T) {
 	wants(t, prompt, "hachiko notify --outcome <incident> <file>")
 	wants(t, prompt, "that it stopped by itself")
 	// The number is in the data, below the fence, and not in the lead.
-	wants(t, prompt, "Nothing is growing fast any more, and free space is over every threshold at 500.0 GB.")
+	wants(t, prompt, "Nothing is growing fast any more, and free space is back over every mark at 500 GB.")
 
 	// Once per incident: a quiet Mac is every check after this one, and nothing of hachiko's
 	// own goes to the channel about it — the session's message is what says what happened.
@@ -574,7 +578,7 @@ func TestACPUTriggerThatHasClearedReachesTheAgent(t *testing.T) {
 	wants(t, out, "what fired this incident is no longer firing")
 	equal(t, len(f.interrupts), 1, "questions cancelled")
 	wants(t, f.lastInterrupt(), "Check for yourself whether it has really resolved")
-	wants(t, f.lastInterrupt(), "Nothing is over the CPU threshold any more")
+	wants(t, f.lastInterrupt(), "Nothing is using much CPU any more")
 }
 
 // A system process is one the session may only recommend stopping, handover or not, so the
@@ -608,7 +612,7 @@ func TestASystemProcessIncidentHandsOverOnceAndThenGoesQuiet(t *testing.T) {
 
 	wants(t, keepHot(start+remindAt), "reminded about "+incident)
 	wants(t, keepHot(start+warnAt), "from the handover")
-	wants(t, f.lastSent(), "If no answer: leave dasd alone, it needs sudo")
+	wants(t, f.lastSent(), "**If no answer:** leave dasd alone, it needs sudo")
 
 	out := keepHot(start + handoverAt)
 	wants(t, out, "handed the decision on "+incident)
@@ -755,11 +759,11 @@ func TestWhatCountsAsTheIncidentHavingMoved(t *testing.T) {
 
 	crossed := same
 	crossed.level = 20
-	wants(t, materialChange(asked, crossed).why, "free space crossed the 20 GB threshold")
+	wants(t, materialChange(asked, crossed).why, "free space crossed the 20 GB mark")
 
 	recovered := same
 	recovered.level = 0
-	wants(t, materialChange(asked, recovered).why, "free space is back over every threshold")
+	wants(t, materialChange(asked, recovered).why, "free space is back over every mark")
 
 	// Hachiko's own words in the reason, which goes above the fence, and the name in the
 	// detail, which goes inside it.
@@ -1047,7 +1051,7 @@ func TestAQuarterOfTheFreeSpaceGoingHandsOverEarly(t *testing.T) {
 	out := f.at(600 + remindAt).sweep()
 
 	wants(t, out, "handed the decision on disk-")
-	wants(t, out, "GB of the 500.0 GB free when the question was asked is already gone")
+	wants(t, out, "of the 500 GB free when the question was asked is already gone")
 	equal(t, len(f.interrupts), 1, "questions cancelled")
 }
 
@@ -1128,7 +1132,7 @@ func TestAnEscThatLandedWithoutItsPromptIsRetriedAsThePromptAlone(t *testing.T) 
 	equal(t, len(f.prompts), 1, "prompts sent on their own")
 	wants(t, f.lastPrompt(), "Tim has not answered for")
 	// This minute's numbers rather than the ones the attempt that failed carried.
-	wants(t, f.lastPrompt(), "Now on mac-mini: 500.0 GB free")
+	wants(t, f.lastPrompt(), "**Now:** 500 GB free")
 	wants(t, f.lastPrompt(), "hachiko notify disk-")
 
 	// Nothing is owing any more, the handover counts as made so it does not go twice, and
@@ -1203,10 +1207,10 @@ func TestAHandoverThatReachesNobodySaysSoInTheChannel(t *testing.T) {
 	wants(t, out, "could not be handed to the disk on-call agent")
 	wants(t, out, "said in the channel that the decision on disk-")
 	equal(t, f.sentCount(), 4, "messages sent once the handover reached nobody")
-	wants(t, f.lastSent(), "could not be handed to the disk on-call agent")
-	wants(t, f.lastSent(), "its question could not be cancelled, so nothing was prompted")
+	wants(t, f.lastSent(), "\U0001f534 The decision on the disk incident reached no agent")
+	wants(t, f.lastSent(), "**Why:** its question could not be cancelled, so nothing was prompted")
 	wants(t, f.lastSent(), "Nothing has acted on it")
-	wants(t, f.lastSent(), "Now on mac-mini: 500.0 GB free")
+	wants(t, f.lastSent(), "**Now:** 500 GB free")
 
 	// One line, however many checks go on failing.
 	lacks(t, f.at(600+handoverAt+300).sweep(), "said in the channel")
@@ -1243,9 +1247,9 @@ func TestAWaitEndingWithNoOutcomeSaysSoInTheChannel(t *testing.T) {
 
 	wants(t, out, "nothing reported the outcome of disk-")
 	equal(t, f.sentCount(), 4, "messages sent once the wait ended with nothing")
-	wants(t, f.lastSent(), "No outcome was reported on disk-")
-	wants(t, f.lastSent(), "gone quiet without sending")
-	wants(t, f.lastSent(), "Now on mac-mini: 500.0 GB free")
+	wants(t, f.lastSent(), "\u26a0\ufe0f No outcome reported on the disk incident")
+	wants(t, f.lastSent(), "**Why:** the agent was handed the decision and went quiet without reporting an outcome")
+	wants(t, f.lastSent(), "**Now:** 500 GB free")
 	equal(t, len(f.state().Waiting), 0, "waits still being counted")
 
 	// Said once, and the wait is not counted again afterwards.
@@ -1266,8 +1270,8 @@ func TestASessionClosedAfterTheHandoverSaysNothingReportedAnOutcome(t *testing.T
 
 	wants(t, out, "has since been closed without reporting an outcome")
 	equal(t, f.sentCount(), 4, "messages sent once the session went")
-	wants(t, f.lastSent(), "No outcome was reported on disk-")
-	wants(t, f.lastSent(), "has since been closed")
+	wants(t, f.lastSent(), "\u26a0\ufe0f No outcome reported on the disk incident")
+	wants(t, f.lastSent(), "**Why:** the session was handed the decision and has since been closed")
 	equal(t, len(f.state().Waiting), 0, "waits still being counted")
 }
 
@@ -1363,7 +1367,7 @@ func TestARepeatedlyFailingEscIsCappedUntilTheAgentMoves(t *testing.T) {
 
 	// Tim was told once, and the wait is still there to act on when herdr comes back.
 	equal(t, f.sentCount(), 4, "messages Tim had")
-	wants(t, f.lastSent(), "could not be handed to the disk on-call agent")
+	wants(t, f.lastSent(), "\U0001f534 The decision on the disk incident reached no agent")
 
 	// And the agent leaving its question is what spends the cap: there is nothing left for an
 	// esc to take away, so the decision goes as a prompt and the count resets. After the
@@ -1438,10 +1442,11 @@ func TestHerdrNotAnsweringForLongEnoughSaysNothingIsBeingWorked(t *testing.T) {
 	equal(t, len(f.state().Waiting), 0, "waits still being counted")
 
 	equal(t, f.sentCount(), 2, "messages sent once herdr had been down long enough")
-	wants(t, f.lastSent(), "The disk on-call session cannot be reached on "+incident)
-	wants(t, f.lastSent(), "herdr has not answered for 0h10m")
-	wants(t, f.lastSent(), "nothing is being worked and nothing can be handed to it")
-	wants(t, f.lastSent(), "Now on mac-mini: 500.0 GB free")
+	wants(t, f.lastSent(), "\U0001f534 Cannot reach the on-call session on the disk incident")
+	wants(t, f.lastSent(), "-# Incident "+incident)
+	wants(t, f.lastSent(), "**Why:** herdr has not answered for 10 minutes")
+	wants(t, f.lastSent(), "Nothing is being worked and nothing can be handed to it.")
+	wants(t, f.lastSent(), "**Now:** 500 GB free")
 
 	// Said once: the wait is gone, so there is nothing left to say it about.
 	equal(t, f.at(1800).sweep(), "", "the log after the wait ended")
@@ -1536,7 +1541,7 @@ func TestTheNightOfTheHandoverThatWentNowhereNowHandsOver(t *testing.T) {
 
 	wants(t, out, "nothing reported the outcome of "+incident)
 	equal(t, f.sentCount(), 5, "messages Tim had in all")
-	wants(t, f.lastSent(), "No outcome was reported on "+incident)
+	wants(t, f.lastSent(), "-# Incident "+incident)
 	equal(t, len(f.state().Waiting), 0, "waits still being counted")
 }
 

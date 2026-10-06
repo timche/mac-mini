@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -213,7 +214,7 @@ func TestTheCheckInCarriesTheHostTheReadingAndTheToken(t *testing.T) {
 	server := newSwitchServer(t)
 
 	state, line := switchAt(t, server, "deadbeef\n", 0o600).
-		send(Checkin{FreeGB: 787, OpenIncidents: 0, HotProcesses: 2})
+		send(Checkin{FreeGB: 787, OpenIncidents: 0, HotProcesses: 2, Display: "Mac mini"})
 
 	equal(t, state, checkinSent, "the switch state")
 	equal(t, line, "", "the line logged")
@@ -225,6 +226,51 @@ func TestTheCheckInCarriesTheHostTheReadingAndTheToken(t *testing.T) {
 	equal(t, server.bodies[0]["host"], "mac-mini", "the host")
 	equal(t, server.bodies[0]["free_gb"], 787.0, "the free space")
 	equal(t, server.bodies[0]["hot_processes"], 2.0, "the hot processes")
+	// shibuya writes the message about a Mac it cannot reach, so what to call this one has to
+	// travel with the check-in; without it shibuya falls back to the host slug.
+	equal(t, server.bodies[0]["display"], "Mac mini", "the display name")
+}
+
+// A display name that is not there, or that cleans away to nothing, is left out of the body
+// altogether: shibuya reads an absent one as "use the slug", and a key holding an empty
+// string says the same thing less clearly.
+func TestACheckInWithNoDisplayNameOmitsTheField(t *testing.T) {
+	server := newSwitchServer(t)
+	client := switchAt(t, server, "deadbeef", 0o600)
+
+	for _, display := range []string{"", "   ", "\x00\x01"} {
+		client.send(Checkin{FreeGB: 787, Display: display})
+
+		body := server.bodies[len(server.bodies)-1]
+		if _, ok := body["display"]; ok {
+			equal(t, body["display"], nil, "the display sent for "+strconv.Quote(display))
+		}
+	}
+}
+
+// What travels is what arrives: shibuya cuts a display name to forty characters, so hachiko
+// does too rather than sending one it knows will be cut.
+func TestALongDisplayNameIsCutToWhatShibuyaKeeps(t *testing.T) {
+	server := newSwitchServer(t)
+
+	switchAt(t, server, "deadbeef", 0o600).
+		send(Checkin{Display: strings.Repeat("m", 60)})
+
+	display, _ := server.bodies[0]["display"].(string)
+	if len(display) > 40 {
+		t.Errorf("a display name of %d characters: %q", len(display), display)
+	}
+}
+
+// The name is the one the Mac is configured with and not the hostname: "mac-mini" is the
+// router's spelling, and shibuya's post title is read by a person.
+func TestTheSweepSendsTheConfiguredDisplayName(t *testing.T) {
+	f := newFixture(t)
+	f.cfg.Display = "Mac mini"
+	f.at(0).sweep()
+
+	equal(t, len(f.checkins), 1, "check-ins")
+	equal(t, f.checkins[0].Display, "Mac mini", "the display name the sweep reported")
 }
 
 func TestAFailedSweepGoesToFailWithItsReason(t *testing.T) {

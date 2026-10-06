@@ -30,16 +30,18 @@ func TestNewIncidentOpensTheSessionThenSendsOneShortMessage(t *testing.T) {
 	out := f.at(300).sweep()
 
 	wants(t, out, "growing fast: "+path)
-	wants(t, out, "written by 4242 (fake-worker)")
+	wants(t, out, "written by fake-worker (pid 4242)")
 
 	equal(t, f.oncallCalls, 1, "sessions opened")
 	equal(t, f.oncallName, "disk", "the session's name")
 	equal(t, f.sentCount(), 1, "messages sent")
 
-	wants(t, f.lastSent(), "Disk: "+path+" growing")
-	wants(t, f.lastSent(), "An agent is looking into it in herdr (workspace .mac-mini, tab disk-0000); details to follow.")
-	// The short message is a headline; the detail is the session's to report.
-	lacks(t, f.lastSent(), "fake-worker")
+	wants(t, f.lastSent(), "\U0001f4be Disk filling: worker.log is growing fast")
+	wants(t, f.lastSent(), "**Growing fast:**\n- `"+path+"`")
+	wants(t, f.lastSent(), "An agent is looking into it — attach in herdr: workspace `.mac-mini`, tab `disk-0000`. Details to follow.")
+	wants(t, f.lastSent(), "-# Incident disk-")
+	// The lead is the whole of the headline, and a headline carries no incident id.
+	lacks(t, strings.SplitN(f.lastSent(), "\n", 2)[0], "disk-0000")
 
 	wants(t, f.oncallBrief, "hachiko notify disk-")
 	wants(t, f.oncallBrief, "fake-worker")
@@ -114,8 +116,9 @@ func TestASessionThatNeverReportsGetsTheRawDetailsAfterTheDeadline(t *testing.T)
 	wants(t, out, "has not reported on disk-")
 
 	equal(t, f.sentCount(), 2, "messages sent")
-	wants(t, f.lastSent(), "The on-call agent has not reported after 10 minutes")
-	wants(t, f.lastSent(), "written by 4242 (fake-worker)")
+	wants(t, f.lastSent(), "\u26a0\ufe0f No report from the agent on the disk incident after 10 minutes")
+	wants(t, f.lastSent(), "written by fake-worker (pid 4242)")
+	wants(t, f.lastSent(), "Attach in herdr: workspace `.mac-mini`, tab `disk-0000`.")
 	equal(t, len(f.state().Pending), 0, "pending incidents after the fallback")
 
 	equal(t, f.at(1200).sweep(), "", "the log after the fallback")
@@ -133,8 +136,8 @@ func TestASessionThatCannotBeOpenedGetsTheRawDetailsOnTheSameRun(t *testing.T) {
 
 	wants(t, out, "no on-call session was opened")
 	equal(t, f.sentCount(), 1, "messages sent")
-	wants(t, f.lastSent(), "On-call session could not start.")
-	wants(t, f.lastSent(), "written by 4242 (fake-worker)")
+	wants(t, f.lastSent(), "No on-call session could be started, so nothing is being worked on it.")
+	wants(t, f.lastSent(), "written by fake-worker (pid 4242)")
 	equal(t, len(f.state().Pending), 0, "pending incidents with no session")
 }
 
@@ -147,7 +150,8 @@ func TestLowSpaceAlertsOnceThenAgainUnderTheCriticalThresholdThenReportsTheRecov
 	f.freeGB = 90
 	wants(t, f.at(0).sweep(), "only 90.0 GB free, under the 100 GB threshold")
 	equal(t, f.sentCount(), 1, "messages sent")
-	wants(t, f.lastSent(), "Disk: only 90.0 GB free")
+	wants(t, f.lastSent(), "\U0001f4be Low disk space: 90 GB free")
+	wants(t, f.lastSent(), "**Free space:** 90 GB, under the 100 GB mark")
 
 	equal(t, f.at(300).sweep(), "", "the log while nothing changed")
 	equal(t, f.sentCount(), 1, "messages sent while nothing changed")
@@ -155,7 +159,8 @@ func TestLowSpaceAlertsOnceThenAgainUnderTheCriticalThresholdThenReportsTheRecov
 	f.freeGB = 15
 	wants(t, f.at(600).sweep(), "under the 20 GB threshold")
 	equal(t, f.sentCount(), 2, "messages sent after the escalation")
-	wants(t, f.lastSent(), "under the 20 GB threshold")
+	wants(t, f.lastSent(), "\U0001f534 Disk critical: 15 GB free")
+	wants(t, f.lastSent(), "**Free space:** 15 GB, under the 20 GB mark")
 
 	f.freeGB = 500
 	wants(t, f.at(900).sweep(), "free space is back over 100 GB")
@@ -186,7 +191,8 @@ func TestUnderTheCriticalThresholdTheFastestGrowingLogIsTruncatedAndNothingElse(
 		t.Error("a file that is not a log this may truncate was truncated")
 	}
 
-	wants(t, f.lastSent(), "truncated "+log)
+	wants(t, f.lastSent(), "**Emptied to keep the Mac going:** `"+log+"` — its writer was left running, so the space is back now")
+	wants(t, f.lastSent(), "Disk critical: 15 GB free, and worker.log was emptied")
 	wants(t, f.lastSent(), "An agent is looking into it")
 }
 
@@ -235,7 +241,7 @@ func TestADryRunReportsWhatItSeesAlertsNothingAndLeavesNoState(t *testing.T) {
 
 	out := f.dryRun()
 	wants(t, out, "would report 15.0 GB free, under the 20 GB threshold")
-	wants(t, out, "would open an on-call session as disk and send: Disk: only")
+	wants(t, out, "would open an on-call session as disk and send: \U0001f534 Disk critical: 15 GB free")
 	wants(t, out, "dry run over")
 
 	if _, err := os.Stat(filepath.Join(f.cfg.StateDir, "state.json")); err == nil {
@@ -271,7 +277,8 @@ func TestAProcessOverHalfACoreForTheWholeWindowAlertsOnceAndNotAgain(t *testing.
 	equal(t, f.oncallCalls, 1, "sessions opened")
 	equal(t, f.oncallName, "cpu", "the session's name")
 	equal(t, f.sentCount(), 1, "messages sent")
-	wants(t, f.lastSent(), "CPU: node pid 7018 at 80% of a core")
+	wants(t, f.lastSent(), "\U0001f525 node is busy: 80% of a core for 1 hour")
+	wants(t, f.lastSent(), "**Busy processes:**\n- node (pid 7018) — 80% of a core for 1 hour, 512 MB memory, started ")
 
 	f.proc(7018, 3360, firstStart, "/usr/local/bin/node worker.js")
 	equal(t, f.at(3900).sweep(), "", "the log on the next check")
@@ -360,14 +367,48 @@ func TestASystemProcessSaysWhatStoppingItWouldTakeUpFront(t *testing.T) {
 	}
 
 	equal(t, f.sentCount(), 1, "messages sent")
-	const note = "system process, owned by root: stopping it needs sudo, e.g. sudo kill 147 (launchd restarts most system daemons)"
+	const note = "**Needs you:** `sudo kill 147` \u2014 stopping a system process needs sudo, and launchd starts most daemons again."
 	wants(t, f.lastSent(), note)
-	wants(t, f.lastSent(), "CPU: dasd pid 147")
+	wants(t, f.lastSent(), "\U0001f525 dasd is busy: 80% of a core for 1 hour")
+	wants(t, f.lastSent(), "dasd (pid 147) \u2014 80% of a core for 1 hour, 512 MB memory, started ")
+	wants(t, f.lastSent(), "a system process owned by root")
 
 	// And in the brief, so the session knows before it writes a word that the fix it is
 	// about to recommend is not one it may take.
 	wants(t, f.oncallBrief, note)
 	equal(t, f.oncallName, "cpu", "the kind of session opened")
+}
+
+// A daemon the root helper will restart with no password is the one system process Tim can
+// deal with from his phone, so the message gives him that command rather than a sudo kill he
+// has to sit down and think about.
+func TestABusyDaemonTheRootHelperAllowsGivesTimTheOneCommand(t *testing.T) {
+	f := newFixture(t)
+	f.rootHelper("dasd")
+
+	for i := range 13 {
+		f.systemProc(147, float64(i)*240, firstStart, "/usr/libexec/dasd")
+		f.at(int64(i) * 300).sweep()
+	}
+
+	wants(t, f.lastSent(), "**You can run:** `sudo "+f.cfg.RootHelper+
+		" restart-daemon dasd` \u2014 it restarts the daemon with no password needed.")
+	lacks(t, f.lastSent(), "sudo kill")
+}
+
+// And a daemon that is not on the helper's list gets the honest fallback, never a command
+// the helper would refuse: the name is matched against that list and nothing looser.
+func TestABusyDaemonTheRootHelperDoesNotAllowGetsTheSudoKill(t *testing.T) {
+	f := newFixture(t)
+	f.rootHelper("dasd")
+
+	for i := range 13 {
+		f.systemProc(314, float64(i)*240, firstStart, "/usr/libexec/syslogd")
+		f.at(int64(i) * 300).sweep()
+	}
+
+	wants(t, f.lastSent(), "**Needs you:** `sudo kill 314`")
+	lacks(t, f.lastSent(), "restart-daemon")
 }
 
 // Nothing of this happens to a process of Tim's own, which the session may stop inside its
@@ -408,7 +449,7 @@ func TestADiskAndACPUIncidentInOneRunMakeOneMessageAndOneSession(t *testing.T) {
 	equal(t, f.oncallName, "disk", "the session's name")
 	equal(t, f.sentCount(), 1, "messages sent")
 	wants(t, f.oncallBrief, "worker.log")
-	wants(t, f.oncallBrief, "pid 7018 node")
+	wants(t, f.oncallBrief, "node (pid 7018)")
 }
 
 // hachiko is itself a process burning a core for a second every five minutes, and a
@@ -594,10 +635,10 @@ func TestAnUpdateASessionCannotBeHandedSendsTheWholeOfItAndWaitsOnNothing(t *tes
 	f.at(300).sweep()
 
 	equal(t, f.sentCount(), 1, "messages sent")
-	wants(t, f.lastSent(), "written by 4242 (fake-worker)")
-	wants(t, f.lastSent(), "this update was not delivered to it.")
-	lacks(t, f.lastSent(), "On-call session could not start.")
-	lacks(t, f.lastSent(), "details to follow")
+	wants(t, f.lastSent(), "written by fake-worker (pid 4242)")
+	wants(t, f.lastSent(), "This update did not reach it.")
+	lacks(t, f.lastSent(), "No on-call session could be started")
+	lacks(t, f.lastSent(), "Details to follow")
 
 	// Nothing is going to report, so nothing waits ten minutes to say so.
 	equal(t, len(f.state().Pending), 0, "pending incidents")
@@ -631,7 +672,7 @@ func TestATruncateOnALaterRunIsStillReported(t *testing.T) {
 
 	wants(t, out, "truncated "+log)
 	equal(t, f.sentCount(), before+1, "messages sent for the second truncate")
-	wants(t, f.lastSent(), "truncated "+log)
+	wants(t, f.lastSent(), "**Emptied to keep the Mac going:** `"+log+"`")
 	equal(t, size(t, log), int64(0), "the truncated log")
 }
 

@@ -59,7 +59,10 @@ type nowReading struct {
 	grewKB   int64
 	sizes    map[string]int64
 	writers  []string
-	report   string
+
+	// The detail sections as a message shows them, already labelled and bulleted: what was
+	// emptied, what is growing fast, what is busy, and what stopping it would take.
+	sections string
 
 	// Whether the span is one the check had to invent rather than one it measured, which is
 	// what a clock that moved looks like from here.
@@ -91,8 +94,14 @@ func (r nowReading) snapshot(now time.Time) Asked {
 	}
 }
 
-func (r nowReading) numbers(host string) string {
-	return fmt.Sprintf("Now on %s: %s GB free.%s", host, gbStr(r.free), r.report)
+// What the machine looks like this minute, which every message about an unanswered
+// question carries in place of the numbers the question was asked with.
+func (r nowReading) numbers() string {
+	now := "**" + labelNow + ":** " + gbUnit(r.free) + " free"
+	if r.level != 0 {
+		now += fmt.Sprintf(", under the %d GB mark", r.level)
+	}
+	return joinBlocks(now, r.sections)
 }
 
 // One `herdr agent get` per kind and no more, because there is one on-call agent per
@@ -216,7 +225,7 @@ func (s sweeper) settled(state *State, now time.Time, kind string, w Waiting, re
 	// wait stops being counted rather than being counted for ever.
 	if contains(w.Steps, stepHandover) && now.Sub(time.Unix(w.Settled, 0)) >= s.cfg.OncallDeadline {
 		if !s.sayNoOutcome(state, kind, w, reading,
-			fmt.Sprintf("The %s on-call agent was handed the decision and has gone quiet without sending `hachiko notify --outcome`", kind)) {
+			"the agent was handed the decision and went quiet without reporting an outcome") {
 			return w, true
 		}
 
@@ -329,9 +338,12 @@ func (s sweeper) escalate(state *State, now time.Time, kind string, w Waiting, r
 }
 
 func (s sweeper) remind(state *State, w Waiting, reading nowReading, waited time.Duration) Waiting {
-	message := fmt.Sprintf(`%s is still waiting for you after %s, and still waiting for you in herdr (workspace %s, tab %s).
-
-%s`, w.Incident, hmStr(waited), s.cfg.WorkspaceLabel(), w.Tab, reading.numbers(s.cfg.Host))
+	message := lead(markerDegraded, fmt.Sprintf("Still no answer on %s after %s",
+		incidentWords(kindOf(w.Incident)), durationPhrase(waited))).
+		block(reading.numbers()).
+		can(answerAction(s.cfg, w.Tab)).
+		about(w.Incident, s.cfg.Host).
+		String()
 
 	return s.step(state, w, stepRemind, message,
 		fmt.Sprintf("reminded about %s after %s", w.Incident, hmStr(waited)))
@@ -339,21 +351,24 @@ func (s sweeper) remind(state *State, w Waiting, reading nowReading, waited time
 
 // A quarter of an hour, which is long enough to answer from a phone and short enough
 // that it is not a second reminder.
+//
+// The `If no answer` line is a line of its own and stays one, because it is the line
+// fallbackOption reads a session's own option out of: anything that folded it into a
+// sentence would hand Tim an option chosen by whatever filled the disk.
 func (s sweeper) warn(state *State, w Waiting, reading nowReading, waited time.Duration) Waiting {
 	fallback := w.Default
 	if fallback == "" {
 		fallback = "the agent named no fallback option, so it will decide when it re-checks"
 	}
 
-	message := fmt.Sprintf(`No answer yet on %s after %s. In %s the agent will decide and act on its own, within its limits.
-
-If no answer: %s
-
-%s
-
-It is waiting for you in herdr (workspace %s, tab %s).`,
-		w.Incident, hmStr(waited), hmStr(s.cfg.HandoverAfter-s.cfg.WarnAfter), fallback,
-		reading.numbers(s.cfg.Host), s.cfg.WorkspaceLabel(), w.Tab)
+	message := lead(markerDegraded, fmt.Sprintf("No answer on %s — the agent decides in %s",
+		incidentWords(kindOf(w.Incident)), durationPhrase(s.cfg.HandoverAfter-s.cfg.WarnAfter))).
+		field(labelWaiting, durationPhrase(waited)).
+		field(labelFallback, fallback).
+		block(reading.numbers()).
+		can(answerAction(s.cfg, w.Tab)).
+		about(w.Incident, s.cfg.Host).
+		String()
 
 	return s.step(state, w, stepWarn, message,
 		fmt.Sprintf("warned that %s is %s from the handover", w.Incident, hmStr(s.cfg.HandoverAfter-waited)))
@@ -390,12 +405,13 @@ func (s sweeper) sayHandoverStuck(state *State, kind string, w Waiting, reading 
 		return w
 	}
 
-	message := fmt.Sprintf(`The decision on %s could not be handed to the %s on-call agent: %s. Nothing has acted on it, and hachiko tries again every five minutes.
-
-%s
-
-It is in herdr (workspace %s, tab %s).`,
-		w.Incident, kind, why, reading.numbers(s.cfg.Host), s.cfg.WorkspaceLabel(), w.Tab)
+	message := lead(markerDown, fmt.Sprintf("The decision on %s reached no agent", incidentWords(kind))).
+		field(labelWhy, why).
+		block(reading.numbers()).
+		can("Nothing has acted on it, and hachiko tries again every five minutes. "+
+			answerAction(s.cfg, w.Tab)).
+		about(w.Incident, s.cfg.Host).
+		String()
 
 	return s.step(state, w, stepStuck, message,
 		fmt.Sprintf("said in the channel that the decision on %s has reached nobody", w.Incident))
@@ -404,12 +420,13 @@ It is in herdr (workspace %s, tab %s).`,
 // And a wait that ends with nothing to show says so, for the same reason: the alternative is
 // a channel whose last word was a warning about a decision a quarter of an hour away.
 func (s sweeper) sayNoOutcome(state *State, kind string, w Waiting, reading nowReading, why string) bool {
-	message := fmt.Sprintf(`No outcome was reported on %s. %s, so hachiko has stopped waiting on it and does not know whether anything was done.
-
-%s
-
-Check the %s session in herdr (workspace %s, tab %s), or leave it to the next check to raise it again.`,
-		w.Incident, why, reading.numbers(s.cfg.Host), kind, s.cfg.WorkspaceLabel(), w.Tab)
+	message := lead(markerDegraded, fmt.Sprintf("No outcome reported on %s", incidentWords(kind))).
+		field(labelWhy, why).
+		block(reading.numbers()).
+		can("hachiko has stopped waiting and does not know whether anything was done. Check herdr: "+
+			herdrWhere(s.cfg, w.Tab)+", or leave it to the next check to raise it again.").
+		about(w.Incident, s.cfg.Host).
+		String()
 
 	if err := s.send(state, w.Incident, message); err != nil {
 		s.say("nothing reported the outcome of %s and the message saying so did not send either: %v", w.Incident, err)
@@ -424,14 +441,14 @@ Check the %s session in herdr (workspace %s, tab %s), or leave it to the next ch
 func (s sweeper) handOver(state *State, now time.Time, kind string, w Waiting, reading nowReading, worse string, blocked bool) Waiting {
 	waited := now.Sub(time.Unix(w.Since, 0))
 
-	lead := fmt.Sprintf(`Tim has not answered for %s, so the autonomy in your standing orders is handed over to you now. Re-check the situation from scratch first — the numbers below are this minute's, not the ones you asked about — then pick and carry out the least destructive option that resolves it, inside the limits those orders give you. Spawn the oncall-partner agent with your proposed action first and act only if it agrees. Verify it worked, send one message with what you did, why, which limit allowed it and what the partner said, write the incident note, and stop.`,
-		hmStr(waited))
+	promptLead := fmt.Sprintf(`Tim has not answered for %s, so the autonomy in your standing orders is handed over to you now. Re-check the situation from scratch first — the numbers below are this minute's, not the ones you asked about — then pick and carry out the least destructive option that resolves it, inside the limits those orders give you. Spawn the oncall-partner agent with your proposed action first and act only if it agrees. Verify it worked, send one message with what you did, why, which limit allowed it and what the partner said, write the incident note, and stop.`,
+		durationPhrase(waited))
 
 	if worse != "" {
-		lead = fmt.Sprintf(`The incident is getting worse rapidly: %s. Tim has not answered for %s, and the three-hour handover would come too late, so the autonomy in your standing orders is handed over to you now, early.
+		promptLead = fmt.Sprintf(`The incident is getting worse rapidly: %s. Tim has not answered for %s, and the three-hour handover would come too late, so the autonomy in your standing orders is handed over to you now, early.
 
 Re-check the situation from scratch — the numbers below are this minute's — and judge it yourself. If you agree that waiting costs more than acting, pick and carry out the least destructive option that resolves it, inside the limits those orders give you, with the oncall-partner agent's agreement first. If you judge instead that it is about to stop by itself or that acting costs more than the fault does, ask again with fresh options. Either way send one message saying which you chose and why.`,
-			worse, hmStr(waited))
+			worse, durationPhrase(waited))
 	}
 
 	// Early marks itself and the two messages it makes pointless, and leaves the deadline
@@ -442,7 +459,7 @@ Re-check the situation from scratch — the numbers below are this minute's — 
 		steps = []string{stepRemind, stepWarn, stepEarly}
 	}
 
-	escSent, err := s.hand(kind, blocked, lead, s.handoverData(w, reading))
+	escSent, err := s.hand(kind, blocked, promptLead, s.handoverData(w, reading))
 	if err != nil {
 		w = s.escFailed(kind, w, blocked)
 
@@ -452,7 +469,7 @@ Re-check the situation from scratch — the numbers below are this minute's — 
 			// Without this the esc was hachiko's and the record of it was nobody's — the agent
 			// left `blocked`, the wait read that as Tim answering, and the line below promising
 			// another try was never kept.
-			w.Owed, w.OwedSteps = lead, steps
+			w.Owed, w.OwedSteps = promptLead, steps
 			w.Nudged = now.Unix()
 			s.say("the decision on %s did not reach the %s on-call agent, but its question is already cancelled, so the next check sends the prompt alone: %v",
 				w.Incident, kind, err)
@@ -484,11 +501,11 @@ Re-check the situation from scratch — the numbers below are this minute's — 
 // esc and then the prompt when there is a question in the way, and the prompt alone when
 // there is not: the question is the only thing hachiko means to take away, and an esc to an
 // agent that is not on one cancels whatever it has started instead.
-func (s sweeper) hand(kind string, blocked bool, lead, data string) (escSent bool, err error) {
+func (s sweeper) hand(kind string, blocked bool, promptLead, data string) (escSent bool, err error) {
 	if !blocked {
-		return false, s.deps.Prompt(kind, lead, data)
+		return false, s.deps.Prompt(kind, promptLead, data)
 	}
-	return s.deps.Interrupt(kind, lead, data)
+	return s.deps.Interrupt(kind, promptLead, data)
 }
 
 // One more attempt that did not land, with the line saying nothing of the agent's will be
@@ -538,12 +555,12 @@ func (s sweeper) refresh(now time.Time, kind string, w Waiting, reading nowReadi
 	// The reason in hachiko's own words, because a lead is above the fence: which file and
 	// which writer is in the fenced data below it, where a name chosen by whatever filled
 	// the disk belongs.
-	lead := fmt.Sprintf(`The incident changed while you were waiting, so your question has been cancelled: %s. What changed is named in the data below, with this minute's numbers. Re-check the situation and ask again with options that fit what it is now. Tim has been waiting %s and the handover at %s is still counted from the first question, not from this one, so say in your question what you would do if he does not answer.`,
-		changed.why, hmStr(waited), hmStr(s.cfg.HandoverAfter))
+	promptLead := fmt.Sprintf(`The incident changed while you were waiting, so your question has been cancelled: %s. What changed is named in the data below, with this minute's numbers. Re-check the situation and ask again with options that fit what it is now. Tim has been waiting %s and the handover at %s is still counted from the first question, not from this one, so say in your question what you would do if he does not answer.`,
+		changed.why, durationPhrase(waited), durationPhrase(s.cfg.HandoverAfter))
 
 	if !blocked {
-		lead = fmt.Sprintf(`The incident changed while nobody was answering: %s. You have no question up, so nothing of yours was cancelled. What changed is named in the data below, with this minute's numbers. Ask again with options that fit what it is now. Tim has been waiting %s and the handover at %s is still counted from the first question, not from this one, so say in your question what you would do if he does not answer.`,
-			changed.why, hmStr(waited), hmStr(s.cfg.HandoverAfter))
+		promptLead = fmt.Sprintf(`The incident changed while nobody was answering: %s. You have no question up, so nothing of yours was cancelled. What changed is named in the data below, with this minute's numbers. Ask again with options that fit what it is now. Tim has been waiting %s and the handover at %s is still counted from the first question, not from this one, so say in your question what you would do if he does not answer.`,
+			changed.why, durationPhrase(waited), durationPhrase(s.cfg.HandoverAfter))
 	}
 
 	// An incident that has stopped by itself is not an incident to ask fresh options about:
@@ -555,18 +572,18 @@ func (s sweeper) refresh(now time.Time, kind string, w Waiting, reading nowReadi
 		if blocked {
 			cancelled = "Your question has been cancelled, since its options are about something that has stopped."
 		}
-		lead = fmt.Sprintf(`What fired this incident is no longer firing, by this minute's reading. %s Check for yourself whether it has really resolved — read the processes, the file and the free space again rather than taking that reading for it. If it has, send one message with `+"`hachiko notify --outcome <incident> <file>`"+` saying what happened and that it stopped by itself, write the incident note, and stop. If it has not, ask again with options that fit what it is now. Tim has been waiting %s.`,
-			cancelled, hmStr(waited))
+		promptLead = fmt.Sprintf(`What fired this incident is no longer firing, by this minute's reading. %s Check for yourself whether it has really resolved — read the processes, the file and the free space again rather than taking that reading for it. If it has, send one message with `+"`hachiko notify --outcome <incident> <file>`"+` saying what happened and that it stopped by itself, write the incident note, and stop. If it has not, ask again with options that fit what it is now. Tim has been waiting %s.`,
+			cancelled, durationPhrase(waited))
 	}
 
-	escSent, err := s.hand(kind, blocked, lead, changed.detail+"\n\n"+s.handoverData(w, reading))
+	escSent, err := s.hand(kind, blocked, promptLead, changed.detail+"\n\n"+s.handoverData(w, reading))
 	if err != nil {
 		w = s.escFailed(kind, w, blocked)
 
 		if escSent {
 			// The question is gone whether or not the prompt landed, so what it was measured
 			// against goes with it and the next check owes the prompt alone.
-			w.Owed, w.OwedSteps = lead, once(changed)
+			w.Owed, w.OwedSteps = promptLead, once(changed)
 			w.Asked = reading.snapshot(now)
 			w.Nudged = now.Unix()
 			s.say("%s changed while the %s on-call agent was waiting, and its question is cancelled but the prompt did not land, so the next check sends the prompt alone: %v",
@@ -632,12 +649,12 @@ func (s sweeper) unreachable(state *State, now time.Time, kind string, w Waiting
 		return w, false
 	}
 
-	message := fmt.Sprintf(`The %s on-call session cannot be reached on %s: herdr has not answered for %s, so nothing is being worked and nothing can be handed to it.
-
-%s
-
-Open a session on it yourself, or leave it to the next check to raise it again.`,
-		kind, w.Incident, hmStr(down), reading.numbers(s.cfg.Host))
+	message := lead(markerDown, fmt.Sprintf("Cannot reach the on-call session on %s", incidentWords(kind))).
+		field(labelWhy, fmt.Sprintf("herdr has not answered for %s", durationPhrase(down))).
+		block(reading.numbers()).
+		can("Nothing is being worked and nothing can be handed to it. Open a session on it yourself, or leave it to the next check to raise it again.").
+		about(w.Incident, s.cfg.Host).
+		String()
 
 	if err := s.send(state, w.Incident, message); err != nil {
 		s.say("herdr has not answered about %s for %s and the message saying so did not send either: %v",
@@ -668,7 +685,7 @@ func (s sweeper) noAgent(state *State, now time.Time, kind string, w Waiting, re
 	// the channel afterwards could work out for themselves.
 	if contains(w.Steps, stepHandover) {
 		if !s.sayNoOutcome(state, kind, w, reading,
-			fmt.Sprintf("The %s session was handed the decision and has since been closed", kind)) {
+			"the session was handed the decision and has since been closed") {
 			return
 		}
 		s.say("%s had its decision handed over and the %s session has since been closed without reporting an outcome",
@@ -680,12 +697,13 @@ func (s sweeper) noAgent(state *State, now time.Time, kind string, w Waiting, re
 		return
 	}
 
-	message := fmt.Sprintf(`No answer on %s after %s and no on-call agent left to decide: the %s session is closed, so nothing was done about it.
-
-%s
-
-Open a session on it yourself, or leave it to the next check to raise again.`,
-		w.Incident, hmStr(waited), kind, reading.numbers(s.cfg.Host))
+	message := lead(markerDown, fmt.Sprintf("No answer on %s, and no agent left to decide", incidentWords(kind))).
+		field(labelWaiting, durationPhrase(waited)).
+		field(labelWhy, "the session is closed, so nothing was done about it").
+		block(reading.numbers()).
+		can("Open a session on it yourself, or leave it to the next check to raise it again.").
+		about(w.Incident, s.cfg.Host).
+		String()
 
 	if err := s.send(state, w.Incident, message); err != nil {
 		s.say("%s has no on-call agent left and the message saying so did not send either: %v", w.Incident, err)
@@ -700,7 +718,7 @@ Open a session on it yourself, or leave it to the next check to raise again.`,
 // about. Fenced because a path and a command line are chosen by whatever filled the
 // disk, which is the one part of any prompt here an attacker writes.
 func (s sweeper) handoverData(w Waiting, reading nowReading) string {
-	data := reading.numbers(s.cfg.Host)
+	data := reading.numbers()
 
 	if w.Default != "" {
 		data += "\n\nWhat you said you would do if nobody answered: " + w.Default
@@ -772,8 +790,8 @@ func (s sweeper) worsening(w Waiting, reading nowReading, waited time.Duration, 
 	// so it needs no second opinion: the options in the question were written against that
 	// number, and by here they are about a different disk.
 	if quarter := w.Asked.FreeKB / 4; quarter > 0 && reading.free <= w.Asked.FreeKB-quarter {
-		return w, fmt.Sprintf("%s GB of the %s GB free when the question was asked is already gone",
-			gbStr(w.Asked.FreeKB-reading.free), gbStr(w.Asked.FreeKB))
+		return w, fmt.Sprintf("%s of the %s free when the question was asked is already gone",
+			gbUnit(w.Asked.FreeKB-reading.free), gbUnit(w.Asked.FreeKB))
 	}
 
 	// Whichever comes first, the handover that is already coming or an hour: past that
@@ -802,7 +820,7 @@ func (s sweeper) worsening(w Waiting, reading nowReading, waited time.Duration, 
 	}
 
 	return w, fmt.Sprintf("free space reaches %d GB in about %s at the rate it is going, which is sooner than the handover, and the check before this one said so too",
-		s.cfg.CriticalGB(), hmStr(until))
+		s.cfg.CriticalGB(), durationPhrase(until))
 }
 
 // How long until free space reaches the critical threshold, at the faster of the two
@@ -866,14 +884,14 @@ func materialChange(w Waiting, reading nowReading) change {
 	if reading.level != w.Asked.Level {
 		if reading.level == 0 {
 			return change{
-				why:    "free space is back over every threshold",
-				detail: fmt.Sprintf("Free space is back over every threshold, at %s GB.", gbStr(reading.free)),
+				why:    "free space is back over every mark",
+				detail: fmt.Sprintf("Free space is back over every mark, at %s.", gbUnit(reading.free)),
 			}
 		}
 		return change{
-			why: fmt.Sprintf("free space crossed the %d GB threshold", reading.level),
-			detail: fmt.Sprintf("Free space crossed the %d GB threshold and is now %s GB.",
-				reading.level, gbStr(reading.free)),
+			why: fmt.Sprintf("free space crossed the %d GB mark", reading.level),
+			detail: fmt.Sprintf("Free space crossed the %d GB mark and is now %s.",
+				reading.level, gbUnit(reading.free)),
 		}
 	}
 
@@ -888,8 +906,8 @@ func materialChange(w Waiting, reading nowReading) change {
 		if asked > 0 && reading.sizes[path] >= 2*asked {
 			return change{
 				why: "a file has at least doubled in size since the question was asked",
-				detail: fmt.Sprintf("This file has at least doubled since the question was asked, from %s GB to %s GB: %s",
-					gbStr(asked), gbStr(reading.sizes[path]), safe(path, pathLimit)),
+				detail: fmt.Sprintf("This file has at least doubled since the question was asked, from %s to %s: %s",
+					gbUnit(asked), gbUnit(reading.sizes[path]), safe(path, pathLimit)),
 			}
 		}
 	}

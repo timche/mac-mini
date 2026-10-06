@@ -116,10 +116,10 @@ func newListener(t *testing.T) *listenFixture {
 
 // Tim's own message, which is the only kind that counts.
 func (f *listenFixture) says(id, text string) {
-	f.messages = append(f.messages, message(id, text, timID, false))
+	f.messages = append(f.messages, posted(id, text, timID, false))
 }
 
-func message(id, text, author string, bot bool) discordMessage {
+func posted(id, text, author string, bot bool) discordMessage {
 	m := discordMessage{ID: id, Content: text}
 	m.Author.ID = author
 	m.Author.Bot = bot
@@ -187,10 +187,10 @@ func TestABareNumberIsReadAsTheOptionHePicked(t *testing.T) {
 func TestOnlyTimsOwnMessagesAreActedOn(t *testing.T) {
 	f := newListener(t)
 	f.messages = []discordMessage{
-		message("300000000000000001", "stop the worker", "111111111111111111", false),
-		message("300000000000000002", "No answer yet on "+diskIncident, "999999999999999999", true),
-		message("300000000000000003", "2", timID, true),
-		message("300000000000000004", "   ", timID, false),
+		posted("300000000000000001", "stop the worker", "111111111111111111", false),
+		posted("300000000000000002", "No answer yet on "+diskIncident, "999999999999999999", true),
+		posted("300000000000000003", "2", timID, true),
+		posted("300000000000000004", "   ", timID, false),
 	}
 
 	out := f.pass()

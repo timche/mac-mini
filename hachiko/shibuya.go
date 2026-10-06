@@ -34,6 +34,9 @@ type Checkin struct {
 	FreeGB        float64
 	OpenIncidents int
 	HotProcesses  int
+
+	// What shibuya calls this Mac in the message it writes when the check-ins stop.
+	Display string
 }
 
 // The state the log is keyed on, so a Mac with no token configured says so once rather than
@@ -95,6 +98,11 @@ func (s switchClient) post(target, token string, in Checkin) error {
 		"hot_processes":  in.HotProcesses,
 		"version":        buildVersion(),
 	}
+	// Left out rather than sent empty: shibuya reads an absent display as "use the slug",
+	// and a key whose value cleaned away to nothing says the same thing less clearly.
+	if display := safe(in.Display, displayLimit); display != "" {
+		body["display"] = display
+	}
 	if in.Failed {
 		path = "/fail"
 		body["reason"] = safe(in.Reason, reasonLimit)
@@ -132,6 +140,11 @@ func (s switchClient) post(target, token string, in Checkin) error {
 // characters of its own — so it is cut here too, and three of them are the ellipsis `safe`
 // adds, so what travels is what arrives rather than three characters more.
 const reasonLimit = 297
+
+// shibuya cuts a display name to forty characters, so this cuts it to thirty-seven and the
+// three `safe` adds are the ellipsis: what travels is what arrives, the same arithmetic the
+// reason above is cut by.
+const displayLimit = 37
 
 var errTokenPublic = errors.New("token is readable by more than this account")
 

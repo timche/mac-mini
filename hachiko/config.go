@@ -54,6 +54,11 @@ type Config struct {
 	CPUAllowPath string
 	EnvFile      string
 
+	// The installed root helper, read for the one list it holds: the daemons it will
+	// restart without a password. A message about a busy daemon on that list can name the
+	// command Tim runs instead of the sudo kill he has to think about.
+	RootHelper string
+
 	// The bot token and the approval secret, in a file of their own: `op run` fails outright
 	// on a reference it cannot resolve, so naming a field that does not exist yet beside the
 	// webhook would stop every alert rather than leaving one feature off. Passed only when
@@ -73,6 +78,12 @@ type Config struct {
 	Discord DiscordConfig
 
 	Host string
+
+	// What to call this Mac in a message somebody else writes. shibuya posts about a Mac it
+	// cannot reach and has only the check-in to go by, so the name goes with the check-in;
+	// without one it falls back to the host slug, which is the router's spelling rather than
+	// anybody's.
+	Display string
 }
 
 // LowGB and CriticalGB are what the log and the messages name the thresholds by,
@@ -135,6 +146,7 @@ func configFromEnv() Config {
 
 		CPUAllowPath: envString("HACHIKO_CPU_ALLOW", filepath.Join(home, ".config", "hachiko", "cpu-allow")),
 		EnvFile:      envFile,
+		RootHelper:   envString("HACHIKO_ROOT_HELPER", "/usr/local/libexec/claude-root"),
 		DiscordEnvFile: envString("HACHIKO_DISCORD_ENV_FILE",
 			filepath.Join(home, ".local", "bin", "hachiko.discord.env.op")),
 		SwitchConfig: envString("HACHIKO_SWITCH_CONFIG",
@@ -147,7 +159,8 @@ func configFromEnv() Config {
 		Discord: readDiscordConfig(envString("HACHIKO_DISCORD_CONFIG",
 			filepath.Join(home, ".config", "hachiko", "discord"))),
 
-		Host: host,
+		Host:    host,
+		Display: envString("HACHIKO_DISPLAY", "Mac mini"),
 	}
 }
 

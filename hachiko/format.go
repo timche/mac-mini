@@ -6,6 +6,11 @@ import (
 	"time"
 )
 
+// The numbers as the log and shibuya's JSON want them: a bare figure in a fixed unit, one
+// line per thing that happened, greppable and diffable. Nothing Tim is sent goes through
+// these — a message says "4.3 GB" and "1 hour 5 minutes", and message.go is where that
+// lives.
+
 func gbStr(kb int64) string { return fmt.Sprintf("%.1f", float64(kb)/gib) }
 
 // The same number gbStr prints, as a number: shibuya is handed it as JSON and writes the

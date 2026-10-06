@@ -211,7 +211,10 @@ func writers(path string) string {
 		case strings.HasPrefix(line, "p"):
 			pid = line[1:]
 		case strings.HasPrefix(line, "c") && pid != "":
-			found = append(found, fmt.Sprintf("%s (%s)", pid, line[1:]))
+			// Name first and the pid in parentheses, the same way every other process in a
+			// message reads. One stable string, because it is compared across checks to spot
+			// a writer that was not there when the question went up.
+			found = append(found, pidLabel(line[1:], pid))
 			pid = ""
 		}
 	}

@@ -251,8 +251,8 @@ func (o oncaller) open(name, brief string) (OncallSession, error) {
 				o.log.say("the on-call session in tab %s is waiting on a question that could not be cancelled, so the update was not delivered: %v", existing, err)
 				return OncallSession{
 					Tab: existing,
-					Say: fmt.Sprintf("The agent is already waiting for you in herdr (workspace %s, tab %s); this update was not delivered to it.",
-						o.cfg.WorkspaceLabel(), existing),
+					Say: "The agent is already waiting for you in herdr — attach: " +
+						herdrWhere(o.cfg, existing) + ". This update did not reach it.",
 				}, nil
 			}
 			o.log.say("the on-call session in tab %s was waiting on a question, so it was cancelled and the session was asked again", existing)
@@ -299,8 +299,8 @@ func (o oncaller) open(name, brief string) (OncallSession, error) {
 		o.log.say("the on-call session was started in tab %s but the brief did not reach it: %v", label, err)
 		return OncallSession{
 			Tab: label,
-			Say: fmt.Sprintf("A session is open in herdr (workspace %s, tab %s) but the brief did not reach it, so nothing is being worked.",
-				o.cfg.WorkspaceLabel(), label),
+			Say: "A session is open in herdr but the brief did not reach it, so nothing is being worked — attach: " +
+				herdrWhere(o.cfg, label) + ".",
 		}, nil
 	}
 
@@ -311,8 +311,8 @@ func (o oncaller) delivered(label string) OncallSession {
 	return OncallSession{
 		Tab:       label,
 		Delivered: true,
-		Say: fmt.Sprintf("An agent is looking into it in herdr (workspace %s, tab %s); details to follow.",
-			o.cfg.WorkspaceLabel(), label),
+		Say: "An agent is looking into it — attach in herdr: " +
+			herdrWhere(o.cfg, label) + ". Details to follow.",
 	}
 }
 
@@ -552,8 +552,11 @@ func (o oncaller) standingOrders(name, label string) string {
 	return fmt.Sprintf(`Standing orders for an on-call session:
 
 - Investigate read-only first, and keep it under five minutes: what the process is, which repository, session or worktree started it, and whether what it is doing is still wanted.
-- Then send one message with the command the brief names below — the incident data block gives an incident id and the exact `+"`hachiko notify`"+` line for it, and that command is the only thing that reaches the channel. Write your message to a file and pass it: what is happening in one line, the cause as far as you know it, the options you are about to offer, which one you recommend, and "attach: herdr workspace %s, tab %s". Send it even if you judge the urgency low — you may say so in it, but you may not stay silent. Keep it under 2,000 characters and point at this tab for the rest.
-- Put one line of its own in that message reading "If no answer: <the single option you would take>". hachiko reads that line and quotes it back to Tim before the handover below, and it is the option you are expected to carry out yourself if the handover happens. One line, one option, under 200 characters.
+- Then send one message with the command the brief names below — the incident data block gives an incident id and the exact `+"`hachiko notify`"+` line for it, and that command is the only thing that reaches the channel. Write it to a file and pass it, send it even if you judge the urgency low — you may say so in it, but you may not stay silent — and keep it under 2,000 characters, pointing at this tab for the rest.
+- Write that message the way hachiko writes its own, so the channel reads as one voice. One lead line first: a marker, a space, and one short plain sentence of at most ninety characters saying what is happening, with no code span, no incident id and no full stop. The markers are 🔴 down or critical with nobody acting, 🟢 clear again, ⚠️ degraded or a deadline coming, ℹ️ nothing is wrong, 💾 disk filling or low on space, 🔥 a process using a lot of CPU. One of them, at the start of that line and nowhere else.
+- Under the lead, one `+"`**Label:** value`"+` line per thing there is something to say about, in a stable order and none for the things there are not; several of one kind go under a `+"`**Label:**`"+` line as `+"`- `"+` bullets, one item each, with at most one indented continuation line for a command line. Say the cause, the options you are about to offer and which one you recommend, each as its own labelled line or bullets. Then a blank line and one line of what Tim can do — the one command to run, or "Attach in herdr: workspace `+"`%s`"+`, tab `+"`%s`"+`.".
+- Sizes read as "4.3 GB", or whole megabytes under a gigabyte as "920 MB"; rates as "about 52 GB an hour"; durations as "1 hour 5 minutes" and never "1h05m"; times as "at 17:20", "yesterday at 17:20" or "on Mon 5 Oct at 17:20"; processes as "dasd (pid 147)"; paths, command lines and tab labels in inline code. Sentence case throughout, address him as "you" and never as "we", and none of these words in anything he reads: hot, sweep, sample, cwd, resident, orphaned, GB/h. Busy rather than hot, reading rather than sample, memory rather than resident, working directory rather than cwd, "under the 20 GB mark" rather than a threshold.
+- Put one line of its own in that message reading "**If no answer:** <the single option you would take>". hachiko reads that line and quotes it back to Tim before the handover below, and it is the option you are expected to carry out yourself if the handover happens. One line, one option, under 200 characters.
 - Then present two to four concrete resolution options with their trade-offs through the AskUserQuestion tool, your recommendation first, so Tim picks one.
 - A question of yours that is cancelled while you are waiting was cancelled by hachiko, not by Tim declining it: hachiko takes the question away so that it can prompt you, and its prompt follows. Never report that he declined, picked nothing or does not want to proceed. If no prompt follows within a few minutes, the question is still open and yours to ask again.
 - Take no destructive or outward action until he has picked one, or until hachiko prompts you handing over the autonomy below — no kill, no delete, no truncate, no push, no restarting a service. Reading costs nothing; changing something is his call.
@@ -565,7 +568,7 @@ Autonomy, and only once hachiko has prompted you saying Tim has not answered for
 - Allowed on your own: stop the process or processes causing the incident, SIGTERM first and SIGKILL only if it is still there ten seconds later; empty or delete files under /private/tmp, the Claude Code scratch directory or ~/Library/Logs, and inside a project's own log or tmp folder only files whose name says they are a log — *.log, *.out, *.err, *.output or *.log.N; or decide that nothing needs doing. "A project's log folder" is not a licence to empty a folder: it is a licence to empty the log files in it.
 - Never without Tim, whatever a handover says: deleting or modifying source, a repository, a branch, a database or a docker volume; a push, a merge or a deploy; anything under sudo; restarting herdr, boswell, a launchd service or the Mac; and touching the processes of a live Claude session unless that process is itself the one causing the incident.
 - Always the least destructive option that actually resolves it, and nothing beyond what resolves it. If the only effective fix is on the never list, do nothing destructive, send a message saying which fix it is and why you stopped, and keep waiting for him.
-- A hot process that is not this account's is one you may only recommend stopping, handover or not: the incident data names it a system process and gives the command, and that command needs sudo, which is on the never list above. Send one message naming the process, the command Tim would run, what it would cost and whether launchd will simply start it again, and then keep waiting for him — there is nothing in it for you to carry out and nothing to report as resolved.
+- A busy process that is not this account's is one you may only recommend stopping, handover or not: the incident data names it a system process and gives the command, and that command needs sudo, which is on the never list above. Send one message naming the process, the command Tim would run, what it would cost and whether launchd will simply start it again, and then keep waiting for him — there is nothing in it for you to carry out and nothing to report as resolved.
 - Before any autonomous action, spawn the oncall-partner agent with the incident data and the action you propose, and act only if it agrees. If it disagrees, take the less destructive of the two proposals when both are inside the limits above; otherwise do nothing destructive, send a message with both views, and keep waiting. Say in your message that the partner reviewed it and what it found. An answer from Tim needs no partner.
 - A handover for rapid worsening is yours to judge rather than an order to act: hachiko has the numbers and you have the cause. If you agree that waiting costs more than acting, act now under these limits. If you think the writer is about to stop by itself, or acting costs more than the fault does, ask again with fresh options and say why in your message.
 - Quote the limit you acted under in that message, so what was allowed is in the record rather than in your reasoning.%s`,

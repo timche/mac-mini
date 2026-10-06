@@ -320,7 +320,7 @@ func webhookAnswered(err error, codes ...int) bool {
 // Discord caps a thread's name at 100 characters.
 func threadName(message string) string {
 	first, _, _ := strings.Cut(strings.TrimSpace(message), "\n")
-	name := safe(strings.TrimPrefix(first, "hachiko on "), 96)
+	name := safe(first, 96)
 	if strings.TrimSpace(name) == "" {
 		return "hachiko"
 	}
@@ -376,12 +376,41 @@ func withQuery(webhook, query string) string {
 	}
 }
 
+const truncatedTail = "[truncated — the rest is in the on-call tab in herdr]"
+
+// Discord takes 2,000 characters, and a message here is built of whole lines — so the cut
+// falls on a line boundary. A cut in the middle of a line leaves its inline code span open,
+// and Discord then renders everything after it as code, the tail saying it was truncated
+// included; it also loses the `-#` subtext without saying so. Cutting whole lines off the
+// end drops the subtext first, which is the one line Tim never acts on, and leaves every
+// line that is left exactly as it was written.
+//
+// A single line too long to keep whole — a session's own report rather than anything hachiko
+// writes — is cut and its backticks taken out, which is the one way to end a partial line
+// with nothing left open.
 func capMessage(message string) string {
 	message = strings.TrimRight(message, "\n")
 	if len(message) <= messageLimit {
 		return message
 	}
-	return message[:messageKeep] + "\n[truncated — the rest is in the on-call tab in herdr]"
+
+	var kept []string
+	room := messageKeep
+
+	for _, line := range strings.Split(message, "\n") {
+		if len(line)+1 > room {
+			if len(kept) == 0 {
+				// ToValidUTF8 because a byte count cuts a path's multi-byte character in
+				// half as readily as it cuts anything else.
+				kept = append(kept, strings.ToValidUTF8(strings.ReplaceAll(line[:room], "`", ""), ""))
+			}
+			break
+		}
+		kept = append(kept, line)
+		room -= len(line) + 1
+	}
+
+	return strings.TrimRight(strings.Join(kept, "\n"), "\n") + "\n" + truncatedTail
 }
 
 // net/http names the URL it failed on, and an alert that could not be sent is logged

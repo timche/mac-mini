@@ -55,6 +55,23 @@ type fixture struct {
 	cutShort bool
 	skipped  []string
 
+	// Sizes the walk reports with no bytes behind them, for a test about what a message
+	// says rather than about what the walk finds: a message that names 4.3 GB is one no
+	// test could write 4.3 GB to prove.
+	claimed []FileSize
+
+	// A claimed file that gains claimStep on every check, which is what keepGrowing does for
+	// a real one: an incident that has stopped is a trigger that has cleared, and that is
+	// news of its own.
+	keepClaiming string
+	claimStep    int64
+	claimedKB    int64
+
+	// A truncate that is recorded and not carried out, for a test whose paths are the real
+	// machine's rather than the temporary home's: emptying /private/tmp/devbackend.log to
+	// read a message back would empty the Mac's own file.
+	noTruncate bool
+
 	cwd       map[int]string
 	writer    string
 	allowlist string
@@ -154,7 +171,7 @@ func newFixture(t *testing.T) *fixture {
 		// that is a test of its own.
 		uid:    accountUID,
 		cwd:    map[int]string{},
-		writer: "4242 (fake-worker)",
+		writer: "fake-worker (pid 4242)",
 		// Nothing is waiting on a question until a test says so, which is what every
 		// check written before the wait existed assumes.
 		status: map[string]string{},
@@ -178,8 +195,10 @@ func (f *fixture) deps() Deps {
 
 		Writers: func(string) string { return f.writer },
 		Truncate: func(path string) error {
-			if err := os.Truncate(path, 0); err != nil {
-				return err
+			if !f.noTruncate {
+				if err := os.Truncate(path, 0); err != nil {
+					return err
+				}
 			}
 			f.truncated = append(f.truncated, path)
 			return nil
@@ -205,14 +224,14 @@ func (f *fixture) deps() Deps {
 				// the update reached it.
 				return OncallSession{
 					Tab: name + "-0000",
-					Say: fmt.Sprintf("The agent is already waiting for you in herdr (workspace .mac-mini, tab %s-0000); this update was not delivered to it.", name),
+					Say: fmt.Sprintf("The agent is already waiting for you in herdr — attach: workspace `.mac-mini`, tab `%s-0000`. This update did not reach it.", name),
 				}, nil
 			}
 
 			session := OncallSession{
 				Tab:       name + "-0000",
 				Delivered: true,
-				Say:       fmt.Sprintf("An agent is looking into it in herdr (workspace .mac-mini, tab %s-0000); details to follow.", name),
+				Say:       fmt.Sprintf("An agent is looking into it — attach in herdr: workspace `.mac-mini`, tab `%s-0000`. Details to follow.", name),
 			}
 
 			// What the real oncaller does with an agent herdr would refuse a prompt to: the
@@ -298,6 +317,12 @@ func (f *fixture) bigFiles(skip []string) WalkResult {
 		}
 	}
 
+	if f.claimed != nil {
+		out.Files = append(out.Files, f.claimed...)
+		sort.Slice(out.Files, func(i, j int) bool { return out.Files[i].Path < out.Files[j].Path })
+		return out
+	}
+
 	for _, path := range f.watched {
 		info, err := os.Lstat(path)
 		if err != nil {
@@ -339,6 +364,52 @@ func (f *fixture) grow(rel string, kb int64) string {
 		f.watched = append(f.watched, path)
 	}
 	return path
+}
+
+// Whatever size the test wants the walk to report for a path. A relative one gets a real
+// empty file under the temporary home, so a truncate has something to open; an absolute one
+// is taken as written and nothing is created, which is for a test about what a message says
+// about /private/tmp rather than about what is on this disk.
+func (f *fixture) claim(rel string, kb int64) string {
+	f.t.Helper()
+
+	path := rel
+	if !filepath.IsAbs(rel) {
+		path = filepath.Join(f.cfg.Home, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			f.t.Fatal(err)
+		}
+		if err := os.WriteFile(path, nil, 0o644); err != nil {
+			f.t.Fatal(err)
+		}
+	}
+
+	for i, file := range f.claimed {
+		if file.Path == path {
+			f.claimed[i].KB = kb
+			return path
+		}
+	}
+	f.claimed = append(f.claimed, FileSize{Path: path, KB: kb})
+	return path
+}
+
+// A stand-in for the installed /usr/local/libexec/claude-root, in the shape the real one
+// writes its allowlist in, so the parsing is read off the file rather than described.
+func (f *fixture) rootHelper(daemons ...string) {
+	f.t.Helper()
+
+	body := "#!/bin/bash\nallowed_daemons=(\n"
+	for _, name := range daemons {
+		body += fmt.Sprintf("  %q\n", name+" com.apple."+name)
+	}
+	body += ")\n"
+
+	path := filepath.Join(f.cfg.Home, "claude-root")
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+		f.t.Fatal(err)
+	}
+	f.cfg.RootHelper = path
 }
 
 func (f *fixture) allow(lines string) {
@@ -400,6 +471,10 @@ func (f *fixture) sweep() string {
 	f.t.Helper()
 	if f.keepGrowing != "" {
 		f.grow(f.keepGrowing, f.keepKB)
+	}
+	if f.keepClaiming != "" {
+		f.claimedKB += f.claimStep
+		f.claim(f.keepClaiming, f.claimedKB)
 	}
 	f.log.Reset()
 

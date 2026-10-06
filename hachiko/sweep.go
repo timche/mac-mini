@@ -112,33 +112,9 @@ func (s sweeper) run() error {
 	// the threshold was already crossed, which is every run but the first.
 	truncated := disk.truncated != ""
 
-	headline := disk.headline
-	if headline == "" {
-		headline = cpu.headline
-	}
-	if headline == "" && lowNow {
-		headline = fmt.Sprintf("Disk: only %s GB free", gbStr(free))
-	}
-	if headline == "" && truncated {
-		headline = fmt.Sprintf("Disk: truncated %s, %s GB free", safe(disk.truncatedPath, pathLimit), gbStr(free))
-	}
-
-	// Under the headline as well as in the detail, because the two are alternatives: the
-	// first message carries one or the other, and this is the line that decides whether Tim
-	// reads it at breakfast or reads a thread about a decision nobody could take.
-	if headline != "" {
-		headline += cpu.sudo
-	}
-
 	newIncident := disk.fired || cpu.fired || lowNow || truncated
 
-	// The full detail, which the first message carries when it is urgent and the
-	// session's own report carries otherwise.
-	details := fmt.Sprintf("hachiko on %s: %s GB free", s.cfg.Host, gbStr(free))
-	if level != 0 {
-		details += fmt.Sprintf(", under the %d GB threshold", level)
-	}
-	details += "." + disk.report + cpu.report + disk.truncated + cpu.sudo
+	alert := s.alert(disk, cpu, free, level, lowNow, truncated)
 
 	// disk when anything about the disk fired, since that is the half with a deadline
 	// on it; the kind only decides which session the incident goes to, and one
@@ -153,7 +129,7 @@ func (s sweeper) run() error {
 			s.say("would report %s GB free, under the %d GB threshold", gbStr(free), level)
 		}
 		if newIncident {
-			s.say("would open an on-call session as %s and send: %s", kind, headline)
+			s.say("would open an on-call session as %s and send: %s", kind, alert.lead())
 		}
 		s.say("%s GB free, %d file(s) growing fast, %d over %s GB, %d process(es) hot of %d sampled, %d director(ies) skipped for not answering",
 			gbStr(free), len(disk.growing), len(disk.sizes), gbStr(s.cfg.BigKB), len(cpu.hot), cpu.sampled, len(disk.stalled))
@@ -179,7 +155,7 @@ func (s sweeper) run() error {
 
 	raised := false
 	if newIncident {
-		raised = s.raise(state, now, kind, headline, details, free, truncated)
+		raised = s.raise(state, now, kind, alert, free, truncated)
 	}
 
 	// Whether what fired an open incident is still firing. A reading where it is not is the
@@ -194,12 +170,12 @@ func (s sweeper) run() error {
 	// measured against is the files the question was asked about.
 	cleared := map[string]string{}
 	if level == 0 && !disk.cutShort && disk.report == "" && disk.truncated == "" {
-		cleared["disk"] = fmt.Sprintf("Nothing is growing fast any more, and free space is over every threshold at %s GB.",
-			gbStr(free))
+		cleared["disk"] = fmt.Sprintf("Nothing is growing fast any more, and free space is back over every mark at %s.",
+			gbUnit(free))
 	}
 	if cpu.read && cpu.report == "" {
-		cleared["cpu"] = fmt.Sprintf("Nothing is over the CPU threshold any more, across the %d processes this check sampled.",
-			cpu.sampled)
+		cleared["cpu"] = fmt.Sprintf("Nothing is using much CPU any more, out of the %s this check looked at.",
+			countOf(int64(cpu.sampled), "process", "processes"))
 	}
 
 	// This minute's numbers, which every message about a question nobody has answered
@@ -213,7 +189,7 @@ func (s sweeper) run() error {
 		grewKB:      disk.grewKB,
 		sizes:       disk.sizes,
 		writers:     disk.writers,
-		report:      disk.report + cpu.report + disk.truncated,
+		sections:    joinBlocks(disk.truncated, disk.report, cpu.report, cpu.sudo),
 		cleared:     cleared,
 		stalled:     disk.stalled,
 	}
@@ -287,6 +263,7 @@ func (s sweeper) checkIn(state *State, corrupt bool, disk diskFindings, cpu cpuF
 		FreeGB:        gbNum(free),
 		OpenIncidents: open,
 		HotProcesses:  len(cpu.hot),
+		Display:       s.cfg.Display,
 	}
 
 	if reasons := sweepFaults(corrupt, disk, cpu); len(reasons) > 0 {
@@ -362,21 +339,30 @@ func (s sweeper) rememberStalls(was []Stall, stalled, retried []string, now time
 }
 
 type diskFindings struct {
-	cutShort      bool
-	sizes         map[string]int64
-	growing       []Growing
-	stalled       []Stall
-	span          time.Duration
-	spanClamped   bool
-	grewKB        int64
-	writers       []string
+	cutShort    bool
+	sizes       map[string]int64
+	growing     []Growing
+	stalled     []Stall
+	span        time.Duration
+	spanClamped bool
+	grewKB      int64
+	writers     []string
+
+	// The `Growing fast` section, one bullet per file, and the `Emptied` line: built once
+	// here and read by the first alert, by every reminder and by the prompt that hands the
+	// decision over.
 	report        string
 	truncated     string
 	truncatedPath string
-	headline      string
-	fired         bool
-	stillGoing    []string
-	fresh         []string
+
+	// The file that fired first, which the lead names and which the short form of the
+	// first message carries on its own.
+	firstPath   string
+	firstBullet string
+
+	fired      bool
+	stillGoing []string
+	fresh      []string
 }
 
 func (s sweeper) disk(state *State, now time.Time, free int64) diskFindings {
@@ -427,13 +413,20 @@ func (s sweeper) disk(state *State, now time.Time, free int64) diskFindings {
 	sizes, growing := growth(state.Disk.Files, walk.Files, s.cfg.GrowthKB, had)
 	out.sizes, out.growing = sizes, growing
 
+	var bullets []string
 	for _, g := range growing {
 		// A path and an lsof command name are both chosen by whatever filled the disk,
 		// and both end up in a message Discord caps and in a prompt an agent reads.
 		writer := safe(s.deps.Writers(g.Path), writerLimit)
+		path := safe(g.Path, pathLimit)
+
 		line := fmt.Sprintf("%s — %s GB, grew %s GB since the last sample (%s GB/hour), written by %s",
-			safe(g.Path, pathLimit), gbStr(g.KB), gbStr(g.GrewKB), rateStr(g.GrewKB, span), writer)
-		out.report += "\n  " + line
+			path, gbStr(g.KB), gbStr(g.GrewKB), rateStr(g.GrewKB, span), writer)
+
+		bullet := fmt.Sprintf("%s — %s, up %s in %s (%s), written by %s",
+			codeSpan(path), gbUnit(g.KB), gbUnit(g.GrewKB), durationPhrase(span),
+			ratePhrase(g.GrewKB, span), writer)
+		bullets = append(bullets, bullet)
 
 		// Everything a projection and a stale question are read from: what the files
 		// hachiko can see are gaining between two samples, and who is holding them.
@@ -454,11 +447,11 @@ func (s sweeper) disk(state *State, now time.Time, free int64) diskFindings {
 
 		out.fired = true
 		out.fresh = append(out.fresh, g.Path)
-		if out.headline == "" {
-			out.headline = fmt.Sprintf("Disk: %s growing %s GB/h, %s GB free",
-				safe(g.Path, pathLimit), rateStr(g.GrewKB, span), gbStr(free))
+		if out.firstPath == "" {
+			out.firstPath, out.firstBullet = path, bullet
 		}
 	}
+	out.report = section(labelGrowing, bullets)
 
 	// The fastest grower or nothing: the biggest offender is the one worth a
 	// truncate, and a check that worked its way down the list would eventually reach
@@ -481,7 +474,8 @@ func (s sweeper) disk(state *State, now time.Time, free int64) diskFindings {
 				s.say("could not truncate %s: %v", safe(worst, pathLimit), err)
 			} else {
 				s.say("truncated %s to keep the disk alive; its writer was not touched", safe(worst, pathLimit))
-				out.truncated += "\n  truncated " + safe(worst, pathLimit)
+				out.truncated = "**" + labelEmptied + ":** " + codeSpan(safe(worst, pathLimit)) +
+					" — its writer was left running, so the space is back now"
 				out.truncatedPath = worst
 				// The size it is now, so the next check measures growth from the
 				// truncate rather than reporting a file that shrank.
@@ -501,12 +495,17 @@ type cpuFindings struct {
 	read    bool
 	hot     []Hot
 	sampled int
-	report  string
 
-	// The line naming what stopping a hot system process would take, which is a line about
-	// Tim rather than about the session.
+	// The `Busy processes` section, one bullet per process, and the bullet the short form
+	// of a first alert carries on its own.
+	report      string
+	firstBullet string
+
+	// The line naming what stopping a busy system process would take, which is a line about
+	// Tim rather than about the session: either the one command the root helper allows
+	// without a password, or the sudo kill that is his to decide on.
 	sudo       string
-	headline   string
+	sentence   string
 	fired      bool
 	stillGoing []string
 	fresh      []string
@@ -525,14 +524,22 @@ func (s sweeper) cpu(state *State, now time.Time) cpuFindings {
 	mine := ownTree(procs, s.deps.Getpid())
 	allowlist := readAllowlist(s.cfg.CPUAllowPath)
 
+	var bullets []string
 	for _, h := range hot {
 		p := h.Process
 		if mine[p.PID] || allowed(allowlist, p.Path(), p.Name()) {
 			continue
 		}
 
+		// A name taken out of a command line, which is the attacker's half of this.
+		name := safe(p.Name(), nameLimit)
+
 		line := fmt.Sprintf("pid %d %s — %.0f%% of a core for %s, up %s, %s MB resident, ppid %d",
 			p.PID, p.Name(), h.Share, hmStr(h.HotFor(now)), hmStr(now.Sub(p.StartedAt)), mbStr(p.RSSKB), p.PPID)
+
+		bullet := fmt.Sprintf("%s — %.0f%% of a core for %s, %s memory, started %s",
+			processLabel(name, p.PID), h.Share, durationPhrase(h.HotFor(now)),
+			gbUnit(p.RSSKB), timePhrase(p.StartedAt, now))
 
 		// Every daemon launchd starts has ppid 1, so a parent of launchd on its own says
 		// nothing: "orphaned" about root's dasd described how macOS starts daemons rather
@@ -541,31 +548,40 @@ func (s sweeper) cpu(state *State, now time.Time) cpuFindings {
 		system := p.UID != s.deps.Getuid()
 		if system {
 			line += ", system process owned by " + safe(p.Owner(), userLimit)
+			bullet += ", a system process owned by " + safe(p.Owner(), userLimit)
 		}
 
 		if cwd := s.deps.CWD(p.PID); cwd != "" {
 			line += ", cwd " + safe(cwd, pathLimit)
-			if where := repoOf(s.cfg, cwd); where != "" {
+			bullet += ", in " + codeSpan(safe(cwd, pathLimit))
+			// Built out of the path's own components, so it is as much the attacker's
+			// choosing as the path is.
+			if where := safe(repoOf(s.cfg, cwd), pathLimit); where != "" {
 				line += ", in " + where
+				bullet += " (" + where + ")"
 				// The shape that caused the incident this exists for: a worker whose
 				// session ended, reparented to launchd and still spending a core on
 				// work nobody wants. This account's and inside a checkout, both: those two
 				// together are what make a parent of launchd mean a session that is gone.
 				if p.PPID == 1 && !system {
 					line += " — left behind by the session that started it, which is gone"
+					bullet += " — left behind by the session that started it, which is gone"
 				}
 			}
 		}
 
 		line += "\n    " + safe(p.Command, argsLimit)
-		out.report += "\n  " + line
+
+		// The command line on a continuation line of its own: it is the longest thing in any
+		// of these and the one Tim scans rather than reads.
+		bullet += "\n  " + codeSpan(safe(p.Command, argsLimit))
+		bullets = append(bullets, bullet)
 
 		// What the session cannot do about it, said once and up front. sudo is on its never
 		// list, so a system process is one it may only recommend stopping — and the whole of
 		// the dasd night turned on a fix that needed Tim and a message that never said so.
 		if system && out.sudo == "" {
-			out.sudo = fmt.Sprintf("\n  system process, owned by %s: stopping it needs sudo, e.g. sudo kill %d (launchd restarts most system daemons)",
-				safe(p.Owner(), userLimit), p.PID)
+			out.sudo = s.stoppingIt(p)
 		}
 
 		key := p.Key()
@@ -581,13 +597,27 @@ func (s sweeper) cpu(state *State, now time.Time) cpuFindings {
 
 		out.fired = true
 		out.fresh = append(out.fresh, key)
-		if out.headline == "" {
-			out.headline = fmt.Sprintf("CPU: %s pid %d at %.0f%% of a core for %s",
-				p.Name(), p.PID, h.Share, hmStr(h.HotFor(now)))
+		if out.sentence == "" {
+			out.sentence = fmt.Sprintf("%s is busy: %.0f%% of a core for %s",
+				name, h.Share, durationPhrase(h.HotFor(now)))
+			out.firstBullet = bullet
 		}
 	}
+	out.report = section(labelBusy, bullets)
 
 	return out
+}
+
+// The one thing Tim can do about a process this account does not own. A daemon the root
+// helper allows is one command with no password behind it, which is the difference between
+// a message he acts on from his phone and one he has to sit down for; anything else is the
+// honest `sudo kill`, which launchd may well undo.
+func (s sweeper) stoppingIt(p Process) string {
+	if command := restartDaemonCommand(s.cfg, p.Name()); command != "" {
+		return "**You can run:** " + codeSpan(command) + " — it restarts the daemon with no password needed."
+	}
+	return fmt.Sprintf("**Needs you:** %s — stopping a system process needs sudo, and launchd starts most daemons again.",
+		codeSpan(fmt.Sprintf("sudo kill %d", p.PID)))
 }
 
 // Every string in a message or a prompt that something other than hachiko chose: a
@@ -627,14 +657,87 @@ func safe(s string, max int) string {
 	return clip(strings.TrimSpace(string(clean)), max)
 }
 
+// What a first alert says, in both lengths it may go out in. The lead and the action line
+// are the same either way; what differs is how much detail is under them, since a message
+// that is not urgent leaves the reading to the session and Tim gets one screen.
+type alertText struct {
+	marker   string
+	sentence string
+
+	// The one or two fields that matter, and every finding there was.
+	short string
+	full  string
+}
+
+func (a alertText) lead() string { return a.marker + " " + a.sentence }
+
+// What goes to the session, which needs the whole of it however the message to Tim is
+// shortened.
+func (a alertText) brief() string { return joinBlocks(a.lead(), a.full) }
+
+// The lead, which is the one line Tim is certain to read and also the title of the forum
+// post this opens. The disk goes first when both halves fired, because it is the half with
+// a deadline on it; critical free space and a file hachiko emptied go above a file merely
+// growing, because what the lead has to say first is how bad it already is.
+func (s sweeper) alert(disk diskFindings, cpu cpuFindings, free, level int64, lowNow, truncated bool) alertText {
+	out := alertText{marker: markerDisk}
+
+	switch {
+	case truncated:
+		out.marker = markerDown
+		out.sentence = fmt.Sprintf("Disk critical: %s free, and %s was emptied",
+			gbUnit(free), baseLabel(safe(disk.truncatedPath, pathLimit)))
+	case free < s.cfg.CriticalKB && (disk.fired || lowNow):
+		out.marker = markerDown
+		out.sentence = fmt.Sprintf("Disk critical: %s free", gbUnit(free))
+	case disk.fired:
+		out.sentence = fmt.Sprintf("Disk filling: %s is growing fast", baseLabel(disk.firstPath))
+	case lowNow:
+		out.sentence = fmt.Sprintf("Low disk space: %s free", gbUnit(free))
+	case cpu.fired:
+		out.marker, out.sentence = markerBusy, cpu.sentence
+	}
+
+	// Free space belongs in a message the disk is part of and nowhere else: a busy daemon
+	// says nothing about how much room is left.
+	freeField := ""
+	if out.marker != markerBusy && (out.sentence != "" || disk.report != "") {
+		freeField = "**" + labelFreeSpace + ":** " + gbUnit(free)
+		if level != 0 {
+			freeField += fmt.Sprintf(", under the %d GB mark", level)
+		}
+	}
+
+	out.short = joinBlocks(freeField, disk.truncated,
+		section(labelGrowing, nonEmpty(disk.firstBullet)),
+		section(labelBusy, nonEmpty(cpu.firstBullet)), cpu.sudo)
+	out.full = joinBlocks(freeField, disk.truncated, disk.report, cpu.report, cpu.sudo)
+
+	return out
+}
+
+func nonEmpty(items ...string) []string {
+	var keep []string
+	for _, item := range items {
+		if item != "" {
+			keep = append(keep, item)
+		}
+	}
+	return keep
+}
+
+// Sections joined by single newlines, with nothing for the ones there was nothing to say
+// about: a message is never a form with blanks in it.
+func joinBlocks(blocks ...string) string { return strings.Join(nonEmpty(blocks...), "\n") }
+
 // The order the alert goes out in: the session first, so the message can name the
 // tab it is waiting in, then one line from hachiko. The brief carries the incident
 // id and the one command that reaches the channel, because the session is never
 // handed the webhook itself.
-func (s sweeper) raise(state *State, now time.Time, kind, headline, details string, free int64, truncated bool) bool {
+func (s sweeper) raise(state *State, now time.Time, kind string, alert alertText, free int64, truncated bool) bool {
 	incident := fmt.Sprintf("%s-%d", kind, now.Unix())
 
-	session, err := s.deps.Oncall(kind, s.brief(incident, details))
+	session, err := s.deps.Oncall(kind, s.brief(incident, alert.brief()))
 	if err != nil {
 		s.say("no on-call session was opened: %v", err)
 		session = OncallSession{}
@@ -643,16 +746,17 @@ func (s sweeper) raise(state *State, now time.Time, kind, headline, details stri
 	// Urgent is free space already critical, or a file this truncated: either way Tim
 	// needs the whole of it now rather than when an agent has finished reading. So is a
 	// session the brief never reached, since nothing is going to read it for him.
-	message := headline
+	blocks := alert.short
 	if free < s.cfg.CriticalKB || truncated || !session.Delivered {
-		message = details
+		blocks = alert.full
 	}
 
-	if session.Say != "" {
-		message += "\n\n" + session.Say
-	} else {
-		message += "\n\nOn-call session could not start."
+	say := session.Say
+	if say == "" {
+		say = "No on-call session could be started, so nothing is being worked on it."
 	}
+
+	message := lead(alert.marker, alert.sentence).block(blocks).can(say).about(incident, s.cfg.Host).String()
 
 	// A failed send must leave the incident unraised, so the next check tries again
 	// rather than going quiet about it.
@@ -668,7 +772,9 @@ func (s sweeper) raise(state *State, now time.Time, kind, headline, details stri
 		if state.Pending == nil {
 			state.Pending = map[string]Pending{}
 		}
-		state.Pending[incident] = Pending{OpenedAt: now.Unix(), Tab: session.Tab, Details: details}
+		// The detail blocks and not the lead: the message that goes out if nothing reports
+		// has a lead of its own saying that nobody did.
+		state.Pending[incident] = Pending{OpenedAt: now.Unix(), Tab: session.Tab, Details: alert.full}
 		s.expectAQuestion(state, now, kind, incident, session)
 	}
 
@@ -863,10 +969,12 @@ func (s sweeper) chaseLateReports(state *State, now time.Time) {
 			continue
 		}
 
-		late := fmt.Sprintf(`%s
-
-The on-call agent has not reported after %d minutes, so these are hachiko's own raw details.
-Attach: herdr workspace %s, tab %s`, p.Details, int(waited.Minutes()), s.cfg.WorkspaceLabel(), p.Tab)
+		late := lead(markerDegraded, fmt.Sprintf("No report from the agent on %s after %s",
+			incidentWords(kindOf(id)), durationPhrase(waited))).
+			block(p.Details).
+			can(attachAction(s.cfg, p.Tab)).
+			about(id, s.cfg.Host).
+			String()
 
 		if err := s.send(state, id, late); err != nil {
 			s.say("the on-call session has not reported on %s and the raw details did not send either: %v", id, err)

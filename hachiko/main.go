@@ -242,7 +242,11 @@ func testAlert(cfg Config) error {
 		return err
 	}
 
-	message := fmt.Sprintf("hachiko on %s: test alert, %s GB free. Nothing is wrong.", cfg.Host, gbStr(free))
+	message := lead(markerInfo, "Test alert from hachiko — nothing is wrong").
+		field(labelFreeSpace, gbUnit(free)).
+		about("", cfg.Host).
+		String()
+
 	if _, err := sendThroughOP(cfg, Outgoing{Text: message}); err != nil {
 		return err
 	}

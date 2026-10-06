@@ -6,6 +6,7 @@
 //
 // Named for the station Hachikō waited at.
 
+import { redact } from "./discord";
 import type { Env } from "./env";
 import type { Checkin, Switch } from "./switch";
 
@@ -41,7 +42,9 @@ export default {
       if (!HOST.test(host)) {
         return text("host\n", 400);
       }
-      return json(await switchFor(env, host).status(host));
+
+      const status = await reached(env, () => switchFor(env, host).status(host));
+      return status.ok ? json(status.value) : unavailable();
     }
 
     if (route === "DELETE /host") {
@@ -49,10 +52,12 @@ export default {
       if (!HOST.test(host)) {
         return text("host\n", 400);
       }
-      if (!(await switchFor(env, host).forget())) {
-        return text("unknown host\n", 404);
+
+      const forgotten = await reached(env, () => switchFor(env, host).forget());
+      if (!forgotten.ok) {
+        return unavailable();
       }
-      return text(`forgot ${host}\n`);
+      return forgotten.value ? text(`forgot ${host}\n`) : text("unknown host\n", 404);
     }
 
     if (route !== "POST /ping" && route !== "POST /fail") {
@@ -70,10 +75,9 @@ export default {
     }
 
     const host = switchFor(env, checkin.host);
-    if (route === "POST /fail") {
-      await host.fail(checkin);
-    } else {
-      await host.ping(checkin);
+    const taken = await reached(env, () => (route === "POST /fail" ? host.fail(checkin) : host.ping(checkin)));
+    if (!taken.ok) {
+      return unavailable();
     }
     return text("ok\n");
   },
@@ -81,6 +85,30 @@ export default {
 
 function switchFor(env: Env, host: string): DurableObjectStub<Switch> {
   return env.SWITCH.get(env.SWITCH.idFromName(host));
+}
+
+type Reached<T> = { ok: true; value: T } | { ok: false };
+
+// A call into the object fails for reasons that are neither the caller's fault nor a bug
+// here. A deploy is the one that bit: for the minutes a new version is reaching every
+// location, this Worker can be the new one and the object it calls still the old class, and
+// a method this version calls does not exist over there. Unhandled, that is Cloudflare's own
+// 1101 page — an uncaught exception, with nothing in it to act on and no reason given to try
+// again. A 503 says the one useful thing, and it is what hachiko already treats as a
+// check-in that did not land and retries on its next sweep.
+async function reached<T>(env: Env, work: () => Promise<T>): Promise<Reached<T>> {
+  try {
+    return { ok: true, value: await work() };
+  } catch (err) {
+    // An error out of the object is the object's own text, and the object talks to Discord.
+    const why = redact(err instanceof Error ? err.message : String(err), env.DISCORD_WEBHOOK_URL);
+    console.log(`shibuya: the switch did not answer: ${why}`);
+    return { ok: false };
+  }
+}
+
+function unavailable(): Response {
+  return text("try again\n", 503);
 }
 
 // Constant-time, because the alternative is a token recovered one character at a time by

@@ -78,9 +78,25 @@ const empty: Live = {
 };
 
 export class Switch extends DurableObject<Env> {
+  // How many times this object has been forgotten. Every entry point takes a copy before it
+  // loads and hands it to settle(), which drops the write when the number has moved: the
+  // record in its hand is a host that no longer exists, and putting it back would re-arm a
+  // deadline for a Mac nothing will ever check in for again.
+  //
+  // The input gate opens while a handler awaits Discord, which is the whole of the window —
+  // a DELETE arrives mid-alert, empties the object, and the alert's own settle() would
+  // otherwise undo it and post the host offline a grace later.
+  //
+  // In memory rather than in storage, which is what makes it right: the only write that can
+  // be undone is one from a handler already running on this instance, and an eviction that
+  // loses this number loses that handler with it. Storage could not stand in for it anyway —
+  // a host just forgotten and a host checking in for the first time are the same empty store.
+  private forgets = 0;
+
   // A check-in is liveness and nothing else: it rearms the deadline, and it is what says an
   // outage or a failing streak is over.
   async ping(checkin: Checkin): Promise<void> {
+    const forgets = this.forgets;
     const live = await this.load();
     const now = Date.now();
 
@@ -94,13 +110,14 @@ export class Switch extends DurableObject<Env> {
     await this.recover(live, silence);
     await this.clean(live, now);
 
-    await this.settle(live);
+    await this.settle(live, forgets);
   }
 
   // A sweep that ran and went wrong is alive, so this counts for the deadline exactly as a
   // ping does. What it opens instead is a failing streak, whose first fail is the only one
   // that posts: a reason that repeats every five minutes is one incident.
   async fail(checkin: Checkin): Promise<void> {
+    const forgets = this.forgets;
     const live = await this.load();
     const now = Date.now();
 
@@ -125,7 +142,7 @@ export class Switch extends DurableObject<Env> {
       });
     }
 
-    await this.settle(live);
+    await this.settle(live, forgets);
   }
 
   // An object outlives its reason to exist: a hostname typed wrong once has one of its own
@@ -134,6 +151,10 @@ export class Switch extends DurableObject<Env> {
   // Nothing is posted: an outage post is the record of an outage that happened.
   async forget(): Promise<boolean> {
     const known = (await this.ctx.storage.get("live")) !== undefined;
+
+    // Before either delete rather than after both, so a handler that resumes between them
+    // still finds the number moved.
+    this.forgets += 1;
 
     await this.ctx.storage.deleteAlarm();
     await this.ctx.storage.deleteAll();
@@ -155,6 +176,7 @@ export class Switch extends DurableObject<Env> {
   }
 
   override async alarm(): Promise<void> {
+    const forgets = this.forgets;
     const live = await this.load();
     const now = Date.now();
 
@@ -195,7 +217,7 @@ export class Switch extends DurableObject<Env> {
       });
     }
 
-    await this.settle(live);
+    await this.settle(live, forgets);
   }
 
   // The whole silence rather than the time since the alert, because what Tim wants from a
@@ -286,7 +308,13 @@ export class Switch extends DurableObject<Env> {
     live.queue = keep;
   }
 
-  private async settle(live: Live): Promise<void> {
+  // The one place this object writes, which is what makes it the one place to check that
+  // what it is about to write still belongs to a host that exists.
+  private async settle(live: Live, forgets: number): Promise<void> {
+    if (forgets !== this.forgets) {
+      return;
+    }
+
     await this.ctx.storage.put("live", live);
     await this.arm(live);
   }

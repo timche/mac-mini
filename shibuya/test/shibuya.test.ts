@@ -1,6 +1,11 @@
 import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
+// The pool runs the Worker in this isolate, so this is the same class object the runtime
+// instantiates the Durable Object from — which is what lets a test make one of its methods
+// throw the way a rollout does.
+import { Switch } from "../src/switch";
+
 // The two the test config binds. The webhook is the one string that may never appear in
 // anything this Worker writes, so it is here to be asserted against as well as used.
 const TOKEN = "a-token-only-the-tests-know";
@@ -460,6 +465,95 @@ it("lets no reminder follow a host forgotten while it was down", async () => {
   // The reminder is six hours into an outage, so the one this object was holding is due.
   expect(await runDurableObjectAlarm(switchFor())).toBe(false);
   expect(sent).toHaveLength(0);
+});
+
+// The input gate opens while a handler awaits Discord, which is exactly when a DELETE gets
+// in: the alert is posted, the object is emptied under it, and the alert's own settle() would
+// put the record back and re-arm the deadline — so a host Tim had just forgotten would have a
+// live deadline out of an object that no longer holds a thing.
+it("lets a forget stand that landed while an alert was in flight", async () => {
+  let release = (): void => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  const sent: Request_[] = [];
+  vi.stubGlobal("fetch", async (input: unknown, init?: RequestInit): Promise<Response> => {
+    sent.push({ url: String(input), fields: JSON.parse(String(init?.body ?? "{}")) as Request_["fields"] });
+    await held;
+    return new Response(JSON.stringify({ channel_id: "4242" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  });
+
+  await seed({ host: HOST, lastPing: Date.now() - 20 * 60_000, summary: SUMMARY });
+
+  // Not awaited: the alarm is inside the fetch above, which is where the gate opens.
+  const alarm = runDurableObjectAlarm(switchFor());
+  await vi.waitUntil(() => sent.length === 1);
+
+  const response = await forget(HOST);
+  expect(response.status).toBe(200);
+  expect(await response.text()).toBe(`forgot ${HOST}\n`);
+
+  release();
+  expect(await alarm).toBe(true);
+
+  expect((await stored()).live).toEqual({});
+  expect((await stored()).alarm).toBeNull();
+  expect(await runDurableObjectAlarm(switchFor())).toBe(false);
+
+  const status = await SELF.fetch(`https://shibuya.test/status?host=${HOST}`, {
+    headers: { authorization: `Bearer ${TOKEN}` },
+  });
+  expect(((await status.json()) as Record<string, unknown>).state).toBe("unknown");
+});
+
+// The count of forgets is in memory and is never cleared, so a sticky flag in its place
+// would leave this object refusing to write anything ever again.
+it("takes a host back after it was forgotten, on the same object", async () => {
+  discord();
+
+  await ping(checkin);
+  expect((await forget(HOST)).status).toBe(200);
+  expect((await ping(checkin)).status).toBe(200);
+
+  const { live, alarm } = await stored();
+  expect(live.summary).toBe(SUMMARY);
+  expect(alarm).not.toBeNull();
+});
+
+// Observed on the deploy that added the route: for the minutes a new version is reaching
+// every location, this Worker can be the new one and the object it calls still the old
+// class, where the method does not exist. Unhandled that is Cloudflare's 1101 page, which
+// says nothing and gives no reason to try again.
+//
+// workerd prints the object's own exception to stderr while this runs. That is the platform
+// reporting what happened inside the object, which is what it does in production too; what
+// is asserted here is the answer the caller gets instead of 1101.
+it("answers 503 rather than an uncaught exception when the object will not answer", async () => {
+  discord();
+
+  // Thrown rather than a rejected promise handed to the mock, which workerd reports as an
+  // unhandled rejection the moment it is made, before anything has awaited it.
+  const why = `Durable Object class has no method forget: ${WEBHOOK}`;
+  const throwing = (): never => {
+    throw new Error(why);
+  };
+  vi.spyOn(Switch.prototype, "forget").mockImplementation(throwing);
+  vi.spyOn(Switch.prototype, "ping").mockImplementation(throwing);
+
+  const forgetting = await forget(HOST);
+  expect(forgetting.status).toBe(503);
+  expect(await forgetting.text()).toBe("try again\n");
+
+  // hachiko reads a non-2xx as a check-in that did not land and retries on its next sweep.
+  expect((await ping(checkin)).status).toBe(503);
+
+  expect(logged.join("\n")).toContain("the switch did not answer");
+  expect(logged.join("\n")).not.toContain(WEBHOOK);
+  expect(logged.join("\n")).toContain("the webhook");
 });
 
 it("answers a host it has never heard of without making one", async () => {

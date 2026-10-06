@@ -504,7 +504,7 @@ Setting it up: a Discord application with a bot, the Message Content intent turn
 
 It exists because a watch cannot report its own silence. A LaunchAgent that never loaded because the Mac is sitting at its login window, a sweep hung on a mount whose server went away, a Mac that lost power, a binary that stopped compiling and left the last one that did — every one of those is hachiko saying nothing, which is also what a quiet Mac looks like. The only thing that can tell the two apart is something off the machine.
 
-A Cloudflare Worker with one SQLite-backed Durable Object per host, which is the only kind the free plan runs, and the object's alarm is the deadline. `idFromName(host)` is how a host gets its own, so the Mac that checks in is the Mac that is reported missing; `mac-mini` is the only name there is so far, and a name is validated as `^[a-z0-9-]{1,32}$` before it reaches a storage key. The cost is about three hundred requests a day against a hundred thousand, and nothing runs between them.
+A Cloudflare Worker with one SQLite-backed Durable Object per host, which is the only kind the free plan runs, and the object's alarm is the deadline. `idFromName(host)` is how a host gets its own, so the Mac that checks in is the Mac that is reported missing; hachiko sends the Mac's hostname reduced to that shape — the first label, lowercased, anything else a hyphen, so `Tims-Mac-mini.fritz.box` is `tims-mac-mini` — and a name is validated as `^[a-z0-9-]{1,32}$` before it reaches a storage key. The cost is about three hundred requests a day against a hundred thousand, and nothing runs between them.
 
 Four routes. `GET /` answers `shibuya` with no token and no data, because something has to answer a browser. `POST /ping` carries the reading — free space, open incidents, hot processes, and the commit the running binary was built from — and `POST /fail` carries a reason instead; both count as a check-in, since a sweep that ran and went wrong is a sweep that ran. `GET /status` is for Tim: where a host stands, with ISO timestamps. The three that are not the root take `Authorization: Bearer <ping token>`, compared with `crypto.subtle.timingSafeEqual` against a secret and answered with `401` and nothing else, and a body over four kilobytes is refused unread.
 
@@ -556,7 +556,7 @@ curl -s https://shibuya.timche.dev            # shibuya, and nothing else
 # config rather than in -H, because `ps` shows one process's arguments to every other on
 # this Mac; printf is a shell builtin, so the token is in no command line either.
 printf 'header = "Authorization: Bearer %s"\n' "$(cat ~/.config/hachiko/shibuya-token)" |
-  curl -s -K - 'https://shibuya.timche.dev/status?host=mac-mini'
+  curl -s -K - 'https://shibuya.timche.dev/status?host=tims-mac-mini'
 
 cd ~/.mac-mini/shibuya && npx wrangler tail   # what the Worker is saying, live
 ```

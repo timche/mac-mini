@@ -44,6 +44,17 @@ export default {
       return json(await switchFor(env, host).status(host));
     }
 
+    if (route === "DELETE /host") {
+      const host = url.searchParams.get("host") ?? "";
+      if (!HOST.test(host)) {
+        return text("host\n", 400);
+      }
+      if (!(await switchFor(env, host).forget())) {
+        return text("unknown host\n", 404);
+      }
+      return text(`forgot ${host}\n`);
+    }
+
     if (route !== "POST /ping" && route !== "POST /fail") {
       return text("not found\n", 404);
     }

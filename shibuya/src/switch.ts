@@ -128,6 +128,19 @@ export class Switch extends DurableObject<Env> {
     await this.settle(live);
   }
 
+  // An object outlives its reason to exist: a hostname typed wrong once has one of its own
+  // for ever, and a retired Mac's deadline is armed the next quarter of an hour after it is
+  // unplugged. The alarm goes before the state, or a deadline survives the host it was for.
+  // Nothing is posted: an outage post is the record of an outage that happened.
+  async forget(): Promise<boolean> {
+    const known = (await this.ctx.storage.get("live")) !== undefined;
+
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
+
+    return known;
+  }
+
   async status(host: string): Promise<Status> {
     const live = await this.load();
 

@@ -75,6 +75,13 @@ function ping(body: unknown, token = TOKEN, path = "/ping"): Promise<Response> {
   });
 }
 
+function forget(host: string, token = TOKEN, method = "DELETE"): Promise<Response> {
+  return SELF.fetch(`https://shibuya.test/host?host=${encodeURIComponent(host)}`, {
+    method,
+    headers: { authorization: `Bearer ${token}` },
+  });
+}
+
 const checkin = { host: HOST, free_gb: 787, open_incidents: 0, hot_processes: 0, version: "abc1234" };
 
 let logged: string[] = [];
@@ -367,10 +374,81 @@ it("keeps one object per host", async () => {
   expect(theirs.last_summary).toBe("12 GB free");
 });
 
+it("refuses to forget a host without the token, and leaves it armed", async () => {
+  discord();
+  await ping(checkin);
+
+  const bare = await SELF.fetch(`https://shibuya.test/host?host=${HOST}`, { method: "DELETE" });
+  expect(bare.status).toBe(401);
+  expect((await forget(HOST, "")).status).toBe(401);
+  expect((await forget(HOST, "not-the-token")).status).toBe(401);
+
+  expect((await stored()).alarm).not.toBeNull();
+  expect((await stored()).live.lastPing).toBeGreaterThan(0);
+});
+
+it("refuses to forget a name it would not take as a host anywhere else", async () => {
+  expect((await forget("")).status).toBe(400);
+  expect((await forget("Mac Mini")).status).toBe(400);
+  expect((await forget("x".repeat(33))).status).toBe(400);
+});
+
+it("forgets a host, taking its alarm and its state with it", async () => {
+  discord();
+  await ping(checkin);
+  expect((await stored()).alarm).not.toBeNull();
+
+  const response = await forget(HOST);
+  expect(response.status).toBe(200);
+  expect(await response.text()).toBe(`forgot ${HOST}\n`);
+
+  expect((await stored()).live).toEqual({});
+  expect((await stored()).alarm).toBeNull();
+  expect(await runDurableObjectAlarm(switchFor())).toBe(false);
+
+  const status = await SELF.fetch(`https://shibuya.test/status?host=${HOST}`, {
+    headers: { authorization: `Bearer ${TOKEN}` },
+  });
+  expect(((await status.json()) as Record<string, unknown>).state).toBe("unknown");
+});
+
+it("lets no reminder follow a host forgotten while it was down", async () => {
+  const sent = discord();
+  const sevenHoursAgo = Date.now() - 7 * 60 * 60 * 1000;
+  await seed({
+    host: HOST,
+    lastPing: sevenHoursAgo,
+    summary: SUMMARY,
+    downSince: sevenHoursAgo,
+    outageThread: "4242",
+  });
+
+  expect((await forget(HOST)).status).toBe(200);
+
+  // The reminder is six hours into an outage, so the one this object was holding is due.
+  expect(await runDurableObjectAlarm(switchFor())).toBe(false);
+  expect(sent).toHaveLength(0);
+});
+
+it("answers a host it has never heard of without making one", async () => {
+  const sent = discord();
+
+  const response = await forget("other-mac");
+  expect(response.status).toBe(404);
+  expect(await response.text()).toBe("unknown host\n");
+  expect((await forget("other-mac")).status).toBe(404);
+
+  expect(sent).toHaveLength(0);
+  expect((await switchFor("other-mac").status("other-mac")).state).toBe("unknown");
+});
+
 it("answers nothing else", async () => {
   const response = await SELF.fetch("https://shibuya.test/elsewhere", {
     headers: { authorization: `Bearer ${TOKEN}` },
   });
-
   expect(response.status).toBe(404);
+
+  // /host is the one route with a method of its own, so the method is the route.
+  expect((await forget(HOST, TOKEN, "GET")).status).toBe(404);
+  expect((await forget(HOST, TOKEN, "POST")).status).toBe(404);
 });

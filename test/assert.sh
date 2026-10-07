@@ -692,7 +692,7 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
      gc_compose_fixture "$h/elsewhere" gc-elsewhere &&
      rm -rf "$gone" "$h/elsewhere" &&
      sock="$(docker context inspect -f "{{.Endpoints.docker.Host}}")" &&
-     out="$(HOME="$h" DOCKER_HOST="$sock" hachiko gc --dry-run)" &&
+     out="$(HACHIKO_CACHE_DIR="$HOME/Library/Caches/hachiko" HOME="$h" DOCKER_HOST="$sock" hachiko gc --dry-run)" &&
      docker compose -p gc-gone down -v >/dev/null 2>&1
      docker compose -p gc-kept down -v >/dev/null 2>&1
      docker compose -p gc-elsewhere down -v >/dev/null 2>&1

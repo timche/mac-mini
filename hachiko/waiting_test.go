@@ -9,6 +9,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/oncall"
+	"github.com/timche/mac-mini/hachiko/internal/session"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
@@ -113,7 +114,7 @@ func TestTheWarningQuotesTheOptionTheSessionWouldFallBackOn(t *testing.T) {
 
 	// And the line hachiko parses a session's own option out of still parses, which is the
 	// whole of why it is a line of its own.
-	equal(t, fallbackOption(f.lastSent()), "stop pid 4242 and empty the log", "the option read back")
+	equal(t, session.FallbackOption(f.lastSent()), "stop pid 4242 and empty the log", "the option read back")
 	wants(t, f.lastSent(), "**Now:** 500 GB free")
 
 	lacks(t, f.at(600+warnAt+60).sweep(), "from the handover")
@@ -1575,12 +1576,12 @@ func TestTheFallbackOptionIsReadOutOfTheReport(t *testing.T) {
 		{"Disk filling. Nothing else.", ""},
 		{"If no answer:", ""},
 	} {
-		equal(t, fallbackOption(tc.report), tc.want, "the option read out of "+tc.report)
+		equal(t, session.FallbackOption(tc.report), tc.want, "the option read out of "+tc.report)
 	}
 
 	// Agent-written text about an incident whose paths were chosen by whatever filled the
 	// disk, so it is clipped like every other such string.
-	long := fallbackOption("If no answer: " + strings.Repeat("x", wording.FallbackLimit+50))
+	long := session.FallbackOption("If no answer: " + strings.Repeat("x", wording.FallbackLimit+50))
 	equal(t, len(long), wording.FallbackLimit+3, "the length of a clipped option")
 }
 
@@ -1600,7 +1601,7 @@ If no answer: stop pid 4242
 
 Attach: herdr workspace .mac-mini, tab disk-1200`
 
-	equal(t, fallbackOption(report), "stop pid 4242", "the option read out of a report full of logs")
+	equal(t, session.FallbackOption(report), "stop pid 4242", "the option read out of a report full of logs")
 
 	// A log line indented under a heading is not a line of its own in the sense that matters,
 	// and nothing in the middle of a sentence is either.
@@ -1609,11 +1610,11 @@ Attach: herdr workspace .mac-mini, tab disk-1200`
 		"I wondered if no answer: would be better",
 		"Nothing here says it.",
 	} {
-		equal(t, fallbackOption(report), "", "the option read out of "+report)
+		equal(t, session.FallbackOption(report), "", "the option read out of "+report)
 	}
 
 	// Control characters go, because this ends up in a message and in a prompt.
-	equal(t, fallbackOption("If no answer: stop\u0007 pid 4242"), "stop  pid 4242",
+	equal(t, session.FallbackOption("If no answer: stop\u0007 pid 4242"), "stop  pid 4242",
 		"the option with a control character in it")
 }
 

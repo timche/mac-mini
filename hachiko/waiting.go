@@ -357,8 +357,8 @@ func (s sweeper) remind(state *statedir.State, w statedir.Waiting, reading nowRe
 // A quarter of an hour, which is long enough to answer from a phone and short enough
 // that it is not a second reminder.
 //
-// The `If no answer` line is a line of its own and stays one, because it is the line
-// fallbackOption reads a session's own option out of: anything that folded it into a
+// The `If no answer` line is a line of its own and stays one, because that line is where
+// a session's own option is read out of its report: anything that folded it into a
 // sentence would hand Tim an option chosen by whatever filled the disk.
 func (s sweeper) warn(state *statedir.State, w statedir.Waiting, reading nowReading, waited time.Duration) statedir.Waiting {
 	fallback := w.Default

@@ -486,22 +486,3 @@ func (l listener) useStep(step int64) {
 	}
 	os.WriteFile(l.usedStepsPath(), []byte(strings.Join(steps, "\n")+"\n"), 0o644)
 }
-
-// The session's own way to say which single action it is asking to be allowed. The action
-// arrives as a file for the same reason a report does: it names paths and commands chosen
-// by whatever filled the disk, and an argument is readable by every process on the Mac.
-func approvalRequest(cfg config.Config, incident, actionFile string) error {
-	action, err := os.ReadFile(actionFile)
-	if err != nil {
-		return fmt.Errorf("cannot read the action at %s", actionFile)
-	}
-
-	store := statedir.Store{Dir: cfg.StateDir}
-	if err := store.RequestApproval(incident, wording.Clip(strings.TrimSpace(string(action)), wording.ReplyLimit)); err != nil {
-		return err
-	}
-
-	logs.Logger{Out: os.Stdout, Now: config.ClockFromEnv()}.Say(
-		"%s is waiting for a code from Tim before it does what it registered", incident)
-	return nil
-}

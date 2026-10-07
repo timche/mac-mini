@@ -1,4 +1,4 @@
-package main
+package session
 
 import (
 	"testing"
@@ -18,7 +18,7 @@ func TestTheFallbackOptionSurvivesTheWarningsOwnFormat(t *testing.T) {
 		About("disk-1700000000", "mac-mini").
 		String()
 
-	harness.Equal(t, fallbackOption(warning), "stop pid 4242 and empty the log", "the option read back")
+	harness.Equal(t, FallbackOption(warning), "stop pid 4242 and empty the log", "the option read back")
 
 	// And every other spelling a session might reach for.
 	for _, line := range []string{
@@ -28,6 +28,6 @@ func TestTheFallbackOptionSurvivesTheWarningsOwnFormat(t *testing.T) {
 		"- **If no answer:** stop the worker",
 		"> If no answer: stop the worker",
 	} {
-		harness.Equal(t, fallbackOption("some report\n"+line+"\nmore report"), "stop the worker", line)
+		harness.Equal(t, FallbackOption("some report\n"+line+"\nmore report"), "stop the worker", line)
 	}
 }

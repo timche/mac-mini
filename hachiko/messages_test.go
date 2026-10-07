@@ -9,6 +9,7 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/discord"
 	"github.com/timche/mac-mini/hachiko/internal/oncall"
+	"github.com/timche/mac-mini/hachiko/internal/session"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -280,7 +281,7 @@ var messageKinds = []messageKind{{
 		f.at(600 + warnAt).sweep()
 
 		text := f.lastSent()
-		equal(t, fallbackOption(text), "stop pid 5073 and empty the log", "the option hachiko reads back")
+		equal(t, session.FallbackOption(text), "stop pid 5073 and empty the log", "the option hachiko reads back")
 		return text
 	},
 }, {

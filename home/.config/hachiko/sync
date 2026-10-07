@@ -19,6 +19,3 @@ mode = live
 
 repo = ~/projects/docs
 push_delay = 1m
-
-repo = ~/.mac-mini
-push_delay = 1h

@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
 const fakeWebhook = "https://discord.invalid/api/webhooks/123/NOT-A-REAL-TOKEN"
@@ -263,6 +264,17 @@ func TestAThreadNameIsOneLineAndFitsDiscordsLimit(t *testing.T) {
 		t.Fatalf("thread name of %d bytes: %q", len(name), name)
 	}
 	equal(t, threadName("\n\n"), "hachiko", "an empty message's thread name")
+
+	// A lead of hachiko's own, however long the sentence it was given.
+	lead := wording.Lead(wording.MarkerDown, strings.Repeat("x", 300)).String()
+	if len(threadName(lead)) > 100 {
+		t.Errorf("a thread name of %d bytes: %q", len(threadName(lead)), threadName(lead))
+	}
+
+	// The escaping that keeps a file called `**x**` from styling a message body is a
+	// backslash in a title, which Discord renders as plain text — so it comes back out.
+	equal(t, threadName(wording.PlainWords("💾 Disk filling: **x**.log is growing fast")+"\n**Free space:** 1 GB"),
+		"💾 Disk filling: **x**.log is growing fast", "the post's name")
 }
 
 func TestPostDiscordReportsTheStatusWithoutTheWebhook(t *testing.T) {
@@ -360,19 +372,19 @@ func TestALongMessageIsCappedAndSaysWhereTheRestIs(t *testing.T) {
 // span open — and Discord then renders everything after it as code, the line saying the
 // message was truncated included.
 func TestTheCapCutsWholeLinesAndLeavesNoCodeSpanOpen(t *testing.T) {
-	m := lead(markerDisk, "Disk filling: devbackend.log is growing fast").
-		field(labelFreeSpace, "500 GB")
+	m := wording.Lead(wording.MarkerDisk, "Disk filling: devbackend.log is growing fast").
+		Field(wording.LabelFreeSpace, "500 GB")
 
 	// Enough bullets that the cut lands in the middle of one of them, each carrying a path in
 	// a code span.
 	var bullets []string
 	for i := range 40 {
-		bullets = append(bullets, codeSpan(fmt.Sprintf("/private/tmp/worker-%02d.log", i))+
+		bullets = append(bullets, wording.CodeSpan(fmt.Sprintf("/private/tmp/worker-%02d.log", i))+
 			" — 4.3 GB, up 4.3 GB in 5 minutes (about 52 GB an hour), written by sleep (pid 5073)")
 	}
-	long := m.bullets(labelGrowing, bullets).
-		can("Attach in herdr: workspace `.mac-mini`, tab `disk-1200`.").
-		about("disk-1700000000", "mac-mini").
+	long := m.Bullets(wording.LabelGrowing, bullets).
+		Can("Attach in herdr: workspace `.mac-mini`, tab `disk-1200`.").
+		About("disk-1700000000", "mac-mini").
 		String()
 
 	if len(long) <= messageLimit {
@@ -405,11 +417,11 @@ func TestTheCapCutsWholeLinesAndLeavesNoCodeSpanOpen(t *testing.T) {
 // And the subtext alone goes when that is all there is to drop, rather than the message
 // losing a finding to make room for it: it is the one line Tim never acts on.
 func TestTheCapDropsTheSubtextFirst(t *testing.T) {
-	build := func(pad int) *message {
-		return lead(markerDisk, "Disk filling: worker.log is growing fast").
-			bullets(labelGrowing, []string{
-				codeSpan("/private/tmp/worker.log") + " — " + strings.Repeat("x", pad)}).
-			can("Attach in herdr.")
+	build := func(pad int) *wording.Message {
+		return wording.Lead(wording.MarkerDisk, "Disk filling: worker.log is growing fast").
+			Bullets(wording.LabelGrowing, []string{
+				wording.CodeSpan("/private/tmp/worker.log") + " — " + strings.Repeat("x", pad)}).
+			Can("Attach in herdr.")
 	}
 
 	// Sized so that everything but the subtext fits inside what the cap keeps, and the
@@ -419,7 +431,7 @@ func TestTheCapDropsTheSubtextFirst(t *testing.T) {
 		pad++
 	}
 
-	full := build(pad).about("disk-1700000000", "mac-mini.fritz.box").String()
+	full := build(pad).About("disk-1700000000", "mac-mini.fritz.box").String()
 	if len(full) <= messageLimit {
 		t.Fatalf("the message under test is only %d characters", len(full))
 	}

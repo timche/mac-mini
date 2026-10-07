@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
 func TestSizesReadAsTheNumbersTheyAreNamedFor(t *testing.T) {
@@ -25,11 +26,11 @@ func TestTheRateIsGigabytesAnHourWhateverTheInterval(t *testing.T) {
 
 func TestClipKeepsACommandLineReadable(t *testing.T) {
 	short := "/usr/local/bin/node worker.js"
-	equal(t, clip(short, 200), short, "a short command")
+	equal(t, wording.Clip(short, 200), short, "a short command")
 
 	long := make([]byte, 300)
 	for i := range long {
 		long[i] = 'x'
 	}
-	equal(t, len(clip(string(long), 200)), 203, "a clipped command")
+	equal(t, len(wording.Clip(string(long), 200)), 203, "a clipped command")
 }

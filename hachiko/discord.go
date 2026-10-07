@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strconv"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
 const discordAPI = "https://discord.com/api/v10"
@@ -160,7 +162,7 @@ func (b discordBot) post(channel, content string) (string, error) {
 func (b discordBot) openThread(channel, message, name string) (string, error) {
 	answer, err := b.call(http.MethodPost,
 		"/channels/"+channel+"/messages/"+message+"/threads",
-		map[string]any{"name": safe(name, discordThreadName), "auto_archive_duration": 1440})
+		map[string]any{"name": wording.Safe(name, discordThreadName), "auto_archive_duration": 1440})
 	if err != nil {
 		return "", err
 	}

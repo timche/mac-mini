@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
 // Every message hachiko can send, rendered in full and printed:
@@ -137,7 +138,7 @@ func waitingOnAQuestion(t *testing.T) *fixture {
 
 var messageKinds = []messageKind{{
 	name:   "disk-growing",
-	marker: markerDisk,
+	marker: wording.MarkerDisk,
 	wants: []string{
 		"💾 Disk filling: devbackend.log is growing fast",
 		"**Free space:** 500 GB",
@@ -152,7 +153,7 @@ var messageKinds = []messageKind{{
 	},
 }, {
 	name:   "low-space",
-	marker: markerDisk,
+	marker: wording.MarkerDisk,
 	wants: []string{
 		"💾 Low disk space: 46 GB free",
 		"**Free space:** 46 GB, under the 100 GB mark",
@@ -165,7 +166,7 @@ var messageKinds = []messageKind{{
 	},
 }, {
 	name:   "disk-critical-and-emptied",
-	marker: markerDown,
+	marker: wording.MarkerDown,
 	wants: []string{
 		"🔴 Disk critical: 1 GB free, and devbackend.log was emptied",
 		"**Free space:** 1 GB, under the 20 GB mark",
@@ -181,7 +182,7 @@ var messageKinds = []messageKind{{
 	},
 }, {
 	name:   "cpu-busy",
-	marker: markerBusy,
+	marker: wording.MarkerBusy,
 	wants: []string{
 		"🔥 node is busy: 80% of a core for 1 hour",
 		"**Busy processes:**",
@@ -195,7 +196,7 @@ var messageKinds = []messageKind{{
 	},
 }, {
 	name:   "cpu-busy-system-process-the-helper-allows",
-	marker: markerBusy,
+	marker: wording.MarkerBusy,
 	wants: []string{
 		"🔥 dasd is busy: 80% of a core for 1 hour",
 		"a system process owned by root",
@@ -209,7 +210,7 @@ var messageKinds = []messageKind{{
 	},
 }, {
 	name:   "cpu-busy-system-process-the-helper-does-not",
-	marker: markerBusy,
+	marker: wording.MarkerBusy,
 	wants: []string{
 		"a system process owned by root",
 		"**Needs you:** `sudo kill 147` — stopping a system process needs sudo, and launchd starts most daemons again.",
@@ -221,7 +222,7 @@ var messageKinds = []messageKind{{
 	},
 }, {
 	name:   "disk-and-cpu-in-one-message",
-	marker: markerDisk,
+	marker: wording.MarkerDisk,
 	wants: []string{
 		"💾 Disk filling: devbackend.log is growing fast",
 		"**Growing fast:**",
@@ -234,7 +235,7 @@ var messageKinds = []messageKind{{
 	},
 }, {
 	name:   "no-report-from-the-agent",
-	marker: markerDegraded,
+	marker: wording.MarkerDegraded,
 	wants: []string{
 		"⚠️ No report from the agent on the disk incident after 10 minutes",
 		"**Growing fast:**",
@@ -250,7 +251,7 @@ var messageKinds = []messageKind{{
 	},
 }, {
 	name:   "reminder-at-an-hour",
-	marker: markerDegraded,
+	marker: wording.MarkerDegraded,
 	wants: []string{
 		"⚠️ Still no answer on the disk incident after 12 minutes",
 		"**Now:** 500 GB free",
@@ -264,7 +265,7 @@ var messageKinds = []messageKind{{
 	},
 }, {
 	name:   "warning-before-the-handover",
-	marker: markerDegraded,
+	marker: wording.MarkerDegraded,
 	wants: []string{
 		"⚠️ No answer on the disk incident — the agent decides in 3 minutes",
 		"**Waiting:** 33 minutes",
@@ -282,7 +283,7 @@ var messageKinds = []messageKind{{
 	},
 }, {
 	name:   "handover-that-reached-nobody",
-	marker: markerDown,
+	marker: wording.MarkerDown,
 	wants: []string{
 		"🔴 The decision on the disk incident reached no agent",
 		"**Why:** its question could not be cancelled, so nothing was prompted",
@@ -296,7 +297,7 @@ var messageKinds = []messageKind{{
 	},
 }, {
 	name:   "a-wait-that-ended-with-no-outcome",
-	marker: markerDegraded,
+	marker: wording.MarkerDegraded,
 	wants: []string{
 		"⚠️ No outcome reported on the disk incident",
 		"**Why:** the agent was handed the decision and went quiet without reporting an outcome",
@@ -315,7 +316,7 @@ var messageKinds = []messageKind{{
 	},
 }, {
 	name:   "a-session-closed-after-the-handover",
-	marker: markerDegraded,
+	marker: wording.MarkerDegraded,
 	wants: []string{
 		"⚠️ No outcome reported on the disk incident",
 		"**Why:** the session was handed the decision and has since been closed",
@@ -330,7 +331,7 @@ var messageKinds = []messageKind{{
 	},
 }, {
 	name:   "no-agent-left-to-decide",
-	marker: markerDown,
+	marker: wording.MarkerDown,
 	wants: []string{
 		"🔴 No answer on the disk incident, and no agent left to decide",
 		"**Waiting:** 36 minutes",
@@ -345,7 +346,7 @@ var messageKinds = []messageKind{{
 	},
 }, {
 	name:   "herdr-unreachable",
-	marker: markerDown,
+	marker: wording.MarkerDown,
 	wants: []string{
 		"🔴 Cannot reach the on-call session on the disk incident",
 		"**Why:** herdr has not answered for 10 minutes",
@@ -360,16 +361,16 @@ var messageKinds = []messageKind{{
 	},
 }, {
 	name:   "test-alert",
-	marker: markerInfo,
+	marker: wording.MarkerInfo,
 	wants: []string{
 		"ℹ️ Test alert from hachiko — nothing is wrong",
 		"**Free space:** 790 GB",
 		"-# mac-mini",
 	},
 	render: func(t *testing.T) string {
-		return lead(markerInfo, "Test alert from hachiko — nothing is wrong").
-			field(labelFreeSpace, gbUnit(790*config.GiB)).
-			about("", "mac-mini").
+		return wording.Lead(wording.MarkerInfo, "Test alert from hachiko — nothing is wrong").
+			Field(wording.LabelFreeSpace, wording.GBUnit(790*config.GiB)).
+			About("", "mac-mini").
 			String()
 	},
 }}

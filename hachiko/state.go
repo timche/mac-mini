@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
 // State is everything a sweep has to remember: the two samples it measures growth
@@ -491,7 +493,7 @@ func (st Store) RequestApproval(incident, action string) error {
 	}
 	// Clipped here rather than at the caller, because what an action names is a path and a
 	// command chosen by whatever filled the disk, and it goes back into a prompt.
-	return os.WriteFile(st.approvalPath(incident), []byte(safe(action, replyLimit)), 0o644)
+	return os.WriteFile(st.approvalPath(incident), []byte(wording.Safe(action, wording.ReplyLimit)), 0o644)
 }
 
 func (st Store) OpenApproval(incident string) string {

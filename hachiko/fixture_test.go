@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
 // The thresholds come down to megabytes and minutes, so a file growing past one is a
@@ -175,7 +176,7 @@ func newFixture(t *testing.T) *fixture {
 		cwd: map[int]string{},
 		// Built the way the real lsof reader builds one, so a test reads the writer back in
 		// the shape a message carries rather than in one nothing produces.
-		writer: pidLabel("fake-worker", "4242"),
+		writer: wording.PIDLabel("fake-worker", "4242"),
 		// Nothing is waiting on a question until a test says so, which is what every
 		// check written before the wait existed assumes.
 		status: map[string]string{},

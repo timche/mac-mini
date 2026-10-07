@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
 func TestQuietCheckSaysNothingAndSendsNothing(t *testing.T) {
@@ -711,11 +713,11 @@ func TestALongPathIsClippedOutOfTheMessage(t *testing.T) {
 	f.grow(long, 4*mb)
 	f.at(300).sweep()
 
-	if len(path) <= pathLimit {
+	if len(path) <= wording.PathLimit {
 		t.Fatalf("the path under test is only %d characters", len(path))
 	}
 	lacks(t, f.lastSent(), path)
-	wants(t, f.lastSent(), clip(path, pathLimit))
+	wants(t, f.lastSent(), wording.Clip(path, wording.PathLimit))
 }
 
 func size(t *testing.T, path string) int64 {
@@ -735,7 +737,7 @@ func TestANameShapedLikeMarkdownArrivesAsAName(t *testing.T) {
 	f := newFixture(t)
 	// The shape lsof answers in, which is where a writer's own name is escaped: the pid and
 	// the parentheses around it are hachiko's and stay as they are.
-	f.writer = pidLabel("[Fix it](https://wherever)", "5073")
+	f.writer = wording.PIDLabel("[Fix it](https://wherever)", "5073")
 
 	for i := range 13 {
 		f.proc(7018, float64(i)*240, firstStart, "/usr/local/bin/**node** worker.js")
@@ -755,7 +757,7 @@ func TestANameShapedLikeMarkdownArrivesAsAName(t *testing.T) {
 			lacks(t, line, "**node**")
 		}
 	}
-	wants(t, message, codeSpan("/usr/local/bin/**node** worker.js"))
+	wants(t, message, wording.CodeSpan("/usr/local/bin/**node** worker.js"))
 
 	// The post's title is plain text, so the escaping comes back out rather than being shown,
 	// and the marker stays: it is what says at a glance which kind of alert this is.
@@ -770,5 +772,5 @@ func TestANameShapedLikeMarkdownArrivesAsAName(t *testing.T) {
 
 	wants(t, f.lastSent(), `written by \[Fix it\]\(https://wherever\) (pid 5073)`)
 	lacks(t, f.lastSent(), "written by [Fix it]")
-	wants(t, f.lastSent(), codeSpan(path))
+	wants(t, f.lastSent(), wording.CodeSpan(path))
 }

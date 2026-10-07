@@ -12,6 +12,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
+	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
 // Deps is everything a sweep learns about the machine or does to it. Each one is a
@@ -204,7 +205,7 @@ func writers(path string) string {
 			// Name first and the pid in parentheses, the same way every other process in a
 			// message reads. One stable string, because it is compared across checks to spot
 			// a writer that was not there when the question went up.
-			found = append(found, pidLabel(line[1:], pid))
+			found = append(found, wording.PIDLabel(line[1:], pid))
 			pid = ""
 		}
 	}

@@ -1,4 +1,19 @@
-package main
+// Package wording is how everything hachiko sends is worded, so that a channel carrying
+// an alert, a reminder, an on-call session's own report and shibuya's outage post reads
+// as one voice rather than as four things taking turns. Every message has one shape, and
+// this is the whole of it: a lead line Tim can read off a locked phone, bold-labelled
+// detail lines under it in a fixed order, one line of what he can do, and a subtext line
+// of machine detail he does not act on. shibuya writes the same shape in TypeScript, so a
+// change to the style here is a change there too.
+//
+// The lead is also the forum post title — the thread is named by the first line — which
+// is why it carries no code span, no incident id and no full stop.
+//
+// Beside the shape is what makes a string safe to put in one: everything a path, a
+// command line or an agent's own report carries was chosen by whatever filled the disk,
+// and safe.go is the cut and the escaping that keep it from reading as hachiko's own
+// words.
+package wording
 
 import (
 	"fmt"
@@ -12,37 +27,28 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
-// Every message hachiko sends has one shape, and this file is the whole of it: a lead
-// line Tim can read off a locked phone, bold-labelled detail lines under it in a fixed
-// order, one line of what he can do, and a subtext line of machine detail he does not
-// act on. shibuya writes the same shape in TypeScript, so a change to the style here is
-// a change there too.
-//
-// The lead is also the forum post title — threadName takes the first line — which is why
-// it carries no code span, no incident id and no full stop.
-
 // One marker per message and only at the start of the lead. Six, because a glance at a
 // notification has to say which of these it is before anything else is read.
 const (
-	markerDown      = "🔴"
-	markerRecovered = "🟢"
-	markerDegraded  = "⚠️"
-	markerInfo      = "ℹ️"
-	markerDisk      = "💾"
-	markerBusy      = "🔥"
+	MarkerDown      = "🔴"
+	MarkerRecovered = "🟢"
+	MarkerDegraded  = "⚠️"
+	MarkerInfo      = "ℹ️"
+	MarkerDisk      = "💾"
+	MarkerBusy      = "🔥"
 )
 
 // The labels a group of findings goes under, so the same wording reaches a first alert,
 // a reminder three hours later and the prompt that hands the decision over.
 const (
-	labelGrowing   = "Growing fast"
-	labelBusy      = "Busy processes"
-	labelFreeSpace = "Free space"
-	labelEmptied   = "Emptied to keep the Mac going"
-	labelNow       = "Now"
-	labelWaiting   = "Waiting"
-	labelWhy       = "Why"
-	labelFallback  = "If no answer"
+	LabelGrowing   = "Growing fast"
+	LabelBusy      = "Busy processes"
+	LabelFreeSpace = "Free space"
+	LabelEmptied   = "Emptied to keep the Mac going"
+	LabelNow       = "Now"
+	LabelWaiting   = "Waiting"
+	LabelWhy       = "Why"
+	LabelFallback  = "If no answer"
 )
 
 // A headline rather than a sentence of prose, and short enough to survive a lock screen
@@ -51,24 +57,24 @@ const leadLimit = 90
 
 // A process or file name in a lead, which has the rest of the lead to share the limit
 // above with.
-const nameLimit = 48
+const NameLimit = 48
 
-// message is one Discord message under construction. Nothing here joins with a blank
+// Message is one Discord message under construction. Nothing here joins with a blank
 // line except the one before the action, and nothing leaves a trailing one.
-type message struct {
+type Message struct {
 	lead    string
 	blocks  []string
 	action  string
 	subtext string
 }
 
-func lead(marker, sentence string) *message {
-	return &message{lead: marker + " " + clip(strings.TrimSpace(sentence), leadLimit)}
+func Lead(marker, sentence string) *Message {
+	return &Message{lead: marker + " " + Clip(strings.TrimSpace(sentence), leadLimit)}
 }
 
 // A `**Label:** value` line, dropped when there is nothing to say about it: a message is
 // only the findings there were, not a form with blanks in it.
-func (m *message) field(label, value string) *message {
+func (m *Message) Field(label, value string) *Message {
 	if value == "" {
 		return m
 	}
@@ -76,33 +82,33 @@ func (m *message) field(label, value string) *message {
 	return m
 }
 
-func (m *message) bullets(label string, items []string) *message {
-	return m.block(section(label, items))
+func (m *Message) Bullets(label string, items []string) *Message {
+	return m.Block(Section(label, items))
 }
 
 // A section built elsewhere — the disk and CPU findings are assembled once per sweep and
 // reach several messages.
-func (m *message) block(text string) *message {
+func (m *Message) Block(text string) *Message {
 	if text != "" {
 		m.blocks = append(m.blocks, text)
 	}
 	return m
 }
 
-func (m *message) can(action string) *message {
+func (m *Message) Can(action string) *Message {
 	m.action = action
 	return m
 }
 
 // The last line, as Discord subtext: the incident id and the machine, which are what a
 // later question needs and what Tim never acts on.
-func (m *message) about(incident, host string) *message {
+func (m *Message) About(incident, host string) *Message {
 	var parts []string
 	if incident != "" {
-		parts = append(parts, "Incident "+safe(incident, nameLimit))
+		parts = append(parts, "Incident "+Safe(incident, NameLimit))
 	}
 	if host != "" {
-		parts = append(parts, safe(host, nameLimit))
+		parts = append(parts, Safe(host, NameLimit))
 	}
 	if len(parts) > 0 {
 		m.subtext = "-# " + strings.Join(parts, " · ")
@@ -110,7 +116,7 @@ func (m *message) about(incident, host string) *message {
 	return m
 }
 
-func (m *message) String() string {
+func (m *Message) String() string {
 	out := append([]string{m.lead}, m.blocks...)
 
 	var tail []string
@@ -131,7 +137,7 @@ func (m *message) String() string {
 // list of three files on one line is a line nobody reads to the end of. An item may carry
 // its own indented continuation line, which is how a command line gets a line of its own
 // without becoming a bullet of its own.
-func section(label string, items []string) string {
+func Section(label string, items []string) string {
 	if len(items) == 0 {
 		return ""
 	}
@@ -140,7 +146,7 @@ func section(label string, items []string) string {
 
 // Sizes read as the numbers Tim would say out loud: one decimal of a gigabyte, whole
 // megabytes under one, and no trailing zero on either.
-func gbUnit(kb int64) string {
+func GBUnit(kb int64) string {
 	if kb < 0 {
 		kb = 0
 	}
@@ -154,7 +160,7 @@ func gbUnit(kb int64) string {
 
 // What says whether a file is a nuisance or an emergency, in whole units because the
 // number is an extrapolation from one interval and "about" is the honest word for it.
-func ratePhrase(grewKB int64, span time.Duration) string {
+func RatePhrase(grewKB int64, span time.Duration) string {
 	seconds := span.Seconds()
 	if seconds <= 0 {
 		seconds = 1
@@ -174,13 +180,13 @@ func ratePhrase(grewKB int64, span time.Duration) string {
 // shibuya's `duration` is this function in TypeScript, so a change to either is a change to
 // both: the two write into one channel and a Mac that has been quiet for two days has to
 // read the same whichever of them says so.
-func durationPhrase(d time.Duration) string {
+func DurationPhrase(d time.Duration) string {
 	minutes := int64(d.Minutes())
 	if minutes < 1 {
 		return "less than a minute"
 	}
 	if minutes < 60 {
-		return countOf(minutes, "minute", "minutes")
+		return CountOf(minutes, "minute", "minutes")
 	}
 
 	hours := minutes / 60
@@ -192,14 +198,14 @@ func durationPhrase(d time.Duration) string {
 
 func twoUnits(big int64, bigOne, bigMany string, small int64, smallOne, smallMany string) string {
 	if small == 0 {
-		return countOf(big, bigOne, bigMany)
+		return CountOf(big, bigOne, bigMany)
 	}
-	return countOf(big, bigOne, bigMany) + " " + countOf(small, smallOne, smallMany)
+	return CountOf(big, bigOne, bigMany) + " " + CountOf(small, smallOne, smallMany)
 }
 
 // Both spellings rather than an appended "s", because that is what gives "2 processs", and
 // shibuya's own `plural` takes both for the same reason.
-func countOf(n int64, one, many string) string {
+func CountOf(n int64, one, many string) string {
 	if n == 1 {
 		return "1 " + one
 	}
@@ -208,7 +214,7 @@ func countOf(n int64, one, many string) string {
 
 // A clock time is enough for today, and anything older needs the day as well — a process
 // that started "at 20:06" is a different thing from one that started last Tuesday.
-func timePhrase(at, now time.Time) string {
+func TimePhrase(at, now time.Time) string {
 	at = at.In(now.Location())
 	clock := at.Format("15:04")
 
@@ -229,23 +235,23 @@ func sameDay(a, b time.Time) bool {
 
 // Name first and the pid in parentheses, because the name is what Tim recognises and the
 // pid is what he would type.
-func processLabel(name string, pid int) string { return pidLabel(name, strconv.Itoa(pid)) }
+func ProcessLabel(name string, pid int) string { return PIDLabel(name, strconv.Itoa(pid)) }
 
 // The same for a pid that arrived as text, which is how lsof prints one.
 //
 // The name is escaped here rather than at each place one of these labels is written, so a
 // label is message-safe by construction: the parentheses are hachiko's own and stay as they
 // are, and a command called `**node**` cannot take the rest of the line with it.
-func pidLabel(name, pid string) string { return plainWords(name) + " (pid " + pid + ")" }
+func PIDLabel(name, pid string) string { return PlainWords(name) + " (pid " + pid + ")" }
 
 // A path, a command line or a label in an inline code span, so Discord renders none of
 // the markdown in it. The fence is one backtick longer than the longest run inside, and
 // content holding a backtick is padded with spaces — which together are the whole of why
 // a file named "a`b" cannot break out of the span and style the rest of the message.
 //
-// Everything reaching this has been through safe() first: a span is no protection against
+// Everything reaching this has been through Safe() first: a span is no protection against
 // a newline, which ends it whatever the fence is.
-func codeSpan(s string) string {
+func CodeSpan(s string) string {
 	longest, run := 0, 0
 	for _, r := range s {
 		if r == '`' {
@@ -267,7 +273,7 @@ func codeSpan(s string) string {
 
 // The file a lead names, by its base name: the whole path is in the detail below, and a
 // lead is read at a glance.
-func baseLabel(path string) string { return plainWords(clip(filepath.Base(path), nameLimit)) }
+func BaseLabel(path string) string { return PlainWords(Clip(filepath.Base(path), NameLimit)) }
 
 // The characters Discord gives a meaning to in a message body. A backslash before each of
 // them is how Discord is told to render the character and nothing else.
@@ -281,7 +287,7 @@ const markdownChars = `\*_~|` + "`" + `>#[]()`
 //
 // A code span needs none of this and must not have it — the span is what stops the rendering
 // there, and a backslash inside one is a backslash.
-func plainWords(s string) string {
+func PlainWords(s string) string {
 	var out strings.Builder
 	out.Grow(len(s))
 
@@ -302,7 +308,7 @@ func plainWords(s string) string {
 //
 // Byte by byte, which is safe because every character it looks for is ASCII and no byte of
 // a multi-byte rune is.
-func plainTitle(s string) string {
+func PlainTitle(s string) string {
 	var out strings.Builder
 	out.Grow(len(s))
 
@@ -317,29 +323,29 @@ func plainTitle(s string) string {
 
 // What to call an incident in a lead. The id itself is machine detail and goes in the
 // subtext line, since nothing Tim does with a message needs it.
-func incidentWords(kind string) string {
+func IncidentWords(kind string) string {
 	switch kind {
 	case "cpu":
 		return "the CPU incident"
 	case "disk":
 		return "the disk incident"
 	default:
-		return "the " + safe(kind, nameLimit) + " incident"
+		return "the " + Safe(kind, NameLimit) + " incident"
 	}
 }
 
 // Where the session is, in the two words herdr names things by.
-func herdrWhere(cfg config.Config, tab string) string {
+func HerdrWhere(cfg config.Config, tab string) string {
 	return fmt.Sprintf("workspace %s, tab %s",
-		codeSpan(safe(cfg.WorkspaceLabel(), pathLimit)), codeSpan(safe(tab, pathLimit)))
+		CodeSpan(Safe(cfg.WorkspaceLabel(), PathLimit)), CodeSpan(Safe(tab, PathLimit)))
 }
 
-func attachAction(cfg config.Config, tab string) string {
-	return "Attach in herdr: " + herdrWhere(cfg, tab) + "."
+func AttachAction(cfg config.Config, tab string) string {
+	return "Attach in herdr: " + HerdrWhere(cfg, tab) + "."
 }
 
-func answerAction(cfg config.Config, tab string) string {
-	return "Answer in herdr: " + herdrWhere(cfg, tab) + "."
+func AnswerAction(cfg config.Config, tab string) string {
+	return "Answer in herdr: " + HerdrWhere(cfg, tab) + "."
 }
 
 // The daemons /usr/local/libexec/claude-root restarts with no password, read out of the
@@ -380,7 +386,7 @@ func allowedDaemons(helper string) []string {
 // be one the helper allows. Matched by string equality and nothing looser, and the command
 // is spelled from the allowlist's own entry rather than from the name a process reported —
 // so nothing a command line chose can reach the line Tim is being told to run.
-func restartDaemonCommand(cfg config.Config, name string) string {
+func RestartDaemonCommand(cfg config.Config, name string) string {
 	if name == "" {
 		return ""
 	}

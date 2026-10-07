@@ -13,6 +13,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
+	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
 // What this is for: Tim wakes up, reads one message on his phone, and answers it there.
@@ -30,11 +31,6 @@ const (
 	// What the agent costs when the feature is off: one start, one line, and an exit that
 	// launchd throttles. Nothing polls and no token is asked for.
 	listenIdle = 5 * time.Minute
-
-	// A reply is at most this long by the time it reaches the agent. It is Tim's own text
-	// rather than an incident's, but it is still a string from the network going into a
-	// prompt.
-	replyLimit = 1000
 )
 
 // The two shapes a reply can have. A bare number is the option he picked, which is what
@@ -257,7 +253,7 @@ If what he is asking for is on the never list, do not do it on the strength of t
 		lead += fmt.Sprintf("\n\nHis reply is the single number %s, which is option %s of the question you asked.", option[1], option[1])
 	}
 
-	if err := l.handTo(incident, lead, clip(text, replyLimit)); err != nil {
+	if err := l.handTo(incident, lead, wording.Clip(text, wording.ReplyLimit)); err != nil {
 		l.log.Say("Tim's reply on %s did not reach the on-call session: %v", incident, err)
 		l.sayInThread(thread, "That did not reach the agent: "+err.Error())
 		return
@@ -298,7 +294,7 @@ func (l *listener) approve(incident, thread, messageID, code string) {
 	lead := fmt.Sprintf(`Tim has approved one action on %s with a code from his authenticator, checked by hachiko. The action approved is the one you registered and is quoted between the markers below. You may now carry out that action and nothing else: anything further on the never list needs a request and a code of its own.`,
 		incident)
 
-	if err := l.handTo(incident, lead, "approved: "+clip(action, replyLimit)); err != nil {
+	if err := l.handTo(incident, lead, "approved: "+wording.Clip(action, wording.ReplyLimit)); err != nil {
 		l.log.Say("the approval on %s did not reach the on-call session: %v", incident, err)
 		l.sayInThread(thread, "The code was accepted but did not reach the agent: "+err.Error())
 		return
@@ -497,7 +493,7 @@ func approvalRequest(cfg config.Config, incident, actionFile string) error {
 	}
 
 	store := Store{dir: cfg.StateDir}
-	if err := store.RequestApproval(incident, clip(strings.TrimSpace(string(action)), replyLimit)); err != nil {
+	if err := store.RequestApproval(incident, wording.Clip(strings.TrimSpace(string(action)), wording.ReplyLimit)); err != nil {
 		return err
 	}
 

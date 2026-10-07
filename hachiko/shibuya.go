@@ -15,6 +15,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
+	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
 // The check-in with shibuya, which is the half of the watch that is not on this Mac.
@@ -103,12 +104,12 @@ func (s switchClient) post(target, token string, in Checkin) error {
 	}
 	// Left out rather than sent empty: shibuya reads an absent display as "use the slug",
 	// and a key whose value cleaned away to nothing says the same thing less clearly.
-	if display := safe(in.Display, displayLimit); display != "" {
+	if display := wording.Safe(in.Display, displayLimit); display != "" {
 		body["display"] = display
 	}
 	if in.Failed {
 		path = "/fail"
-		body["reason"] = safe(in.Reason, reasonLimit)
+		body["reason"] = wording.Safe(in.Reason, reasonLimit)
 	}
 
 	payload, err := json.Marshal(body)

@@ -20,6 +20,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
+	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
 const usage = `usage: hachiko [--dry-run | --test-alert]
@@ -219,7 +220,7 @@ func fallbackOption(message string) string {
 	if len(matches) == 0 {
 		return ""
 	}
-	return safe(matches[len(matches)-1][1], fallbackLimit)
+	return wording.Safe(matches[len(matches)-1][1], wording.FallbackLimit)
 }
 
 func oncall(cfg config.Config, name, briefFile string) error {
@@ -245,9 +246,9 @@ func testAlert(cfg config.Config) error {
 		return err
 	}
 
-	message := lead(markerInfo, "Test alert from hachiko — nothing is wrong").
-		field(labelFreeSpace, gbUnit(free)).
-		about("", cfg.Host).
+	message := wording.Lead(wording.MarkerInfo, "Test alert from hachiko — nothing is wrong").
+		Field(wording.LabelFreeSpace, wording.GBUnit(free)).
+		About("", cfg.Host).
 		String()
 
 	if _, err := sendThroughOP(cfg, Outgoing{Text: message}); err != nil {

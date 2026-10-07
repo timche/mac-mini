@@ -13,6 +13,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
+	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
 // The listener against the shapes Discord and herdr both answer in: a thread with messages
@@ -365,10 +366,10 @@ func TestAnApprovalRequestOnlyTakesAnIncidentIdAndIsClipped(t *testing.T) {
 	}
 	equal(t, store.OpenApproval("../../etc/passwd"), "", "what a path reads back as")
 
-	if err := store.RequestApproval(diskIncident, strings.Repeat("x", replyLimit+50)); err != nil {
+	if err := store.RequestApproval(diskIncident, strings.Repeat("x", wording.ReplyLimit+50)); err != nil {
 		t.Fatal(err)
 	}
-	if len(store.OpenApproval(diskIncident)) > replyLimit+10 {
+	if len(store.OpenApproval(diskIncident)) > wording.ReplyLimit+10 {
 		t.Error("an action was not clipped")
 	}
 }

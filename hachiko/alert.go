@@ -17,6 +17,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
+	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
 // Discord takes 2,000 characters. What is over that is detail, and the on-call tab
@@ -330,7 +331,7 @@ func webhookAnswered(err error, codes ...int) bool {
 // leave a backslash with nothing left after it to escape.
 func threadName(message string) string {
 	first, _, _ := strings.Cut(strings.TrimSpace(message), "\n")
-	name := safe(plainTitle(first), 96)
+	name := wording.Safe(wording.PlainTitle(first), 96)
 	if strings.TrimSpace(name) == "" {
 		return "hachiko"
 	}

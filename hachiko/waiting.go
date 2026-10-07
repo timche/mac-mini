@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
 // The other way an incident goes unresolved. An on-call session investigates, reports,
@@ -99,7 +100,7 @@ func (r nowReading) snapshot(now time.Time) Asked {
 // What the machine looks like this minute, which every message about an unanswered
 // question carries in place of the numbers the question was asked with.
 func (r nowReading) numbers() string {
-	now := "**" + labelNow + ":** " + gbUnit(r.free) + " free"
+	now := "**" + wording.LabelNow + ":** " + wording.GBUnit(r.free) + " free"
 	if r.level != 0 {
 		now += fmt.Sprintf(", under the %d GB mark", r.level)
 	}
@@ -340,11 +341,11 @@ func (s sweeper) escalate(state *State, now time.Time, kind string, w Waiting, r
 }
 
 func (s sweeper) remind(state *State, w Waiting, reading nowReading, waited time.Duration) Waiting {
-	message := lead(markerDegraded, fmt.Sprintf("Still no answer on %s after %s",
-		incidentWords(kindOf(w.Incident)), durationPhrase(waited))).
-		block(reading.numbers()).
-		can(answerAction(s.cfg, w.Tab)).
-		about(w.Incident, s.cfg.Host).
+	message := wording.Lead(wording.MarkerDegraded, fmt.Sprintf("Still no answer on %s after %s",
+		wording.IncidentWords(kindOf(w.Incident)), wording.DurationPhrase(waited))).
+		Block(reading.numbers()).
+		Can(wording.AnswerAction(s.cfg, w.Tab)).
+		About(w.Incident, s.cfg.Host).
 		String()
 
 	return s.step(state, w, stepRemind, message,
@@ -363,13 +364,13 @@ func (s sweeper) warn(state *State, w Waiting, reading nowReading, waited time.D
 		fallback = "the agent named no fallback option, so it will decide when it re-checks"
 	}
 
-	message := lead(markerDegraded, fmt.Sprintf("No answer on %s — the agent decides in %s",
-		incidentWords(kindOf(w.Incident)), durationPhrase(s.cfg.HandoverAfter-s.cfg.WarnAfter))).
-		field(labelWaiting, durationPhrase(waited)).
-		field(labelFallback, fallback).
-		block(reading.numbers()).
-		can(answerAction(s.cfg, w.Tab)).
-		about(w.Incident, s.cfg.Host).
+	message := wording.Lead(wording.MarkerDegraded, fmt.Sprintf("No answer on %s — the agent decides in %s",
+		wording.IncidentWords(kindOf(w.Incident)), wording.DurationPhrase(s.cfg.HandoverAfter-s.cfg.WarnAfter))).
+		Field(wording.LabelWaiting, wording.DurationPhrase(waited)).
+		Field(wording.LabelFallback, fallback).
+		Block(reading.numbers()).
+		Can(wording.AnswerAction(s.cfg, w.Tab)).
+		About(w.Incident, s.cfg.Host).
 		String()
 
 	return s.step(state, w, stepWarn, message,
@@ -407,12 +408,12 @@ func (s sweeper) sayHandoverStuck(state *State, kind string, w Waiting, reading 
 		return w
 	}
 
-	message := lead(markerDown, fmt.Sprintf("The decision on %s reached no agent", incidentWords(kind))).
-		field(labelWhy, why).
-		block(reading.numbers()).
-		can("Nothing has acted on it, and hachiko tries again every five minutes. "+
-			answerAction(s.cfg, w.Tab)).
-		about(w.Incident, s.cfg.Host).
+	message := wording.Lead(wording.MarkerDown, fmt.Sprintf("The decision on %s reached no agent", wording.IncidentWords(kind))).
+		Field(wording.LabelWhy, why).
+		Block(reading.numbers()).
+		Can("Nothing has acted on it, and hachiko tries again every five minutes. "+
+			wording.AnswerAction(s.cfg, w.Tab)).
+		About(w.Incident, s.cfg.Host).
 		String()
 
 	return s.step(state, w, stepStuck, message,
@@ -422,12 +423,12 @@ func (s sweeper) sayHandoverStuck(state *State, kind string, w Waiting, reading 
 // And a wait that ends with nothing to show says so, for the same reason: the alternative is
 // a channel whose last word was a warning about a decision a quarter of an hour away.
 func (s sweeper) sayNoOutcome(state *State, kind string, w Waiting, reading nowReading, why string) bool {
-	message := lead(markerDegraded, fmt.Sprintf("No outcome reported on %s", incidentWords(kind))).
-		field(labelWhy, why).
-		block(reading.numbers()).
-		can("hachiko has stopped waiting and does not know whether anything was done. Check herdr: "+
-			herdrWhere(s.cfg, w.Tab)+", or leave it to the next check to raise it again.").
-		about(w.Incident, s.cfg.Host).
+	message := wording.Lead(wording.MarkerDegraded, fmt.Sprintf("No outcome reported on %s", wording.IncidentWords(kind))).
+		Field(wording.LabelWhy, why).
+		Block(reading.numbers()).
+		Can("hachiko has stopped waiting and does not know whether anything was done. Check herdr: "+
+			wording.HerdrWhere(s.cfg, w.Tab)+", or leave it to the next check to raise it again.").
+		About(w.Incident, s.cfg.Host).
 		String()
 
 	if err := s.send(state, w.Incident, message); err != nil {
@@ -444,13 +445,13 @@ func (s sweeper) handOver(state *State, now time.Time, kind string, w Waiting, r
 	waited := now.Sub(time.Unix(w.Since, 0))
 
 	promptLead := fmt.Sprintf(`Tim has not answered for %s, so the autonomy in your standing orders is handed over to you now. Re-check the situation from scratch first — the numbers below are this minute's, not the ones you asked about — then pick and carry out the least destructive option that resolves it, inside the limits those orders give you. Spawn the oncall-partner agent with your proposed action first and act only if it agrees. Verify it worked, send one message with what you did, why, which limit allowed it and what the partner said, write the incident note, and stop.`,
-		durationPhrase(waited))
+		wording.DurationPhrase(waited))
 
 	if worse != "" {
 		promptLead = fmt.Sprintf(`The incident is getting worse rapidly: %s. Tim has not answered for %s, and the three-hour handover would come too late, so the autonomy in your standing orders is handed over to you now, early.
 
 Re-check the situation from scratch — the numbers below are this minute's — and judge it yourself. If you agree that waiting costs more than acting, pick and carry out the least destructive option that resolves it, inside the limits those orders give you, with the oncall-partner agent's agreement first. If you judge instead that it is about to stop by itself or that acting costs more than the fault does, ask again with fresh options. Either way send one message saying which you chose and why.`,
-			worse, durationPhrase(waited))
+			worse, wording.DurationPhrase(waited))
 	}
 
 	// Early marks itself and the two messages it makes pointless, and leaves the deadline
@@ -558,11 +559,11 @@ func (s sweeper) refresh(now time.Time, kind string, w Waiting, reading nowReadi
 	// which writer is in the fenced data below it, where a name chosen by whatever filled
 	// the disk belongs.
 	promptLead := fmt.Sprintf(`The incident changed while you were waiting, so your question has been cancelled: %s. What changed is named in the data below, with this minute's numbers. Re-check the situation and ask again with options that fit what it is now. Tim has been waiting %s and the handover at %s is still counted from the first question, not from this one, so say in your question what you would do if he does not answer.`,
-		changed.why, durationPhrase(waited), durationPhrase(s.cfg.HandoverAfter))
+		changed.why, wording.DurationPhrase(waited), wording.DurationPhrase(s.cfg.HandoverAfter))
 
 	if !blocked {
 		promptLead = fmt.Sprintf(`The incident changed while nobody was answering: %s. You have no question up, so nothing of yours was cancelled. What changed is named in the data below, with this minute's numbers. Ask again with options that fit what it is now. Tim has been waiting %s and the handover at %s is still counted from the first question, not from this one, so say in your question what you would do if he does not answer.`,
-			changed.why, durationPhrase(waited), durationPhrase(s.cfg.HandoverAfter))
+			changed.why, wording.DurationPhrase(waited), wording.DurationPhrase(s.cfg.HandoverAfter))
 	}
 
 	// An incident that has stopped by itself is not an incident to ask fresh options about:
@@ -575,7 +576,7 @@ func (s sweeper) refresh(now time.Time, kind string, w Waiting, reading nowReadi
 			cancelled = "Your question has been cancelled, since its options are about something that has stopped."
 		}
 		promptLead = fmt.Sprintf(`What fired this incident is no longer firing, by this minute's reading. %s Check for yourself whether it has really resolved — read the processes, the file and the free space again rather than taking that reading for it. If it has, send one message with `+"`hachiko notify --outcome <incident> <file>`"+` saying what happened and that it stopped by itself, write the incident note, and stop. If it has not, ask again with options that fit what it is now. Tim has been waiting %s.`,
-			cancelled, durationPhrase(waited))
+			cancelled, wording.DurationPhrase(waited))
 	}
 
 	escSent, err := s.hand(kind, blocked, promptLead, changed.detail+"\n\n"+s.handoverData(w, reading))
@@ -651,11 +652,11 @@ func (s sweeper) unreachable(state *State, now time.Time, kind string, w Waiting
 		return w, false
 	}
 
-	message := lead(markerDown, fmt.Sprintf("Cannot reach the on-call session on %s", incidentWords(kind))).
-		field(labelWhy, fmt.Sprintf("herdr has not answered for %s", durationPhrase(down))).
-		block(reading.numbers()).
-		can("Nothing is being worked and nothing can be handed to it. Open a session on it yourself, or leave it to the next check to raise it again.").
-		about(w.Incident, s.cfg.Host).
+	message := wording.Lead(wording.MarkerDown, fmt.Sprintf("Cannot reach the on-call session on %s", wording.IncidentWords(kind))).
+		Field(wording.LabelWhy, fmt.Sprintf("herdr has not answered for %s", wording.DurationPhrase(down))).
+		Block(reading.numbers()).
+		Can("Nothing is being worked and nothing can be handed to it. Open a session on it yourself, or leave it to the next check to raise it again.").
+		About(w.Incident, s.cfg.Host).
 		String()
 
 	if err := s.send(state, w.Incident, message); err != nil {
@@ -699,12 +700,12 @@ func (s sweeper) noAgent(state *State, now time.Time, kind string, w Waiting, re
 		return
 	}
 
-	message := lead(markerDown, fmt.Sprintf("No answer on %s, and no agent left to decide", incidentWords(kind))).
-		field(labelWaiting, durationPhrase(waited)).
-		field(labelWhy, "the session is closed, so nothing was done about it").
-		block(reading.numbers()).
-		can("Open a session on it yourself, or leave it to the next check to raise it again.").
-		about(w.Incident, s.cfg.Host).
+	message := wording.Lead(wording.MarkerDown, fmt.Sprintf("No answer on %s, and no agent left to decide", wording.IncidentWords(kind))).
+		Field(wording.LabelWaiting, wording.DurationPhrase(waited)).
+		Field(wording.LabelWhy, "the session is closed, so nothing was done about it").
+		Block(reading.numbers()).
+		Can("Open a session on it yourself, or leave it to the next check to raise it again.").
+		About(w.Incident, s.cfg.Host).
 		String()
 
 	if err := s.send(state, w.Incident, message); err != nil {
@@ -793,7 +794,7 @@ func (s sweeper) worsening(w Waiting, reading nowReading, waited time.Duration, 
 	// number, and by here they are about a different disk.
 	if quarter := w.Asked.FreeKB / 4; quarter > 0 && reading.free <= w.Asked.FreeKB-quarter {
 		return w, fmt.Sprintf("%s of the %s free when the question was asked is already gone",
-			gbUnit(w.Asked.FreeKB-reading.free), gbUnit(w.Asked.FreeKB))
+			wording.GBUnit(w.Asked.FreeKB-reading.free), wording.GBUnit(w.Asked.FreeKB))
 	}
 
 	// Whichever comes first, the handover that is already coming or an hour: past that
@@ -822,7 +823,7 @@ func (s sweeper) worsening(w Waiting, reading nowReading, waited time.Duration, 
 	}
 
 	return w, fmt.Sprintf("free space reaches %d GB in about %s at the rate it is going, which is sooner than the handover, and the check before this one said so too",
-		s.cfg.CriticalGB(), durationPhrase(until))
+		s.cfg.CriticalGB(), wording.DurationPhrase(until))
 }
 
 // How long until free space reaches the critical threshold, at the faster of the two
@@ -887,13 +888,13 @@ func materialChange(w Waiting, reading nowReading) change {
 		if reading.level == 0 {
 			return change{
 				why:    "free space is back over every mark",
-				detail: fmt.Sprintf("Free space is back over every mark, at %s.", gbUnit(reading.free)),
+				detail: fmt.Sprintf("Free space is back over every mark, at %s.", wording.GBUnit(reading.free)),
 			}
 		}
 		return change{
 			why: fmt.Sprintf("free space crossed the %d GB mark", reading.level),
 			detail: fmt.Sprintf("Free space crossed the %d GB mark and is now %s.",
-				reading.level, gbUnit(reading.free)),
+				reading.level, wording.GBUnit(reading.free)),
 		}
 	}
 
@@ -909,7 +910,7 @@ func materialChange(w Waiting, reading nowReading) change {
 			return change{
 				why: "a file has at least doubled in size since the question was asked",
 				detail: fmt.Sprintf("This file has at least doubled since the question was asked, from %s to %s: %s",
-					gbUnit(asked), gbUnit(reading.sizes[path]), safe(path, pathLimit)),
+					wording.GBUnit(asked), wording.GBUnit(reading.sizes[path]), wording.Safe(path, wording.PathLimit)),
 			}
 		}
 	}
@@ -923,7 +924,7 @@ func materialChange(w Waiting, reading nowReading) change {
 				return change{
 					why: "a process is writing that was not there when the question was asked",
 					detail: "This writer was not there when the question was asked: " +
-						safe(writer, writerLimit),
+						wording.Safe(writer, wording.WriterLimit),
 				}
 			}
 		}

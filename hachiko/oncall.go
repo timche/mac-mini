@@ -16,6 +16,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
+	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
 // herdrRunner is the one call out to herdr, so a test drives the whole of this
@@ -255,7 +256,7 @@ func (o oncaller) open(name, brief string) (OncallSession, error) {
 				return OncallSession{
 					Tab: existing,
 					Say: "The agent is already waiting for you in herdr — attach: " +
-						herdrWhere(o.cfg, existing) + ". This update did not reach it.",
+						wording.HerdrWhere(o.cfg, existing) + ". This update did not reach it.",
 				}, nil
 			}
 			o.log.Say("the on-call session in tab %s was waiting on a question, so it was cancelled and the session was asked again", existing)
@@ -303,7 +304,7 @@ func (o oncaller) open(name, brief string) (OncallSession, error) {
 		return OncallSession{
 			Tab: label,
 			Say: "A session is open in herdr but the brief did not reach it, so nothing is being worked — attach: " +
-				herdrWhere(o.cfg, label) + ".",
+				wording.HerdrWhere(o.cfg, label) + ".",
 		}, nil
 	}
 
@@ -315,7 +316,7 @@ func (o oncaller) delivered(label string) OncallSession {
 		Tab:       label,
 		Delivered: true,
 		Say: "An agent is looking into it — attach in herdr: " +
-			herdrWhere(o.cfg, label) + ". Details to follow.",
+			wording.HerdrWhere(o.cfg, label) + ". Details to follow.",
 	}
 }
 

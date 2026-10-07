@@ -250,7 +250,7 @@ func (s sweeper) behindMessage(kind, path string, span time.Duration) string {
 	}
 
 	return m.Can("**You can run:** "+
-		wording.CodeSpan(fmt.Sprintf("tail ~/Library/Logs/%s.log", s.cfg.SyncLabel()))+
+		wording.CodeSpan("tail ~/Library/Logs/hachiko-sync.log")+
 		" — it says what the last pass did, and "+
 		wording.CodeSpan(fmt.Sprintf("launchctl kickstart -k gui/%d/%s", s.deps.Getuid(), s.cfg.SyncLabel()))+
 		" starts a fresh one.").
@@ -293,7 +293,7 @@ func (s sweeper) loadSync() string {
 	return "**You can run:** " +
 		wording.CodeSpan(fmt.Sprintf("launchctl kickstart -k gui/%d/%s", s.deps.Getuid(), s.cfg.SyncLabel())) +
 		" — it starts syncing at once, and says why it could not in " +
-		wording.CodeSpan(fmt.Sprintf("~/Library/Logs/%s.log", s.cfg.SyncLabel())) + "."
+		wording.CodeSpan("~/Library/Logs/hachiko-sync.log") + "."
 }
 
 // A `<kind> <path>` key back into its halves. At the first space, because a kind holds none

@@ -66,6 +66,9 @@ func Run(cfg config.Config, once, dryFlag bool) error {
 		// The flag or the config: the flag is a session asking, and the config is how the
 		// agent runs until the one line in it says otherwise.
 		dry: dryFlag || syncCfg.DryRun(),
+		// The heartbeat says the agent is alive, which it is in the config's dry run too; a
+		// session's --dry-run beside it is not the agent.
+		beat: !dryFlag,
 	}
 
 	// Canonicalised before anything else looks at it, so the path in a message and the path
@@ -96,6 +99,7 @@ type daemon struct {
 	deps  Deps
 	store *Store
 	dry   bool
+	beat  bool
 
 	// The last tick of each repository's loop, which is what the heartbeat is written from:
 	// a loop wedged on something no timeout caught stops advancing its own, and the
@@ -185,7 +189,7 @@ func (d *daemon) keep() error {
 	for {
 		d.deps.Sleep(keepInterval)
 
-		if !d.dry {
+		if d.beat {
 			if err := d.store.Beat(d.oldestBeat()); err != nil {
 				d.say("the heartbeat could not be written, so the watch will say sync has stopped: %v", err)
 			}

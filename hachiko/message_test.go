@@ -7,24 +7,26 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 func TestSizesReadAsSomethingTimWouldSayOutLoud(t *testing.T) {
 	equal(t, gbUnit(4508877), "4.3 GB", "four and a bit gigabytes")
-	equal(t, gbUnit(500*gib), "500 GB", "a round five hundred")
-	equal(t, gbUnit(20*gib), "20 GB", "the critical mark")
-	equal(t, gbUnit(gib), "1 GB", "exactly a gigabyte")
+	equal(t, gbUnit(500*config.GiB), "500 GB", "a round five hundred")
+	equal(t, gbUnit(20*config.GiB), "20 GB", "the critical mark")
+	equal(t, gbUnit(config.GiB), "1 GB", "exactly a gigabyte")
 	equal(t, gbUnit(920*1024), "920 MB", "under a gigabyte, in whole megabytes")
 	equal(t, gbUnit(524288), "512 MB", "half a gigabyte of memory")
-	equal(t, gbUnit(gib-1), "1 GB", "a rounding that would otherwise print 1024 MB")
+	equal(t, gbUnit(config.GiB-1), "1 GB", "a rounding that would otherwise print 1024 MB")
 	equal(t, gbUnit(-5), "0 MB", "a size that cannot be negative")
 }
 
 func TestRatesAreWholeUnitsAnHourAndSayAbout(t *testing.T) {
 	equal(t, ratePhrase(4508877, 300*time.Second), "about 52 GB an hour", "4.3 GB in five minutes")
-	equal(t, ratePhrase(2*gib, time.Hour), "about 2 GB an hour", "2 GB in an hour")
+	equal(t, ratePhrase(2*config.GiB, time.Hour), "about 2 GB an hour", "2 GB in an hour")
 	equal(t, ratePhrase(300*1024, time.Hour), "about 300 MB an hour", "under a gigabyte an hour")
-	equal(t, ratePhrase(gib, 0), "about 3600 GB an hour", "a span that cannot be zero")
+	equal(t, ratePhrase(config.GiB, 0), "about 3600 GB an hour", "a span that cannot be zero")
 }
 
 // Never 1h05m in anything Tim reads: a message at four in the morning is read once.
@@ -147,7 +149,7 @@ func TestTheRootHelpersAllowlistIsReadOutOfTheInstalledFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := Config{RootHelper: helper}
+	cfg := config.Config{RootHelper: helper}
 	equal(t, strings.Join(allowedDaemons(helper), " "), "dasd mds", "the daemons it allows")
 	equal(t, restartDaemonCommand(cfg, "dasd"), "sudo "+helper+" restart-daemon dasd",
 		"the command for a daemon on the list")

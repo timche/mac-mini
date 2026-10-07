@@ -3,10 +3,12 @@ package main
 import (
 	"testing"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 func TestRepoOfNamesTheCheckoutOrWorktreeADirectoryBelongsTo(t *testing.T) {
-	cfg := Config{
+	cfg := config.Config{
 		HerdrRoot:    "/Users/x/.herdr/worktrees",
 		ProjectsRoot: "/Users/x/projects",
 	}

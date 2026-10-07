@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 const fakeWebhook = "https://discord.invalid/api/webhooks/123/NOT-A-REAL-TOKEN"
@@ -17,7 +19,7 @@ const fakeWebhook = "https://discord.invalid/api/webhooks/123/NOT-A-REAL-TOKEN"
 // ps shows every process's arguments to everybody on the machine, so what op is asked
 // to run names the reference and never the value.
 func TestTheWebhookIsNeverInACommandLine(t *testing.T) {
-	cfg := Config{EnvFile: "/somewhere/hachiko.env.op"}
+	cfg := config.Config{EnvFile: "/somewhere/hachiko.env.op"}
 	args := opArgs(cfg, "/cache/hachiko", Outgoing{})
 
 	for _, arg := range args {

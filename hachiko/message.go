@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 // Every message hachiko sends has one shape, and this file is the whole of it: a lead
@@ -142,12 +144,12 @@ func gbUnit(kb int64) string {
 	if kb < 0 {
 		kb = 0
 	}
-	if kb < gib {
+	if kb < config.GiB {
 		if mb := (kb + 512) / 1024; mb < 1024 {
 			return fmt.Sprintf("%d MB", mb)
 		}
 	}
-	return strings.TrimSuffix(fmt.Sprintf("%.1f", float64(kb)/gib), ".0") + " GB"
+	return strings.TrimSuffix(fmt.Sprintf("%.1f", float64(kb)/config.GiB), ".0") + " GB"
 }
 
 // What says whether a file is a nuisance or an emergency, in whole units because the
@@ -159,10 +161,10 @@ func ratePhrase(grewKB int64, span time.Duration) string {
 	}
 
 	perHour := float64(grewKB) * 3600 / seconds
-	if perHour < gib {
+	if perHour < config.GiB {
 		return fmt.Sprintf("about %.0f MB an hour", perHour/1024)
 	}
-	return fmt.Sprintf("about %.0f GB an hour", perHour/gib)
+	return fmt.Sprintf("about %.0f GB an hour", perHour/config.GiB)
 }
 
 // Never 1h05m in anything Tim reads: a message at four in the morning is read once. Two
@@ -327,16 +329,16 @@ func incidentWords(kind string) string {
 }
 
 // Where the session is, in the two words herdr names things by.
-func herdrWhere(cfg Config, tab string) string {
+func herdrWhere(cfg config.Config, tab string) string {
 	return fmt.Sprintf("workspace %s, tab %s",
 		codeSpan(safe(cfg.WorkspaceLabel(), pathLimit)), codeSpan(safe(tab, pathLimit)))
 }
 
-func attachAction(cfg Config, tab string) string {
+func attachAction(cfg config.Config, tab string) string {
 	return "Attach in herdr: " + herdrWhere(cfg, tab) + "."
 }
 
-func answerAction(cfg Config, tab string) string {
+func answerAction(cfg config.Config, tab string) string {
 	return "Answer in herdr: " + herdrWhere(cfg, tab) + "."
 }
 
@@ -378,7 +380,7 @@ func allowedDaemons(helper string) []string {
 // be one the helper allows. Matched by string equality and nothing looser, and the command
 // is spelled from the allowlist's own entry rather than from the name a process reported —
 // so nothing a command line chose can reach the line Tim is being told to run.
-func restartDaemonCommand(cfg Config, name string) string {
+func restartDaemonCommand(cfg config.Config, name string) string {
 	if name == "" {
 		return ""
 	}

@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 // The thresholds come down to megabytes and minutes, so a file growing past one is a
@@ -32,7 +34,7 @@ var base = time.Unix(1700000000, 0)
 
 type fixture struct {
 	t     *testing.T
-	cfg   Config
+	cfg   config.Config
 	store Store
 	log   bytes.Buffer
 
@@ -125,9 +127,9 @@ func newFixture(t *testing.T) *fixture {
 		}
 	}
 
-	cfg := Config{
-		LowKB:      100 * gib,
-		CriticalKB: 20 * gib,
+	cfg := config.Config{
+		LowKB:      100 * config.GiB,
+		CriticalKB: 20 * config.GiB,
 		BigKB:      bigKB,
 		GrowthKB:   growKB,
 
@@ -192,7 +194,7 @@ func (f *fixture) deps() Deps {
 		Getpid: func() int { return f.pid },
 		Getuid: func() int { return f.uid },
 
-		FreeKB:   func() (int64, error) { return f.freeGB * gib, nil },
+		FreeKB:   func() (int64, error) { return f.freeGB * config.GiB, nil },
 		BigFiles: f.bigFiles,
 
 		Writers: func(string) string { return f.writer },

@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 // What this is for: Tim wakes up, reads one message on his phone, and answers it there.
@@ -46,8 +48,8 @@ var (
 // is resolved once per start and lives in one process's environment for as long as that
 // process does. One op call per start rather than one per poll, which is what keeps a
 // five-second loop off the service account's daily limit.
-func listen(cfg Config) error {
-	log := logger{out: os.Stdout, now: clockFromEnv()}
+func listen(cfg config.Config) error {
+	log := logger{out: os.Stdout, now: config.ClockFromEnv()}
 	store := Store{dir: cfg.StateDir}
 
 	if !cfg.Discord.On() {
@@ -75,8 +77,8 @@ func listen(cfg Config) error {
 // The far end of that re-exec. The token is in this process's environment and nowhere
 // else; it is never written, never an argument, and taken out of every error that leaves
 // here.
-func listenWithToken(cfg Config) error {
-	log := logger{out: os.Stdout, now: clockFromEnv()}
+func listenWithToken(cfg config.Config) error {
+	log := logger{out: os.Stdout, now: config.ClockFromEnv()}
 
 	store := Store{dir: cfg.StateDir}
 
@@ -93,7 +95,7 @@ func listenWithToken(cfg Config) error {
 		store:  store,
 		bot:    newBot(token),
 		herdr:  herdrCLI,
-		now:    clockFromEnv(),
+		now:    config.ClockFromEnv(),
 		log:    log,
 		secret: strings.TrimSpace(os.Getenv("HACHIKO_APPROVAL_TOTP")),
 	}
@@ -124,7 +126,7 @@ func sayOnce(store Store, log logger, state, message string) {
 }
 
 type listener struct {
-	cfg   Config
+	cfg   config.Config
 	store Store
 	bot   discordBot
 	herdr herdrRunner
@@ -408,7 +410,7 @@ func (l listener) lastSeen(thread string) string {
 	if err != nil {
 		return ""
 	}
-	return discordID(string(id))
+	return config.DiscordID(string(id))
 }
 
 // The highest id seen and not the last one handled: `after` means later than this, so a mark
@@ -416,7 +418,7 @@ func (l listener) lastSeen(thread string) string {
 // same messages again on the next pass and handed every one of them to the agent a second
 // time.
 func (l listener) markSeen(thread, messageID string) {
-	if discordID(messageID) == "" || snowflake(messageID) <= snowflake(l.lastSeen(thread)) {
+	if config.DiscordID(messageID) == "" || snowflake(messageID) <= snowflake(l.lastSeen(thread)) {
 		return
 	}
 	if err := os.MkdirAll(filepath.Dir(l.seenPath(thread)), 0o755); err != nil {
@@ -487,7 +489,7 @@ func (l listener) useStep(step int64) {
 // The session's own way to say which single action it is asking to be allowed. The action
 // arrives as a file for the same reason a report does: it names paths and commands chosen
 // by whatever filled the disk, and an argument is readable by every process on the Mac.
-func approvalRequest(cfg Config, incident, actionFile string) error {
+func approvalRequest(cfg config.Config, incident, actionFile string) error {
 	action, err := os.ReadFile(actionFile)
 	if err != nil {
 		return fmt.Errorf("cannot read the action at %s", actionFile)
@@ -498,7 +500,7 @@ func approvalRequest(cfg Config, incident, actionFile string) error {
 		return err
 	}
 
-	logger{out: os.Stdout, now: clockFromEnv()}.say(
+	logger{out: os.Stdout, now: config.ClockFromEnv()}.say(
 		"%s is waiting for a code from Tim before it does what it registered", incident)
 	return nil
 }

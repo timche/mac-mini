@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 // Hot is a process that has held its share of a core for the whole window.
@@ -64,7 +66,7 @@ func cpuHot(prev CPUSample, procs []Process, now time.Time, share float64, windo
 // The repository a directory belongs to, which is what says whether a process left
 // running is somebody's work or nobody's. The two worktree roots this machine makes
 // are named differently, and a plain checkout sits directly under ~/projects.
-func repoOf(cfg Config, dir string) string {
+func repoOf(cfg config.Config, dir string) string {
 	if rest, ok := under(cfg.HerdrRoot, dir); ok {
 		parts := strings.Split(rest, "/")
 		if len(parts) >= 2 {

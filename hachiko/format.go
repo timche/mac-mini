@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 // The numbers as the log and shibuya's JSON want them: a bare figure in a fixed unit, one
@@ -11,11 +13,11 @@ import (
 // these — a message says "4.3 GB" and "1 hour 5 minutes", and message.go is where that
 // lives.
 
-func gbStr(kb int64) string { return fmt.Sprintf("%.1f", float64(kb)/gib) }
+func gbStr(kb int64) string { return fmt.Sprintf("%.1f", float64(kb)/config.GiB) }
 
 // The same number gbStr prints, as a number: shibuya is handed it as JSON and writes the
 // message about it itself, so the rounding has to happen before it leaves.
-func gbNum(kb int64) float64 { return math.Round(float64(kb)/gib*10) / 10 }
+func gbNum(kb int64) float64 { return math.Round(float64(kb)/config.GiB*10) / 10 }
 
 func mbStr(kb int64) string { return fmt.Sprintf("%.0f", float64(kb)/1024) }
 
@@ -34,5 +36,5 @@ func rateStr(grewKB int64, span time.Duration) string {
 	if seconds <= 0 {
 		seconds = 1
 	}
-	return fmt.Sprintf("%.1f", float64(grewKB)/gib*3600/seconds)
+	return fmt.Sprintf("%.1f", float64(grewKB)/config.GiB*3600/seconds)
 }

@@ -1,9 +1,13 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
+)
 
 func TestTruncatableOnlyUnderTheRootsWhereAFileIsALog(t *testing.T) {
-	cfg := Config{
+	cfg := config.Config{
 		TmpRoot:     "/private/tmp",
 		ScratchRoot: "/Users/x/.cache/claude-tmp",
 		LogsRoot:    "/Users/x/Library/Logs",
@@ -41,40 +45,40 @@ func TestTruncatableOnlyUnderTheRootsWhereAFileIsALog(t *testing.T) {
 }
 
 func TestGrowthReportsNothingWithoutAPreviousSample(t *testing.T) {
-	files := []FileSize{{Path: "/tmp/a.log", KB: 10 * gib}}
+	files := []FileSize{{Path: "/tmp/a.log", KB: 10 * config.GiB}}
 
-	sizes, growing := growth(nil, files, 2*gib, false)
+	sizes, growing := growth(nil, files, 2*config.GiB, false)
 
 	equal(t, len(growing), 0, "files growing on the first sample")
-	equal(t, sizes["/tmp/a.log"], 10*gib, "the size recorded on the first sample")
+	equal(t, sizes["/tmp/a.log"], 10*config.GiB, "the size recorded on the first sample")
 }
 
 // A file the previous sample has no line for was under the floor then, so the whole of
 // it arrived in one interval.
 func TestAFileThatWasUnderTheFloorCountsItsWholeSizeAsGrowth(t *testing.T) {
-	prev := map[string]int64{"/tmp/old.log": 4 * gib}
+	prev := map[string]int64{"/tmp/old.log": 4 * config.GiB}
 	files := []FileSize{
-		{Path: "/tmp/old.log", KB: 5 * gib},
-		{Path: "/tmp/new.log", KB: 9 * gib},
+		{Path: "/tmp/old.log", KB: 5 * config.GiB},
+		{Path: "/tmp/new.log", KB: 9 * config.GiB},
 	}
 
-	_, growing := growth(prev, files, 2*gib, true)
+	_, growing := growth(prev, files, 2*config.GiB, true)
 
 	equal(t, len(growing), 1, "files growing")
 	equal(t, growing[0].Path, "/tmp/new.log", "the growing file")
-	equal(t, growing[0].GrewKB, 9*gib, "the growth of a file that was under the floor")
+	equal(t, growing[0].GrewKB, 9*config.GiB, "the growth of a file that was under the floor")
 }
 
 // Fastest first, because the fastest is the only one a truncate ever touches.
 func TestGrowingFilesComeFastestFirst(t *testing.T) {
 	prev := map[string]int64{"/tmp/a.log": 0, "/tmp/b.log": 0, "/tmp/c.log": 0}
 	files := []FileSize{
-		{Path: "/tmp/a.log", KB: 3 * gib},
-		{Path: "/tmp/b.log", KB: 9 * gib},
-		{Path: "/tmp/c.log", KB: 6 * gib},
+		{Path: "/tmp/a.log", KB: 3 * config.GiB},
+		{Path: "/tmp/b.log", KB: 9 * config.GiB},
+		{Path: "/tmp/c.log", KB: 6 * config.GiB},
 	}
 
-	_, growing := growth(prev, files, 2*gib, true)
+	_, growing := growth(prev, files, 2*config.GiB, true)
 
 	equal(t, len(growing), 3, "files growing")
 	equal(t, growing[0].Path, "/tmp/b.log", "the fastest growing file")
@@ -82,9 +86,9 @@ func TestGrowingFilesComeFastestFirst(t *testing.T) {
 }
 
 func TestAFileThatShrankIsNotGrowing(t *testing.T) {
-	prev := map[string]int64{"/tmp/a.log": 20 * gib}
-	files := []FileSize{{Path: "/tmp/a.log", KB: 1 * gib}}
+	prev := map[string]int64{"/tmp/a.log": 20 * config.GiB}
+	files := []FileSize{{Path: "/tmp/a.log", KB: 1 * config.GiB}}
 
-	_, growing := growth(prev, files, 2*gib, true)
+	_, growing := growth(prev, files, 2*config.GiB, true)
 	equal(t, len(growing), 0, "files growing after a truncate")
 }

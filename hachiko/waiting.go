@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 // The other way an incident goes unresolved. An on-call session investigates, reports,
@@ -827,7 +829,7 @@ func (s sweeper) worsening(w Waiting, reading nowReading, waited time.Duration, 
 // rates there are to go by: what the files hachiko can see are gaining, and what the
 // volume is actually losing. The second catches a writer the walk never found — a file
 // under a folder TCC keeps it out of, or one being written faster than it is big.
-func timeToCritical(cfg Config, reading nowReading) (time.Duration, bool) {
+func timeToCritical(cfg config.Config, reading nowReading) (time.Duration, bool) {
 	// A span the check had to invent is a clock that moved, not an interval: the machine
 	// slept, somebody set the time, a sample arrived with a timestamp in the future. Dividing
 	// a real growth by a made-up second says the disk is about to go and is the one way this

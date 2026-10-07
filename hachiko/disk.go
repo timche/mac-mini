@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 // Growing is a file that gained more than the growth threshold between two samples.
@@ -45,7 +47,7 @@ func growth(prev map[string]int64, files []FileSize, growthKB int64, hadSample b
 // Only under the roots where a file is a log and nothing else, and only when its
 // name says so too. Everything else is somebody's data, whatever it is doing to the
 // disk.
-func truncatable(cfg Config, path string) bool {
+func truncatable(cfg config.Config, path string) bool {
 	under := false
 	for _, root := range []string{cfg.TmpRoot, cfg.ScratchRoot, cfg.LogsRoot} {
 		if root != "" && strings.HasPrefix(path, strings.TrimSuffix(root, "/")+"/") {

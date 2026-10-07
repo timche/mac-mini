@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 const fakeBotToken = "MTIzNDU2.NOT-A-REAL-BOT-TOKEN"
@@ -18,7 +20,7 @@ const fakeBotToken = "MTIzNDU2.NOT-A-REAL-BOT-TOKEN"
 // webhook path is exactly what it was, nothing asks for a token, and nothing opens a
 // thread.
 func TestWithNoChannelAndUserTheBotIsOffAndTheWebhookPathIsUntouched(t *testing.T) {
-	cfg := Config{EnvFile: "/somewhere/hachiko.env.op", DiscordEnvFile: "/somewhere/hachiko.discord.env.op"}
+	cfg := config.Config{EnvFile: "/somewhere/hachiko.env.op", DiscordEnvFile: "/somewhere/hachiko.discord.env.op"}
 
 	equal(t, cfg.Discord.On(), false, "whether the bot is on with nothing configured")
 	equal(t, strings.Join(opArgs(cfg, "/cache/hachiko", Outgoing{}), " "),
@@ -27,7 +29,7 @@ func TestWithNoChannelAndUserTheBotIsOffAndTheWebhookPathIsUntouched(t *testing.
 
 	// Half-configured is off: a channel with no account to take replies from would be a
 	// listener that obeys anybody in it, and an account with no channel has nowhere to read.
-	for _, half := range []DiscordConfig{{ChannelID: "123"}, {UserID: "456"}} {
+	for _, half := range []config.DiscordConfig{{ChannelID: "123"}, {UserID: "456"}} {
 		cfg.Discord = half
 		equal(t, cfg.Discord.On(), false, "whether half a configuration turns the bot on")
 	}
@@ -41,10 +43,10 @@ func TestTheTokensEnvFileIsPassedOnlyWhenTheBotIsConfigured(t *testing.T) {
 	discordEnv := filepath.Join(dir, "hachiko.discord.env.op")
 	writeFile(t, discordEnv, "HACHIKO_DISCORD_BOT_TOKEN=op://dev/hachiko-discord/bot token\n")
 
-	cfg := Config{EnvFile: "/somewhere/hachiko.env.op", DiscordEnvFile: discordEnv}
+	cfg := config.Config{EnvFile: "/somewhere/hachiko.env.op", DiscordEnvFile: discordEnv}
 	equal(t, len(envFiles(cfg)), 2, "env files with the bot off")
 
-	cfg.Discord = DiscordConfig{ChannelID: "123", UserID: "456"}
+	cfg.Discord = config.DiscordConfig{ChannelID: "123", UserID: "456"}
 	equal(t, strings.Join(envFiles(cfg), " "),
 		"--env-file /somewhere/hachiko.env.op --env-file "+discordEnv,
 		"env files with the bot on")
@@ -52,36 +54,6 @@ func TestTheTokensEnvFileIsPassedOnlyWhenTheBotIsConfigured(t *testing.T) {
 	// And a Mac where the link is not there yet keeps alerting rather than failing on it.
 	cfg.DiscordEnvFile = filepath.Join(dir, "missing.env.op")
 	equal(t, len(envFiles(cfg)), 2, "env files when the second one is not there")
-}
-
-// Both are ids in a request path, so anything that is not a snowflake is nothing.
-func TestTheConfigFileTakesOnlySnowflakes(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "discord")
-
-	writeFile(t, path, `# the channel hachiko alerts to
-channel = 1234567890123456789
-user   =   987654321098765432
-`)
-	cfg := readDiscordConfig(path)
-	equal(t, cfg.ChannelID, "1234567890123456789", "the channel id")
-	equal(t, cfg.UserID, "987654321098765432", "the user id")
-	equal(t, cfg.On(), true, "whether the bot is on")
-
-	writeFile(t, path, "channel =\nuser =\n")
-	equal(t, readDiscordConfig(path).On(), false, "whether an empty file turns the bot on")
-
-	for _, bad := range []string{
-		"channel = ../../etc/passwd\nuser = 1\n",
-		"channel = 1/messages\nuser = 1\n",
-		"channel = <#1234>\nuser = 1\n",
-	} {
-		writeFile(t, path, bad)
-		equal(t, readDiscordConfig(path).ChannelID, "", "the channel read from "+bad)
-	}
-
-	equal(t, readDiscordConfig(filepath.Join(dir, "nothing-here")).On(), false,
-		"whether a missing file turns the bot on")
 }
 
 // One incident, one thread: the first message opens it and everything after goes inside, so
@@ -196,10 +168,10 @@ func TestAFailedBotCallDoesNotPutTheTokenInTheError(t *testing.T) {
 }
 
 func TestTheTokenIsNeverInACommandLine(t *testing.T) {
-	cfg := Config{
+	cfg := config.Config{
 		EnvFile:        "/somewhere/hachiko.env.op",
 		DiscordEnvFile: "/somewhere/hachiko.discord.env.op",
-		Discord:        DiscordConfig{ChannelID: "123", UserID: "456"},
+		Discord:        config.DiscordConfig{ChannelID: "123", UserID: "456"},
 	}
 
 	for _, arg := range opArgs(cfg, "/cache/hachiko", Outgoing{Thread: "thread-1"}) {

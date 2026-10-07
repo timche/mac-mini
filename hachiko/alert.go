@@ -16,6 +16,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 // Discord takes 2,000 characters. What is over that is detail, and the on-call tab
@@ -47,7 +49,7 @@ type Outgoing struct {
 // One --env-file per file, and the second only when the feature that needs it is on: `op
 // run` refuses a reference it cannot resolve, and a bot token named before the field exists
 // would take every alert down with it.
-func envFiles(cfg Config) []string {
+func envFiles(cfg config.Config) []string {
 	files := []string{"--env-file", cfg.EnvFile}
 
 	if cfg.Discord.On() {
@@ -73,7 +75,7 @@ func execOP(op string, args []string) error {
 	return syscall.Exec(op, args, os.Environ())
 }
 
-func sendThroughOP(cfg Config, out Outgoing) (string, error) {
+func sendThroughOP(cfg config.Config, out Outgoing) (string, error) {
 	op, err := lookOp()
 	if err != nil {
 		return "", err
@@ -120,7 +122,7 @@ func sendThroughOP(cfg Config, out Outgoing) (string, error) {
 // The reference and never the value: what op resolves arrives in the child's
 // environment, and nothing about the webhook or the token is in a command line ps shows
 // to every process on the machine.
-func opArgs(cfg Config, self string, out Outgoing) []string {
+func opArgs(cfg config.Config, self string, out Outgoing) []string {
 	args := append([]string{"op", "run"}, envFiles(cfg)...)
 	args = append(args, "--", self, "--send")
 
@@ -167,7 +169,7 @@ func sendMode(stdin io.Reader, out Outgoing, channel string) (string, error) {
 		// Not a thread, because there is no thread: the next check tries the bot again.
 		//
 		// stderr, because stdout is where the thread id goes.
-		logger{out: os.Stderr, now: clockFromEnv()}.say(
+		logger{out: os.Stderr, now: config.ClockFromEnv()}.say(
 			"the bot would not post, so this message went to the webhook instead: %v", err)
 	}
 
@@ -206,7 +208,7 @@ func sendThroughBot(bot discordBot, channel string, out Outgoing) (string, error
 	// thread is found by the id Discord answers with rather than by its name.
 	thread, err := bot.openThread(channel, posted, threadName(out.Text))
 	if err != nil {
-		logger{out: os.Stderr, now: clockFromEnv()}.say(
+		logger{out: os.Stderr, now: config.ClockFromEnv()}.say(
 			"the message was posted but no thread could be opened on it, so the rest of this incident goes to the channel: %v", err)
 		return "", nil
 	}
@@ -228,7 +230,7 @@ func postDiscord(client *http.Client, webhook string, out Outgoing) (string, err
 		// Never into a request path unchecked, and the checked form is the one that goes:
 		// a post id is a snowflake, and anything else in that field is a state file somebody
 		// edited or a bug rather than a post to look for.
-		thread := discordID(out.Thread)
+		thread := config.DiscordID(out.Thread)
 		if thread == "" {
 			say("the post recorded for this incident is not a Discord id, so this message goes to the channel instead")
 			return "", postPlain(client, webhook, out.Text)
@@ -286,7 +288,7 @@ func postPlain(client *http.Client, webhook, text string) error {
 
 // stderr, because stdout is where the id of the post goes.
 func say(format string, args ...any) {
-	logger{out: os.Stderr, now: clockFromEnv()}.say(format, args...)
+	logger{out: os.Stderr, now: config.ClockFromEnv()}.say(format, args...)
 }
 
 // Which post a message landed in. A forum webhook answers with the message, whose

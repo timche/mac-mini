@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 // herdrRunner is the one call out to herdr, so a test drives the whole of this
@@ -168,14 +170,14 @@ var oncallName = regexp.MustCompile(`\A[a-z][a-z0-9-]*\z`)
 // with `herdr --remote`, the session is still there hours later, and an agent waiting
 // on AskUserQuestion shows in his sidebar as blocked — which is the point, since the
 // session is told to ask before it changes anything.
-func openOncall(cfg Config, run herdrRunner, name, brief string) (OncallSession, error) {
-	now := clockFromEnv()
+func openOncall(cfg config.Config, run herdrRunner, name, brief string) (OncallSession, error) {
+	now := config.ClockFromEnv()
 	// stderr, because the caller reads the tab label off stdout.
 	return oncaller{cfg: cfg, run: run, now: now, log: logger{out: os.Stderr, now: now}}.open(name, brief)
 }
 
 type oncaller struct {
-	cfg Config
+	cfg config.Config
 	run herdrRunner
 	now func() time.Time
 	log interface{ say(string, ...any) }

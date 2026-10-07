@@ -17,6 +17,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 const usage = `usage: hachiko [--dry-run | --test-alert]
@@ -58,7 +60,7 @@ func badUsage(format string, args ...any) error {
 }
 
 func run(args []string) error {
-	cfg := configFromEnv()
+	cfg := config.FromEnv()
 
 	if len(args) > 0 {
 		switch args[0] {
@@ -120,7 +122,7 @@ func run(args []string) error {
 // The on-call session's own way to reach the channel, and the only one it has: it is
 // never handed the URL. The message arrives as a file so that it is not in the
 // arguments of a process the whole machine can read either.
-func notify(cfg Config, incident, messageFile string, outcome bool) error {
+func notify(cfg config.Config, incident, messageFile string, outcome bool) error {
 	message, err := os.ReadFile(messageFile)
 	if err != nil {
 		return fmt.Errorf("cannot read the message at %s", messageFile)
@@ -130,7 +132,7 @@ func notify(cfg Config, incident, messageFile string, outcome bool) error {
 	}
 
 	store := Store{dir: cfg.StateDir}
-	log := logger{out: os.Stdout, now: clockFromEnv()}
+	log := logger{out: os.Stdout, now: config.ClockFromEnv()}
 
 	// Into the incident's own thread when there is one, so the analysis is under the alert
 	// it is about and Tim's reply to it is somewhere the listener is already watching. Read
@@ -219,7 +221,7 @@ func fallbackOption(message string) string {
 	return safe(matches[len(matches)-1][1], fallbackLimit)
 }
 
-func oncall(cfg Config, name, briefFile string) error {
+func oncall(cfg config.Config, name, briefFile string) error {
 	brief, err := os.ReadFile(briefFile)
 	if err != nil {
 		return fmt.Errorf("cannot read the brief at %s", briefFile)
@@ -236,7 +238,7 @@ func oncall(cfg Config, name, briefFile string) error {
 	return nil
 }
 
-func testAlert(cfg Config) error {
+func testAlert(cfg config.Config) error {
 	free, err := freeKB(cfg.Home)
 	if err != nil {
 		return err

@@ -8,10 +8,12 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf8"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 type sweeper struct {
-	cfg   Config
+	cfg   config.Config
 	deps  Deps
 	store Store
 	dry   bool

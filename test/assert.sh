@@ -1002,11 +1002,11 @@ check "the partner's limits are the same words as the standing orders'" \
 # environment variable so that a test can trip the same arithmetic with megabytes and
 # minutes, which is exactly why the defaults need asserting.
 check "hachiko watches for 100 GB free, 20 GB critical, 1 GB files, 2 GB of growth, half a core for an hour" \
-  'c="$repo/hachiko/config.go" &&
+  'c="$repo/hachiko/internal/config/config.go" &&
    grep -qF "envInt64(\"HACHIKO_LOW_GB\", 100)" "$c" &&
    grep -qF "envInt64(\"HACHIKO_CRITICAL_GB\", 20)" "$c" &&
-   grep -qF "envInt64(\"HACHIKO_BIG_KB\", gib)" "$c" &&
-   grep -qF "envInt64(\"HACHIKO_GROWTH_KB\", 2*gib)" "$c" &&
+   grep -qF "envInt64(\"HACHIKO_BIG_KB\", GiB)" "$c" &&
+   grep -qF "envInt64(\"HACHIKO_GROWTH_KB\", 2*GiB)" "$c" &&
    grep -qF "envInt64(\"HACHIKO_CPU_SHARE\", 50)" "$c" &&
    grep -qF "envInt64(\"HACHIKO_CPU_WINDOW\", 3600)" "$c" &&
    grep -qF "envInt64(\"HACHIKO_ONCALL_DEADLINE\", 600)" "$c"'
@@ -1015,7 +1015,7 @@ check "hachiko watches for 100 GB free, 20 GB critical, 1 GB files, 2 GB of grow
 # notice before the deadline, and three hours to the deadline itself. Tim's numbers, and
 # the point at which the session is allowed to act for him.
 check "hachiko reminds at an hour, warns at 2h45 and hands the decision over at three hours" \
-  'c="$repo/hachiko/config.go" &&
+  'c="$repo/hachiko/internal/config/config.go" &&
    grep -qF "envInt64(\"HACHIKO_REMIND_AFTER\", 3600)" "$c" &&
    grep -qF "envInt64(\"HACHIKO_WARN_AFTER\", 9900)" "$c" &&
    grep -qF "envInt64(\"HACHIKO_HANDOVER_AFTER\", 10800)" "$c"'

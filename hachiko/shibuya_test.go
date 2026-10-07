@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 func TestEverySweepTellsShibuyaWhatItRead(t *testing.T) {
@@ -176,11 +178,11 @@ func newSwitchServer(t *testing.T) *switchServer {
 
 // The config and the token as they are on the Mac: a URL in a file that is in the checkout,
 // and a token in a file at 0600 that is not.
-func switchFiles(t *testing.T, url, token string, mode os.FileMode) Config {
+func switchFiles(t *testing.T, url, token string, mode os.FileMode) config.Config {
 	t.Helper()
 	dir := t.TempDir()
 
-	cfg := Config{
+	cfg := config.Config{
 		Host:         "mac-mini",
 		SwitchConfig: filepath.Join(dir, "shibuya"),
 		SwitchToken:  filepath.Join(dir, "shibuya-token"),

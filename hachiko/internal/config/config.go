@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"os"
@@ -10,7 +10,7 @@ import (
 
 // Kibibytes in a gibibyte, which is the unit every size below counts in, so the
 // thresholds read as the numbers they are named for.
-const gib = 1 << 20
+const GiB = 1 << 20
 
 // Config is every number and path a sweep decides by. Each one is an environment
 // variable so that a test can trip the same arithmetic with megabytes and minutes
@@ -88,15 +88,15 @@ type Config struct {
 
 // LowGB and CriticalGB are what the log and the messages name the thresholds by,
 // so a check with the thresholds turned down reads as the numbers it was given.
-func (c Config) LowGB() int64      { return c.LowKB / gib }
-func (c Config) CriticalGB() int64 { return c.CriticalKB / gib }
+func (c Config) LowGB() int64      { return c.LowKB / GiB }
+func (c Config) CriticalGB() int64 { return c.CriticalKB / GiB }
 
 // WorkspaceLabel is the herdr workspace the on-call session goes in: the one for
 // this machine's own repository, so a session that starts there has the machine's
 // instructions loaded.
 func (c Config) WorkspaceLabel() string { return filepath.Base(c.MachineDir) }
 
-func configFromEnv() Config {
+func FromEnv() Config {
 	home, _ := os.UserHomeDir()
 	if h := os.Getenv("HOME"); h != "" {
 		home = h
@@ -118,10 +118,10 @@ func configFromEnv() Config {
 	envFile := envString("HACHIKO_ENV_FILE", filepath.Join(home, ".local", "bin", "hachiko.env.op"))
 
 	return Config{
-		LowKB:      envInt64("HACHIKO_LOW_GB", 100) * gib,
-		CriticalKB: envInt64("HACHIKO_CRITICAL_GB", 20) * gib,
-		BigKB:      envInt64("HACHIKO_BIG_KB", gib),
-		GrowthKB:   envInt64("HACHIKO_GROWTH_KB", 2*gib),
+		LowKB:      envInt64("HACHIKO_LOW_GB", 100) * GiB,
+		CriticalKB: envInt64("HACHIKO_CRITICAL_GB", 20) * GiB,
+		BigKB:      envInt64("HACHIKO_BIG_KB", GiB),
+		GrowthKB:   envInt64("HACHIKO_GROWTH_KB", 2*GiB),
 
 		CPUShare:  float64(envInt64("HACHIKO_CPU_SHARE", 50)),
 		CPUWindow: time.Duration(envInt64("HACHIKO_CPU_WINDOW", 3600)) * time.Second,
@@ -235,7 +235,7 @@ func envInt64(name string, fallback int64) int64 {
 
 // HACHIKO_NOW is how a check reads as the timeline it is about instead of waiting
 // for real minutes to pass.
-func clockFromEnv() func() time.Time {
+func ClockFromEnv() func() time.Time {
 	if at := envInt64("HACHIKO_NOW", 0); at > 0 {
 		return func() time.Time { return time.Unix(at, 0) }
 	}

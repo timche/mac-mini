@@ -12,6 +12,8 @@ import (
 	"runtime/debug"
 	"strings"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 // The check-in with shibuya, which is the half of the watch that is not on this Mac.
@@ -50,13 +52,13 @@ const (
 )
 
 type switchClient struct {
-	cfg     Config
+	cfg     config.Config
 	client  *http.Client
 	readURL func(path string) (string, error)
 	readKey func(path string) (string, error)
 }
 
-func newSwitch(cfg Config) switchClient {
+func newSwitch(cfg config.Config) switchClient {
 	return switchClient{
 		cfg:     cfg,
 		client:  &http.Client{Timeout: checkinTimeout},

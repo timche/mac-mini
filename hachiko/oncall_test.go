@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 // The shapes the real herdr CLI answers in, so a regression here is caught without a
@@ -150,7 +152,7 @@ func newOncaller(t *testing.T, herdr *fakeHerdr) (oncaller, string, *bytes.Buffe
 	t.Helper()
 
 	home := t.TempDir()
-	cfg := Config{Home: home, MachineDir: filepath.Join(home, ".mac-mini")}
+	cfg := config.Config{Home: home, MachineDir: filepath.Join(home, ".mac-mini")}
 	now := func() time.Time { return base }
 	log := &bytes.Buffer{}
 

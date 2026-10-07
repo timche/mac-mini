@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 func writeKB(t *testing.T, path string, kb int64) {
@@ -131,7 +133,7 @@ func TestTheWalkSkipsARootThatIsNotThere(t *testing.T) {
 // looking at. The list is the fix; this is the assertion that it is the list.
 func TestEveryFolderAConsentPromptGuardsIsNeverOpened(t *testing.T) {
 	home := t.TempDir()
-	cfg := Config{Home: home}
+	cfg := config.Config{Home: home}
 
 	guarded := []string{
 		"Desktop", "Documents", "Downloads", "Movies", "Music", "Pictures", "Public",

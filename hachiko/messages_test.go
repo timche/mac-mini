@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 // Every message hachiko can send, rendered in full and printed:
@@ -74,8 +76,8 @@ func messageFixture(t *testing.T) *fixture {
 	t.Helper()
 
 	f := newFixture(t)
-	f.cfg.BigKB = gib
-	f.cfg.GrowthKB = 2 * gib
+	f.cfg.BigKB = config.GiB
+	f.cfg.GrowthKB = 2 * config.GiB
 	f.cfg.TmpRoot = "/private/tmp"
 	f.noTruncate = true
 	f.writer = "sleep (pid 5073), bash (pid 91330)"
@@ -120,7 +122,7 @@ func waitingOnAQuestion(t *testing.T) *fixture {
 	f.cfg.RemindAfter = remindAt * time.Second
 	f.cfg.WarnAfter = warnAt * time.Second
 	f.cfg.HandoverAfter = handoverAt * time.Second
-	f.claimedKB = 14 * gib
+	f.claimedKB = 14 * config.GiB
 	f.keepClaiming, f.claimStep = logPath, 2202010
 
 	f.at(0).sweep()
@@ -366,7 +368,7 @@ var messageKinds = []messageKind{{
 	},
 	render: func(t *testing.T) string {
 		return lead(markerInfo, "Test alert from hachiko — nothing is wrong").
-			field(labelFreeSpace, gbUnit(790*gib)).
+			field(labelFreeSpace, gbUnit(790*config.GiB)).
 			about("", "mac-mini").
 			String()
 	},

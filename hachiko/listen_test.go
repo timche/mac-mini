@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 // The listener against the shapes Discord and herdr both answer in: a thread with messages
@@ -49,11 +51,11 @@ func newListener(t *testing.T) *listenFixture {
 	t.Helper()
 
 	home := t.TempDir()
-	cfg := Config{
+	cfg := config.Config{
 		Home:       home,
 		MachineDir: filepath.Join(home, ".mac-mini"),
 		StateDir:   filepath.Join(home, "state"),
-		Discord:    DiscordConfig{ChannelID: channelID, UserID: timID},
+		Discord:    config.DiscordConfig{ChannelID: channelID, UserID: timID},
 	}
 
 	f := &listenFixture{

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 // The timeline every test below walks: an incident, a session, its report, and then the
@@ -67,7 +69,7 @@ func TestTheClockStartsWhenTheAgentIsFirstSeenOnItsQuestion(t *testing.T) {
 	w := f.state().Waiting["disk"]
 	equal(t, w.Since, base.Unix()+600, "when the question went up")
 	equal(t, w.Default, "stop pid 4242 and empty the log", "the option read out of the report")
-	equal(t, w.Asked.FreeKB, 500*gib, "the free space the question was asked with")
+	equal(t, w.Asked.FreeKB, 500*config.GiB, "the free space the question was asked with")
 	equal(t, f.sentCount(), 1, "messages sent while the question is new")
 }
 
@@ -208,7 +210,7 @@ func TestAnAgentWorkingForEverStillGetsTheWholeTimeline(t *testing.T) {
 // before he wakes does not wait for a tool call to finish.
 func TestAWorseningDiskHandsOverEvenWhileTheAgentIsWorking(t *testing.T) {
 	f := waiting(t)
-	f.cfg.CriticalKB = 300 * gib
+	f.cfg.CriticalKB = 300 * config.GiB
 	f.status["disk"] = statusWorking
 
 	// The projection is read on every check whatever the agent is doing, so the two checks in
@@ -743,13 +745,13 @@ func TestAMissingReadingIsNotATriggerThatHasCleared(t *testing.T) {
 func TestWhatCountsAsTheIncidentHavingMoved(t *testing.T) {
 	asked := Waiting{Asked: Asked{
 		At:      base.Unix(),
-		FreeKB:  500 * gib,
+		FreeKB:  500 * config.GiB,
 		Level:   100,
 		Sizes:   map[string]int64{"/private/tmp/a.log": 10 * mb, "/private/tmp/b.log": 4 * mb},
 		Writers: []string{"4242 (worker)"},
 	}}
 	same := nowReading{
-		free:    500 * gib,
+		free:    500 * config.GiB,
 		level:   100,
 		sizes:   map[string]int64{"/private/tmp/a.log": 12 * mb, "/private/tmp/b.log": 4 * mb},
 		writers: []string{"4242 (worker)"},
@@ -937,7 +939,7 @@ func TestADiskThatWillBeCriticalBeforeTheDeadlineHandsOverEarly(t *testing.T) {
 	f := waiting(t)
 	// A threshold close to what is free, so the projection is the trigger under test and the
 	// quarter-gone one never comes near firing.
-	f.cfg.CriticalKB = 300 * gib
+	f.cfg.CriticalKB = 300 * config.GiB
 
 	// The first check to say so says only that, because this is an extrapolation from one
 	// interval and one interval is where every way of being wrong lives.
@@ -975,7 +977,7 @@ func TestADiskThatWillBeCriticalBeforeTheDeadlineHandsOverEarly(t *testing.T) {
 // process: a check that disagrees puts the count back to nothing.
 func TestOneCheckAloneNeverHandsTheDecisionOverEarly(t *testing.T) {
 	f := waiting(t)
-	f.cfg.CriticalKB = 300 * gib
+	f.cfg.CriticalKB = 300 * config.GiB
 
 	f.freeGB = 470
 	wants(t, f.at(900).sweep(), "one more check saying so hands the decision over")
@@ -998,7 +1000,7 @@ func TestOneCheckAloneNeverHandsTheDecisionOverEarly(t *testing.T) {
 // to go, which is the one way this projection is wildly wrong on a quiet Mac.
 func TestAClockThatMovedIsNotADiskAboutToFill(t *testing.T) {
 	f := waiting(t)
-	f.cfg.CriticalKB = 300 * gib
+	f.cfg.CriticalKB = 300 * config.GiB
 
 	// Two checks at the same moment, which is what a sample with a timestamp in the future
 	// leaves behind: the span is nothing, so it is clamped to a second — and thirty gigabytes

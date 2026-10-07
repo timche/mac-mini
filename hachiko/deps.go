@@ -9,6 +9,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 // Deps is everything a sweep learns about the machine or does to it. Each one is a
@@ -78,8 +80,8 @@ func (l logger) say(format string, args ...any) {
 	fmt.Fprintf(l.out, "%s hachiko: %s\n", l.now().Format(logTime), fmt.Sprintf(format, args...))
 }
 
-func realDeps(cfg Config) Deps {
-	now := clockFromEnv()
+func realDeps(cfg config.Config) Deps {
+	now := config.ClockFromEnv()
 	log := logger{out: os.Stdout, now: now}
 
 	// The volume free space is being counted on, so a path that has become a link to

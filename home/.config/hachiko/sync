@@ -2,10 +2,8 @@
 # written during a session publishes itself. One `repo =` line starts a repository and every
 # key under it belongs to that repository; the keys above the first one are global.
 #
-# mode: live, or dry-run to report what it would do and change nothing. It ships as dry-run
-#       so the first install runs beside boswell, which is still the thing actually pushing,
-#       without two daemons committing the same trees. The cutover is this one line.
-mode = dry-run
+# mode: live, or dry-run to report what it would do and change nothing.
+mode = live
 
 # How many times a push is tried against a remote that will not answer, and the ladder it
 # backs off along, doubling from base and capped at max. Left out here because the defaults

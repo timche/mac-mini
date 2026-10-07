@@ -647,6 +647,11 @@ check "the worktree-info hook prints the Electron profile rule" \
    worktree_fixture "$d" "" "\"electron\": \"^44.0.0\"" &&
    worktree_info "$d/wt/fix-ui" | grep -q "DevToolsActivePort"'
 
+# The one gc check a Go test cannot write: a real compose project on a real
+# daemon, which is what proves the labels `hachiko gc` reads are the labels
+# compose actually sets. Everything else the sweep decides is `go test ./...` in
+# hachiko/, against injected seams.
+#
 # The sweep runs against a HOME of its own, so the fixture's worktree roots are
 # throwaway ones and the check leaves nothing in the real home directory. That
 # HOME hides the docker context in the real ~/.docker, so the socket is
@@ -666,10 +671,6 @@ gc_compose_fixture() {
 }
 export -f gc_compose_fixture
 
-check "worktree-gc is a live symlink and runs" \
-  '[ -L "$HOME/.local/bin/worktree-gc" ] && [ -x "$HOME/.local/bin/worktree-gc" ] &&
-   worktree-gc --help | grep -q "dry-run"'
-
 check "window-shot is a live symlink and prints its usage" \
   '[ -L "$HOME/.local/bin/window-shot" ] && [ -x "$HOME/.local/bin/window-shot" ] &&
    window-shot --help 2>&1 | grep -q "usage: window-shot <owner> <out.png>"'
@@ -684,14 +685,14 @@ check "window-shot exits 1 and says so when the owner has no window, writing not
 # A machine with neither docker nor a daemon cannot answer this one either way,
 # and saying so is better than a check that passes because nothing happened.
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-  check "worktree-gc --dry-run sweeps a removed worktree's compose project and nothing else" \
+  check "hachiko gc --dry-run sweeps a removed worktree's compose project and nothing else" \
     'h="$(mktemp -d)" && gone="$h/.herdr/worktrees/app/gone" &&
      gc_compose_fixture "$gone" gc-gone &&
      gc_compose_fixture "$h/.herdr/worktrees/app/kept" gc-kept &&
      gc_compose_fixture "$h/elsewhere" gc-elsewhere &&
      rm -rf "$gone" "$h/elsewhere" &&
      sock="$(docker context inspect -f "{{.Endpoints.docker.Host}}")" &&
-     out="$(HOME="$h" DOCKER_HOST="$sock" worktree-gc --dry-run)" &&
+     out="$(HOME="$h" DOCKER_HOST="$sock" hachiko gc --dry-run)" &&
      docker compose -p gc-gone down -v >/dev/null 2>&1
      docker compose -p gc-kept down -v >/dev/null 2>&1
      docker compose -p gc-elsewhere down -v >/dev/null 2>&1
@@ -699,101 +700,8 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
      ! printf "%s" "$out" | grep -q gc-kept &&
      ! printf "%s" "$out" | grep -q gc-elsewhere'
 else
-  echo "  skip  worktree-gc's compose sweep (no docker daemon on this machine)"
+  echo "  skip  hachiko gc's compose sweep (no docker daemon on this machine)"
 fi
-
-# A sweep that is not a dry run must not reach this machine's own processes or its
-# daemon, so a stub lsof and docker go ahead of them on PATH: the one reports no
-# process at all, the other no daemon.
-gc_stub_bin() {
-  local dir="$1"
-
-  mkdir -p "$dir"
-  printf '#!/bin/sh\nexit 0\n' > "$dir/lsof"
-  printf '#!/bin/sh\nexit 1\n' > "$dir/docker"
-  chmod +x "$dir/lsof" "$dir/docker"
-}
-export -f gc_stub_bin
-
-# Five folders, because the rule is narrower than "the session is over": a live
-# session claims the third, the second was touched inside the week a resume is
-# given, `bash-edit-diff` is named like no session at all, and the project folder
-# only goes when the last session folder in it did.
-gc_scratch_fixture() {
-  local h="$1" kept gone dir
-
-  kept="$h/.cache/claude-tmp/claude-$(id -u)/-Users-x-app"
-  gone="$h/.cache/claude-tmp/claude-$(id -u)/-Users-x-gone"
-
-  mkdir -p "$kept/11111111-1111-4111-8111-111111111111/scratchpad" \
-    "$kept/22222222-2222-4222-8222-222222222222/scratchpad" \
-    "$kept/33333333-3333-4333-8333-333333333333/scratchpad" \
-    "$kept/bash-edit-diff" \
-    "$gone/44444444-4444-4444-8444-444444444444" \
-    "$h/.claude/sessions"
-
-  for dir in "$kept"/*/scratchpad "$kept/bash-edit-diff" "$gone"/*; do
-    : > "$dir/f"
-  done
-
-  printf '{"pid":%s,"sessionId":"33333333-3333-4333-8333-333333333333"}\n' "$$" \
-    > "$h/.claude/sessions/$$.json"
-
-  # Depth first: a directory aged before the files in it is dated now again by
-  # the write that creates them.
-  find "$h/.cache/claude-tmp" -depth -exec touch -t 202001010000 {} +
-  find "$kept/22222222-2222-4222-8222-222222222222" -exec touch {} +
-}
-export -f gc_scratch_fixture
-
-check "worktree-gc --dry-run reports the scratch folder of a session long over, and only that one" \
-  'h="$(mktemp -d)" && gc_stub_bin "$h/bin" && gc_scratch_fixture "$h" &&
-   out="$(env -u CLAUDE_CODE_TMPDIR PATH="$h/bin:$PATH" HOME="$h" \
-     worktree-gc --dry-run)" &&
-   printf "%s" "$out" |
-     grep -q "would remove scratch folder .*/11111111-1111-4111-8111-111111111111," &&
-   printf "%s" "$out" | grep -q "would remove the empty project folder .*-Users-x-gone$" &&
-   ! printf "%s" "$out" | grep -qE "22222222|33333333|bash-edit-diff" &&
-   ! printf "%s" "$out" | grep -q "project folder .*-Users-x-app"'
-
-check "worktree-gc removes the dead scratch folders and the project folder they emptied" \
-  'h="$(mktemp -d)" && gc_stub_bin "$h/bin" && gc_scratch_fixture "$h" &&
-   s="$h/.cache/claude-tmp/claude-$(id -u)" &&
-   env -u CLAUDE_CODE_TMPDIR PATH="$h/bin:$PATH" HOME="$h" worktree-gc >/dev/null &&
-   [ ! -e "$s/-Users-x-app/11111111-1111-4111-8111-111111111111" ] &&
-   [ ! -e "$s/-Users-x-gone" ] &&
-   [ -d "$s/-Users-x-app/22222222-2222-4222-8222-222222222222" ] &&
-   [ -d "$s/-Users-x-app/33333333-3333-4333-8333-333333333333" ] &&
-   [ -d "$s/-Users-x-app/bash-edit-diff" ]'
-
-# A projects root of its own, so the prune cannot reach a repository somebody is
-# working in. Signing and the account are passed in, because a commit here is a
-# fixture rather than this account's work.
-gc_worktree_entry_fixture() {
-  local root="$1" repo="$1/app"
-
-  mkdir -p "$repo"
-  git -C "$repo" init -q -b main
-  git -C "$repo" -c commit.gpgsign=false -c user.name=gc \
-    -c user.email=gc@example.invalid commit -q --allow-empty -m fixture
-  git -C "$repo" worktree add -q "$repo/.claude/worktrees/live" -b live
-  git -C "$repo" worktree add -q "$repo/.claude/worktrees/gone" -b gone
-  rm -rf "$repo/.claude/worktrees/gone"
-}
-export -f gc_worktree_entry_fixture
-
-check "worktree-gc prunes the worktree entry of a removed folder and keeps the live one" \
-  'h="$(mktemp -d)" && gc_stub_bin "$h/bin" &&
-   gc_worktree_entry_fixture "$h/projects" >/dev/null 2>&1 &&
-   out="$(env -u CLAUDE_CODE_TMPDIR PATH="$h/bin:$PATH" HOME="$h" \
-     WORKTREE_GC_PROJECTS="$h/projects" worktree-gc --dry-run)" &&
-   printf "%s" "$out" | grep -q "would prune .*/app.s worktree entry worktrees/gone" &&
-   git -C "$h/projects/app" worktree list | grep -q worktrees/gone &&
-   swept="$(env -u CLAUDE_CODE_TMPDIR PATH="$h/bin:$PATH" HOME="$h" \
-     WORKTREE_GC_PROJECTS="$h/projects" worktree-gc)" &&
-   printf "%s" "$swept" | grep -q "pruning .*worktree entry worktrees/gone" &&
-   ! git -C "$h/projects/app" worktree list | grep -q worktrees/gone &&
-   git -C "$h/projects/app" worktree list | grep -q worktrees/live'
 
 # The herdr server has to come from launchd in the GUI session, or every pane is an
 # SSH session and Claude Code withholds computer use from it.
@@ -813,15 +721,16 @@ check "install.sh never restarts the herdr server it may be running in" \
 # its wiring: an unrendered or invalid plist is a job launchd rejects at load
 # with nothing in it to say why. Not reachable on a runner with no GUI session,
 # so this reads the file as boswell's checks do.
-export gc_plist="$HOME/Library/LaunchAgents/io.github.timche.worktree-gc.plist"
+export gc_plist="$HOME/Library/LaunchAgents/io.github.timche.hachiko-gc.plist"
 
-check "worktree-gc's LaunchAgent is rendered" '[ -f "$gc_plist" ]'
+check "the sweep's LaunchAgent is rendered" '[ -f "$gc_plist" ]'
 check "the gc agent is a valid plist" 'plutil -lint "$gc_plist"'
 check "the gc agent has the home directory filled in" \
   '[ -f "$gc_plist" ] && ! grep -q "{{" "$gc_plist"'
-check "the gc agent runs worktree-gc" \
+check "the gc agent runs hachiko gc" \
   '[ "$(plutil -extract ProgramArguments.0 raw -o - "$gc_plist")" = \
-     "$HOME/.local/bin/worktree-gc" ]'
+     "$HOME/.local/bin/hachiko" ] &&
+   [ "$(plutil -extract ProgramArguments.1 raw -o - "$gc_plist")" = gc ]'
 check "the gc agent sweeps at load" \
   'plutil -extract RunAtLoad xml1 -o - "$gc_plist" | grep -q "<true/>"'
 # The interval does most of the work: WatchPaths is not recursive, so a
@@ -837,13 +746,36 @@ check "the gc agent's PATH reaches docker" \
      grep -q "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:"'
 check "the gc agent logs to ~/Library/Logs" \
   '[ "$(plutil -extract StandardErrorPath raw -o - "$gc_plist")" = \
-     "$HOME/Library/Logs/worktree-gc.log" ]'
+     "$HOME/Library/Logs/hachiko-gc.log" ]'
 
 check "install.sh loads the gc agent and reloads a changed one" \
   'grep -q "launchctl bootstrap \"gui/\$uid\" \"\$gc_plist\"" "$repo/install.sh" &&
    grep -q "launchctl bootout \"gui/\$uid/\$gc_label\"" "$repo/install.sh" &&
    grep -q "cmp -s \"\$gc_plist_before\" \"\$gc_plist\"" "$repo/install.sh" &&
    grep -q "mkdir -p \"\$HOME/.herdr/worktrees\"" "$repo/install.sh"'
+
+# Two agents on one ten-minute timer, each holding a lock the other knows nothing
+# about, would race over the same worktrees — so the shell script's agent and the
+# link to it go before the new one loads, and nothing here renders or declares
+# either any more.
+check "the sweep that hachiko gc replaced is gone, and install.sh takes it back" \
+  '[ ! -e "$repo/home/.local/bin/worktree-gc" ] &&
+   [ ! -e "$repo/home/Library/LaunchAgents/io.github.timche.worktree-gc.plist" ] &&
+   ! grep -q "io.github.timche.worktree-gc" "$repo/mise.toml" &&
+   ! grep -q "bin/worktree-gc" "$repo/mise.toml" &&
+   grep -q "launchctl bootout \"gui/\$uid/\$old_gc_label\"" "$repo/install.sh" &&
+   grep -q "rm \"\$old_gc_plist\"" "$repo/install.sh" &&
+   grep -q "rm \"\$old_gc_link\"" "$repo/install.sh" &&
+   [ ! -e "$HOME/.local/bin/worktree-gc" ]'
+
+# The sweep writes a stamp at the end of every run it finishes, and the watch reads
+# its age: a sweep that has stopped is the one thing about gc nothing on this Mac
+# could otherwise notice. The plist being there is what makes the watch look at all,
+# so a Mac install.sh has not reached is not one reported as having stopped.
+check "the watch notices a sweep that has stopped, and says nothing on a Mac with no sweep agent" \
+  'grep -q "io.github.timche.hachiko-gc.plist" "$repo/hachiko/internal/config/config.go" &&
+   grep -q "func (c Config) GCStamp()" "$repo/hachiko/internal/config/config.go" &&
+   grep -q "s.gcStopped(state, now)" "$repo/hachiko/internal/watch/sweep.go"'
 
 # hachiko, the one compiled tool here. Its behaviour is `go test ./...` in hachiko/,
 # which drives the whole of the decision-making against injected seams; what is left
@@ -853,7 +785,8 @@ check "hachiko is a live symlink and runs through its wrapper" \
   '[ -L "$HOME/.local/bin/hachiko" ] && [ -x "$HOME/.local/bin/hachiko" ] &&
    hachiko --help | grep -q "dry-run" &&
    hachiko --help | grep -q "notify" &&
-   hachiko --help | grep -q "oncall"'
+   hachiko --help | grep -q "oncall" &&
+   hachiko --help | grep -q "gc"'
 
 # Beside the wrapper because that is where the wrapper looks: `op run --env-file` is
 # given the path next to the script's own resolved location, so a missing link is an

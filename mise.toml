@@ -61,14 +61,11 @@ go = "1.27"
 "~/Library/LaunchAgents/io.github.timche.boswell.plist" = { source = "home/Library/LaunchAgents/io.github.timche.boswell.plist", mode = "symlink" }
 "~/Library/LaunchAgents/io.github.timche.herdr.plist" = { source = "home/Library/LaunchAgents/io.github.timche.herdr.plist", mode = "symlink" }
 
-# The one plist still rendered rather than linked: launchd reads WatchPaths itself
-# and expands no $HOME in it, so that path has to arrive already absolute.
-"~/Library/LaunchAgents/io.github.timche.worktree-gc.plist" = { source = "home/Library/LaunchAgents/io.github.timche.worktree-gc.plist", mode = "template" }
-
-# The sweep that follows a removed worktree. In ~/.local/bin rather than under
-# ~/.claude, because it is the machine's rather than Claude Code's: the
-# LaunchAgent runs it on a timer whether or not a session is up.
-"~/.local/bin/worktree-gc" = { source = "home/.local/bin/worktree-gc", mode = "symlink" }
+# The sweep that follows a removed worktree, and the one plist still rendered rather
+# than linked: launchd reads WatchPaths itself and expands no $HOME in it, so that
+# path has to arrive already absolute. It runs `hachiko gc`, so the wrapper below is
+# the whole of what it needs installed.
+"~/Library/LaunchAgents/io.github.timche.hachiko-gc.plist" = { source = "home/Library/LaunchAgents/io.github.timche.hachiko-gc.plist", mode = "template" }
 
 # The watch over free space and the CPU, with the webhook reference beside it: the
 # wrapper resolves its .env.op from its own directory, so the two are linked together

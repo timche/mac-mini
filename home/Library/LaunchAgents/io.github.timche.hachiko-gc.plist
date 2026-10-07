@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- Rendered by mise from the [dotfiles] entry in mise.toml, and the one plist
-     here that still is: launchd reads WatchPaths below itself rather than handing
-     it to anything that could expand a $HOME, so this one path has to arrive
-     absolute. boswell's agent leaves every path of its own to a shell and is a
-     plain symlink. -->
+     here that is: launchd reads WatchPaths below itself rather than handing it to
+     anything that could expand a $HOME, so this one path has to arrive absolute.
+     Every other agent here leaves its paths to a shell and is a plain symlink. -->
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>io.github.timche.worktree-gc</string>
+  <string>io.github.timche.hachiko-gc</string>
   <key>ProgramArguments</key>
   <array>
-    <string>{{ env.HOME }}/.local/bin/worktree-gc</string>
+    <string>{{ env.HOME }}/.local/bin/hachiko</string>
+    <string>gc</string>
   </array>
   <!-- A sweep on load catches everything a machine lost while it was off. -->
   <key>RunAtLoad</key>
@@ -28,17 +28,19 @@
   <array>
     <string>{{ env.HOME }}/.herdr/worktrees</string>
   </array>
-  <!-- launchd hands a job almost no PATH, and this one shells out to docker,
-       which is Homebrew's on this machine and /usr/local/bin's when Docker
-       Desktop put it there. git and lsof come from the system directories. -->
+  <!-- launchd hands a job almost no PATH. ~/.local/bin first, for the hachiko
+       wrapper itself, for the mise that rebuilds the binary when the sources have
+       changed, and for the op that signs 1Password in; Homebrew's prefix for
+       docker and the op CLI behind that wrapper, /usr/local/bin for a docker
+       Docker Desktop put there; the system directories for git, ps and lsof. -->
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
     <string>{{ env.HOME }}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
   </dict>
   <key>StandardOutPath</key>
-  <string>{{ env.HOME }}/Library/Logs/worktree-gc.log</string>
+  <string>{{ env.HOME }}/Library/Logs/hachiko-gc.log</string>
   <key>StandardErrorPath</key>
-  <string>{{ env.HOME }}/Library/Logs/worktree-gc.log</string>
+  <string>{{ env.HOME }}/Library/Logs/hachiko-gc.log</string>
 </dict>
 </plist>

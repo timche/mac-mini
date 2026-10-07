@@ -100,10 +100,10 @@ record_boswell_loaded() {
   mkdir -p "$state" && cp "$plist" "$boswell_loaded"
 }
 
-gc_label=io.github.timche.worktree-gc
+gc_label=io.github.timche.hachiko-gc
 gc_plist="$HOME/Library/LaunchAgents/$gc_label.plist"
 
-# worktree-gc's plist is the one still rendered rather than linked, so the bootstrap
+# The sweep's plist is the one still rendered rather than linked, so the bootstrap
 # rewrites the file itself and there is nothing left to compare against afterwards.
 gc_plist_before="$(mktemp)"
 trap 'rm -f "$gc_plist_before"' EXIT
@@ -493,6 +493,46 @@ fi
 # worktree root only when it makes the first worktree.
 mkdir -p "$HOME/.herdr/worktrees"
 
+# The shell script this sweep used to be, and the agent that ran it. Booted out
+# before the new one is loaded, because two agents on one ten-minute timer would
+# both take a lock the other does not know about and race over the same worktrees.
+# mise removes no link it no longer declares and no plist it no longer renders, so
+# both are this repository's to take back — the link only when it points into this
+# checkout or nowhere at all, which is the rule the portless link below follows.
+old_gc_label=io.github.timche.worktree-gc
+old_gc_plist="$HOME/Library/LaunchAgents/$old_gc_label.plist"
+
+if launchctl print "gui/$uid/$old_gc_label" >/dev/null 2>&1; then
+  if launchctl bootout "gui/$uid/$old_gc_label"; then
+    echo "removed $old_gc_label, the sweep hachiko gc took over"
+  else
+    echo "could not remove $old_gc_label — it sweeps the same worktrees" \
+         "$gc_label is about to, on the same timer; run: launchctl bootout" \
+         "gui/$uid/$old_gc_label" >&2
+  fi
+fi
+
+# Rendered rather than linked, so there is nothing to check about where it points.
+if [ -f "$old_gc_plist" ] && ! [ -L "$old_gc_plist" ]; then
+  rm "$old_gc_plist"
+  echo "removed $old_gc_plist, a plist this repo no longer renders"
+fi
+
+old_gc_link="$HOME/.local/bin/worktree-gc"
+old_gc_link_is_ours=false
+
+if [ -L "$old_gc_link" ]; then
+  case "$(readlink "$old_gc_link")" in
+    "$repo"/*) old_gc_link_is_ours=true ;;
+    *) [ -e "$old_gc_link" ] || old_gc_link_is_ours=true ;;
+  esac
+fi
+
+if [ "$old_gc_link_is_ours" = true ]; then
+  rm "$old_gc_link"
+  echo "removed $old_gc_link, a link this repo no longer makes"
+fi
+
 if [ ! -f "$gc_plist" ]; then
   echo "$gc_plist is missing — mise renders it from mise.toml" >&2
 else
@@ -513,7 +553,7 @@ else
   else
     echo "could not load $gc_label — the gui/$uid domain needs a GUI session" \
          "logged in on the Mac; nothing will sweep a removed worktree's" \
-         "containers until it is loaded, and worktree-gc runs by hand" >&2
+         "containers until it is loaded, and \`hachiko gc\` runs by hand" >&2
   fi
 fi
 

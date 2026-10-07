@@ -322,9 +322,14 @@ func webhookAnswered(err error, codes ...int) bool {
 }
 
 // Discord caps a thread's name at 100 characters.
+//
+// A title is plain text and Discord renders no markdown in one, so the escaping the lead
+// line carries — which is what keeps a file called `**x**` from styling a message — would be
+// a backslash here. It comes back out before the length is cut, since cutting first could
+// leave a backslash with nothing left after it to escape.
 func threadName(message string) string {
 	first, _, _ := strings.Cut(strings.TrimSpace(message), "\n")
-	name := safe(first, 96)
+	name := safe(plainTitle(first), 96)
 	if strings.TrimSpace(name) == "" {
 		return "hachiko"
 	}

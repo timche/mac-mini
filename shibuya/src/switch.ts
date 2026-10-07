@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 
 import { graceMs, type Env } from "./env";
 import { postToForum, redact } from "./discord";
-import { code, duration, machine, markers, plural, render, size, title, when } from "./message";
+import { code, duration, machine, markers, plain, plural, render, size, title, when } from "./message";
 
 // One object per host, so the alarm that decides a Mac has gone quiet is the same object
 // that holds its last check-in, with no coordination between the two.
@@ -151,15 +151,16 @@ export class Switch extends DurableObject<Env> {
       live.failingSince = now;
 
       const named = name(live);
+      const shown = plain(named);
       await this.post(live, {
         where: "failing",
         open: true,
         title: title(markers.warn, `${named}: hachiko's checks are failing`, now),
         text: render({
           marker: markers.warn,
-          lead: `${named} is still checking in, but hachiko's checks are not finishing`,
+          lead: `${shown} is still checking in, but hachiko's checks are not finishing`,
           details: [
-            { label: "Why", value: reason },
+            { label: "Why", value: plain(reason) },
             { label: "Last reading", value: live.summary },
           ],
           action: `The Mac is up and the watch is half blind: read ${code(LOG)}.`,
@@ -215,13 +216,14 @@ export class Switch extends DurableObject<Env> {
       live.downSince = now;
 
       const named = name(live);
+      const shown = plain(named);
       await this.post(live, {
         where: "outage",
         open: true,
         title: title(markers.down, `${named} offline`, now),
         text: render({
           marker: markers.down,
-          lead: `${named} has gone quiet — no check-in for ${duration(now - live.lastPing)}`,
+          lead: `${shown} has gone quiet — no check-in for ${duration(now - live.lastPing)}`,
           details: [
             { label: "Last check-in", value: when(live.lastPing, now) },
             { label: "Last reading", value: live.summary },
@@ -234,13 +236,14 @@ export class Switch extends DurableObject<Env> {
       live.downReminded = now;
 
       const named = name(live);
+      const shown = plain(named);
       await this.post(live, {
         where: "outage",
         open: false,
         title: title(markers.down, `${named} still offline`, now),
         text: render({
           marker: markers.down,
-          lead: `${named} is still offline, ${duration(now - live.downSince)} after the first alert`,
+          lead: `${shown} is still offline, ${duration(now - live.downSince)} after the first alert`,
           details: [{ label: "Last check-in", value: when(live.lastPing, now) }],
           action: "Check that the Mac is powered up and on the network.",
         }),
@@ -251,14 +254,15 @@ export class Switch extends DurableObject<Env> {
       live.failingReminded = now;
 
       const named = name(live);
+      const shown = plain(named);
       await this.post(live, {
         where: "failing",
         open: false,
         title: title(markers.warn, `${named}: hachiko's checks still failing`, now),
         text: render({
           marker: markers.warn,
-          lead: `${named}: hachiko's checks have been failing for ${duration(now - live.failingSince)}`,
-          details: [{ label: "Why", value: live.failingReason }],
+          lead: `${shown}: hachiko's checks have been failing for ${duration(now - live.failingSince)}`,
+          details: [{ label: "Why", value: plain(live.failingReason) }],
           action: `Read ${code(LOG)} to see what is failing.`,
         }),
       });
@@ -278,13 +282,14 @@ export class Switch extends DurableObject<Env> {
     live.downReminded = 0;
 
     const named = name(live);
+    const shown = plain(named);
     await this.post(live, {
       where: "outage",
       open: false,
       title: title(markers.clear, `${named} back online`, now),
       text: render({
         marker: markers.clear,
-        lead: `${named} is back — it checked in after ${duration(silence)} of silence`,
+        lead: `${shown} is back — it checked in after ${duration(silence)} of silence`,
         details: [{ label: "Reading now", value: live.summary }],
         action: "Nothing to do.",
       }),
@@ -302,13 +307,14 @@ export class Switch extends DurableObject<Env> {
     live.failingReminded = 0;
 
     const named = name(live);
+    const shown = plain(named);
     await this.post(live, {
       where: "failing",
       open: false,
       title: title(markers.clear, `${named}: hachiko's checks are clean`, now),
       text: render({
         marker: markers.clear,
-        lead: `${named}: hachiko's checks are finishing again after ${duration(failing)}`,
+        lead: `${shown}: hachiko's checks are finishing again after ${duration(failing)}`,
         details: [{ label: "Reading now", value: live.summary }],
         action: "Nothing to do.",
       }),

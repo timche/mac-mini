@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestSizesReadAsSomethingTimWouldSayOutLoud(t *testing.T) {
@@ -184,5 +185,69 @@ func TestTheFallbackOptionSurvivesTheWarningsOwnFormat(t *testing.T) {
 		"> If no answer: stop the worker",
 	} {
 		equal(t, fallbackOption("some report\n"+line+"\nmore report"), "stop the worker", line)
+	}
+}
+
+// A name outside a code span is markdown as readily as anything else, and every name in a
+// message was chosen by whatever filled the disk: a process called `[Fix it](https://x)`
+// would arrive as a link somebody is invited to click, and one called `**You can run:**` as
+// a line of hachiko's own.
+func TestANameCannotStyleAMessageOrFakeALink(t *testing.T) {
+	equal(t, plainWords("node"), "node", "an ordinary name")
+	equal(t, plainWords("[Fix it](https://wherever)"),
+		`\[Fix it\]\(https://wherever\)`, "a name shaped like a link")
+	equal(t, plainWords("**You can run:**"), `\*\*You can run:\*\*`, "a name shaped like a label")
+	equal(t, plainWords("a`b"), "a\\`b", "a backtick")
+	equal(t, plainWords("# heading > quote ~x~ _u_ |spoiler|"),
+		`\# heading \> quote \~x\~ \_u\_ \|spoiler\|`, "every other character Discord acts on")
+	equal(t, plainWords("a\\b"), `a\\b`, "a backslash a path really holds")
+	equal(t, plainWords("ドキュメント"), "ドキュメント", "a name that is none of it")
+
+	// And a label built from one keeps hachiko's own punctuation unescaped, since that is
+	// the half Tim is meant to read as punctuation.
+	equal(t, processLabel("**node**", 7018), `\*\*node\*\* (pid 7018)`, "a process label")
+}
+
+// A post title is plain text — Discord renders no markdown in one — so the escaping that
+// protects the message body would be backslashes there. The title is the message's own lead
+// line, so it comes back out.
+func TestATitleShowsTheNameWithoutTheEscaping(t *testing.T) {
+	for _, name := range []string{
+		"[Fix it](https://wherever)", "**You can run:**", "a`b", `a\b`, "x\\*y", "ドキュメント",
+	} {
+		equal(t, plainTitle(plainWords(name)), name, "round trip of "+name)
+	}
+
+	// What the webhook would actually name the post, out of the lead it is taken from.
+	equal(t, threadName(plainWords("💾 Disk filling: **x**.log is growing fast")+"\n**Free space:** 1 GB"),
+		"💾 Disk filling: **x**.log is growing fast", "the post's name")
+}
+
+// A path is bytes macOS makes no promises about, and a limit counts the bytes Discord and a
+// prompt count — so the cut falls on a rune boundary rather than through a character.
+func TestAClipCutsBetweenCharactersAndNotThroughOne(t *testing.T) {
+	// Six three-byte runes: a cut at seventeen bytes falls inside the sixth.
+	name := strings.Repeat("ド", 6)
+
+	equal(t, clip(name, 17), strings.Repeat("ド", 5)+"...", "a cut inside a character")
+	equal(t, clip(name, 18), name, "a limit the name exactly fits")
+	if !utf8.ValidString(clip(name, 17)) {
+		t.Error("the clipped name is not valid UTF-8")
+	}
+
+	// The same through the two things that clip a name for a message.
+	long := "/private/tmp/" + strings.Repeat("ド", 40) + ".log"
+	for what, got := range map[string]string{
+		"safe":      safe(long, 17),
+		"baseLabel": baseLabel(long),
+	} {
+		if !utf8.ValidString(got) {
+			t.Errorf("%s left invalid UTF-8: %q", what, got)
+		}
+	}
+
+	// A byte that was never a character to begin with goes the same way.
+	if got := clip("ab\xff\xfe", 3); !utf8.ValidString(got) {
+		t.Errorf("a clipped name kept a byte that is not UTF-8: %q", got)
 	}
 }

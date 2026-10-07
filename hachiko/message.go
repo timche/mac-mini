@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Every message hachiko sends has one shape, and this file is the whole of it: a lead
@@ -229,7 +230,11 @@ func sameDay(a, b time.Time) bool {
 func processLabel(name string, pid int) string { return pidLabel(name, strconv.Itoa(pid)) }
 
 // The same for a pid that arrived as text, which is how lsof prints one.
-func pidLabel(name, pid string) string { return name + " (pid " + pid + ")" }
+//
+// The name is escaped here rather than at each place one of these labels is written, so a
+// label is message-safe by construction: the parentheses are hachiko's own and stay as they
+// are, and a command called `**node**` cannot take the rest of the line with it.
+func pidLabel(name, pid string) string { return plainWords(name) + " (pid " + pid + ")" }
 
 // A path, a command line or a label in an inline code span, so Discord renders none of
 // the markdown in it. The fence is one backtick longer than the longest run inside, and
@@ -260,7 +265,53 @@ func codeSpan(s string) string {
 
 // The file a lead names, by its base name: the whole path is in the detail below, and a
 // lead is read at a glance.
-func baseLabel(path string) string { return clip(filepath.Base(path), nameLimit) }
+func baseLabel(path string) string { return plainWords(clip(filepath.Base(path), nameLimit)) }
+
+// The characters Discord gives a meaning to in a message body. A backslash before each of
+// them is how Discord is told to render the character and nothing else.
+const markdownChars = `\*_~|` + "`" + `>#[]()`
+
+// A name that goes in a message outside a code span. Everything in one of those was chosen
+// by whatever filled the disk, and a name is markdown as readily as anything else: a process
+// called `[Fix it](https://wherever)` arrives as a link to somewhere Tim is invited to click,
+// and one called `**You can run:**` arrives as a line of hachiko's own. So every character
+// Discord acts on is escaped, which is what makes the name arrive as the name.
+//
+// A code span needs none of this and must not have it — the span is what stops the rendering
+// there, and a backslash inside one is a backslash.
+func plainWords(s string) string {
+	var out strings.Builder
+	out.Grow(len(s))
+
+	for _, r := range s {
+		if r < utf8.RuneSelf && strings.ContainsRune(markdownChars, r) {
+			out.WriteByte('\\')
+		}
+		out.WriteRune(r)
+	}
+	return out.String()
+}
+
+// The same name in a forum post's title, which is plain text: Discord renders no markdown
+// there, so an escape that is invisible in the message is a backslash in the title. The
+// title is the message's own lead line, so this takes the escaping back out rather than
+// building the name a second way — and a backslash a path really holds survives it, since
+// that one was escaped too.
+//
+// Byte by byte, which is safe because every character it looks for is ASCII and no byte of
+// a multi-byte rune is.
+func plainTitle(s string) string {
+	var out strings.Builder
+	out.Grow(len(s))
+
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) && strings.IndexByte(markdownChars, s[i+1]) >= 0 {
+			i++
+		}
+		out.WriteByte(s[i])
+	}
+	return out.String()
+}
 
 // What to call an incident in a lead. The id itself is machine detail and goes in the
 // subtext line, since nothing Tim does with a message needs it.

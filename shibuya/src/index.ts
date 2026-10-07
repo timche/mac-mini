@@ -237,9 +237,20 @@ function count(value: unknown): number | "bad" | undefined {
 // A reason is written by a sweep, and a sweep names paths whatever filled the disk called
 // them. A newline there is a line of its own in Discord and an escape is one a terminal
 // reading the log back would act on.
+// Half of an astral character is a lone surrogate, which is not UTF-8 at all: a body
+// carrying one is a request Discord refuses, and `JSON.parse` makes one out of a `\ud83d`
+// somebody sent on purpose as readily as the cut below makes one by accident. So they go
+// on the way in, and again after the cut, which can fall between the two halves of an emoji
+// in a path.
 function clean(value: string, limit: number): string {
-  const stripped = value.replace(/[\p{Cc}\p{Cf}]/gu, " ").trim();
-  return stripped.length <= limit ? stripped : `${stripped.slice(0, limit - 1)}…`;
+  const stripped = value
+    .replace(/[\p{Cc}\p{Cf}]/gu, " ")
+    .replace(/\p{Cs}/gu, " ")
+    .trim();
+  if (stripped.length <= limit) {
+    return stripped;
+  }
+  return `${stripped.slice(0, limit - 1).replace(/\p{Cs}/gu, "").trimEnd()}…`;
 }
 
 function text(body: string, status = 200): Response {

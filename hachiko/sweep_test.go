@@ -726,3 +726,49 @@ func size(t *testing.T, path string) int64 {
 	}
 	return info.Size()
 }
+
+// Every name in an alert was chosen by whatever filled the disk: the command line a worker
+// was started with, and what lsof calls whoever holds a file. A name shaped like a link, or
+// like one of hachiko's own labels, has to arrive as a name — in the lead, in the bullet,
+// and in the post's title, which is the one place the escaping that does that would show.
+func TestANameShapedLikeMarkdownArrivesAsAName(t *testing.T) {
+	f := newFixture(t)
+	// The shape lsof answers in, which is where a writer's own name is escaped: the pid and
+	// the parentheses around it are hachiko's and stay as they are.
+	f.writer = pidLabel("[Fix it](https://wherever)", "5073")
+
+	for i := range 13 {
+		f.proc(7018, float64(i)*240, firstStart, "/usr/local/bin/**node** worker.js")
+		f.at(int64(i) * 300).sweep()
+	}
+
+	equal(t, f.sentCount(), 1, "messages sent")
+	message := f.lastSent()
+
+	wants(t, message, `\*\*node\*\* is busy: 80% of a core`)
+	wants(t, message, `- \*\*node\*\* (pid 7018)`)
+	// Nothing outside a code span arrives as emphasis of hachiko's own. Inside one it may:
+	// the span is what stops the rendering, which is why the command line keeps its own
+	// asterisks and needs no escape.
+	for _, line := range strings.Split(message, "\n") {
+		if !strings.Contains(line, "`") {
+			lacks(t, line, "**node**")
+		}
+	}
+	wants(t, message, codeSpan("/usr/local/bin/**node** worker.js"))
+
+	// The post's title is plain text, so the escaping comes back out rather than being shown,
+	// and the marker stays: it is what says at a glance which kind of alert this is.
+	equal(t, threadName(message), "🔥 **node** is busy: 80% of a core for 1 hour",
+		"the post's name")
+
+	// A writer lsof named is the other half of it, in a bullet about the disk.
+	path := f.grow("tmp/worker.log", bigKB)
+	f.at(4200).sweep()
+	f.grow("tmp/worker.log", growKB+bigKB)
+	f.at(4500).sweep()
+
+	wants(t, f.lastSent(), `written by \[Fix it\]\(https://wherever\) (pid 5073)`)
+	lacks(t, f.lastSent(), "written by [Fix it]")
+	wants(t, f.lastSent(), codeSpan(path))
+}

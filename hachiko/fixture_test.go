@@ -169,9 +169,11 @@ func newFixture(t *testing.T) *fixture {
 		// The account hachiko runs as, which every process the fixture makes belongs to
 		// unless a test says otherwise: a process of somebody else's is a system process, and
 		// that is a test of its own.
-		uid:    accountUID,
-		cwd:    map[int]string{},
-		writer: "fake-worker (pid 4242)",
+		uid: accountUID,
+		cwd: map[int]string{},
+		// Built the way the real lsof reader builds one, so a test reads the writer back in
+		// the shape a message carries rather than in one nothing produces.
+		writer: pidLabel("fake-worker", "4242"),
 		// Nothing is waiting on a question until a test says so, which is what every
 		// check written before the wait existed assumes.
 		status: map[string]string{},

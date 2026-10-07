@@ -618,6 +618,51 @@ it("takes a display name, cleans it, and refuses one that is not a string", asyn
   expect(clipped.endsWith("…")).toBe(true);
 });
 
+// A path is bytes macOS makes no promises about, and half of an emoji is a lone surrogate:
+// invalid UTF-8, and a body Discord refuses outright. So the cut falls between characters,
+// and one that arrived in halves to begin with goes.
+it("never cuts a name through the middle of a character", async () => {
+  discord();
+
+  await ping({ ...checkin, display: "Mac mini 🖥".padEnd(60, "x") });
+  const clipped = String((await stored()).live.display);
+  expect(clipped).toBe(JSON.parse(JSON.stringify(clipped)));
+  expect(/\p{Cs}/u.test(clipped)).toBe(false);
+
+  // A display name that is nothing but emoji, cut where the pairs are.
+  await ping({ ...checkin, display: "🖥".repeat(30) });
+  expect(/\p{Cs}/u.test(String((await stored()).live.display))).toBe(false);
+
+  // And one sent in halves on purpose, which JSON.parse hands over as it was written.
+  await ping({ ...checkin, display: "Mac \ud83d mini" });
+  expect((await stored()).live.display).toBe("Mac   mini");
+});
+
+// Everything hachiko sends lands in a lead line or a labelled one, where Discord renders
+// markdown. A reason naming a path somebody called `[Fix it](https://wherever)` must not
+// arrive as a link, and a Mac that calls itself `**Mac mini**` must not arrive as emphasis —
+// but the post's title is plain text, so the name goes in there as it is.
+it("lets nothing in a check-in style a message or fake a link", async () => {
+  const sent = discord({ status: 200, body: { channel_id: "7" } });
+
+  await ping(
+    {
+      ...checkin,
+      host: GOLDEN_HOST,
+      display: "**Mac mini**",
+      reason: "the walk saw [Fix it](https://wherever) and gave up",
+    },
+    TOKEN,
+    "/fail",
+  );
+
+  const content = sent[0]!.fields.content!;
+  expect(content).toContain("⚠️ \\*\\*Mac mini\\*\\* is still checking in");
+  expect(content).toContain("**Why:** the walk saw \\[Fix it\\]\\(https://wherever\\) and gave up");
+  expect(content).not.toContain("[Fix it](https://wherever)");
+  expect(sent[0]!.fields.thread_name).toMatch(/^⚠️ \*\*Mac mini\*\*: hachiko's checks are failing · /);
+});
+
 it("treats a display name that cleans away to nothing as one that was never sent", async () => {
   discord();
 

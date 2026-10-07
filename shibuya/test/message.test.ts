@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 
-import { code, duration, machine, markers, render, size, title, when } from "../src/message";
+import { code, duration, machine, markers, plain, render, size, title, when } from "../src/message";
 
 // Fixed moments in Tim's own zone, because every rule in here is about what he reads rather
 // than about what the clock says. 6 October 2026 is a Tuesday, and London is on BST.
@@ -101,4 +101,21 @@ it("leaves the build out of the machine line when no check-in has named one", ()
   expect(render({ marker: markers.clear, lead: "Mac mini is back", action: "Nothing to do." })).toBe(
     "🟢 Mac mini is back\n\nNothing to do.",
   );
+});
+
+// What hachiko sends reaches a lead line and a labelled line, where Discord renders markdown:
+// a reason or a name shaped like a link has to arrive as itself.
+it("lets nothing hachiko sent style a message or fake a link", () => {
+  expect(plain("the walk ran out of its seconds")).toBe("the walk ran out of its seconds");
+  expect(plain("[Fix it](https://wherever)")).toBe("\\[Fix it\\]\\(https://wherever\\)");
+  expect(plain("**Mac mini**")).toBe("\\*\\*Mac mini\\*\\*");
+  expect(plain("# heading > quote ~x~ _u_ |spoiler| `code`")).toBe(
+    "\\# heading \\> quote \\~x\\~ \\_u\\_ \\|spoiler\\| \\`code\\`",
+  );
+  expect(plain("a\\b")).toBe("a\\\\b");
+  expect(plain("ドキュメント")).toBe("ドキュメント");
+
+  // A title is plain text in Discord, so the name goes in unescaped: an escape nothing
+  // renders is a backslash Tim reads.
+  expect(title(markers.down, "**Mac mini** offline", tuesdayEvening)).toBe("🔴 **Mac mini** offline · Tue 17:35");
 });

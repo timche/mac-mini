@@ -171,6 +171,21 @@ export function code(value: string): string {
   return `${fence}${pad}${value}${pad}${fence}`;
 }
 
+// The characters Discord gives a meaning to in a message body, and the escape that tells it
+// to render one as itself. hachiko's own sender escapes the same set for the same reason.
+const MARKDOWN = /[\\*_~|`>#[\]()]/g;
+
+// A value hachiko sent that goes in a message outside a code span: the name the Mac calls
+// itself, and the reason a check gave, which names paths whatever filled the disk called
+// them. A reason reading `**offline**`, or `[click here](https://wherever)`, would otherwise
+// arrive as hachiko's own emphasis or as a link Tim is invited to follow.
+//
+// Not in a post's title, which is plain text — Discord renders no markdown there, so an
+// escape invisible in a message is a backslash in the title.
+export function plain(value: string): string {
+  return value.replace(MARKDOWN, "\\$&");
+}
+
 const clock = formatter({ hour: "2-digit", minute: "2-digit", hour12: false });
 const weekday = formatter({ weekday: "short" });
 const calendar = formatter({ weekday: "short", day: "numeric", month: "short" });

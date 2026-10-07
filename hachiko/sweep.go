@@ -7,6 +7,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 type sweeper struct {
@@ -548,7 +549,7 @@ func (s sweeper) cpu(state *State, now time.Time) cpuFindings {
 		system := p.UID != s.deps.Getuid()
 		if system {
 			line += ", system process owned by " + safe(p.Owner(), userLimit)
-			bullet += ", a system process owned by " + safe(p.Owner(), userLimit)
+			bullet += ", a system process owned by " + plainWords(safe(p.Owner(), userLimit))
 		}
 
 		if cwd := s.deps.CWD(p.PID); cwd != "" {
@@ -558,7 +559,7 @@ func (s sweeper) cpu(state *State, now time.Time) cpuFindings {
 			// choosing as the path is.
 			if where := safe(repoOf(s.cfg, cwd), pathLimit); where != "" {
 				line += ", in " + where
-				bullet += " (" + where + ")"
+				bullet += " (" + plainWords(where) + ")"
 				// The shape that caused the incident this exists for: a worker whose
 				// session ended, reparented to launchd and still spending a core on
 				// work nobody wants. This account's and inside a checkout, both: those two
@@ -599,7 +600,7 @@ func (s sweeper) cpu(state *State, now time.Time) cpuFindings {
 		out.fresh = append(out.fresh, key)
 		if out.sentence == "" {
 			out.sentence = fmt.Sprintf("%s is busy: %.0f%% of a core for %s",
-				name, h.Share, durationPhrase(h.HotFor(now)))
+				plainWords(name), h.Share, durationPhrase(h.HotFor(now)))
 			out.firstBullet = bullet
 		}
 	}
@@ -633,11 +634,24 @@ const (
 	userLimit = 64
 )
 
+// A byte count, because what the limits are protecting is Discord's own and a prompt's own,
+// both of which count bytes. The cut falls on a rune boundary all the same: a path is a
+// string of bytes macOS makes no promises about, and half of a multi-byte character is a
+// replacement glyph in a message and invalid JSON on the way to one. Trailing bytes that
+// were never a character to begin with go the same way.
 func clip(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
-	return s[:max] + "..."
+
+	cut := s[:max]
+	for len(cut) > 0 {
+		if r, size := utf8.DecodeLastRuneInString(cut); r != utf8.RuneError || size > 1 {
+			break
+		}
+		cut = cut[:len(cut)-1]
+	}
+	return cut + "..."
 }
 
 // The same, for a string that goes anywhere near a prompt. A path may hold a newline, and

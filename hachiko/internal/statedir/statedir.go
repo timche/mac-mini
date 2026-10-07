@@ -1,4 +1,10 @@
-package main
+// Package statedir is everything hachiko keeps in its state directory between runs, and
+// the only thing that reads or writes it: the state the sweep measures the next check
+// against, the lock that keeps two sweeps apart, the markers an on-call session leaves to
+// say it has reported, and the one action it is asking to be allowed. Three commands
+// touch it and only one of them holds the lock, which is why the markers are files of
+// their own rather than fields of the state.
+package statedir
 
 import (
 	"encoding/json"
@@ -87,7 +93,7 @@ type Stall struct {
 // Which of them are still being skipped, and which are due to be tried again. A hung open
 // costs one directory timeout to retry, so an hour is cheap; a tree that has come back
 // being invisible until somebody edits a state file is not.
-func dueForRetry(stalled []Stall, now time.Time, after time.Duration) (skip []string, retry []string) {
+func DueForRetry(stalled []Stall, now time.Time, after time.Duration) (skip []string, retry []string) {
 	for _, s := range stalled {
 		if now.Sub(time.Unix(s.LastAt, 0)) >= after {
 			retry = append(retry, s.Dir)
@@ -184,13 +190,13 @@ type Asked struct {
 	Writers []string         `json:"writers,omitempty"`
 }
 
-func (s *State) hasDiskSample() bool { return s.Disk.At > 0 }
-func (s *State) hasCPUSample() bool  { return s.CPU.At > 0 }
+func (s *State) HasDiskSample() bool { return s.Disk.At > 0 }
+func (s *State) HasCPUSample() bool  { return s.CPU.At > 0 }
 
-func (s *State) alertedFile(path string) bool { return contains(s.AlertedFiles, path) }
-func (s *State) alertedProc(key string) bool  { return contains(s.AlertedProcs, key) }
+func (s *State) AlertedFile(path string) bool { return Contains(s.AlertedFiles, path) }
+func (s *State) AlertedProc(key string) bool  { return Contains(s.AlertedProcs, key) }
 
-func contains(list []string, want string) bool {
+func Contains(list []string, want string) bool {
 	for _, v := range list {
 		if v == want {
 			return true
@@ -198,24 +204,7 @@ func contains(list []string, want string) bool {
 	}
 	return false
 }
-
-func mergeSorted(lists ...[]string) []string {
-	seen := map[string]bool{}
-	var out []string
-
-	for _, list := range lists {
-		for _, v := range list {
-			if !seen[v] {
-				seen[v] = true
-				out = append(out, v)
-			}
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-func sortedKeys[V any](m map[string]V) []string {
+func SortedKeys[V any](m map[string]V) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
 		out = append(out, k)
@@ -224,15 +213,15 @@ func sortedKeys[V any](m map[string]V) []string {
 	return out
 }
 
-type Store struct{ dir string }
+type Store struct{ Dir string }
 
-func (st Store) path() string { return filepath.Join(st.dir, "state.json") }
+func (st Store) path() string { return filepath.Join(st.Dir, "state.json") }
 
 // A state file that cannot be read is a sweep that starts over rather than one that
 // stops: a corrupt sample costs one interval of history, a refusal costs every
 // interval after it. It is still said out loud, because a file that goes corrupt
 // every run is a sweep that can never measure growth and would otherwise look quiet.
-var errStateCorrupt = errors.New("the state file could not be read, so this check measures from nothing")
+var ErrCorrupt = errors.New("the state file could not be read, so this check measures from nothing")
 
 func (st Store) Load() (*State, error) {
 	state := &State{}
@@ -246,13 +235,13 @@ func (st Store) Load() (*State, error) {
 	}
 
 	if err := json.Unmarshal(data, state); err != nil {
-		return &State{}, fmt.Errorf("%w: %v", errStateCorrupt, err)
+		return &State{}, fmt.Errorf("%w: %v", ErrCorrupt, err)
 	}
 	return state, nil
 }
 
 func (st Store) Save(state *State) error {
-	if err := os.MkdirAll(st.dir, 0o755); err != nil {
+	if err := os.MkdirAll(st.Dir, 0o755); err != nil {
 		return err
 	}
 
@@ -261,7 +250,7 @@ func (st Store) Save(state *State) error {
 		return err
 	}
 
-	tmp, err := os.CreateTemp(st.dir, "state-*.json")
+	tmp, err := os.CreateTemp(st.Dir, "state-*.json")
 	if err != nil {
 		return err
 	}
@@ -287,19 +276,19 @@ type Lock struct {
 	pid int
 }
 
-// errLockHeld is the one failure that is not a fault: another sweep is running, and
+// ErrLockHeld is the one failure that is not a fault: another sweep is running, and
 // this one has nothing to say about it.
-var errLockHeld = errors.New("another check holds the lock")
+var ErrLockHeld = errors.New("another check holds the lock")
 
-// A failure that is not errLockHeld is a fault worth a line, and `mkdir` on a disk
+// A failure that is not ErrLockHeld is a fault worth a line, and `mkdir` on a disk
 // with nothing left is exactly the fault this watch exists to catch — so the sweep
 // goes ahead without a lock rather than going quiet about a full disk.
 func (st Store) Acquire(stale time.Duration, now time.Time) (*Lock, string, error) {
-	if err := os.MkdirAll(st.dir, 0o755); err != nil {
+	if err := os.MkdirAll(st.Dir, 0o755); err != nil {
 		return nil, "", err
 	}
 
-	dir := filepath.Join(st.dir, "lock")
+	dir := filepath.Join(st.Dir, "lock")
 
 	lock, err := tryLock(dir, now)
 	if err == nil {
@@ -314,7 +303,7 @@ func (st Store) Acquire(stale time.Duration, now time.Time) (*Lock, string, erro
 		return nil, "", statErr
 	}
 	if now.Sub(info.ModTime()) <= stale {
-		return nil, "", errLockHeld
+		return nil, "", ErrLockHeld
 	}
 
 	owner := "an earlier check"
@@ -364,7 +353,7 @@ func (l *Lock) Release() {
 // An incident id is a filename below, so it may only be what a sweep makes one.
 var incidentID = regexp.MustCompile(`\A[a-z]+-[0-9]+\z`)
 
-func (st Store) reportedDir() string { return filepath.Join(st.dir, "reported") }
+func (st Store) reportedDir() string { return filepath.Join(st.Dir, "reported") }
 
 // How `hachiko notify` tells the next sweep that the session has spoken, without
 // touching state.json and so without waiting for a lock a sweep can hold for as long
@@ -478,7 +467,7 @@ func (st Store) ReportedIDs() []string {
 // and the approval the listener hands the agent names the action the agent itself
 // registered rather than whatever it has decided to do since.
 func (st Store) approvalPath(incident string) string {
-	return filepath.Join(st.dir, "approvals", incident)
+	return filepath.Join(st.Dir, "approvals", incident)
 }
 
 func (st Store) RequestApproval(incident, action string) error {

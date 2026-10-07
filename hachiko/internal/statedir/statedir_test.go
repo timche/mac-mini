@@ -1,4 +1,4 @@
-package main
+package statedir
 
 import (
 	"errors"
@@ -6,10 +6,14 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/harness"
 )
 
+var base = time.Unix(1700000000, 0)
+
 func TestStateSurvivesASaveAndALoad(t *testing.T) {
-	store := Store{dir: filepath.Join(t.TempDir(), "hachiko")}
+	store := Store{Dir: filepath.Join(t.TempDir(), "hachiko")}
 
 	want := &State{
 		Disk:          DiskSample{At: base.Unix(), Files: map[string]int64{"/tmp/a.log": 2048}},
@@ -29,29 +33,29 @@ func TestStateSurvivesASaveAndALoad(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	equal(t, got.Disk.Files["/tmp/a.log"], int64(2048), "a recorded size")
-	equal(t, got.CPU.Procs["7018:x"].CPU, float64(90), "a recorded cpu time")
-	equal(t, got.LowSpaceLevel, int64(20), "the recorded threshold")
-	equal(t, got.Pending["disk-1"].Tab, "disk-0000", "the recorded tab")
-	if !got.alertedFile("/tmp/a.log") || !got.alertedProc("7018:x") {
+	harness.Equal(t, got.Disk.Files["/tmp/a.log"], int64(2048), "a recorded size")
+	harness.Equal(t, got.CPU.Procs["7018:x"].CPU, float64(90), "a recorded cpu time")
+	harness.Equal(t, got.LowSpaceLevel, int64(20), "the recorded threshold")
+	harness.Equal(t, got.Pending["disk-1"].Tab, "disk-0000", "the recorded tab")
+	if !got.AlertedFile("/tmp/a.log") || !got.AlertedProc("7018:x") {
 		t.Error("what was alerted on was not recorded")
 	}
 }
 
 func TestAMissingStateFileIsAnEmptyStateRatherThanAnError(t *testing.T) {
-	store := Store{dir: filepath.Join(t.TempDir(), "hachiko")}
+	store := Store{Dir: filepath.Join(t.TempDir(), "hachiko")}
 
 	state, err := store.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.hasDiskSample() || state.hasCPUSample() {
+	if state.HasDiskSample() || state.HasCPUSample() {
 		t.Error("an empty state claims to hold a sample")
 	}
 }
 
 func TestOnlyOneCheckHoldsTheLock(t *testing.T) {
-	store := Store{dir: filepath.Join(t.TempDir(), "hachiko")}
+	store := Store{Dir: filepath.Join(t.TempDir(), "hachiko")}
 
 	first, _, err := store.Acquire(5*time.Minute, base)
 	if err != nil {
@@ -60,7 +64,7 @@ func TestOnlyOneCheckHoldsTheLock(t *testing.T) {
 
 	// A live holder is the one failure that is not a fault, and it has a sentinel of its
 	// own so that everything else can be said out loud.
-	if _, _, err := store.Acquire(5*time.Minute, base); !errors.Is(err, errLockHeld) {
+	if _, _, err := store.Acquire(5*time.Minute, base); !errors.Is(err, ErrLockHeld) {
 		t.Errorf("a second check saw %v rather than a held lock", err)
 	}
 
@@ -72,7 +76,7 @@ func TestOnlyOneCheckHoldsTheLock(t *testing.T) {
 
 // A lock left behind by a killed check must not stop every check after it.
 func TestALockOlderThanTheIntervalIsTakenOver(t *testing.T) {
-	store := Store{dir: filepath.Join(t.TempDir(), "hachiko")}
+	store := Store{Dir: filepath.Join(t.TempDir(), "hachiko")}
 
 	if _, _, err := store.Acquire(5*time.Minute, base); err != nil {
 		t.Fatalf("the first check could not take the lock: %v", err)
@@ -90,7 +94,7 @@ func TestALockOlderThanTheIntervalIsTakenOver(t *testing.T) {
 // A sweep slow enough to have its lock taken over must not then delete the lock of the
 // check that took it, or a third would run beside both.
 func TestReleasingALockSomebodyElseNowHoldsDoesNothing(t *testing.T) {
-	store := Store{dir: filepath.Join(t.TempDir(), "hachiko")}
+	store := Store{Dir: filepath.Join(t.TempDir(), "hachiko")}
 
 	slow, _, err := store.Acquire(5*time.Minute, base)
 	if err != nil {
@@ -98,13 +102,13 @@ func TestReleasingALockSomebodyElseNowHoldsDoesNothing(t *testing.T) {
 	}
 
 	// The takeover, as another process: the pid in the lock is no longer the slow one's.
-	if err := os.WriteFile(filepath.Join(store.dir, "lock", "pid"), []byte("999999"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(store.Dir, "lock", "pid"), []byte("999999"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	slow.Release()
 
-	if _, _, err := store.Acquire(5*time.Minute, base); !errors.Is(err, errLockHeld) {
+	if _, _, err := store.Acquire(5*time.Minute, base); !errors.Is(err, ErrLockHeld) {
 		t.Errorf("a released lock was somebody else's: %v", err)
 	}
 }
@@ -119,11 +123,11 @@ func TestALockThatCannotBeMadeIsNotMistakenForAHeldOne(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, err := Store{dir: dir}.Acquire(5*time.Minute, base)
+	_, _, err := Store{Dir: dir}.Acquire(5*time.Minute, base)
 	if err == nil {
 		t.Fatal("a state directory that is a file was taken as a lock")
 	}
-	if errors.Is(err, errLockHeld) {
+	if errors.Is(err, ErrLockHeld) {
 		t.Error("a broken state directory was reported as another check holding the lock")
 	}
 }
@@ -131,7 +135,7 @@ func TestALockThatCannotBeMadeIsNotMistakenForAHeldOne(t *testing.T) {
 // The marker `hachiko notify` leaves, which needs no lock: an id that is not one a
 // sweep makes may not become a filename.
 func TestOnlyAnIncidentIdCanBeMarkedReported(t *testing.T) {
-	store := Store{dir: filepath.Join(t.TempDir(), "hachiko")}
+	store := Store{Dir: filepath.Join(t.TempDir(), "hachiko")}
 
 	if err := store.MarkReported("disk-1700000000", "stop the worker", false); err != nil {
 		t.Fatal(err)
@@ -139,7 +143,7 @@ func TestOnlyAnIncidentIdCanBeMarkedReported(t *testing.T) {
 	if !store.Reported("disk-1700000000") {
 		t.Error("a report was not recorded")
 	}
-	equal(t, store.ReportedFallback("disk-1700000000"), "stop the worker", "the option read back off the marker")
+	harness.Equal(t, store.ReportedFallback("disk-1700000000"), "stop the worker", "the option read back off the marker")
 
 	store.ClearReported("disk-1700000000")
 	if store.Reported("disk-1700000000") {
@@ -168,11 +172,11 @@ func TestACorruptStateFileIsSaidOutLoud(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	state, err := Store{dir: dir}.Load()
-	if !errors.Is(err, errStateCorrupt) {
+	state, err := Store{Dir: dir}.Load()
+	if !errors.Is(err, ErrCorrupt) {
 		t.Fatalf("a corrupt state file answered %v", err)
 	}
-	if state.hasDiskSample() {
+	if state.HasDiskSample() {
 		t.Error("a corrupt state file was read as a sample")
 	}
 }

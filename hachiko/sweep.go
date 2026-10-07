@@ -11,13 +11,14 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
 	"github.com/timche/mac-mini/hachiko/internal/process"
+	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
 type sweeper struct {
 	cfg   config.Config
 	deps  Deps
-	store Store
+	store statedir.Store
 	dry   bool
 }
 
@@ -30,7 +31,7 @@ func (s sweeper) say(format string, args ...any) {
 // hours later is under the alert it is about rather than further down a channel — and the
 // thread is what `hachiko listen` reads a reply out of. With only the webhook, the thread
 // is nothing and the message goes to the channel exactly as it always did.
-func (s sweeper) send(state *State, incident, message string) error {
+func (s sweeper) send(state *statedir.State, incident, message string) error {
 	out := Outgoing{Text: message}
 
 	switch thread, known := state.Threads[incident]; {
@@ -68,7 +69,7 @@ func (s sweeper) run() error {
 		lock, takenFrom, err := s.store.Acquire(5*time.Minute, now)
 
 		switch {
-		case errors.Is(err, errLockHeld):
+		case errors.Is(err, statedir.ErrLockHeld):
 			return nil
 		case errors.Is(err, syscall.ENOSPC):
 			// The fault this whole thing exists to catch. A sweep that stopped here would
@@ -89,7 +90,7 @@ func (s sweeper) run() error {
 	state, err := s.store.Load()
 	corrupt := false
 	switch {
-	case errors.Is(err, errStateCorrupt):
+	case errors.Is(err, statedir.ErrCorrupt):
 		s.say("%v", err)
 		corrupt = true
 	case err != nil:
@@ -234,7 +235,7 @@ func (s sweeper) run() error {
 		state.LowSpaceLevel = level
 	}
 
-	state.Disk = DiskSample{At: now.Unix(), Files: disk.sizes, FreeKB: free}
+	state.Disk = statedir.DiskSample{At: now.Unix(), Files: disk.sizes, FreeKB: free}
 	state.CPU = cpu.sample
 	state.Stalled = disk.stalled
 
@@ -263,7 +264,7 @@ func (s sweeper) run() error {
 // found: the alert about a disk is hachiko's own, and all this says is that the watch is
 // still running — or that it ran and did not finish its job, which is a Mac whose monitor is
 // half blind and nothing a dead man's switch would ever notice by itself.
-func (s sweeper) checkIn(state *State, corrupt bool, disk diskFindings, cpu cpuFindings, free int64, open int) {
+func (s sweeper) checkIn(state *statedir.State, corrupt bool, disk diskFindings, cpu cpuFindings, free int64, open int) {
 	in := Checkin{
 		FreeGB:        gbNum(free),
 		OpenIncidents: open,
@@ -314,15 +315,15 @@ func sweepFaults(corrupt bool, disk diskFindings, cpu cpuFindings) []string {
 // What the next sweep inherits: the ones still being skipped, the ones that stalled
 // again with their clock moved on, and the newly stalled. A directory that was retried
 // and did not stall is gone from the list, which is what puts it back in the walk.
-func (s sweeper) rememberStalls(was []Stall, stalled, retried []string, now time.Time) []Stall {
-	keep := make([]Stall, 0, len(was)+len(stalled))
+func (s sweeper) rememberStalls(was []statedir.Stall, stalled, retried []string, now time.Time) []statedir.Stall {
+	keep := make([]statedir.Stall, 0, len(was)+len(stalled))
 	seen := map[string]bool{}
 
 	for _, old := range was {
 		switch {
-		case contains(stalled, old.Dir):
+		case statedir.Contains(stalled, old.Dir):
 			old.LastAt = now.Unix()
-		case contains(retried, old.Dir):
+		case statedir.Contains(retried, old.Dir):
 			continue
 		}
 		keep = append(keep, old)
@@ -335,7 +336,7 @@ func (s sweeper) rememberStalls(was []Stall, stalled, retried []string, now time
 		}
 		s.say("%s did not answer a read within %s, so it is skipped until it is tried again in %s",
 			dir, s.cfg.DirTimeout, s.cfg.StallRetry)
-		keep = append(keep, Stall{Dir: dir, FirstAt: now.Unix(), LastAt: now.Unix()})
+		keep = append(keep, statedir.Stall{Dir: dir, FirstAt: now.Unix(), LastAt: now.Unix()})
 		seen[dir] = true
 	}
 
@@ -347,7 +348,7 @@ type diskFindings struct {
 	cutShort    bool
 	sizes       map[string]int64
 	growing     []Growing
-	stalled     []Stall
+	stalled     []statedir.Stall
 	span        time.Duration
 	spanClamped bool
 	grewKB      int64
@@ -370,8 +371,8 @@ type diskFindings struct {
 	fresh      []string
 }
 
-func (s sweeper) disk(state *State, now time.Time, free int64) diskFindings {
-	had := state.hasDiskSample()
+func (s sweeper) disk(state *statedir.State, now time.Time, free int64) diskFindings {
+	had := state.HasDiskSample()
 	prevAt := now
 	if had {
 		prevAt = time.Unix(state.Disk.At, 0)
@@ -390,7 +391,7 @@ func (s sweeper) disk(state *State, now time.Time, free int64) diskFindings {
 	// What is still being skipped and what is due to be tried again. Everything not
 	// skipped is walked, so a directory being retried either stalls again or is quietly
 	// back.
-	skip, retried := dueForRetry(state.Stalled, now, s.cfg.StallRetry)
+	skip, retried := statedir.DueForRetry(state.Stalled, now, s.cfg.StallRetry)
 	walk := s.deps.BigFiles(skip)
 
 	stalledNow := map[string]bool{}
@@ -402,7 +403,7 @@ func (s sweeper) disk(state *State, now time.Time, free int64) diskFindings {
 	// nothing in between: a line every five minutes forever would bury the lines that
 	// matter.
 	for _, was := range state.Stalled {
-		if contains(retried, was.Dir) && !stalledNow[was.Dir] {
+		if statedir.Contains(retried, was.Dir) && !stalledNow[was.Dir] {
 			s.say("%s answered again after %s, so it is back in the walk",
 				was.Dir, hmStr(now.Sub(time.Unix(was.FirstAt, 0))))
 		}
@@ -436,11 +437,11 @@ func (s sweeper) disk(state *State, now time.Time, free int64) diskFindings {
 		// Everything a projection and a stale question are read from: what the files
 		// hachiko can see are gaining between two samples, and who is holding them.
 		out.grewKB += g.GrewKB
-		if !contains(out.writers, writer) {
+		if !statedir.Contains(out.writers, writer) {
 			out.writers = append(out.writers, writer)
 		}
 
-		if !s.dry && state.alertedFile(g.Path) {
+		if !s.dry && state.AlertedFile(g.Path) {
 			out.stillGoing = append(out.stillGoing, g.Path)
 			continue
 		}
@@ -493,7 +494,7 @@ func (s sweeper) disk(state *State, now time.Time, free int64) diskFindings {
 }
 
 type cpuFindings struct {
-	sample CPUSample
+	sample statedir.CPUSample
 
 	// Whether there was a process sample at all. An empty one is a reading; a failed one is
 	// the absence of a reading, and nothing may be concluded from it about what is running.
@@ -516,7 +517,7 @@ type cpuFindings struct {
 	fresh      []string
 }
 
-func (s sweeper) cpu(state *State, now time.Time) cpuFindings {
+func (s sweeper) cpu(state *statedir.State, now time.Time) cpuFindings {
 	procs, err := s.deps.Processes()
 	if err != nil {
 		s.say("there is no process sample for this check: %v", err)
@@ -590,7 +591,7 @@ func (s sweeper) cpu(state *State, now time.Time) cpuFindings {
 		}
 
 		key := p.Key()
-		if !s.dry && state.alertedProc(key) {
+		if !s.dry && state.AlertedProc(key) {
 			out.stillGoing = append(out.stillGoing, key)
 			continue
 		}
@@ -702,7 +703,7 @@ func joinBlocks(blocks ...string) string { return strings.Join(nonEmpty(blocks..
 // tab it is waiting in, then one line from hachiko. The brief carries the incident
 // id and the one command that reaches the channel, because the session is never
 // handed the webhook itself.
-func (s sweeper) raise(state *State, now time.Time, kind string, alert alertText, free int64, truncated bool) bool {
+func (s sweeper) raise(state *statedir.State, now time.Time, kind string, alert alertText, free int64, truncated bool) bool {
 	incident := fmt.Sprintf("%s-%d", kind, now.Unix())
 
 	session, err := s.deps.Oncall(kind, s.brief(incident, alert.brief()))
@@ -738,11 +739,11 @@ func (s sweeper) raise(state *State, now time.Time, kind string, alert alertText
 	// sent on its behalf.
 	if session.Delivered {
 		if state.Pending == nil {
-			state.Pending = map[string]Pending{}
+			state.Pending = map[string]statedir.Pending{}
 		}
 		// The detail blocks and not the lead: the message that goes out if nothing reports
 		// has a lead of its own saying that nobody did.
-		state.Pending[incident] = Pending{OpenedAt: now.Unix(), Tab: session.Tab, Details: alert.full}
+		state.Pending[incident] = statedir.Pending{OpenedAt: now.Unix(), Tab: session.Tab, Details: alert.full}
 		s.expectAQuestion(state, now, kind, incident, session)
 	}
 
@@ -766,15 +767,15 @@ func (s sweeper) raise(state *State, now time.Time, kind string, alert alertText
 // A new incident keeps the kind's clock and resets its steps: he has been unanswered
 // since the first question either way, but the handover is a decision about an incident
 // and each one gets its own.
-func (s sweeper) expectAQuestion(state *State, now time.Time, kind, incident string, session OncallSession) {
+func (s sweeper) expectAQuestion(state *statedir.State, now time.Time, kind, incident string, session OncallSession) {
 	if state.Waiting == nil {
-		state.Waiting = map[string]Waiting{}
+		state.Waiting = map[string]statedir.Waiting{}
 	}
 
 	w := state.Waiting[kind]
 	if w.Incident != incident {
 		w.Incident, w.Opened = incident, now.Unix()
-		w.Steps, w.Default, w.Asked = nil, "", Asked{}
+		w.Steps, w.Default, w.Asked = nil, "", statedir.Asked{}
 
 		// Both of these are one check's half of a two-check judgement about the incident that
 		// has just been superseded: that it is about to fill the disk, and that it has stopped
@@ -824,7 +825,7 @@ Nothing else you can run reaches that channel. He has already had one line sayin
 // a report on the newest pending incident of the same kind, which is the one that
 // superseded it. Reading it any other way loses the report and then says the agent went
 // quiet about the very thing it just answered.
-func (s sweeper) resolveReports(state *State) map[string]string {
+func (s sweeper) resolveReports(state *statedir.State) map[string]string {
 	reported := map[string]string{}
 
 	for _, marker := range s.store.ReportedIDs() {
@@ -857,10 +858,10 @@ func (s sweeper) resolveReports(state *State) map[string]string {
 	return reported
 }
 
-func newestPending(pending map[string]Pending, kind string) string {
+func newestPending(pending map[string]statedir.Pending, kind string) string {
 	newest, openedAt := "", int64(-1)
 
-	for _, id := range sortedKeys(pending) {
+	for _, id := range statedir.SortedKeys(pending) {
 		if at := pending[id].OpenedAt; kindOf(id) == kind && at > openedAt {
 			newest, openedAt = id, at
 		}
@@ -875,7 +876,7 @@ func kindOf(incident string) string {
 
 // Every incident a report could still arrive under: one that owes its first, and one
 // whose session is on its question and owes the outcome.
-func stillExpected(state *State) map[string]bool {
+func stillExpected(state *statedir.State) map[string]bool {
 	keep := map[string]bool{}
 	for id := range state.Pending {
 		keep[id] = true
@@ -899,7 +900,7 @@ func (s sweeper) sayDroppedOutcomes(keep map[string]bool) {
 	}
 }
 
-func (s sweeper) rememberFallback(state *State, incident, fallback string) {
+func (s sweeper) rememberFallback(state *statedir.State, incident, fallback string) {
 	kind := kindOf(incident)
 	if w, ok := state.Waiting[kind]; ok && w.Incident == incident && fallback != "" {
 		w.Default = fallback
@@ -910,10 +911,10 @@ func (s sweeper) rememberFallback(state *State, incident, fallback string) {
 // The guarantee behind the session: it needs herdr, a Claude login and usage left,
 // and a watch that only ever spoke through it would be silent exactly when that
 // chain broke.
-func (s sweeper) chaseLateReports(state *State, now time.Time) {
+func (s sweeper) chaseLateReports(state *statedir.State, now time.Time) {
 	reported := s.resolveReports(state)
 
-	for _, id := range sortedKeys(state.Pending) {
+	for _, id := range statedir.SortedKeys(state.Pending) {
 		p := state.Pending[id]
 
 		if from, ok := reported[id]; ok {

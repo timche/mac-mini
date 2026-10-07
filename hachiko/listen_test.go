@@ -13,6 +13,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
+	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -101,7 +102,7 @@ func newListener(t *testing.T) *listenFixture {
 	now := func() time.Time { return f.now }
 	f.l = &listener{
 		cfg:    cfg,
-		store:  Store{dir: cfg.StateDir},
+		store:  statedir.Store{Dir: cfg.StateDir},
 		bot:    bot,
 		herdr:  f.herdr.run,
 		now:    now,
@@ -111,7 +112,7 @@ func newListener(t *testing.T) *listenFixture {
 
 	// The thread the sweep recorded for the incident, which is the only thing the listener
 	// polls.
-	state := &State{Threads: map[string]string{diskIncident: threadID}}
+	state := &statedir.State{Threads: map[string]string{diskIncident: threadID}}
 	if err := f.l.store.Save(state); err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +228,7 @@ func TestAThreadNothingIsOpenOnIsForgotten(t *testing.T) {
 	f.says("300000000000000001", "stop the worker")
 	f.pass()
 
-	if err := f.l.store.Save(&State{}); err != nil {
+	if err := f.l.store.Save(&statedir.State{}); err != nil {
 		t.Fatal(err)
 	}
 	f.l.once()
@@ -354,7 +355,7 @@ func TestAReplyIsAcknowledgedInTheThreadWhenItCannotBeReactedTo(t *testing.T) {
 // readable by every process on the Mac.
 func TestAnApprovalRequestOnlyTakesAnIncidentIdAndIsClipped(t *testing.T) {
 	dir := t.TempDir()
-	store := Store{dir: dir}
+	store := statedir.Store{Dir: dir}
 
 	for _, bad := range []string{"../../etc/passwd", "disk", "disk-", "disk-1/x", "", "Disk-1"} {
 		if err := store.RequestApproval(bad, "delete the volume"); err == nil {
@@ -476,7 +477,7 @@ func TestAThreadThatWillNotAnswerIsBackedOffAndSaidOnce(t *testing.T) {
 // line on every start is a line every five minutes for the life of the Mac about something
 // that is not wrong.
 func TestAnUnconfiguredListenerSaysSoOnceAndAgainWhenItChanges(t *testing.T) {
-	store := Store{dir: filepath.Join(t.TempDir(), "state")}
+	store := statedir.Store{Dir: filepath.Join(t.TempDir(), "state")}
 	out := &bytes.Buffer{}
 	log := logs.Logger{Out: out, Now: func() time.Time { return base }}
 

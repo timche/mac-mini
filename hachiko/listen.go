@@ -13,6 +13,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
+	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -47,7 +48,7 @@ var (
 // five-second loop off the service account's daily limit.
 func listen(cfg config.Config) error {
 	log := logs.Logger{Out: os.Stdout, Now: config.ClockFromEnv()}
-	store := Store{dir: cfg.StateDir}
+	store := statedir.Store{Dir: cfg.StateDir}
 
 	if !cfg.Discord.On() {
 		sayOnce(store, log, "unconfigured",
@@ -77,7 +78,7 @@ func listen(cfg config.Config) error {
 func listenWithToken(cfg config.Config) error {
 	log := logs.Logger{Out: os.Stdout, Now: config.ClockFromEnv()}
 
-	store := Store{dir: cfg.StateDir}
+	store := statedir.Store{Dir: cfg.StateDir}
 
 	token := strings.TrimSpace(os.Getenv("HACHIKO_DISCORD_BOT_TOKEN"))
 	if token == "" {
@@ -109,8 +110,8 @@ func listenWithToken(cfg config.Config) error {
 // line on every start is a line every five minutes for the life of the Mac about something
 // that is not wrong. So the state it last said is written down, and it says nothing again
 // until that changes — which is also how turning the feature on gets a line of its own.
-func sayOnce(store Store, log logs.Logger, state, message string) {
-	path := filepath.Join(store.dir, "listen", "said")
+func sayOnce(store statedir.Store, log logs.Logger, state, message string) {
+	path := filepath.Join(store.Dir, "listen", "said")
 
 	if was, err := os.ReadFile(path); err == nil && strings.TrimSpace(string(was)) == state {
 		return
@@ -124,7 +125,7 @@ func sayOnce(store Store, log logs.Logger, state, message string) {
 
 type listener struct {
 	cfg   config.Config
-	store Store
+	store statedir.Store
 	bot   discordBot
 	herdr herdrRunner
 	now   func() time.Time
@@ -195,17 +196,17 @@ func (l *listener) answered(incident, thread string) {
 // `op run`, and a loop that waited for it would be a loop that misses replies for minutes.
 func (l *listener) once() {
 	state, err := l.store.Load()
-	if err != nil && !errors.Is(err, errStateCorrupt) {
+	if err != nil && !errors.Is(err, statedir.ErrCorrupt) {
 		return
 	}
 
-	for _, incident := range sortedKeys(state.Threads) {
+	for _, incident := range statedir.SortedKeys(state.Threads) {
 		l.thread(state, incident, state.Threads[incident])
 	}
 	l.forgetSeenExcept(state.Threads)
 }
 
-func (l *listener) thread(state *State, incident, thread string) {
+func (l *listener) thread(state *statedir.State, incident, thread string) {
 	if t := l.troubleWith(thread); l.now().Before(t.nextTry) {
 		return
 	}
@@ -238,7 +239,7 @@ func (l *listener) thread(state *State, incident, thread string) {
 	}
 }
 
-func (l *listener) reply(state *State, incident, thread, messageID, text string) {
+func (l *listener) reply(state *statedir.State, incident, thread, messageID, text string) {
 	if code := approvalReply.FindStringSubmatch(text); code != nil {
 		l.approve(incident, thread, messageID, code[1])
 		return
@@ -467,7 +468,7 @@ func (l listener) usedSteps() []string {
 }
 
 func (l listener) usedStep(step int64) bool {
-	return contains(l.usedSteps(), strconv.FormatInt(step, 10))
+	return statedir.Contains(l.usedSteps(), strconv.FormatInt(step, 10))
 }
 
 func (l listener) useStep(step int64) {
@@ -492,7 +493,7 @@ func approvalRequest(cfg config.Config, incident, actionFile string) error {
 		return fmt.Errorf("cannot read the action at %s", actionFile)
 	}
 
-	store := Store{dir: cfg.StateDir}
+	store := statedir.Store{Dir: cfg.StateDir}
 	if err := store.RequestApproval(incident, wording.Clip(strings.TrimSpace(string(action)), wording.ReplyLimit)); err != nil {
 		return err
 	}

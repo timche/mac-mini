@@ -8,6 +8,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/process"
+	"github.com/timche/mac-mini/hachiko/internal/statedir"
 )
 
 // Hot is a process that has held its share of a core for the whole window.
@@ -24,8 +25,8 @@ func (h Hot) HotFor(now time.Time) time.Duration { return now.Sub(h.HotSince) }
 // life. A sample that comes in low starts the window again, and because the window
 // is a span of time rather than a count of runs, an interval the agent missed costs
 // nothing.
-func cpuHot(prev CPUSample, procs []process.Process, now time.Time, share float64, window time.Duration) (CPUSample, []Hot) {
-	sample := CPUSample{At: now.Unix(), Procs: make(map[string]ProcSample, len(procs))}
+func cpuHot(prev statedir.CPUSample, procs []process.Process, now time.Time, share float64, window time.Duration) (statedir.CPUSample, []Hot) {
+	sample := statedir.CPUSample{At: now.Unix(), Procs: make(map[string]statedir.ProcSample, len(procs))}
 	var hot []Hot
 
 	prevAt := time.Unix(prev.At, 0)
@@ -35,7 +36,7 @@ func cpuHot(prev CPUSample, procs []process.Process, now time.Time, share float6
 	for _, p := range procs {
 		key := p.Key()
 		cpu := p.CPU.Seconds()
-		next := ProcSample{CPU: cpu}
+		next := statedir.ProcSample{CPU: cpu}
 
 		if was, ok := prev.Procs[key]; hadSample && ok {
 			if (cpu-was.CPU)/span*100 >= share {

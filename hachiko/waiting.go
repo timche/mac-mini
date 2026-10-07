@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -80,15 +81,15 @@ type nowReading struct {
 	// The directories the walk did not open, which the wait reads against the files its
 	// question was asked about: one of them under a skipped directory is a file nothing
 	// looked at rather than a file that stopped growing.
-	stalled []Stall
+	stalled []statedir.Stall
 }
 
-func (r nowReading) snapshot(now time.Time) Asked {
+func (r nowReading) snapshot(now time.Time) statedir.Asked {
 	sizes := make(map[string]int64, len(r.sizes))
 	for path, kb := range r.sizes {
 		sizes[path] = kb
 	}
-	return Asked{
+	return statedir.Asked{
 		At:      now.Unix(),
 		FreeKB:  r.free,
 		Level:   r.level,
@@ -109,8 +110,8 @@ func (r nowReading) numbers() string {
 
 // One `herdr agent get` per kind and no more, because there is one on-call agent per
 // kind: what it is doing is the whole of how hachiko knows whether anybody answered.
-func (s sweeper) chaseAnswers(state *State, now time.Time, reading nowReading) {
-	for _, kind := range sortedKeys(state.Waiting) {
+func (s sweeper) chaseAnswers(state *statedir.State, now time.Time, reading nowReading) {
+	for _, kind := range statedir.SortedKeys(state.Waiting) {
 		w := state.Waiting[kind]
 
 		status, err := s.deps.AgentStatus(kind)
@@ -204,7 +205,7 @@ func (s sweeper) chaseAnswers(state *State, now time.Time, reading nowReading) {
 // So the timeline runs on instead, and what ends the wait is something that actually says
 // what happened: the outcome, a fresh question, a closed session, or the deadline followed
 // by silence.
-func (s sweeper) settled(state *State, now time.Time, kind string, w Waiting, reading nowReading) (Waiting, bool) {
+func (s sweeper) settled(state *statedir.State, now time.Time, kind string, w statedir.Waiting, reading nowReading) (statedir.Waiting, bool) {
 	// The agent has no question up, so there is nothing an esc could take away and the cap on
 	// cancelling one is spent: every step from here goes as a prompt. The cap holds only while
 	// it sits on a question that will not go, which is the state nothing can be delivered in.
@@ -226,7 +227,7 @@ func (s sweeper) settled(state *State, now time.Time, kind string, w Waiting, re
 	// The decision has been handed over and the agent has gone quiet without reporting. It
 	// has had the minutes it was given to report its findings in to say what it did, so the
 	// wait stops being counted rather than being counted for ever.
-	if contains(w.Steps, stepHandover) && now.Sub(time.Unix(w.Settled, 0)) >= s.cfg.OncallDeadline {
+	if statedir.Contains(w.Steps, stepHandover) && now.Sub(time.Unix(w.Settled, 0)) >= s.cfg.OncallDeadline {
 		if !s.sayNoOutcome(state, kind, w, reading,
 			"the agent was handed the decision and went quiet without reporting an outcome") {
 			return w, true
@@ -255,7 +256,7 @@ const (
 // The clock, and the one message per step on it. The order is deliberate: a handover
 // that is due makes a reminder noise, and a question that is about to be cancelled and
 // asked again is not one to remind him about either.
-func (s sweeper) escalate(state *State, now time.Time, kind string, w Waiting, reading nowReading, found agentState) Waiting {
+func (s sweeper) escalate(state *statedir.State, now time.Time, kind string, w statedir.Waiting, reading nowReading, found agentState) statedir.Waiting {
 	blocked := found == agentOnQuestion
 	if blocked {
 		if w.Since == 0 {
@@ -278,7 +279,7 @@ func (s sweeper) escalate(state *State, now time.Time, kind string, w Waiting, r
 	}
 
 	waited := now.Sub(time.Unix(w.Since, 0))
-	handed := contains(w.Steps, stepHandover)
+	handed := statedir.Contains(w.Steps, stepHandover)
 
 	// Read on every check whatever the agent is doing, and before the grace below, because a
 	// disk that will be full before he wakes does not wait for a tool call to finish — and
@@ -317,7 +318,7 @@ func (s sweeper) escalate(state *State, now time.Time, kind string, w Waiting, r
 	// deadline's, a session that was handed the decision early and judged that waiting was
 	// safe had its three hours quietly cancelled: it re-asked, and the deadline that was the
 	// whole point of the clock never came.
-	if worse != "" && !handed && !contains(w.Steps, stepEarly) && !escSpent {
+	if worse != "" && !handed && !statedir.Contains(w.Steps, stepEarly) && !escSpent {
 		return s.handOver(state, now, kind, w, reading, worse, blocked)
 	}
 	if waited >= s.cfg.HandoverAfter && !handed && !escSpent {
@@ -332,15 +333,15 @@ func (s sweeper) escalate(state *State, now time.Time, kind string, w Waiting, r
 	}
 
 	switch {
-	case waited >= s.cfg.WarnAfter && !contains(w.Steps, stepWarn):
+	case waited >= s.cfg.WarnAfter && !statedir.Contains(w.Steps, stepWarn):
 		return s.warn(state, w, reading, waited)
-	case waited >= s.cfg.RemindAfter && !contains(w.Steps, stepRemind):
+	case waited >= s.cfg.RemindAfter && !statedir.Contains(w.Steps, stepRemind):
 		return s.remind(state, w, reading, waited)
 	}
 	return w
 }
 
-func (s sweeper) remind(state *State, w Waiting, reading nowReading, waited time.Duration) Waiting {
+func (s sweeper) remind(state *statedir.State, w statedir.Waiting, reading nowReading, waited time.Duration) statedir.Waiting {
 	message := wording.Lead(wording.MarkerDegraded, fmt.Sprintf("Still no answer on %s after %s",
 		wording.IncidentWords(kindOf(w.Incident)), wording.DurationPhrase(waited))).
 		Block(reading.numbers()).
@@ -358,7 +359,7 @@ func (s sweeper) remind(state *State, w Waiting, reading nowReading, waited time
 // The `If no answer` line is a line of its own and stays one, because it is the line
 // fallbackOption reads a session's own option out of: anything that folded it into a
 // sentence would hand Tim an option chosen by whatever filled the disk.
-func (s sweeper) warn(state *State, w Waiting, reading nowReading, waited time.Duration) Waiting {
+func (s sweeper) warn(state *statedir.State, w statedir.Waiting, reading nowReading, waited time.Duration) statedir.Waiting {
 	fallback := w.Default
 	if fallback == "" {
 		fallback = "the agent named no fallback option, so it will decide when it re-checks"
@@ -380,7 +381,7 @@ func (s sweeper) warn(state *State, w Waiting, reading nowReading, waited time.D
 // A step is done only once the message has actually left the machine, and the steps
 // before it are marked with it: a check that comes back after an outage has no reason to
 // send an hour's reminder about a question that is already past its deadline.
-func (s sweeper) step(state *State, w Waiting, step, message, said string) Waiting {
+func (s sweeper) step(state *statedir.State, w statedir.Waiting, step, message, said string) statedir.Waiting {
 	if err := s.send(state, w.Incident, message); err != nil {
 		s.say("the %s step on %s did not send and is left to the next check: %v", step, w.Incident, err)
 		return w
@@ -403,8 +404,8 @@ func (s sweeper) step(state *State, w Waiting, step, message, said string) Waiti
 // this line the last word in the channel is the warning that the agent would decide in a
 // quarter of an hour, and nothing after it. Once per incident, however long it goes on
 // failing, since nothing about the failure stops repeating by itself.
-func (s sweeper) sayHandoverStuck(state *State, kind string, w Waiting, reading nowReading, why string) Waiting {
-	if contains(w.Steps, stepStuck) {
+func (s sweeper) sayHandoverStuck(state *statedir.State, kind string, w statedir.Waiting, reading nowReading, why string) statedir.Waiting {
+	if statedir.Contains(w.Steps, stepStuck) {
 		return w
 	}
 
@@ -422,7 +423,7 @@ func (s sweeper) sayHandoverStuck(state *State, kind string, w Waiting, reading 
 
 // And a wait that ends with nothing to show says so, for the same reason: the alternative is
 // a channel whose last word was a warning about a decision a quarter of an hour away.
-func (s sweeper) sayNoOutcome(state *State, kind string, w Waiting, reading nowReading, why string) bool {
+func (s sweeper) sayNoOutcome(state *statedir.State, kind string, w statedir.Waiting, reading nowReading, why string) bool {
 	message := wording.Lead(wording.MarkerDegraded, fmt.Sprintf("No outcome reported on %s", wording.IncidentWords(kind))).
 		Field(wording.LabelWhy, why).
 		Block(reading.numbers()).
@@ -441,7 +442,7 @@ func (s sweeper) sayNoOutcome(state *State, kind string, w Waiting, reading nowR
 // The handover itself: the question goes, and the session is told to decide. Nothing of
 // hachiko's own goes to the channel here — the session's own message is what says what
 // it did and why, and two messages about one decision would be one too many.
-func (s sweeper) handOver(state *State, now time.Time, kind string, w Waiting, reading nowReading, worse string, blocked bool) Waiting {
+func (s sweeper) handOver(state *statedir.State, now time.Time, kind string, w statedir.Waiting, reading nowReading, worse string, blocked bool) statedir.Waiting {
 	waited := now.Sub(time.Unix(w.Since, 0))
 
 	promptLead := fmt.Sprintf(`Tim has not answered for %s, so the autonomy in your standing orders is handed over to you now. Re-check the situation from scratch first — the numbers below are this minute's, not the ones you asked about — then pick and carry out the least destructive option that resolves it, inside the limits those orders give you. Spawn the oncall-partner agent with your proposed action first and act only if it agrees. Verify it worked, send one message with what you did, why, which limit allowed it and what the partner said, write the incident note, and stop.`,
@@ -514,7 +515,7 @@ func (s sweeper) hand(kind string, blocked bool, promptLead, data string) (escSe
 // One more attempt that did not land, with the line saying nothing of the agent's will be
 // cancelled again until its state has moved. Said on the attempt that reaches the cap and
 // not on every check afterwards, since by then nothing is being attempted.
-func (s sweeper) escFailed(kind string, w Waiting, blocked bool) Waiting {
+func (s sweeper) escFailed(kind string, w statedir.Waiting, blocked bool) statedir.Waiting {
 	if !blocked {
 		return w
 	}
@@ -531,7 +532,7 @@ func (s sweeper) escFailed(kind string, w Waiting, blocked bool) Waiting {
 // already gone, and an esc to an agent that is not on one cancels whatever it has started
 // instead. The data is this minute's rather than the data the attempt that failed carried,
 // since five more minutes have moved the numbers again.
-func (s sweeper) retryOwed(now time.Time, kind string, w Waiting, reading nowReading) Waiting {
+func (s sweeper) retryOwed(now time.Time, kind string, w statedir.Waiting, reading nowReading) statedir.Waiting {
 	if err := s.deps.Prompt(kind, w.Owed, s.handoverData(w, reading)); err != nil {
 		s.say("the prompt owed to the %s on-call agent on %s, after hachiko cancelled its question, did not reach it either, so the next check tries again: %v",
 			kind, w.Incident, err)
@@ -552,7 +553,7 @@ func (s sweeper) retryOwed(now time.Time, kind string, w Waiting, reading nowRea
 // update it cannot read. The clock does not restart: Tim has been unanswered since the
 // first question, and a writer that worsens every hour would otherwise push the
 // handover out for ever.
-func (s sweeper) refresh(now time.Time, kind string, w Waiting, reading nowReading, changed change, blocked bool) Waiting {
+func (s sweeper) refresh(now time.Time, kind string, w statedir.Waiting, reading nowReading, changed change, blocked bool) statedir.Waiting {
 	waited := now.Sub(time.Unix(w.Since, 0))
 
 	// The reason in hachiko's own words, because a lead is above the fence: which file and
@@ -631,7 +632,7 @@ func once(changed change) []string {
 // wait any more — and hachiko going on counting one in silence is how an incident gets left
 // to nobody. It is given the minutes a session is given to report in, and then it says so
 // once and stops.
-func (s sweeper) unreachable(state *State, now time.Time, kind string, w Waiting, reading nowReading, err error) (Waiting, bool) {
+func (s sweeper) unreachable(state *statedir.State, now time.Time, kind string, w statedir.Waiting, reading nowReading, err error) (statedir.Waiting, bool) {
 	if w.Unreachable == 0 {
 		w.Unreachable = now.Unix()
 	}
@@ -672,7 +673,7 @@ func (s sweeper) unreachable(state *State, now time.Time, kind string, w Waiting
 
 // The session is closed and the question went with it, so there is nobody to hand
 // anything to. This is the one place in the wait where hachiko speaks for itself.
-func (s sweeper) noAgent(state *State, now time.Time, kind string, w Waiting, reading nowReading) {
+func (s sweeper) noAgent(state *statedir.State, now time.Time, kind string, w statedir.Waiting, reading nowReading) {
 	// Briefed and never got as far as a question: the report deadline has its own message
 	// about a session that said nothing, and a second one here would be about a question
 	// that was never asked.
@@ -686,7 +687,7 @@ func (s sweeper) noAgent(state *State, now time.Time, kind string, w Waiting, re
 	// Handed the decision and then closed, so whatever it did or did not do went with the
 	// tab. That is a wait ending with nothing to show, which is the one thing nobody reading
 	// the channel afterwards could work out for themselves.
-	if contains(w.Steps, stepHandover) {
+	if statedir.Contains(w.Steps, stepHandover) {
 		if !s.sayNoOutcome(state, kind, w, reading,
 			"the session was handed the decision and has since been closed") {
 			return
@@ -720,7 +721,7 @@ func (s sweeper) noAgent(state *State, now time.Time, kind string, w Waiting, re
 // What goes inside the fence: this minute's numbers, and the incident the question was
 // about. Fenced because a path and a command line are chosen by whatever filled the
 // disk, which is the one part of any prompt here an attacker writes.
-func (s sweeper) handoverData(w Waiting, reading nowReading) string {
+func (s sweeper) handoverData(w statedir.Waiting, reading nowReading) string {
 	data := reading.numbers()
 
 	if w.Default != "" {
@@ -745,9 +746,9 @@ To report to the channel Tim watches, write your message to a file and run:
 //
 // Said once per incident, since every check after the first would say the same thing about
 // the same quiet machine.
-func (s sweeper) clearing(w Waiting, reading nowReading, now time.Time, kind string) (Waiting, change) {
+func (s sweeper) clearing(w statedir.Waiting, reading nowReading, now time.Time, kind string) (statedir.Waiting, change) {
 	detail, clear := reading.cleared[kindOf(w.Incident)]
-	if !clear || contains(w.Steps, stepCleared) || skippedTheQuestion(reading.stalled, w.Asked.Sizes) {
+	if !clear || statedir.Contains(w.Steps, stepCleared) || skippedTheQuestion(reading.stalled, w.Asked.Sizes) {
 		w.Clear = 0
 		return w, change{}
 	}
@@ -773,7 +774,7 @@ func (s sweeper) clearing(w Waiting, reading nowReading, now time.Time, kind str
 // Measured against the question's own files rather than against what is still flagged,
 // because what is still flagged is emptied by the first check that cannot see the file — so
 // one skipped check would have hidden the directory from every check after it.
-func skippedTheQuestion(stalled []Stall, asked map[string]int64) bool {
+func skippedTheQuestion(stalled []statedir.Stall, asked map[string]int64) bool {
 	for _, stall := range stalled {
 		prefix := strings.TrimSuffix(stall.Dir, "/") + "/"
 		for path := range asked {
@@ -788,7 +789,7 @@ func skippedTheQuestion(stalled []Stall, asked map[string]int64) bool {
 // Whether waiting the rest of the three hours would cost more than asking again is the
 // agent's judgement, but the numbers behind it are hachiko's: it is the only thing
 // sampling the disk every five minutes while the agent sits on its question.
-func (s sweeper) worsening(w Waiting, reading nowReading, waited time.Duration, now time.Time) (Waiting, string) {
+func (s sweeper) worsening(w statedir.Waiting, reading nowReading, waited time.Duration, now time.Time) (statedir.Waiting, string) {
 	// A quarter of what was there when he was asked. A measurement rather than a projection,
 	// so it needs no second opinion: the options in the question were written against that
 	// number, and by here they are about a different disk.
@@ -883,7 +884,7 @@ func (c change) happened() bool { return c.why != "" }
 // A change big enough that the options in front of Tim are about something else. Each
 // one is measured against the question rather than against the last check, because the
 // question is what has gone stale.
-func materialChange(w Waiting, reading nowReading) change {
+func materialChange(w statedir.Waiting, reading nowReading) change {
 	if reading.level != w.Asked.Level {
 		if reading.level == 0 {
 			return change{
@@ -920,7 +921,7 @@ func materialChange(w Waiting, reading nowReading) change {
 	// cancel the question on nearly every incident there is.
 	if len(w.Asked.Writers) > 0 {
 		for _, writer := range reading.writers {
-			if !contains(w.Asked.Writers, writer) {
+			if !statedir.Contains(w.Asked.Writers, writer) {
 				return change{
 					why: "a process is writing that was not there when the question was asked",
 					detail: "This writer was not there when the question was asked: " +
@@ -931,4 +932,20 @@ func materialChange(w Waiting, reading nowReading) change {
 	}
 
 	return change{}
+}
+
+func mergeSorted(lists ...[]string) []string {
+	seen := map[string]bool{}
+	var out []string
+
+	for _, list := range lists {
+		for _, v := range list {
+			if !seen[v] {
+				seen[v] = true
+				out = append(out, v)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/process"
+	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -37,7 +38,7 @@ var base = time.Unix(1700000000, 0)
 type fixture struct {
 	t     *testing.T
 	cfg   config.Config
-	store Store
+	store statedir.Store
 	log   bytes.Buffer
 
 	now      time.Time
@@ -161,7 +162,7 @@ func newFixture(t *testing.T) *fixture {
 	return &fixture{
 		t:      t,
 		cfg:    cfg,
-		store:  Store{dir: cfg.StateDir},
+		store:  statedir.Store{Dir: cfg.StateDir},
 		now:    base,
 		freeGB: 500,
 		// A pid no sample of the fixture's holds, so nothing is excluded for being
@@ -318,7 +319,7 @@ func (f *fixture) bigFiles(skip []string) WalkResult {
 	// A directory the walk was told to skip is never opened, so it cannot be reported as
 	// one that would not answer.
 	for _, dir := range f.stalls {
-		if !contains(skip, dir) {
+		if !statedir.Contains(skip, dir) {
 			out.Stalled = append(out.Stalled, dir)
 		}
 	}
@@ -366,7 +367,7 @@ func (f *fixture) grow(rel string, kb int64) string {
 		f.t.Fatal(err)
 	}
 
-	if !contains(f.watched, path) {
+	if !statedir.Contains(f.watched, path) {
 		f.watched = append(f.watched, path)
 	}
 	return path
@@ -502,7 +503,7 @@ func (f *fixture) dryRun() string {
 	return f.log.String()
 }
 
-func (f *fixture) state() *State {
+func (f *fixture) state() *statedir.State {
 	f.t.Helper()
 	state, err := f.store.Load()
 	if err != nil {
@@ -571,7 +572,7 @@ func (f *fixture) lastPrompt() string {
 
 func (f *fixture) onlyPendingID() string {
 	f.t.Helper()
-	ids := sortedKeys(f.state().Pending)
+	ids := statedir.SortedKeys(f.state().Pending)
 	if len(ids) != 1 {
 		f.t.Fatalf("expected one pending incident, got %v", ids)
 	}

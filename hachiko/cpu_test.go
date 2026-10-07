@@ -6,6 +6,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/process"
+	"github.com/timche/mac-mini/hachiko/internal/statedir"
 )
 
 func TestRepoOfNamesTheCheckoutOrWorktreeADirectoryBelongsTo(t *testing.T) {
@@ -37,7 +38,7 @@ func TestRepoOfNamesTheCheckoutOrWorktreeADirectoryBelongsTo(t *testing.T) {
 // Half a core is the threshold, so exactly half of it counts.
 func TestHalfACoreExactlyCountsAsBusy(t *testing.T) {
 	start := "Mon Sep 28 20:06:06 2026"
-	prev := CPUSample{At: base.Unix(), Procs: map[string]ProcSample{
+	prev := statedir.CPUSample{At: base.Unix(), Procs: map[string]statedir.ProcSample{
 		"7018:" + start: {CPU: 0},
 	}}
 	procs := []process.Process{{PID: 7018, Start: start, CPU: 150 * time.Second}}
@@ -50,7 +51,7 @@ func TestHalfACoreExactlyCountsAsBusy(t *testing.T) {
 
 func TestJustUnderHalfACoreIsNotBusy(t *testing.T) {
 	start := "Mon Sep 28 20:06:06 2026"
-	prev := CPUSample{At: base.Unix(), Procs: map[string]ProcSample{
+	prev := statedir.CPUSample{At: base.Unix(), Procs: map[string]statedir.ProcSample{
 		"7018:" + start: {CPU: 0},
 	}}
 	procs := []process.Process{{PID: 7018, Start: start, CPU: 149 * time.Second}}
@@ -66,7 +67,7 @@ func TestAMissedIntervalDoesNotRestartTheWindow(t *testing.T) {
 	start := "Mon Sep 28 20:06:06 2026"
 	key := "7018:" + start
 
-	prev := CPUSample{At: base.Add(1800 * time.Second).Unix(), Procs: map[string]ProcSample{
+	prev := statedir.CPUSample{At: base.Add(1800 * time.Second).Unix(), Procs: map[string]statedir.ProcSample{
 		key: {CPU: 1000, HotSince: base.Unix(), CPUAtHotSince: 0},
 	}}
 	procs := []process.Process{{PID: 7018, Start: start, CPU: 2400 * time.Second}}

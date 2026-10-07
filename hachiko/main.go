@@ -20,6 +20,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
+	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -118,7 +119,7 @@ func run(args []string) error {
 	}
 
 	deps := realDeps(cfg)
-	return sweeper{cfg: cfg, deps: deps, store: Store{dir: cfg.StateDir}, dry: dry}.run()
+	return sweeper{cfg: cfg, deps: deps, store: statedir.Store{Dir: cfg.StateDir}, dry: dry}.run()
 }
 
 // The on-call session's own way to reach the channel, and the only one it has: it is
@@ -133,7 +134,7 @@ func notify(cfg config.Config, incident, messageFile string, outcome bool) error
 		return fmt.Errorf("%s is empty, so there is nothing to send", messageFile)
 	}
 
-	store := Store{dir: cfg.StateDir}
+	store := statedir.Store{Dir: cfg.StateDir}
 	log := logs.Logger{Out: os.Stdout, Now: config.ClockFromEnv()}
 
 	// Into the incident's own thread when there is one, so the analysis is under the alert

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -204,7 +205,7 @@ func TestAnAgentWorkingForEverStillGetsTheWholeTimeline(t *testing.T) {
 	equal(t, len(f.interrupts), 0, "questions cancelled")
 	equal(t, len(f.prompts), 1, "prompts sent on their own")
 	wants(t, f.lastPrompt(), "Tim has not answered for 36 minutes")
-	equal(t, contains(f.state().Waiting["disk"].Steps, stepHandover), true, "whether the handover is recorded")
+	equal(t, statedir.Contains(f.state().Waiting["disk"].Steps, stepHandover), true, "whether the handover is recorded")
 }
 
 // And an early handover is the exception the grace does not hold: a disk that will be full
@@ -396,7 +397,7 @@ func TestASecondReportThatIsNotTheOutcomeKeepsTheTimelineAndTheDefault(t *testin
 // what keeps the first one's.
 func TestAMarkerKeepsTheOptionAnEarlierReportNamed(t *testing.T) {
 	dir := t.TempDir()
-	store := Store{dir: dir}
+	store := statedir.Store{Dir: dir}
 
 	if err := store.MarkReported("disk-1700000300", "stop pid 4242", false); err != nil {
 		t.Fatal(err)
@@ -744,7 +745,7 @@ func TestAMissingReadingIsNotATriggerThatHasCleared(t *testing.T) {
 // with more room on it, or for one that has since recovered. Measured against the
 // question rather than against the last check, because the question is what went stale.
 func TestWhatCountsAsTheIncidentHavingMoved(t *testing.T) {
-	asked := Waiting{Asked: Asked{
+	asked := statedir.Waiting{Asked: statedir.Asked{
 		At:      base.Unix(),
 		FreeKB:  500 * config.GiB,
 		Level:   100,
@@ -807,7 +808,7 @@ func TestAPromptOwedOnASupersededIncidentIsNotOwedOnTheNewOne(t *testing.T) {
 
 	first := f.state().Waiting["disk"]
 	wants(t, first.Owed, "getting worse rapidly")
-	equal(t, contains(first.OwedSteps, stepEarly), true, "whether the owed prompt carries the early handover")
+	equal(t, statedir.Contains(first.OwedSteps, stepEarly), true, "whether the owed prompt carries the early handover")
 
 	// Before the next check can send it, a second file starts filling the disk: a fresh alert
 	// for the same kind, whose brief reaches the agent. The owed prompt is about a question
@@ -1096,7 +1097,7 @@ func TestAHandoverThatCouldNotBeDeliveredIsTriedAgainOnTheNextCheck(t *testing.T
 
 	f.interruptErr = errors.New("the agent is still on its question after the esc")
 	wants(t, f.at(600+handoverAt).sweep(), "could not be handed to the disk on-call agent")
-	equal(t, contains(f.state().Waiting["disk"].Steps, stepHandover), false,
+	equal(t, statedir.Contains(f.state().Waiting["disk"].Steps, stepHandover), false,
 		"whether the handover is recorded while herdr refused")
 
 	f.interruptErr = nil
@@ -1121,7 +1122,7 @@ func TestAnEscThatLandedWithoutItsPromptIsRetriedAsThePromptAlone(t *testing.T) 
 	wants(t, out, "its question is already cancelled, so the next check sends the prompt alone")
 	w := f.state().Waiting["disk"]
 	wants(t, w.Owed, "Tim has not answered for")
-	equal(t, contains(w.Steps, stepHandover), false, "whether the handover is recorded while its prompt is owing")
+	equal(t, statedir.Contains(w.Steps, stepHandover), false, "whether the handover is recorded while its prompt is owing")
 
 	// The next check finds it idle, which is exactly what an agent whose question was taken
 	// away looks like. The prompt goes on its own: a second esc would cancel whatever the
@@ -1142,7 +1143,7 @@ func TestAnEscThatLandedWithoutItsPromptIsRetriedAsThePromptAlone(t *testing.T) 
 	// the wait is still being counted.
 	w = f.state().Waiting["disk"]
 	equal(t, w.Owed, "", "the prompt still owing")
-	equal(t, contains(w.Steps, stepHandover), true, "whether the handover is recorded")
+	equal(t, statedir.Contains(w.Steps, stepHandover), true, "whether the handover is recorded")
 	equal(t, len(f.state().Waiting), 1, "waits still being counted")
 }
 

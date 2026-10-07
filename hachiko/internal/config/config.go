@@ -90,6 +90,24 @@ type Config struct {
 	// sweeping. Six intervals of the sweep's own ten minutes.
 	GCStaleAfter time.Duration
 
+	// The repositories `hachiko sync` keeps upstream, and the plist of the agent that does
+	// it. Its own state directory for the reason gc's is its own: what sync remembers about
+	// a paused repository and a failure it has posted is nothing the five-minute check reads
+	// or writes.
+	SyncConfig   string
+	SyncStateDir string
+	SyncPlist    string
+
+	// The three things the watch says about sync. The first is how long the heartbeat may go
+	// unwritten before nothing is syncing at all — ten minutes, which is long enough for the
+	// whole of a retry ladder against an unreachable remote and short enough that an hour's
+	// writing is not lost. The second is how long a tree may stay dirty with sync alive, and
+	// the third how far past its own push_delay a repository's oldest unpushed commit may
+	// get before it is late rather than waiting.
+	SyncStaleAfter time.Duration
+	SyncDirtyAfter time.Duration
+	SyncLateAfter  time.Duration
+
 	// The channel and the one account replies are taken from, both empty unless Tim has
 	// filled them in, which is what turns the bot and `hachiko listen` on.
 	Discord DiscordConfig
@@ -115,6 +133,14 @@ func (c Config) CriticalGB() int64 { return c.CriticalKB / GiB }
 func (c Config) GCStamp() string { return filepath.Join(c.GCStateDir, "last-run") }
 func (c Config) GCLabel() string {
 	return strings.TrimSuffix(filepath.Base(c.GCPlist), ".plist")
+}
+
+// The same two for sync, derived for the same two reasons: the heartbeat sync writes and
+// the heartbeat the watch reads cannot be two paths, and the command a message tells Tim to
+// run cannot name an agent other than the one whose plist decided whether to look at all.
+func (c Config) SyncStamp() string { return filepath.Join(c.SyncStateDir, "heartbeat") }
+func (c Config) SyncLabel() string {
+	return strings.TrimSuffix(filepath.Base(c.SyncPlist), ".plist")
 }
 
 // WorkspaceLabel is the herdr workspace the on-call session goes in: the one for
@@ -190,6 +216,15 @@ func FromEnv() Config {
 			filepath.Join(home, "Library", "LaunchAgents", "io.github.timche.hachiko-gc.plist")),
 		GCProjectsRoot: envString("HACHIKO_GC_PROJECTS", projects),
 		GCStaleAfter:   time.Duration(envInt64("HACHIKO_GC_STALE", 3600)) * time.Second,
+
+		SyncConfig: envString("HACHIKO_SYNC_CONFIG",
+			filepath.Join(home, ".config", "hachiko", "sync")),
+		SyncStateDir: envString("HACHIKO_SYNC_STATE_DIR", filepath.Join(cache, "hachiko-sync")),
+		SyncPlist: envString("HACHIKO_SYNC_PLIST",
+			filepath.Join(home, "Library", "LaunchAgents", "io.github.timche.hachiko-sync.plist")),
+		SyncStaleAfter: time.Duration(envInt64("HACHIKO_SYNC_STALE", 600)) * time.Second,
+		SyncDirtyAfter: time.Duration(envInt64("HACHIKO_SYNC_DIRTY", 600)) * time.Second,
+		SyncLateAfter:  time.Duration(envInt64("HACHIKO_SYNC_LATE", 1800)) * time.Second,
 
 		Discord: readDiscordConfig(envString("HACHIKO_DISCORD_CONFIG",
 			filepath.Join(home, ".config", "hachiko", "discord"))),

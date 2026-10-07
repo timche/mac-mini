@@ -1,0 +1,26 @@
+# The repositories `hachiko sync` commits and pushes on its own, which is how everything
+# written during a session publishes itself. One `repo =` line starts a repository and every
+# key under it belongs to that repository; the keys above the first one are global.
+#
+# mode: live, or dry-run to report what it would do and change nothing. It ships as dry-run
+#       so the first install runs beside boswell, which is still the thing actually pushing,
+#       without two daemons committing the same trees. The cutover is this one line.
+mode = dry-run
+
+# How many times a push is tried against a remote that will not answer, and the ladder it
+# backs off along, doubling from base and capped at max. Left out here because the defaults
+# below are the ones in use: attempts = 6, base = 5s, max = 5m.
+
+# Commits land on the default five-second debounce in both; only the push waits.
+# Every push of this repository starts a CI run, so an hour's commits go up as one.
+# The docs are read from other devices, so a minute: long enough to take a burst
+# of notes as one push, short enough that nobody reads a stale page for long.
+#
+# What else a repo takes, each shown at its default: debounce = 5s, remote = origin,
+# pull = true, push_delay = 0s, recheck = 10m, fetch_interval = 1m.
+
+repo = ~/projects/docs
+push_delay = 1m
+
+repo = ~/.mac-mini
+push_delay = 1h

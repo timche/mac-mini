@@ -24,11 +24,13 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/listen"
 	"github.com/timche/mac-mini/hachiko/internal/oncall"
 	"github.com/timche/mac-mini/hachiko/internal/session"
+	"github.com/timche/mac-mini/hachiko/internal/sync"
 	"github.com/timche/mac-mini/hachiko/internal/watch"
 )
 
 const usage = `usage: hachiko [--dry-run | --test-alert]
        hachiko gc [--dry-run]
+       hachiko sync [--once | --dry-run]
        hachiko notify [--outcome] <incident-id> <message-file>
        hachiko oncall <name> <brief-file>
        hachiko approval-request <incident-id> <action-file>
@@ -40,6 +42,10 @@ const usage = `usage: hachiko [--dry-run | --test-alert]
   gc                 sweep what a removed worktree and a finished session left behind:
                      their compose projects, volumes, processes and scratch folders;
                      --dry-run says what a sweep would do and changes nothing
+  sync               commit and push the repositories ~/.config/hachiko/sync lists, as
+                     they change, until stopped; --once is one pass over every one of
+                     them with the push delay ignored, and --dry-run says what the
+                     daemon would commit and push and changes nothing
   notify             send a message about an incident to the channel Tim watches,
                      which is how the on-call session reports its findings;
                      --outcome marks the one that says the incident is resolved
@@ -83,6 +89,22 @@ func run(args []string) error {
 				dry = true
 			}
 			return gc.Run(cfg, dry)
+		case "sync":
+			once, dry := false, false
+			for _, arg := range args[1:] {
+				switch arg {
+				case "--once":
+					once = true
+				case "--dry-run":
+					dry = true
+				default:
+					return badUsage("sync takes --once or --dry-run and nothing else")
+				}
+			}
+			if once && dry {
+				return badUsage("sync takes --once or --dry-run, not both")
+			}
+			return sync.Run(cfg, once, dry)
 		case "notify":
 			// A constant word and nothing of the incident's, so it is one of the few things
 			// here that may be an argument: ps showing it says only that a session said it had

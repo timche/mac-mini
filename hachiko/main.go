@@ -18,6 +18,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/discord"
+	"github.com/timche/mac-mini/hachiko/internal/listen"
 	"github.com/timche/mac-mini/hachiko/internal/oncall"
 	"github.com/timche/mac-mini/hachiko/internal/session"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
@@ -93,7 +94,7 @@ func run(args []string) error {
 			if len(args) != 1 {
 				return badUsage("listen takes no arguments")
 			}
-			return listen(cfg)
+			return listen.Run(cfg)
 		}
 	}
 
@@ -109,7 +110,7 @@ func run(args []string) error {
 		case "--send":
 			return sendFromStdin(args[i+1:])
 		case "--listen-mode":
-			return listenWithToken(cfg)
+			return listen.WithToken(cfg)
 		case "-h", "--help":
 			fmt.Print(usage)
 			return nil

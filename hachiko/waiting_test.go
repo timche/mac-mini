@@ -564,7 +564,7 @@ func TestACPUTriggerThatHasClearedReachesTheAgent(t *testing.T) {
 	// Thirteen samples of a process over half a core, which is the hour the rule is about.
 	f.cpuRuns(13, 240)
 	incident := f.onlyPendingID()
-	equal(t, kindOf(incident), "cpu", "the kind of the incident")
+	equal(t, statedir.KindOf(incident), "cpu", "the kind of the incident")
 
 	f.notifyWithFallback(incident, "leave it alone")
 	f.blocks("cpu")

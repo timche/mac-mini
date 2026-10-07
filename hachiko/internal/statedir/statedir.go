@@ -350,6 +350,13 @@ func (l *Lock) Release() {
 	l.pid = 0
 }
 
+// KindOf is which watch an incident came from, which is the half of its id before the
+// time: there is one on-call agent per kind, and so one question at a time per kind.
+func KindOf(incident string) string {
+	kind, _, _ := strings.Cut(incident, "-")
+	return kind
+}
+
 // An incident id is a filename below, so it may only be what a sweep makes one.
 var incidentID = regexp.MustCompile(`\A[a-z]+-[0-9]+\z`)
 

@@ -1,4 +1,15 @@
-package main
+// Package listen is `hachiko listen`, which watches the incident threads in Discord for a
+// reply from Tim and hands it to the on-call session. What it is for: he wakes up, reads
+// one message on his phone, and answers it there. Attaching to herdr from a phone is three
+// minutes of work and reading a message is none, so the question the on-call session is
+// waiting on is answerable from the thread the alert is in — and answering it stops the
+// three-hour clock the same way picking an option in herdr does, because the answer reaches
+// the agent and takes it off its question.
+//
+// It runs as its own LaunchAgent rather than inside the five-minute sweep: a reply is worth
+// seconds, not five minutes, and a process that sits in a poll has no business holding the
+// lock a sweep needs. It writes nothing the sweep owns.
+package listen
 
 import (
 	"errors"
@@ -20,15 +31,6 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
-// What this is for: Tim wakes up, reads one message on his phone, and answers it there.
-// Attaching to herdr from a phone is three minutes of work and reading a message is none,
-// so the question the on-call session is waiting on is answerable from the thread the
-// alert is in — and answering it stops the three-hour clock the same way picking an option
-// in herdr does, because the answer reaches the agent and takes it off its question.
-//
-// It runs as its own LaunchAgent rather than inside the five-minute sweep: a reply is
-// worth seconds, not five minutes, and a process that sits in a poll has no business
-// holding the lock a sweep needs. It writes nothing the sweep owns.
 const (
 	listenPoll = 5 * time.Second
 
@@ -49,7 +51,7 @@ var (
 // is resolved once per start and lives in one process's environment for as long as that
 // process does. One op call per start rather than one per poll, which is what keeps a
 // five-second loop off the service account's daily limit.
-func listen(cfg config.Config) error {
+func Run(cfg config.Config) error {
 	log := logs.Logger{Out: os.Stdout, Now: config.ClockFromEnv()}
 	store := statedir.Store{Dir: cfg.StateDir}
 
@@ -78,7 +80,7 @@ func listen(cfg config.Config) error {
 // The far end of that re-exec. The token is in this process's environment and nowhere
 // else; it is never written, never an argument, and taken out of every error that leaves
 // here.
-func listenWithToken(cfg config.Config) error {
+func WithToken(cfg config.Config) error {
 	log := logs.Logger{Out: os.Stdout, Now: config.ClockFromEnv()}
 
 	store := statedir.Store{Dir: cfg.StateDir}
@@ -365,7 +367,7 @@ func (l listener) clearAttempts(incident string) { os.Remove(l.attemptsPath(inci
 // records this esc against the wait, and nothing needs to: no sweep reads an agent leaving
 // `blocked` as an answer any more, whoever took the question away.
 func (l *listener) handTo(incident, lead, data string) error {
-	kind := kindOf(incident)
+	kind := statedir.KindOf(incident)
 
 	o := oncall.Oncaller{Cfg: l.cfg, Herdr: l.herdr, Now: l.now, Log: l.log}
 

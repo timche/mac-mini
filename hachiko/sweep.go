@@ -845,11 +845,11 @@ func (s sweeper) resolveReports(state *statedir.State) map[string]string {
 		// session's second report, the outcome — not a late first report on whatever is
 		// pending now. Reading it as one would close the new incident on the strength of a
 		// message about the old one.
-		if w, ok := state.Waiting[kindOf(marker)]; ok && w.Incident == marker {
+		if w, ok := state.Waiting[statedir.KindOf(marker)]; ok && w.Incident == marker {
 			continue
 		}
 
-		newest := newestPending(state.Pending, kindOf(marker))
+		newest := newestPending(state.Pending, statedir.KindOf(marker))
 		if newest == "" {
 			continue
 		}
@@ -865,16 +865,11 @@ func newestPending(pending map[string]statedir.Pending, kind string) string {
 	newest, openedAt := "", int64(-1)
 
 	for _, id := range statedir.SortedKeys(pending) {
-		if at := pending[id].OpenedAt; kindOf(id) == kind && at > openedAt {
+		if at := pending[id].OpenedAt; statedir.KindOf(id) == kind && at > openedAt {
 			newest, openedAt = id, at
 		}
 	}
 	return newest
-}
-
-func kindOf(incident string) string {
-	kind, _, _ := strings.Cut(incident, "-")
-	return kind
 }
 
 // Every incident a report could still arrive under: one that owes its first, and one
@@ -904,7 +899,7 @@ func (s sweeper) sayDroppedOutcomes(keep map[string]bool) {
 }
 
 func (s sweeper) rememberFallback(state *statedir.State, incident, fallback string) {
-	kind := kindOf(incident)
+	kind := statedir.KindOf(incident)
 	if w, ok := state.Waiting[kind]; ok && w.Incident == incident && fallback != "" {
 		w.Default = fallback
 		state.Waiting[kind] = w
@@ -942,7 +937,7 @@ func (s sweeper) chaseLateReports(state *statedir.State, now time.Time) {
 		}
 
 		late := wording.Lead(wording.MarkerDegraded, fmt.Sprintf("No report from the agent on %s after %s",
-			wording.IncidentWords(kindOf(id)), wording.DurationPhrase(waited))).
+			wording.IncidentWords(statedir.KindOf(id)), wording.DurationPhrase(waited))).
 			Block(p.Details).
 			Can(wording.AttachAction(s.cfg, p.Tab)).
 			About(id, s.cfg.Host).

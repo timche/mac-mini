@@ -344,7 +344,7 @@ func (s sweeper) escalate(state *statedir.State, now time.Time, kind string, w s
 
 func (s sweeper) remind(state *statedir.State, w statedir.Waiting, reading nowReading, waited time.Duration) statedir.Waiting {
 	message := wording.Lead(wording.MarkerDegraded, fmt.Sprintf("Still no answer on %s after %s",
-		wording.IncidentWords(kindOf(w.Incident)), wording.DurationPhrase(waited))).
+		wording.IncidentWords(statedir.KindOf(w.Incident)), wording.DurationPhrase(waited))).
 		Block(reading.numbers()).
 		Can(wording.AnswerAction(s.cfg, w.Tab)).
 		About(w.Incident, s.cfg.Host).
@@ -367,7 +367,7 @@ func (s sweeper) warn(state *statedir.State, w statedir.Waiting, reading nowRead
 	}
 
 	message := wording.Lead(wording.MarkerDegraded, fmt.Sprintf("No answer on %s — the agent decides in %s",
-		wording.IncidentWords(kindOf(w.Incident)), wording.DurationPhrase(s.cfg.HandoverAfter-s.cfg.WarnAfter))).
+		wording.IncidentWords(statedir.KindOf(w.Incident)), wording.DurationPhrase(s.cfg.HandoverAfter-s.cfg.WarnAfter))).
 		Field(wording.LabelWaiting, wording.DurationPhrase(waited)).
 		Field(wording.LabelFallback, fallback).
 		Block(reading.numbers()).
@@ -748,7 +748,7 @@ To report to the channel Tim watches, write your message to a file and run:
 // Said once per incident, since every check after the first would say the same thing about
 // the same quiet machine.
 func (s sweeper) clearing(w statedir.Waiting, reading nowReading, now time.Time, kind string) (statedir.Waiting, change) {
-	detail, clear := reading.cleared[kindOf(w.Incident)]
+	detail, clear := reading.cleared[statedir.KindOf(w.Incident)]
 	if !clear || statedir.Contains(w.Steps, stepCleared) || skippedTheQuestion(reading.stalled, w.Asked.Sizes) {
 		w.Clear = 0
 		return w, change{}

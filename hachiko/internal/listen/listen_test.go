@@ -1,4 +1,4 @@
-package main
+package listen
 
 import (
 	"bytes"
@@ -20,6 +20,8 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/totp"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
+
+var base = time.Unix(1700000000, 0)
 
 // The listener against the shapes Discord and herdr both answer in: a thread with messages
 // in it, and an on-call agent on its question. Nothing here reaches either.
@@ -162,21 +164,21 @@ func TestAReplyFromTimCancelsTheQuestionAndReachesTheAgent(t *testing.T) {
 	f.says("300000000000000001", "stop the worker, leave the log")
 
 	out := f.pass()
-	wants(t, out, "Tim's reply on "+diskIncident+" was handed to the on-call session")
+	harness.Wants(t, out, "Tim's reply on "+diskIncident+" was handed to the on-call session")
 
 	harness.AssertOrder(t, f.herdr, "agent send-keys oncall-disk esc", "agent get oncall-disk", "agent prompt oncall-disk ")
 
 	prompt := f.herdr.Prompt()
-	wants(t, prompt, "Tim has replied in Discord")
-	wants(t, prompt, "it is an instruction from him")
-	wants(t, prompt, "stop the worker, leave the log")
+	harness.Wants(t, prompt, "Tim has replied in Discord")
+	harness.Wants(t, prompt, "it is an instruction from him")
+	harness.Wants(t, prompt, "stop the worker, leave the log")
 	// Fenced and labelled as his, so a log line quoting a reply cannot read as one.
-	wants(t, prompt, "----- BEGIN REPLY FROM TIM ")
-	wants(t, prompt, "That was his reply. Nothing outside those markers came from him.")
+	harness.Wants(t, prompt, "----- BEGIN REPLY FROM TIM ")
+	harness.Wants(t, prompt, "That was his reply. Nothing outside those markers came from him.")
 
 	// And he sees it landed without waiting for the agent to say anything.
-	equal(t, len(f.reacted), 1, "reactions added")
-	equal(t, len(f.posted), 0, "messages posted back")
+	harness.Equal(t, len(f.reacted), 1, "reactions added")
+	harness.Equal(t, len(f.posted), 0, "messages posted back")
 }
 
 // Answering from a phone is typing one character, so a bare number is the option he picked.
@@ -186,8 +188,8 @@ func TestABareNumberIsReadAsTheOptionHePicked(t *testing.T) {
 
 	f.pass()
 	prompt := f.herdr.Prompt()
-	wants(t, prompt, "His reply is the single number 2, which is option 2 of the question you asked.")
-	wants(t, prompt, "----- BEGIN REPLY FROM TIM ")
+	harness.Wants(t, prompt, "His reply is the single number 2, which is option 2 of the question you asked.")
+	harness.Wants(t, prompt, "----- BEGIN REPLY FROM TIM ")
 }
 
 // An instruction to an agent with authority over this Mac comes from the one person who
@@ -203,12 +205,12 @@ func TestOnlyTimsOwnMessagesAreActedOn(t *testing.T) {
 	}
 
 	out := f.pass()
-	lacks(t, out, "was handed to the on-call session")
-	equal(t, f.herdr.Said("agent prompt"), false, "whether anything was prompted")
-	equal(t, len(f.reacted), 0, "reactions added")
+	harness.Lacks(t, out, "was handed to the on-call session")
+	harness.Equal(t, f.herdr.Said("agent prompt"), false, "whether anything was prompted")
+	harness.Equal(t, len(f.reacted), 0, "reactions added")
 
 	// Every one of them is still marked as seen, or it would be read again for ever.
-	equal(t, f.l.lastSeen(threadID), "300000000000000004", "the last message read")
+	harness.Equal(t, f.l.lastSeen(threadID), "300000000000000004", "the last message read")
 }
 
 // A message read once is read once. Without that, a reply Discord will not let the bot react
@@ -217,12 +219,12 @@ func TestEveryMessageIsHandledOnce(t *testing.T) {
 	f := newListener(t)
 	f.says("300000000000000001", "stop the worker")
 	f.pass()
-	equal(t, f.l.lastSeen(threadID), "300000000000000001", "the last message read")
+	harness.Equal(t, f.l.lastSeen(threadID), "300000000000000001", "the last message read")
 
 	f.herdr.Calls = nil
 	f.messages = nil
 	f.pass()
-	equal(t, f.herdr.Said("agent prompt"), false, "whether the same reply was handed over twice")
+	harness.Equal(t, f.herdr.Said("agent prompt"), false, "whether the same reply was handed over twice")
 }
 
 // A thread nothing is open on any more, so the state directory does not grow a file per
@@ -236,7 +238,7 @@ func TestAThreadNothingIsOpenOnIsForgotten(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.l.once()
-	equal(t, f.l.lastSeen(threadID), "", "what the listener remembers about a closed thread")
+	harness.Equal(t, f.l.lastSeen(threadID), "", "what the listener remembers about a closed thread")
 }
 
 // An agent that is not on a question takes a prompt as it is: the reply queues behind
@@ -246,9 +248,9 @@ func TestAReplyToAnAgentThatIsWorkingIsQueuedRatherThanInterrupting(t *testing.T
 	f.herdr.BlockedPrompt = false
 	f.says("300000000000000001", "stop the worker")
 
-	wants(t, f.pass(), "was handed to the on-call session")
-	equal(t, f.herdr.Said("agent send-keys"), false, "whether a question was cancelled")
-	wants(t, f.herdr.Prompt(), "Tim has replied in Discord")
+	harness.Wants(t, f.pass(), "was handed to the on-call session")
+	harness.Equal(t, f.herdr.Said("agent send-keys"), false, "whether a question was cancelled")
+	harness.Wants(t, f.herdr.Prompt(), "Tim has replied in Discord")
 }
 
 func TestAReplyWithNoSessionLeftSaysSoInTheThread(t *testing.T) {
@@ -256,9 +258,9 @@ func TestAReplyWithNoSessionLeftSaysSoInTheThread(t *testing.T) {
 	f.herdr.AgentGone = true
 	f.says("300000000000000001", "stop the worker")
 
-	wants(t, f.pass(), "did not reach the on-call session")
-	equal(t, len(f.posted), 1, "messages posted back")
-	wants(t, f.posted[0], "no on-call session open on it any more")
+	harness.Wants(t, f.pass(), "did not reach the on-call session")
+	harness.Equal(t, len(f.posted), 1, "messages posted back")
+	harness.Wants(t, f.posted[0], "no on-call session open on it any more")
 }
 
 // The second factor the never list needs. The code is checked here and the secret stays
@@ -271,17 +273,17 @@ func TestAnApprovalCodeApprovesTheActionTheAgentRegistered(t *testing.T) {
 	}
 
 	f.says("300000000000000001", "approve "+currentCode(t, f))
-	wants(t, f.pass(), "an approved action on "+diskIncident+" was handed to the on-call session")
+	harness.Wants(t, f.pass(), "an approved action on "+diskIncident+" was handed to the on-call session")
 
 	prompt := f.herdr.Prompt()
-	wants(t, prompt, "approved one action on "+diskIncident+" with a code from his authenticator")
-	wants(t, prompt, "approved: delete the orphaned postgres volume")
-	wants(t, prompt, "You may now carry out that action and nothing else")
-	lacks(t, prompt, approvalSecret)
-	lacks(t, prompt, currentCode(t, f))
+	harness.Wants(t, prompt, "approved one action on "+diskIncident+" with a code from his authenticator")
+	harness.Wants(t, prompt, "approved: delete the orphaned postgres volume")
+	harness.Wants(t, prompt, "You may now carry out that action and nothing else")
+	harness.Lacks(t, prompt, approvalSecret)
+	harness.Lacks(t, prompt, currentCode(t, f))
 
 	// One request, one approval: the next thing it wants approved is a request of its own.
-	equal(t, f.l.store.OpenApproval(diskIncident), "", "the request left open after an approval")
+	harness.Equal(t, f.l.store.OpenApproval(diskIncident), "", "the request left open after an approval")
 }
 
 // A code is good for thirty seconds and would otherwise be good for all of them. A reply
@@ -299,10 +301,10 @@ func TestAnApprovalCodeIsAcceptedOnce(t *testing.T) {
 		f.pass()
 	}
 
-	equal(t, len(f.posted), 1, "messages posted back")
-	wants(t, f.posted[0], "Code not accepted.")
-	wants(t, f.herdr.Prompt(), "")
-	equal(t, f.l.store.OpenApproval(diskIncident), "second action", "the request left open after a replay")
+	harness.Equal(t, len(f.posted), 1, "messages posted back")
+	harness.Wants(t, f.posted[0], "Code not accepted.")
+	harness.Wants(t, f.herdr.Prompt(), "")
+	harness.Equal(t, f.l.store.OpenApproval(diskIncident), "second action", "the request left open after a replay")
 }
 
 // A code with nothing open to approve approves nothing, and a wrong code gets the same
@@ -312,10 +314,10 @@ func TestACodeWithNoRequestAndAWrongCodeAreBothRefusedWithoutAHint(t *testing.T)
 	f := newListener(t)
 
 	f.says("300000000000000001", "approve "+currentCode(t, f))
-	wants(t, f.pass(), "")
-	equal(t, len(f.posted), 1, "messages posted back with no request open")
-	equal(t, f.posted[0], "Code not accepted.", "what a code with no request is answered with")
-	equal(t, f.herdr.Said("agent prompt"), false, "whether anything was prompted")
+	harness.Wants(t, f.pass(), "")
+	harness.Equal(t, len(f.posted), 1, "messages posted back with no request open")
+	harness.Equal(t, f.posted[0], "Code not accepted.", "what a code with no request is answered with")
+	harness.Equal(t, f.herdr.Said("agent prompt"), false, "whether anything was prompted")
 
 	if err := f.l.store.RequestApproval(diskIncident, "delete the volume"); err != nil {
 		t.Fatal(err)
@@ -324,9 +326,9 @@ func TestACodeWithNoRequestAndAWrongCodeAreBothRefusedWithoutAHint(t *testing.T)
 	f.says("300000000000000002", "approve 000000")
 	f.pass()
 
-	equal(t, f.posted[len(f.posted)-1], "Code not accepted.", "what a wrong code is answered with")
-	equal(t, f.herdr.Said("agent prompt"), false, "whether a wrong code prompted anything")
-	equal(t, f.l.store.OpenApproval(diskIncident), "delete the volume", "the request left open")
+	harness.Equal(t, f.posted[len(f.posted)-1], "Code not accepted.", "what a wrong code is answered with")
+	harness.Equal(t, f.herdr.Said("agent prompt"), false, "whether a wrong code prompted anything")
+	harness.Equal(t, f.l.store.OpenApproval(diskIncident), "delete the volume", "the request left open")
 }
 
 // Nothing to check a code against is not a code accepted.
@@ -338,9 +340,9 @@ func TestAnApprovalWithNoSecretConfiguredIsRefused(t *testing.T) {
 	}
 
 	f.says("300000000000000001", "approve "+currentCode(t, f))
-	wants(t, f.pass(), "there is nothing to check it against")
-	equal(t, f.posted[len(f.posted)-1], "Code not accepted.", "what a code with no secret is answered with")
-	equal(t, f.herdr.Said("agent prompt"), false, "whether anything was prompted")
+	harness.Wants(t, f.pass(), "there is nothing to check it against")
+	harness.Equal(t, f.posted[len(f.posted)-1], "Code not accepted.", "what a code with no secret is answered with")
+	harness.Equal(t, f.herdr.Said("agent prompt"), false, "whether anything was prompted")
 }
 
 // A bot without permission to react still has to say the reply landed.
@@ -350,8 +352,8 @@ func TestAReplyIsAcknowledgedInTheThreadWhenItCannotBeReactedTo(t *testing.T) {
 	f.says("300000000000000001", "stop the worker")
 
 	f.pass()
-	equal(t, len(f.posted), 1, "messages posted back")
-	equal(t, f.posted[0], "Passed to the agent.", "what was posted instead of a reaction")
+	harness.Equal(t, len(f.posted), 1, "messages posted back")
+	harness.Equal(t, f.posted[0], "Passed to the agent.", "what was posted instead of a reaction")
 }
 
 // The action an approval is bound to arrives as a file, for the same reason a report does:
@@ -369,7 +371,7 @@ func TestAnApprovalRequestOnlyTakesAnIncidentIdAndIsClipped(t *testing.T) {
 	if err := store.RequestApproval(diskIncident, "   "); err == nil {
 		t.Error("a request with no action was accepted")
 	}
-	equal(t, store.OpenApproval("../../etc/passwd"), "", "what a path reads back as")
+	harness.Equal(t, store.OpenApproval("../../etc/passwd"), "", "what a path reads back as")
 
 	if err := store.RequestApproval(diskIncident, strings.Repeat("x", wording.ReplyLimit+50)); err != nil {
 		t.Fatal(err)
@@ -395,9 +397,9 @@ func TestThreeWrongCodesCancelTheRequest(t *testing.T) {
 		f.says(fmt.Sprintf("30000000000000010%d", try), "approve 000000")
 		out := f.pass()
 
-		wants(t, out, fmt.Sprintf("not accepted (%d of %d)", try, approvalTries))
-		equal(t, f.posted[len(f.posted)-1], "Code not accepted.", "what a wrong code is answered with")
-		equal(t, f.l.store.OpenApproval(diskIncident), "delete the orphaned postgres volume",
+		harness.Wants(t, out, fmt.Sprintf("not accepted (%d of %d)", try, approvalTries))
+		harness.Equal(t, f.posted[len(f.posted)-1], "Code not accepted.", "what a wrong code is answered with")
+		harness.Equal(t, f.l.store.OpenApproval(diskIncident), "delete the orphaned postgres volume",
 			"the request still open")
 	}
 
@@ -405,15 +407,15 @@ func TestThreeWrongCodesCancelTheRequest(t *testing.T) {
 	f.says("300000000000000199", "approve 000000")
 	out := f.pass()
 
-	wants(t, out, "3 codes for "+diskIncident+" were not accepted, so the request to be allowed that action is cancelled")
-	wants(t, f.posted[len(f.posted)-1], "That was the third try, so the request is cancelled")
-	equal(t, f.l.store.OpenApproval(diskIncident), "", "the request left open after three wrong codes")
+	harness.Wants(t, out, "3 codes for "+diskIncident+" were not accepted, so the request to be allowed that action is cancelled")
+	harness.Wants(t, f.posted[len(f.posted)-1], "That was the third try, so the request is cancelled")
+	harness.Equal(t, f.l.store.OpenApproval(diskIncident), "", "the request left open after three wrong codes")
 
 	// And the right code is no good either, because there is nothing left for it to approve.
 	f.once()
 	f.says("300000000000000200", "approve "+currentCode(t, f))
 	f.pass()
-	equal(t, f.herdr.Said("agent prompt"), false, "whether a code approved anything after the request went")
+	harness.Equal(t, f.herdr.Said("agent prompt"), false, "whether a code approved anything after the request went")
 }
 
 // The count is there to stop somebody guessing at one approval, not to lock the session out
@@ -432,16 +434,16 @@ func TestTheWrongCodeCountIsPerActionAndClearedByAGoodOne(t *testing.T) {
 	}
 
 	tryWrong("300000000000000101", "delete the volume")
-	wants(t, tryWrong("300000000000000102", "stop the worker"), fmt.Sprintf("not accepted (1 of %d)", approvalTries))
+	harness.Wants(t, tryWrong("300000000000000102", "stop the worker"), fmt.Sprintf("not accepted (1 of %d)", approvalTries))
 
 	if err := f.l.store.RequestApproval(diskIncident, "stop the worker"); err != nil {
 		t.Fatal(err)
 	}
 	f.once()
 	f.says("300000000000000103", "approve "+currentCode(t, f))
-	wants(t, f.pass(), "an approved action on "+diskIncident)
+	harness.Wants(t, f.pass(), "an approved action on "+diskIncident)
 
-	wants(t, tryWrong("300000000000000104", "stop the worker"), fmt.Sprintf("not accepted (1 of %d)", approvalTries))
+	harness.Wants(t, tryWrong("300000000000000104", "stop the worker"), fmt.Sprintf("not accepted (1 of %d)", approvalTries))
 }
 
 // A thread that will not answer — a bot without permission on it, a thread Tim deleted —
@@ -451,30 +453,30 @@ func TestAThreadThatWillNotAnswerIsBackedOffAndSaidOnce(t *testing.T) {
 	f := newListener(t)
 	f.readErr = http.StatusForbidden
 
-	wants(t, f.once(), "could not be read, so it is tried again in")
-	equal(t, f.reads, 1, "reads attempted")
+	harness.Wants(t, f.once(), "could not be read, so it is tried again in")
+	harness.Equal(t, f.reads, 1, "reads attempted")
 
 	// Said once, and not asked again until the backoff is up.
 	for i := 0; i < 4; i++ {
-		equal(t, f.once(), "", "the log while the thread is backed off")
+		harness.Equal(t, f.once(), "", "the log while the thread is backed off")
 	}
-	equal(t, f.reads, 1, "reads attempted while backed off")
+	harness.Equal(t, f.reads, 1, "reads attempted while backed off")
 
 	// The backoff doubles from one poll, so a little later it is tried again — and still says
 	// nothing, because nothing about it has changed.
 	f.tick(listenPoll * 2)
-	equal(t, f.once(), "", "the log on the retry")
-	equal(t, f.reads, 2, "reads attempted after the backoff")
+	harness.Equal(t, f.once(), "", "the log on the retry")
+	harness.Equal(t, f.reads, 2, "reads attempted after the backoff")
 
 	// One line when it comes back, which is the other state change worth one.
 	f.readErr = 0
 	f.tick(listenPoll * 4)
-	wants(t, f.once(), "is readable again")
-	equal(t, f.reads, 3, "reads attempted once it answered")
+	harness.Wants(t, f.once(), "is readable again")
+	harness.Equal(t, f.reads, 3, "reads attempted once it answered")
 
 	// And nothing more about it after that.
 	f.tick(listenPoll)
-	equal(t, f.once(), "", "the log once it is readable again")
+	harness.Equal(t, f.once(), "", "the log once it is readable again")
 }
 
 // launchd restarts the agent every five minutes for as long as nothing is configured, and a
@@ -488,18 +490,18 @@ func TestAnUnconfiguredListenerSaysSoOnceAndAgainWhenItChanges(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		sayOnce(store, log, "unconfigured", "nothing is configured")
 	}
-	equal(t, strings.Count(out.String(), "nothing is configured"), 1,
+	harness.Equal(t, strings.Count(out.String(), "nothing is configured"), 1,
 		"times an unconfigured listener said so")
 
 	// Turning it on is a state change, and that gets a line of its own.
 	sayOnce(store, log, "listening-987", "listening for a reply")
 	sayOnce(store, log, "listening-987", "listening for a reply")
-	equal(t, strings.Count(out.String(), "listening for a reply"), 1,
+	harness.Equal(t, strings.Count(out.String(), "listening for a reply"), 1,
 		"times it said it had started listening")
 
 	// And so is turning it off again.
 	sayOnce(store, log, "unconfigured", "nothing is configured")
-	equal(t, strings.Count(out.String(), "nothing is configured"), 2,
+	harness.Equal(t, strings.Count(out.String(), "nothing is configured"), 2,
 		"times it said so after the configuration changed back")
 }
 

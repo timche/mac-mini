@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/discord"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
 	"github.com/timche/mac-mini/hachiko/internal/process"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
@@ -32,7 +33,7 @@ func (s sweeper) say(format string, args ...any) {
 // thread is what `hachiko listen` reads a reply out of. With only the webhook, the thread
 // is nothing and the message goes to the channel exactly as it always did.
 func (s sweeper) send(state *statedir.State, incident, message string) error {
-	out := Outgoing{Text: message}
+	out := discord.Outgoing{Text: message}
 
 	switch thread, known := state.Threads[incident]; {
 	case incident == "":

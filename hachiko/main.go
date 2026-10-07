@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/discord"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
@@ -141,12 +142,12 @@ func notify(cfg config.Config, incident, messageFile string, outcome bool) error
 	// it is about and Tim's reply to it is somewhere the listener is already watching. Read
 	// without the lock: a sweep holds that lock across a herdr call and an `op run`, and
 	// this is one field of a map the sweep alone writes.
-	out := Outgoing{Text: string(message)}
+	out := discord.Outgoing{Text: string(message)}
 	if state, err := store.Load(); err == nil {
 		out.Thread = state.Threads[incident]
 	}
 
-	if _, err := sendThroughOP(cfg, out); err != nil {
+	if _, err := discord.SendThroughOP(cfg, out); err != nil {
 		return err
 	}
 
@@ -172,7 +173,7 @@ func notify(cfg config.Config, incident, messageFile string, outcome bool) error
 // The flags the `op run` child is handed: a channel and a thread, which are ids in a URL
 // rather than secrets. The thread it opened is the one thing it prints.
 func sendFromStdin(args []string) error {
-	out, channel := Outgoing{}, ""
+	out, channel := discord.Outgoing{}, ""
 
 	for i := 0; i < len(args); i++ {
 		if i+1 >= len(args) {
@@ -191,7 +192,7 @@ func sendFromStdin(args []string) error {
 		i++
 	}
 
-	thread, err := sendMode(os.Stdin, out, channel)
+	thread, err := discord.SendMode(os.Stdin, out, channel)
 	if err != nil {
 		return err
 	}
@@ -252,7 +253,7 @@ func testAlert(cfg config.Config) error {
 		About("", cfg.Host).
 		String()
 
-	if _, err := sendThroughOP(cfg, Outgoing{Text: message}); err != nil {
+	if _, err := discord.SendThroughOP(cfg, discord.Outgoing{Text: message}); err != nil {
 		return err
 	}
 

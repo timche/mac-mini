@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/discord"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/totp"
@@ -58,7 +59,7 @@ func listen(cfg config.Config) error {
 		return nil
 	}
 
-	op, err := lookOp()
+	op, err := discord.LookOp()
 	if err != nil {
 		return err
 	}
@@ -70,7 +71,7 @@ func listen(cfg config.Config) error {
 		return fmt.Errorf("%s is missing, so there is no token to listen with", cfg.DiscordEnvFile)
 	}
 
-	return execOP(op, append(append([]string{"op", "run"}, envFiles(cfg)...), "--", self, "--listen-mode"))
+	return discord.ExecOP(op, append(append([]string{"op", "run"}, discord.EnvFiles(cfg)...), "--", self, "--listen-mode"))
 }
 
 // The far end of that re-exec. The token is in this process's environment and nowhere
@@ -92,7 +93,7 @@ func listenWithToken(cfg config.Config) error {
 	l := &listener{
 		cfg:    cfg,
 		store:  store,
-		bot:    newBot(token),
+		bot:    discord.NewBot(token),
 		herdr:  herdrCLI,
 		now:    config.ClockFromEnv(),
 		log:    log,
@@ -127,7 +128,7 @@ func sayOnce(store statedir.Store, log logs.Logger, state, message string) {
 type listener struct {
 	cfg   config.Config
 	store statedir.Store
-	bot   discordBot
+	bot   discord.Bot
 	herdr herdrRunner
 	now   func() time.Time
 	log   interface{ Say(string, ...any) }
@@ -212,7 +213,7 @@ func (l *listener) thread(state *statedir.State, incident, thread string) {
 		return
 	}
 
-	messages, err := l.bot.messagesAfter(thread, l.lastSeen(thread))
+	messages, err := l.bot.MessagesAfter(thread, l.lastSeen(thread))
 	if err != nil {
 		l.failed(incident, thread, err)
 		return
@@ -387,13 +388,13 @@ func (l *listener) handTo(incident, lead, data string) error {
 // A tick on his own message, which is the shortest way to say it landed, and a sentence in
 // the thread if the bot has no permission to react.
 func (l *listener) acknowledge(thread, messageID string) {
-	if err := l.bot.react(thread, messageID, "%E2%9C%85"); err != nil {
+	if err := l.bot.React(thread, messageID, "%E2%9C%85"); err != nil {
 		l.sayInThread(thread, "Passed to the agent.")
 	}
 }
 
 func (l *listener) sayInThread(thread, text string) {
-	if _, err := l.bot.post(thread, text); err != nil {
+	if _, err := l.bot.Post(thread, text); err != nil {
 		l.log.Say("nothing could be posted back to the thread: %v", err)
 	}
 }
@@ -417,7 +418,7 @@ func (l listener) lastSeen(thread string) string {
 // same messages again on the next pass and handed every one of them to the agent a second
 // time.
 func (l listener) markSeen(thread, messageID string) {
-	if config.DiscordID(messageID) == "" || snowflake(messageID) <= snowflake(l.lastSeen(thread)) {
+	if config.DiscordID(messageID) == "" || discord.Snowflake(messageID) <= discord.Snowflake(l.lastSeen(thread)) {
 		return
 	}
 	if err := os.MkdirAll(filepath.Dir(l.seenPath(thread)), 0o755); err != nil {

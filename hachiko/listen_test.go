@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/discord"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/totp"
@@ -29,7 +31,7 @@ type listenFixture struct {
 
 	// What the bot was asked to do, and what it answers: the messages in the thread, and
 	// everything posted or reacted to on the way back.
-	messages []discordMessage
+	messages []discord.Message
 	posted   []string
 	reacted  []string
 	reactErr bool
@@ -69,7 +71,7 @@ func newListener(t *testing.T) *listenFixture {
 		now:   time.Unix(1111111111, 0),
 	}
 
-	bot, _ := fakeBotWith(t, func(w http.ResponseWriter, r *http.Request) {
+	bot := botAgainst(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet:
 			f.reads++
@@ -79,7 +81,7 @@ func newListener(t *testing.T) *listenFixture {
 			}
 			// Newest first, which is what Discord answers with and the opposite of the order a
 			// conversation has to be read in.
-			newestFirst := make([]discordMessage, 0, len(f.messages))
+			newestFirst := make([]discord.Message, 0, len(f.messages))
 			for i := len(f.messages) - 1; i >= 0; i-- {
 				newestFirst = append(newestFirst, f.messages[i])
 			}
@@ -125,8 +127,8 @@ func (f *listenFixture) says(id, text string) {
 	f.messages = append(f.messages, posted(id, text, timID, false))
 }
 
-func posted(id, text, author string, bot bool) discordMessage {
-	m := discordMessage{ID: id, Content: text}
+func posted(id, text, author string, bot bool) discord.Message {
+	m := discord.Message{ID: id, Content: text}
 	m.Author.ID = author
 	m.Author.Bot = bot
 	return m
@@ -192,7 +194,7 @@ func TestABareNumberIsReadAsTheOptionHePicked(t *testing.T) {
 // talking to itself.
 func TestOnlyTimsOwnMessagesAreActedOn(t *testing.T) {
 	f := newListener(t)
-	f.messages = []discordMessage{
+	f.messages = []discord.Message{
 		posted("300000000000000001", "stop the worker", "111111111111111111", false),
 		posted("300000000000000002", "No answer yet on "+diskIncident, "999999999999999999", true),
 		posted("300000000000000003", "2", timID, true),
@@ -508,4 +510,22 @@ func currentCode(t *testing.T, f *listenFixture) string {
 		t.Fatal(err)
 	}
 	return totp.At(secret, f.l.now().Unix()/30)
+}
+
+// A bot pointed at a server of this test's own, so a listener that polls reaches no
+// Discord. The token is a shape rather than a secret, and the sleep is taken out: what a
+// test of the listener is about is what it does with the messages.
+func botAgainst(t *testing.T, handler http.HandlerFunc) discord.Bot {
+	t.Helper()
+
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	return discord.Bot{
+		Token:  "MTIzNDU2.NOT-A-REAL-BOT-TOKEN",
+		API:    server.URL,
+		Client: server.Client(),
+		Now:    time.Now,
+		Sleep:  func(time.Duration) {},
+	}
 }

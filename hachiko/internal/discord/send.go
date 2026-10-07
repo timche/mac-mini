@@ -1,4 +1,14 @@
-package main
+// Package discord is the only way anything hachiko has to say reaches Tim, and the only
+// thing that ever holds the webhook URL or the bot token. Both halves are here because
+// both post into one channel: the webhook, which can only post, and the bot, which can
+// also read a thread back — and which of them a message goes by is decided by whether Tim
+// has configured the bot, so neither half may know about the other's absence.
+//
+// The secret is resolved by re-entering this binary under `op run`, which is the whole of
+// why that happens at all: it arrives in one child's environment and leaves it in a
+// request body or one header, never in an argument ps would show to the machine and never
+// written anywhere.
+package discord
 
 import (
 	"bytes"
@@ -20,10 +30,14 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
+// A sweep that never returns is one holding the lock that keeps the next twelve from
+// running, and this one resolves a reference over the network before it posts anything.
+const opTimeout = 90 * time.Second
+
 // Discord takes 2,000 characters. What is over that is detail, and the on-call tab
 // has all of it.
 const (
-	discordLimit = 2000
+	Limit        = 2000
 	messageLimit = 1900
 	messageKeep  = 1860
 )
@@ -49,7 +63,7 @@ type Outgoing struct {
 // One --env-file per file, and the second only when the feature that needs it is on: `op
 // run` refuses a reference it cannot resolve, and a bot token named before the field exists
 // would take every alert down with it.
-func envFiles(cfg config.Config) []string {
+func EnvFiles(cfg config.Config) []string {
 	files := []string{"--env-file", cfg.EnvFile}
 
 	if cfg.Discord.On() {
@@ -60,7 +74,7 @@ func envFiles(cfg config.Config) []string {
 	return files
 }
 
-func lookOp() (string, error) {
+func LookOp() (string, error) {
 	op, err := exec.LookPath("op")
 	if err != nil {
 		return "", errors.New("no op on PATH, so no secret of hachiko's can be resolved")
@@ -71,12 +85,12 @@ func lookOp() (string, error) {
 // Replacing this process rather than starting another: what comes back is a long-running
 // listener, and a parent whose only job was to wait for it would be a second process in
 // every listing and a second thing for launchd to lose track of.
-func execOP(op string, args []string) error {
+func ExecOP(op string, args []string) error {
 	return syscall.Exec(op, args, os.Environ())
 }
 
-func sendThroughOP(cfg config.Config, out Outgoing) (string, error) {
-	op, err := lookOp()
+func SendThroughOP(cfg config.Config, out Outgoing) (string, error) {
+	op, err := LookOp()
 	if err != nil {
 		return "", err
 	}
@@ -123,7 +137,7 @@ func sendThroughOP(cfg config.Config, out Outgoing) (string, error) {
 // environment, and nothing about the webhook or the token is in a command line ps shows
 // to every process on the machine.
 func opArgs(cfg config.Config, self string, out Outgoing) []string {
-	args := append([]string{"op", "run"}, envFiles(cfg)...)
+	args := append([]string{"op", "run"}, EnvFiles(cfg)...)
 	args = append(args, "--", self, "--send")
 
 	if cfg.Discord.On() {
@@ -142,7 +156,7 @@ func opArgs(cfg config.Config, self string, out Outgoing) []string {
 // and a channel to use it on, and the webhook otherwise — which is the whole of how this
 // stays off until Tim has configured it, and how it keeps working on a Mac whose Discord
 // application somebody deleted.
-func sendMode(stdin io.Reader, out Outgoing, channel string) (string, error) {
+func SendMode(stdin io.Reader, out Outgoing, channel string) (string, error) {
 	message, err := io.ReadAll(stdin)
 	if err != nil {
 		return "", err
@@ -157,7 +171,7 @@ func sendMode(stdin io.Reader, out Outgoing, channel string) (string, error) {
 	// it this would not recognise.
 	token := strings.TrimSpace(os.Getenv("HACHIKO_DISCORD_BOT_TOKEN"))
 	if token != "" && channel != "" {
-		thread, err := sendThroughBot(newBot(token), channel, out)
+		thread, err := sendThroughBot(NewBot(token), channel, out)
 		if err == nil {
 			return thread, nil
 		}
@@ -184,13 +198,13 @@ func sendMode(stdin io.Reader, out Outgoing, channel string) (string, error) {
 // inside, so a reminder three hours later is under the alert it is about rather than
 // somewhere further down a channel. A thread that could not be opened is not a message
 // that failed — the message is already posted, and the next one goes to the channel.
-func sendThroughBot(bot discordBot, channel string, out Outgoing) (string, error) {
+func sendThroughBot(bot Bot, channel string, out Outgoing) (string, error) {
 	where := channel
 	if out.Thread != "" {
 		where = out.Thread
 	}
 
-	posted, err := bot.post(where, out.Text)
+	posted, err := bot.Post(where, out.Text)
 	if err != nil {
 		return "", err
 	}
@@ -206,7 +220,7 @@ func sendThroughBot(bot discordBot, channel string, out Outgoing) (string, error
 	// thread in the sidebar says what fired rather than giving an id back to the one person
 	// who was never going to type it. The id is in the message's own subtext line, and the
 	// thread is found by the id Discord answers with rather than by its name.
-	thread, err := bot.openThread(channel, posted, threadName(out.Text))
+	thread, err := bot.OpenThread(channel, posted, ThreadName(out.Text))
 	if err != nil {
 		logs.Logger{Out: os.Stderr, Now: config.ClockFromEnv()}.Say(
 			"the message was posted but no thread could be opened on it, so the rest of this incident goes to the channel: %v", err)
@@ -228,7 +242,7 @@ func sendThroughBot(bot discordBot, channel string, out Outgoing) (string, error
 func postDiscord(client *http.Client, webhook string, out Outgoing) (string, error) {
 	if out.Thread != "" {
 		// Never into a request path unchecked, and the checked form is the one that goes:
-		// a post id is a snowflake, and anything else in that field is a state file somebody
+		// a post id is a Snowflake, and anything else in that field is a state file somebody
 		// edited or a bug rather than a post to look for.
 		thread := config.DiscordID(out.Thread)
 		if thread == "" {
@@ -264,7 +278,7 @@ func postDiscord(client *http.Client, webhook string, out Outgoing) (string, err
 	// channel that message landed in is the post, and its id is the only way back into it.
 	answer, err := postDiscordBody(client, webhook, "wait=true", map[string]any{
 		"content":     capMessage(out.Text),
-		"thread_name": threadName(out.Text),
+		"thread_name": ThreadName(out.Text),
 	})
 	if err == nil {
 		return postedThread(answer), nil
@@ -329,7 +343,7 @@ func webhookAnswered(err error, codes ...int) bool {
 // line carries — which is what keeps a file called `**x**` from styling a message — would be
 // a backslash here. It comes back out before the length is cut, since cutting first could
 // leave a backslash with nothing left after it to escape.
-func threadName(message string) string {
+func ThreadName(message string) string {
 	first, _, _ := strings.Cut(strings.TrimSpace(message), "\n")
 	name := wording.Safe(wording.PlainTitle(first), 96)
 	if strings.TrimSpace(name) == "" {

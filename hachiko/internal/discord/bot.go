@@ -1,4 +1,4 @@
-package main
+package discord
 
 import (
 	"bytes"
@@ -16,37 +16,38 @@ import (
 
 const discordAPI = "https://discord.com/api/v10"
 
-// Where newBot points. A variable rather than the constant itself so that a test of the step
+// Where NewBot points. A variable rather than the constant itself so that a test of the step
 // that builds its own bot — the one `op run` re-enters, which is handed a token and a channel
 // and nothing else — can be driven against a server of its own. Nothing but a test ever
 // changes it, and a test that forgets to is a test that posts to Discord.
-var discordBase = discordAPI
+var Base = discordAPI
 
 // The token reaches one process's environment and one request header. Nothing puts it in
 // an argument, where ps would show it to every process on the machine, and nothing writes
 // it anywhere — and every error text that leaves here has it taken out first, for the
 // same reason the webhook URL does.
-type discordBot struct {
-	token string
-	// Where the API is, so a test drives every call against the shapes Discord answers in
-	// rather than against a description of them.
-	api    string
-	client *http.Client
-	now    func() time.Time
-	sleep  func(time.Duration)
+type Bot struct {
+	Token string
+	// Where the API is, and the clock and the sleep the rate limit is waited out on, so a
+	// test anywhere drives every call against the shapes Discord answers in rather than
+	// against a description of them.
+	API    string
+	Client *http.Client
+	Now    func() time.Time
+	Sleep  func(time.Duration)
 }
 
-func newBot(token string) discordBot {
-	return discordBot{
-		token:  token,
-		api:    discordBase,
-		client: &http.Client{Timeout: 20 * time.Second},
-		now:    time.Now,
-		sleep:  time.Sleep,
+func NewBot(token string) Bot {
+	return Bot{
+		Token:  token,
+		API:    Base,
+		Client: &http.Client{Timeout: 20 * time.Second},
+		Now:    time.Now,
+		Sleep:  time.Sleep,
 	}
 }
 
-type discordMessage struct {
+type Message struct {
 	ID      string `json:"id"`
 	Content string `json:"content"`
 	Author  struct {
@@ -61,7 +62,7 @@ type discordMessage struct {
 // of the threads.
 const discordRetries = 3
 
-func (b discordBot) call(method, path string, body any) ([]byte, error) {
+func (b Bot) call(method, path string, body any) ([]byte, error) {
 	var payload []byte
 	if body != nil {
 		var err error
@@ -71,16 +72,16 @@ func (b discordBot) call(method, path string, body any) ([]byte, error) {
 	}
 
 	for attempt := 0; ; attempt++ {
-		req, err := http.NewRequest(method, b.api+path, bytes.NewReader(payload))
+		req, err := http.NewRequest(method, b.API+path, bytes.NewReader(payload))
 		if err != nil {
 			return nil, b.scrub(err)
 		}
-		req.Header.Set("Authorization", "Bot "+b.token)
+		req.Header.Set("Authorization", "Bot "+b.Token)
 		if payload != nil {
 			req.Header.Set("Content-Type", "application/json")
 		}
 
-		resp, err := b.client.Do(req)
+		resp, err := b.Client.Do(req)
 		if err != nil {
 			return nil, b.scrub(err)
 		}
@@ -93,10 +94,10 @@ func (b discordBot) call(method, path string, body any) ([]byte, error) {
 
 		switch {
 		case resp.StatusCode == http.StatusTooManyRequests && attempt < discordRetries:
-			b.sleep(retryAfter(resp, answer))
+			b.Sleep(retryAfter(resp, answer))
 			continue
 		case resp.StatusCode >= 500 && attempt < discordRetries:
-			b.sleep(time.Duration(attempt+1) * time.Second)
+			b.Sleep(time.Duration(attempt+1) * time.Second)
 			continue
 		case resp.StatusCode < 200 || resp.StatusCode > 299:
 			return nil, fmt.Errorf("Discord answered %d to %s %s", resp.StatusCode, method, path)
@@ -134,21 +135,21 @@ func retryAfter(resp *http.Response, body []byte) time.Duration {
 // net/http names the URL it failed on, which is no secret here, but an error that came
 // back with a header echoed into it would be — and this is logged where everything else
 // is.
-func (b discordBot) scrub(err error) error {
+func (b Bot) scrub(err error) error {
 	if err == nil {
 		return nil
 	}
-	return errors.New(redact(err.Error(), b.token))
+	return errors.New(redact(err.Error(), b.Token))
 }
 
-func (b discordBot) post(channel, content string) (string, error) {
+func (b Bot) Post(channel, content string) (string, error) {
 	answer, err := b.call(http.MethodPost, "/channels/"+channel+"/messages",
 		map[string]any{"content": capMessage(content), "allowed_mentions": noMentions()})
 	if err != nil {
 		return "", err
 	}
 
-	var message discordMessage
+	var message Message
 	if err := json.Unmarshal(answer, &message); err != nil {
 		return "", errors.New("Discord answered something that is not a message")
 	}
@@ -159,7 +160,7 @@ func (b discordBot) post(channel, content string) (string, error) {
 // incident is what the thread is titled by and everything after it is underneath. A day's
 // archive, which is longer than any incident here has taken and short enough that the
 // channel does not fill with open threads.
-func (b discordBot) openThread(channel, message, name string) (string, error) {
+func (b Bot) OpenThread(channel, message, name string) (string, error) {
 	answer, err := b.call(http.MethodPost,
 		"/channels/"+channel+"/messages/"+message+"/threads",
 		map[string]any{"name": wording.Safe(name, discordThreadName), "auto_archive_duration": 1440})
@@ -183,7 +184,7 @@ const discordThreadName = 90
 // Oldest first, which is the order a conversation has to be read in and the opposite of
 // the order Discord returns by default. `after` is a message id and not a time, so a
 // listener that was down for an hour reads what it missed rather than guessing at it.
-func (b discordBot) messagesAfter(channel, after string) ([]discordMessage, error) {
+func (b Bot) MessagesAfter(channel, after string) ([]Message, error) {
 	path := "/channels/" + channel + "/messages?limit=100"
 	if after != "" {
 		path += "&after=" + after
@@ -194,7 +195,7 @@ func (b discordBot) messagesAfter(channel, after string) ([]discordMessage, erro
 		return nil, err
 	}
 
-	var messages []discordMessage
+	var messages []Message
 	if err := json.Unmarshal(answer, &messages); err != nil {
 		return nil, errors.New("Discord answered something that is not a list of messages")
 	}
@@ -203,9 +204,9 @@ func (b discordBot) messagesAfter(channel, after string) ([]discordMessage, erro
 	// oldest first for an `after`, and which of the two a given call returns is not something
 	// to stake the order of a conversation on — a reversal that guessed wrong handed the
 	// agent the messages backwards and remembered the oldest as the newest. The id is the
-	// clock: a snowflake is a timestamp, so sorting by it numerically is sorting by when.
+	// clock: a Snowflake is a timestamp, so sorting by it numerically is sorting by when.
 	sort.Slice(messages, func(i, j int) bool {
-		return snowflake(messages[i].ID) < snowflake(messages[j].ID)
+		return Snowflake(messages[i].ID) < Snowflake(messages[j].ID)
 	})
 	return messages, nil
 }
@@ -213,7 +214,7 @@ func (b discordBot) messagesAfter(channel, after string) ([]discordMessage, erro
 // An id that is not a number sorts before every real one, which puts anything Discord
 // answered with that this does not understand at the front rather than at the end, where it
 // would be mistaken for the newest thing said.
-func snowflake(id string) uint64 {
+func Snowflake(id string) uint64 {
 	n, err := strconv.ParseUint(id, 10, 64)
 	if err != nil {
 		return 0
@@ -222,7 +223,7 @@ func snowflake(id string) uint64 {
 }
 
 // So that Tim can see his reply landed without waiting for the agent to say anything.
-func (b discordBot) react(channel, message, emoji string) error {
+func (b Bot) React(channel, message, emoji string) error {
 	_, err := b.call(http.MethodPut,
 		"/channels/"+channel+"/messages/"+message+"/reactions/"+emoji+"/@me", nil)
 	return err

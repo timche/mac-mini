@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/timche/mac-mini/hachiko/internal/discord"
 	"github.com/timche/mac-mini/hachiko/internal/process"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
@@ -762,7 +763,7 @@ func TestANameShapedLikeMarkdownArrivesAsAName(t *testing.T) {
 
 	// The post's title is plain text, so the escaping comes back out rather than being shown,
 	// and the marker stays: it is what says at a glance which kind of alert this is.
-	equal(t, threadName(message), "🔥 **node** is busy: 80% of a core for 1 hour",
+	equal(t, discord.ThreadName(message), "🔥 **node** is busy: 80% of a core for 1 hour",
 		"the post's name")
 
 	// A writer lsof named is the other half of it, in a bullet about the disk.

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/discord"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -27,7 +28,7 @@ func TestMessages(t *testing.T) {
 			if strings.HasSuffix(text, "\n") || strings.Contains(text, "\n\n\n") {
 				t.Errorf("a blank line where there should be none:\n%q", text)
 			}
-			if len(text) > discordLimit {
+			if len(text) > discord.Limit {
 				t.Errorf("%d characters, which is over Discord's limit", len(text))
 			}
 

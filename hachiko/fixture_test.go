@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/discord"
 	"github.com/timche/mac-mini/hachiko/internal/process"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
@@ -286,7 +287,7 @@ func (f *fixture) deps() Deps {
 			f.status[kind] = statusWorking
 			return nil
 		},
-		Send: func(out Outgoing) (string, error) {
+		Send: func(out discord.Outgoing) (string, error) {
 			f.sendAttempts++
 			if f.sendErr != nil {
 				return "", f.sendErr

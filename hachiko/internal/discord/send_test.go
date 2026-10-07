@@ -1,4 +1,4 @@
-package main
+package discord
 
 import (
 	"fmt"
@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/harness"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -28,7 +29,7 @@ func TestTheWebhookIsNeverInACommandLine(t *testing.T) {
 			t.Errorf("the webhook reached a command line: %v", args)
 		}
 	}
-	equal(t, strings.Join(args, " "),
+	harness.Equal(t, strings.Join(args, " "),
 		"op run --env-file /somewhere/hachiko.env.op -- /cache/hachiko --send",
 		"what op is asked to run")
 }
@@ -38,7 +39,7 @@ func TestPostDiscordSendsTheMessageAsContent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		body = string(raw)
-		equal(t, r.Header.Get("Content-Type"), "application/json", "the content type")
+		harness.Equal(t, r.Header.Get("Content-Type"), "application/json", "the content type")
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer server.Close()
@@ -46,7 +47,7 @@ func TestPostDiscordSendsTheMessageAsContent(t *testing.T) {
 	if _, err := postDiscord(server.Client(), server.URL, Outgoing{Text: "the disk is filling"}); err != nil {
 		t.Fatal(err)
 	}
-	equal(t, body, `{"allowed_mentions":{"parse":[]},"content":"the disk is filling","thread_name":"the disk is filling"}`,
+	harness.Equal(t, body, `{"allowed_mentions":{"parse":[]},"content":"the disk is filling","thread_name":"the disk is filling"}`,
 		"the request body")
 }
 
@@ -85,9 +86,9 @@ func TestPostDiscordFallsBackToAPlainMessageWhereThreadsAreRefused(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	equal(t, thread, "", "the post recorded for a text channel")
-	equal(t, len(bodies), 2, "the tries")
-	equal(t, bodies[1], `{"allowed_mentions":{"parse":[]},"content":"the disk is filling"}`, "the second try")
+	harness.Equal(t, thread, "", "the post recorded for a text channel")
+	harness.Equal(t, len(bodies), 2, "the tries")
+	harness.Equal(t, bodies[1], `{"allowed_mentions":{"parse":[]},"content":"the disk is filling"}`, "the second try")
 }
 
 // One incident, one forum post. The first message of it opens the post and asks for the
@@ -110,9 +111,9 @@ func TestTheFirstMessageOfAnIncidentOpensAPostAndNamesIt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	equal(t, thread, "800", "the post the message landed in")
-	equal(t, query, "wait=true", "the query the opening message carried")
-	wants(t, body, `"thread_name":"Disk: /private/tmp/x.log growing fast"`)
+	harness.Equal(t, thread, "800", "the post the message landed in")
+	harness.Equal(t, query, "wait=true", "the query the opening message carried")
+	harness.Wants(t, body, `"thread_name":"Disk: /private/tmp/x.log growing fast"`)
 }
 
 // And every message after it goes into that post by id, with no name: a name is what opens a
@@ -133,10 +134,10 @@ func TestALaterMessageGoesIntoThePostTheIncidentAlreadyHas(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	equal(t, thread, "800", "the post it stays in")
-	equal(t, query, "thread_id=800", "the query a later message carried")
-	equal(t, body, `{"allowed_mentions":{"parse":[]},"content":"still waiting after 1h00m"}`, "the request body")
-	lacks(t, body, "thread_name")
+	harness.Equal(t, thread, "800", "the post it stays in")
+	harness.Equal(t, query, "thread_id=800", "the query a later message carried")
+	harness.Equal(t, body, `{"allowed_mentions":{"parse":[]},"content":"still waiting after 1h00m"}`, "the request body")
+	harness.Lacks(t, body, "thread_name")
 }
 
 // A post Tim deleted answers 404, which is not a message that cannot be sent: it is a post
@@ -160,8 +161,8 @@ func TestAPostThatIsGoneIsOpenedAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	equal(t, thread, "801", "the post opened in place of the one that went")
-	equal(t, strings.Join(queries, " "), "thread_id=800 wait=true", "the two tries")
+	harness.Equal(t, thread, "801", "the post opened in place of the one that went")
+	harness.Equal(t, strings.Join(queries, " "), "thread_id=800 wait=true", "the two tries")
 }
 
 // A 400 to a thread_id is the webhook refusing the id rather than the post being missing: a
@@ -188,15 +189,15 @@ func TestAWebhookThatRefusesThePostDoesNotOpenANewOne(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	equal(t, thread, "", "the post recorded after a refusal")
-	equal(t, strings.Join(queries, " "), "thread_id=800 ", "the two tries")
-	equal(t, bodies[1], `{"allowed_mentions":{"parse":[]},"content":"still waiting after 1h00m"}`, "the message that reached the channel")
+	harness.Equal(t, thread, "", "the post recorded after a refusal")
+	harness.Equal(t, strings.Join(queries, " "), "thread_id=800 ", "the two tries")
+	harness.Equal(t, bodies[1], `{"allowed_mentions":{"parse":[]},"content":"still waiting after 1h00m"}`, "the message that reached the channel")
 	for _, body := range bodies {
-		lacks(t, body, "thread_name")
+		harness.Lacks(t, body, "thread_name")
 	}
 }
 
-// A thread id is a snowflake, and anything else in that field is a state file somebody
+// A thread id is a Snowflake, and anything else in that field is a state file somebody
 // edited or a bug rather than a post to look for. It may not reach a request path.
 func TestAPostIdThatIsNotASnowflakeNeverReachesTheURL(t *testing.T) {
 	var queries []string
@@ -214,8 +215,8 @@ func TestAPostIdThatIsNotASnowflakeNeverReachesTheURL(t *testing.T) {
 			t.Fatalf("a message with %q recorded against it was not sent: %v", bad, err)
 		}
 
-		equal(t, thread, "", "the post recorded for "+bad)
-		equal(t, strings.Join(queries, " "), "", "the queries sent for "+bad)
+		harness.Equal(t, thread, "", "the post recorded for "+bad)
+		harness.Equal(t, strings.Join(queries, " "), "", "the queries sent for "+bad)
 	}
 
 	// And the form that goes into the URL is the checked one, so a field with whitespace
@@ -226,18 +227,18 @@ func TestAPostIdThatIsNotASnowflakeNeverReachesTheURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	equal(t, thread, "800", "the post recorded")
-	equal(t, strings.Join(queries, " "), "thread_id=800", "the query sent")
+	harness.Equal(t, thread, "800", "the post recorded")
+	harness.Equal(t, strings.Join(queries, " "), "thread_id=800", "the query sent")
 }
 
 // A webhook URL with a query of its own, which Tim's has none of: the one it is handed may
 // not be appended behind a second question mark.
 func TestAQueryIsAppendedToAWebhookThatAlreadyHasOne(t *testing.T) {
-	equal(t, withQuery("https://discord.invalid/api/webhooks/1/t", "wait=true"),
+	harness.Equal(t, withQuery("https://discord.invalid/api/webhooks/1/t", "wait=true"),
 		"https://discord.invalid/api/webhooks/1/t?wait=true", "a webhook with no query")
-	equal(t, withQuery("https://discord.invalid/api/webhooks/1/t?x=1", "wait=true"),
+	harness.Equal(t, withQuery("https://discord.invalid/api/webhooks/1/t?x=1", "wait=true"),
 		"https://discord.invalid/api/webhooks/1/t?x=1&wait=true", "a webhook with one")
-	equal(t, withQuery("https://discord.invalid/api/webhooks/1/t", ""),
+	harness.Equal(t, withQuery("https://discord.invalid/api/webhooks/1/t", ""),
 		"https://discord.invalid/api/webhooks/1/t", "no query at all")
 }
 
@@ -251,29 +252,29 @@ func TestSendModeAnswersWithThePostItOpened(t *testing.T) {
 	defer server.Close()
 
 	t.Setenv("HACHIKO_DISCORD_URL", server.URL)
-	thread, err := sendMode(strings.NewReader("Disk: filling"), Outgoing{OpenThread: "disk-1"}, "")
+	thread, err := SendMode(strings.NewReader("Disk: filling"), Outgoing{OpenThread: "disk-1"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	equal(t, thread, "800", "the post the sweep records")
+	harness.Equal(t, thread, "800", "the post the sweep records")
 }
 
 func TestAThreadNameIsOneLineAndFitsDiscordsLimit(t *testing.T) {
-	name := threadName(strings.Repeat("x", 300) + "\nsecond line")
+	name := ThreadName(strings.Repeat("x", 300) + "\nsecond line")
 	if len(name) > 100 || strings.Contains(name, "\n") {
 		t.Fatalf("thread name of %d bytes: %q", len(name), name)
 	}
-	equal(t, threadName("\n\n"), "hachiko", "an empty message's thread name")
+	harness.Equal(t, ThreadName("\n\n"), "hachiko", "an empty message's thread name")
 
 	// A lead of hachiko's own, however long the sentence it was given.
 	lead := wording.Lead(wording.MarkerDown, strings.Repeat("x", 300)).String()
-	if len(threadName(lead)) > 100 {
-		t.Errorf("a thread name of %d bytes: %q", len(threadName(lead)), threadName(lead))
+	if len(ThreadName(lead)) > 100 {
+		t.Errorf("a thread name of %d bytes: %q", len(ThreadName(lead)), ThreadName(lead))
 	}
 
 	// The escaping that keeps a file called `**x**` from styling a message body is a
 	// backslash in a title, which Discord renders as plain text — so it comes back out.
-	equal(t, threadName(wording.PlainWords("💾 Disk filling: **x**.log is growing fast")+"\n**Free space:** 1 GB"),
+	harness.Equal(t, ThreadName(wording.PlainWords("💾 Disk filling: **x**.log is growing fast")+"\n**Free space:** 1 GB"),
 		"💾 Disk filling: **x**.log is growing fast", "the post's name")
 }
 
@@ -287,7 +288,7 @@ func TestPostDiscordReportsTheStatusWithoutTheWebhook(t *testing.T) {
 	if err == nil {
 		t.Fatal("a 500 was not reported")
 	}
-	equal(t, err.Error(), "the webhook answered 500", "the error")
+	harness.Equal(t, err.Error(), "the webhook answered 500", "the error")
 }
 
 // net/http names the URL it failed on, and that message goes into a log the next
@@ -301,17 +302,17 @@ func TestAFailedRequestDoesNotPutTheWebhookInTheError(t *testing.T) {
 	if err == nil {
 		t.Fatal("a request to a closed server did not fail")
 	}
-	lacks(t, err.Error(), "NOT-A-REAL-TOKEN")
-	wants(t, err.Error(), "the webhook")
+	harness.Lacks(t, err.Error(), "NOT-A-REAL-TOKEN")
+	harness.Wants(t, err.Error(), "the webhook")
 }
 
 func TestRedactTakesTheWebhookOutOfAnyText(t *testing.T) {
 	text := `Post "` + fakeWebhook + `": dial tcp: connection refused`
 	got := redact(text, fakeWebhook)
 
-	lacks(t, got, "NOT-A-REAL-TOKEN")
-	lacks(t, got, "discord.invalid")
-	wants(t, got, "connection refused")
+	harness.Lacks(t, got, "NOT-A-REAL-TOKEN")
+	harness.Lacks(t, got, "discord.invalid")
+	harness.Wants(t, got, "connection refused")
 }
 
 // A *url.Error prints its target through %q, which escapes a newline and any byte
@@ -330,9 +331,9 @@ func TestRedactTakesEverySpellingOfTheWebhookOut(t *testing.T) {
 		"plain " + webhook + " and nothing else",
 	} {
 		got := redact(text, stored)
-		lacks(t, got, token)
-		lacks(t, got, "discord.invalid")
-		wants(t, got, "the webhook")
+		harness.Lacks(t, got, token)
+		harness.Lacks(t, got, "discord.invalid")
+		harness.Wants(t, got, "the webhook")
 	}
 }
 
@@ -348,10 +349,10 @@ func TestSendModeTrimsTheResolvedReference(t *testing.T) {
 	defer server.Close()
 
 	t.Setenv("HACHIKO_DISCORD_URL", server.URL+"\n")
-	if _, err := sendMode(strings.NewReader("the disk is filling"), Outgoing{}, ""); err != nil {
+	if _, err := SendMode(strings.NewReader("the disk is filling"), Outgoing{}, ""); err != nil {
 		t.Fatalf("a reference with a trailing newline was not sent: %v", err)
 	}
-	equal(t, got, `{"allowed_mentions":{"parse":[]},"content":"the disk is filling","thread_name":"the disk is filling"}`, "the request body")
+	harness.Equal(t, got, `{"allowed_mentions":{"parse":[]},"content":"the disk is filling","thread_name":"the disk is filling"}`, "the request body")
 }
 
 // Discord takes 2,000 characters. What is over that is detail, and the on-call tab has
@@ -359,13 +360,13 @@ func TestSendModeTrimsTheResolvedReference(t *testing.T) {
 func TestALongMessageIsCappedAndSaysWhereTheRestIs(t *testing.T) {
 	got := capMessage(strings.Repeat("x", 5000))
 
-	if len(got) >= discordLimit {
+	if len(got) >= Limit {
 		t.Errorf("the message is %d characters, which Discord refuses", len(got))
 	}
-	wants(t, got, "[truncated — the rest is in the on-call tab in herdr]")
+	harness.Wants(t, got, "[truncated — the rest is in the on-call tab in herdr]")
 
 	short := "one line"
-	equal(t, capMessage(short), short, "a short message")
+	harness.Equal(t, capMessage(short), short, "a short message")
 }
 
 // The cut falls on a line boundary, because a cut in the middle of one leaves an inline code
@@ -392,14 +393,14 @@ func TestTheCapCutsWholeLinesAndLeavesNoCodeSpanOpen(t *testing.T) {
 	}
 
 	got := capMessage(long)
-	if len(got) >= discordLimit {
+	if len(got) >= Limit {
 		t.Errorf("the capped message is %d characters, which Discord refuses", len(got))
 	}
-	wants(t, got, truncatedTail)
+	harness.Wants(t, got, truncatedTail)
 
 	// Every backtick fence that was opened was closed, so nothing after the cut renders as
 	// code — and the cut fell between lines, so every line that is left is one hachiko wrote.
-	equal(t, strings.Count(got, "`")%2, 0, "unclosed backtick fences")
+	harness.Equal(t, strings.Count(got, "`")%2, 0, "unclosed backtick fences")
 	for _, line := range strings.Split(got, "\n") {
 		if line == truncatedTail {
 			continue
@@ -411,7 +412,7 @@ func TestTheCapCutsWholeLinesAndLeavesNoCodeSpanOpen(t *testing.T) {
 
 	// The subtext is the last line and so the first thing to go, which is right: it is the
 	// one line Tim never acts on.
-	lacks(t, got, "-# Incident disk-1700000000")
+	harness.Lacks(t, got, "-# Incident disk-1700000000")
 }
 
 // And the subtext alone goes when that is all there is to drop, rather than the message
@@ -436,7 +437,7 @@ func TestTheCapDropsTheSubtextFirst(t *testing.T) {
 		t.Fatalf("the message under test is only %d characters", len(full))
 	}
 
-	equal(t, capMessage(full), build(pad).String()+"\n"+truncatedTail, "what the cap kept")
+	harness.Equal(t, capMessage(full), build(pad).String()+"\n"+truncatedTail, "what the cap kept")
 }
 
 // One line longer than the whole budget is a session's own report rather than anything
@@ -445,31 +446,31 @@ func TestTheCapDropsTheSubtextFirst(t *testing.T) {
 func TestASingleOverlongLineIsCutWithItsBackticksTakenOut(t *testing.T) {
 	got := capMessage("`" + strings.Repeat("x", 5000) + "`")
 
-	if len(got) >= discordLimit {
+	if len(got) >= Limit {
 		t.Errorf("the capped message is %d characters, which Discord refuses", len(got))
 	}
-	equal(t, strings.Count(got, "`"), 0, "backticks left in a cut line")
-	wants(t, got, truncatedTail)
+	harness.Equal(t, strings.Count(got, "`"), 0, "backticks left in a cut line")
+	harness.Wants(t, got, truncatedTail)
 
 	// And a cut that lands inside a multi-byte character leaves no half of one behind.
 	wide := capMessage(strings.Repeat("é", 5000))
-	equal(t, utf8.ValidString(wide), true, "whether the capped message is valid UTF-8")
+	harness.Equal(t, utf8.ValidString(wide), true, "whether the capped message is valid UTF-8")
 }
 
 func TestSendModeRefusesWithNothingToSendAndWithNoReferenceResolved(t *testing.T) {
 	t.Setenv("HACHIKO_DISCORD_URL", "")
-	_, err := sendMode(strings.NewReader("something"), Outgoing{}, "")
+	_, err := SendMode(strings.NewReader("something"), Outgoing{}, "")
 	if err == nil {
 		t.Fatal("an unresolved reference was not reported")
 	}
-	wants(t, err.Error(), "did not resolve")
+	harness.Wants(t, err.Error(), "did not resolve")
 
 	t.Setenv("HACHIKO_DISCORD_URL", fakeWebhook)
-	_, err = sendMode(strings.NewReader("   \n"), Outgoing{}, "")
+	_, err = SendMode(strings.NewReader("   \n"), Outgoing{}, "")
 	if err == nil {
 		t.Fatal("an empty message was not reported")
 	}
-	wants(t, err.Error(), "nothing to send")
+	harness.Wants(t, err.Error(), "nothing to send")
 }
 
 // Every alert here quotes a path, a command line or a log line chosen by whatever filled the
@@ -505,6 +506,6 @@ func TestNoMessageTheWebhookSendsCanMentionAnybody(t *testing.T) {
 		t.Fatalf("the three shapes the webhook has were not all exercised: %v", bodies)
 	}
 	for _, body := range bodies {
-		wants(t, body, `"allowed_mentions":{"parse":[]}`)
+		harness.Wants(t, body, `"allowed_mentions":{"parse":[]}`)
 	}
 }

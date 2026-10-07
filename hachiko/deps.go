@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/discord"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
 	"github.com/timche/mac-mini/hachiko/internal/process"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
@@ -60,7 +61,7 @@ type Deps struct {
 	// Reaches the channel Tim watches. The only thing that ever sees the webhook or the bot
 	// token, and it answers with the thread it opened when the message was the first of an
 	// incident and the bot is configured.
-	Send func(out Outgoing) (string, error)
+	Send func(out discord.Outgoing) (string, error)
 
 	// Tells shibuya this sweep happened, which is the half of the watch that is not on this
 	// Mac. It answers with the state to remember and the one line to log when that state is
@@ -113,19 +114,14 @@ func realDeps(cfg config.Config) Deps {
 		Prompt: func(kind, lead, data string) error {
 			return oncaller{cfg: cfg, run: herdrCLI, now: now, log: log}.promptWith(kind, lead, "INCIDENT DATA", data)
 		},
-		Send:    func(out Outgoing) (string, error) { return sendThroughOP(cfg, out) },
+		Send:    func(out discord.Outgoing) (string, error) { return discord.SendThroughOP(cfg, out) },
 		CheckIn: newSwitch(cfg).send,
 	}
 }
 
-// Every subprocess here is one a stale mount or a dead socket could stop for good, and a
-// sweep that never returns is one holding the lock that keeps the next twelve from
-// running. These two get longer than the readings off the machine do, since one resolves
-// a reference over the network and the other starts a session.
-const (
-	herdrTimeout = 30 * time.Second
-	opTimeout    = 90 * time.Second
-)
+// A sweep that never returns is one holding the lock that keeps the next twelve from
+// running, and starting a session is the longest thing it waits on.
+const herdrTimeout = 30 * time.Second
 
 // What df reads, without a df: statfs answers for the volume a path is on, in the
 // blocks available to somebody who is not root, which is the number that decides

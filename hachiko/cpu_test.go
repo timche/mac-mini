@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/process"
 )
 
 func TestRepoOfNamesTheCheckoutOrWorktreeADirectoryBelongsTo(t *testing.T) {
@@ -39,7 +40,7 @@ func TestHalfACoreExactlyCountsAsBusy(t *testing.T) {
 	prev := CPUSample{At: base.Unix(), Procs: map[string]ProcSample{
 		"7018:" + start: {CPU: 0},
 	}}
-	procs := []Process{{PID: 7018, Start: start, CPU: 150 * time.Second}}
+	procs := []process.Process{{PID: 7018, Start: start, CPU: 150 * time.Second}}
 
 	sample, hot := cpuHot(prev, procs, base.Add(300*time.Second), 50, time.Hour)
 
@@ -52,7 +53,7 @@ func TestJustUnderHalfACoreIsNotBusy(t *testing.T) {
 	prev := CPUSample{At: base.Unix(), Procs: map[string]ProcSample{
 		"7018:" + start: {CPU: 0},
 	}}
-	procs := []Process{{PID: 7018, Start: start, CPU: 149 * time.Second}}
+	procs := []process.Process{{PID: 7018, Start: start, CPU: 149 * time.Second}}
 
 	sample, _ := cpuHot(prev, procs, base.Add(300*time.Second), 50, time.Hour)
 	equal(t, sample.Procs["7018:"+start].HotSince, int64(0), "the start of the busy run")
@@ -68,7 +69,7 @@ func TestAMissedIntervalDoesNotRestartTheWindow(t *testing.T) {
 	prev := CPUSample{At: base.Add(1800 * time.Second).Unix(), Procs: map[string]ProcSample{
 		key: {CPU: 1000, HotSince: base.Unix(), CPUAtHotSince: 0},
 	}}
-	procs := []Process{{PID: 7018, Start: start, CPU: 2400 * time.Second}}
+	procs := []process.Process{{PID: 7018, Start: start, CPU: 2400 * time.Second}}
 
 	// An hour after the run began, but only half an hour after the previous sample.
 	_, hot := cpuHot(prev, procs, base.Add(3600*time.Second), 50, time.Hour)

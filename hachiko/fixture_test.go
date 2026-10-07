@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/process"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -42,7 +43,7 @@ type fixture struct {
 	now      time.Time
 	freeGB   int64
 	watched  []string
-	procs    []Process
+	procs    []process.Process
 	procsErr error
 	pid      int
 	uid      int
@@ -209,7 +210,7 @@ func (f *fixture) deps() Deps {
 			return nil
 		},
 
-		Processes: func() ([]Process, error) {
+		Processes: func() ([]process.Process, error) {
 			if f.procsErr != nil {
 				return nil, f.procsErr
 			}
@@ -432,7 +433,7 @@ func (f *fixture) proc(pid int, cpuSeconds float64, start string, command string
 		f.t.Fatal(err)
 	}
 
-	f.procs = []Process{{
+	f.procs = []process.Process{{
 		PID:       pid,
 		PPID:      1,
 		UID:       accountUID,
@@ -453,7 +454,7 @@ func (f *fixture) systemProc(pid int, cpuSeconds float64, start, command string)
 	f.procs[0].UID, f.procs[0].User = systemUID, "root"
 }
 
-func (f *fixture) setProcs(procs ...Process) { f.procs = procs }
+func (f *fixture) setProcs(procs ...process.Process) { f.procs = procs }
 
 const firstStart = "Mon Sep 28 20:06:06 2026"
 

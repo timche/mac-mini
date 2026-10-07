@@ -10,6 +10,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
+	"github.com/timche/mac-mini/hachiko/internal/process"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -525,7 +526,7 @@ func (s sweeper) cpu(state *State, now time.Time) cpuFindings {
 	sample, hot := cpuHot(state.CPU, procs, now, s.cfg.CPUShare, s.cfg.CPUWindow)
 	out := cpuFindings{sample: sample, read: true, hot: hot, sampled: len(procs)}
 
-	mine := ownTree(procs, s.deps.Getpid())
+	mine := process.OwnTree(procs, s.deps.Getpid())
 	allowlist := readAllowlist(s.cfg.CPUAllowPath)
 
 	var bullets []string
@@ -616,7 +617,7 @@ func (s sweeper) cpu(state *State, now time.Time) cpuFindings {
 // helper allows is one command with no password behind it, which is the difference between
 // a message he acts on from his phone and one he has to sit down for; anything else is the
 // honest `sudo kill`, which launchd may well undo.
-func (s sweeper) stoppingIt(p Process) string {
+func (s sweeper) stoppingIt(p process.Process) string {
 	if command := wording.RestartDaemonCommand(s.cfg, p.Name()); command != "" {
 		return "**You can run:** " + wording.CodeSpan(command) + " — it restarts the daemon with no password needed."
 	}

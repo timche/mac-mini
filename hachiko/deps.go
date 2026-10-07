@@ -1,17 +1,16 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
+	"github.com/timche/mac-mini/hachiko/internal/process"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -33,7 +32,7 @@ type Deps struct {
 	BigFiles  func(skip []string) WalkResult
 	Writers   func(path string) string
 	Truncate  func(path string) error
-	Processes func() ([]Process, error)
+	Processes func() ([]process.Process, error)
 	CWD       func(pid int) string
 
 	// Opens the on-call session and answers with where it is and whether the brief
@@ -99,8 +98,8 @@ func realDeps(cfg config.Config) Deps {
 		Writers:  writers,
 		Truncate: func(path string) error { return truncateLog(path, device) },
 
-		Processes: sampleProcesses,
-		CWD:       processCWD,
+		Processes: process.Sample,
+		CWD:       process.CWD,
 
 		Oncall: func(name, brief string) (OncallSession, error) {
 			return oncaller{cfg: cfg, run: herdrCLI, now: now, log: log}.open(name, brief)
@@ -119,23 +118,14 @@ func realDeps(cfg config.Config) Deps {
 	}
 }
 
-// Every subprocess here is one a stale mount or a dead socket could stop for good,
-// and a sweep that never returns is one holding the lock that keeps the next twelve
-// from running. ps and lsof get seconds; op and herdr get longer, since one resolves
+// Every subprocess here is one a stale mount or a dead socket could stop for good, and a
+// sweep that never returns is one holding the lock that keeps the next twelve from
+// running. These two get longer than the readings off the machine do, since one resolves
 // a reference over the network and the other starts a session.
 const (
-	sampleTimeout = 15 * time.Second
-	lsofTimeout   = 10 * time.Second
-	herdrTimeout  = 30 * time.Second
-	opTimeout     = 90 * time.Second
+	herdrTimeout = 30 * time.Second
+	opTimeout    = 90 * time.Second
 )
-
-func output(limit time.Duration, name string, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), limit)
-	defer cancel()
-
-	return exec.CommandContext(ctx, name, args...).Output()
-}
 
 // What df reads, without a df: statfs answers for the volume a path is on, in the
 // blocks available to somebody who is not root, which is the number that decides
@@ -190,7 +180,7 @@ func truncateLog(path string, device int32) error {
 // pid and command of whoever holds the file open. Named rather than acted on: the
 // point of an alert is that a person decides what to do about the writer.
 func writers(path string) string {
-	out, err := output(lsofTimeout, "lsof", "-Fpc", "--", path)
+	out, err := process.Run(process.LsofTimeout, "lsof", "-Fpc", "--", path)
 	if err != nil && len(out) == 0 {
 		return "no writer lsof can see"
 	}
@@ -214,20 +204,4 @@ func writers(path string) string {
 		return "no writer lsof can see"
 	}
 	return strings.Join(found, ", ")
-}
-
-// lsof for the hot pids alone: asking it about every process on the machine costs
-// more than the sweep does.
-func processCWD(pid int) string {
-	out, err := output(lsofTimeout, "lsof", "-a", "-p", fmt.Sprint(pid), "-d", "cwd", "-Fn")
-	if err != nil && len(out) == 0 {
-		return ""
-	}
-
-	for _, line := range strings.Split(string(out), "\n") {
-		if strings.HasPrefix(line, "n") {
-			return line[1:]
-		}
-	}
-	return ""
 }

@@ -1,4 +1,9 @@
-package main
+// Package process is what hachiko can learn about what is running on this Mac, and the
+// one way it runs anything: the whole-machine ps sample, a process's working directory,
+// the tree between a pid and launchd, and a subprocess with a deadline on it. None of it
+// belongs to the watch alone — anything here that has to decide whether a process is
+// still somebody's work starts from the same sample.
+package process
 
 import (
 	"context"
@@ -69,18 +74,18 @@ func psCommand(ctx context.Context) *exec.Cmd {
 	return cmd
 }
 
-func sampleProcesses() ([]Process, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), sampleTimeout)
+func Sample() ([]Process, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), SampleTimeout)
 	defer cancel()
 
 	out, err := psCommand(ctx).Output()
 	if err != nil {
 		return nil, fmt.Errorf("ps: %w", err)
 	}
-	return parseProcesses(string(out)), nil
+	return ParseProcesses(string(out)), nil
 }
 
-func parseProcesses(out string) []Process {
+func ParseProcesses(out string) []Process {
 	var procs []Process
 
 	for _, line := range strings.Split(out, "\n") {
@@ -204,7 +209,7 @@ func mustFloat(s string) float64 {
 // Everything between a pid and pid 1, so hachiko never reports itself, the shell
 // launchd started it from, or launchd. Read out of the sample it already took
 // rather than from a ps of its own.
-func ownTree(procs []Process, pid int) map[int]bool {
+func OwnTree(procs []Process, pid int) map[int]bool {
 	parent := make(map[int]int, len(procs))
 	for _, p := range procs {
 		parent[p.PID] = p.PPID
@@ -220,4 +225,37 @@ func ownTree(procs []Process, pid int) map[int]bool {
 		cur = next
 	}
 	return tree
+}
+
+// Every subprocess here is one a stale mount or a dead socket could stop for good, and a
+// caller that never returns is a sweep holding the lock that keeps the next twelve from
+// running. ps and lsof get seconds, being local reads; op and herdr get longer in the
+// packages that call them, since one resolves a reference over the network and the other
+// starts a session.
+const (
+	SampleTimeout = 15 * time.Second
+	LsofTimeout   = 10 * time.Second
+)
+
+func Run(limit time.Duration, name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	defer cancel()
+
+	return exec.CommandContext(ctx, name, args...).Output()
+}
+
+// lsof for the hot pids alone: asking it about every process on the machine costs
+// more than the sweep does.
+func CWD(pid int) string {
+	out, err := Run(LsofTimeout, "lsof", "-a", "-p", fmt.Sprint(pid), "-d", "cwd", "-Fn")
+	if err != nil && len(out) == 0 {
+		return ""
+	}
+
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(line, "n") {
+			return line[1:]
+		}
+	}
+	return ""
 }

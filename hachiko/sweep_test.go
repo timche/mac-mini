@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/timche/mac-mini/hachiko/internal/process"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -471,8 +472,8 @@ func TestHachikoNeverReportsItsOwnProcessTree(t *testing.T) {
 func TestTheFirstProcessIsRecordedWhenThereIsNoPreviousSample(t *testing.T) {
 	f := newFixture(t)
 	f.setProcs(
-		Process{PID: 101, PPID: 1, CPU: 60e9, Start: firstStart, Command: "/usr/local/bin/first"},
-		Process{PID: 102, PPID: 1, CPU: 60e9, Start: firstStart, Command: "/usr/local/bin/second"},
+		process.Process{PID: 101, PPID: 1, CPU: 60e9, Start: firstStart, Command: "/usr/local/bin/first"},
+		process.Process{PID: 102, PPID: 1, CPU: 60e9, Start: firstStart, Command: "/usr/local/bin/second"},
 	)
 
 	f.sweep()

@@ -7,11 +7,12 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/process"
 )
 
 // Hot is a process that has held its share of a core for the whole window.
 type Hot struct {
-	Process  Process
+	Process  process.Process
 	Share    float64
 	HotSince time.Time
 }
@@ -23,7 +24,7 @@ func (h Hot) HotFor(now time.Time) time.Duration { return now.Sub(h.HotSince) }
 // life. A sample that comes in low starts the window again, and because the window
 // is a span of time rather than a count of runs, an interval the agent missed costs
 // nothing.
-func cpuHot(prev CPUSample, procs []Process, now time.Time, share float64, window time.Duration) (CPUSample, []Hot) {
+func cpuHot(prev CPUSample, procs []process.Process, now time.Time, share float64, window time.Duration) (CPUSample, []Hot) {
 	sample := CPUSample{At: now.Unix(), Procs: make(map[string]ProcSample, len(procs))}
 	var hot []Hot
 

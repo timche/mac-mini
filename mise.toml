@@ -88,6 +88,14 @@ go = "1.27"
 # makes rather than references.
 "~/.config/hachiko/shibuya" = { source = "home/.config/hachiko/shibuya", mode = "symlink" }
 
+# `hachiko sync`, which commits and pushes the repositories its config lists. A plain
+# symlink like the agents above it, since it needs no WatchPaths: it polls `git status`
+# itself rather than being woken by a write. install.sh is what loads it, and only once
+# ~/projects/docs is a clone, since sync refuses a config naming a path that is not a
+# work tree.
+"~/.config/hachiko/sync" = { source = "home/.config/hachiko/sync", mode = "symlink" }
+"~/Library/LaunchAgents/io.github.timche.hachiko-sync.plist" = { source = "home/Library/LaunchAgents/io.github.timche.hachiko-sync.plist", mode = "symlink" }
+
 # `screencapture -l` of one app's window, by owner name rather than window id.
 "~/.local/bin/window-shot" = { source = "home/.local/bin/window-shot", mode = "symlink" }
 

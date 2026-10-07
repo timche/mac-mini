@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Symlinked into ~/Library/LaunchAgents from the [dotfiles] entry in mise.toml,
+     which launchd accepts: it resolves the link when the job is bootstrapped and
+     reads the file behind it.
+
+     launchd expands neither ~ nor $HOME in a plist — a $HOME in StandardOutPath is
+     an EX_CONFIG failure at load with nothing anywhere naming the key that was
+     wrong — but it does hand a gui-domain agent a HOME. So the PATH, the socket
+     and the log all move into a shell, which is the one thing here that can expand
+     one, and this file needs no rendering to name no account. No WatchPaths, which
+     is the one key that would have to arrive absolute: `hachiko sync` polls `git
+     status` itself rather than being woken by a write. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.github.timche.hachiko-sync</string>
+  <!-- The PATH is for the wrapper itself, for the mise that rebuilds the binary when
+       the sources have changed, for the op that resolves the webhook when there is a
+       failure to report, and for the git every pass shells out to. The socket is the
+       ssh-agent claude/ssh-agent.sh keeps the signing key in — these commits are
+       signed, and the SSH_AUTH_SOCK launchd hands out holds nothing. exec, so the
+       exit status launchd sees is the daemon's rather than sh's and KeepAlive below
+       still reads it. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>export PATH="$HOME/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"; export SSH_AUTH_SOCK="$HOME/.ssh/agent.sock"; exec "$HOME/.local/bin/hachiko" sync &gt;&gt;"$HOME/Library/Logs/hachiko-sync.log" 2&gt;&amp;1</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <!-- It exits rather than syncing blind when a repository's loop dies, and exits on
+       purpose when the wrapper has built a new binary behind it, so something has to
+       bring it back; SuccessfulExit keeps launchd from restarting one that was asked
+       to stop. launchd has no equivalent of a unit's start limit, so a daemon that
+       fails every start retries for as long as the Mac is up, and the log is the only
+       place that shows. -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <!-- Long enough that a daemon failing on every start paces itself rather than
+       spinning, and short enough that a replaced binary is running within seconds. -->
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+</dict>
+</plist>

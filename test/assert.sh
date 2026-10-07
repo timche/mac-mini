@@ -47,7 +47,7 @@ for path in .zshrc .zshenv .zprofile .bashrc .gitconfig \
             .config/git/worktree-install \
             .config/herdr/config.toml .config/starship.toml \
             .terminfo/x/xterm-ghostty .terminfo/78/xterm-ghostty \
-            .config/boswell/config.toml; do
+            .config/boswell/config.toml .config/hachiko/sync; do
   check "$path is a live symlink" "[ -L \"\$HOME/$path\" ] && [ -e \"\$HOME/$path\" ]"
 done
 
@@ -777,6 +777,73 @@ check "the watch notices a sweep that has stopped, and says nothing on a Mac wit
    grep -q "func (c Config) GCStamp()" "$repo/hachiko/internal/config/config.go" &&
    grep -q "s.gcStopped(state, now)" "$repo/hachiko/internal/watch/sweep.go"'
 
+# `hachiko sync`, which commits and pushes the repositories its config lists. It is a
+# long-running agent rather than a timer, so the plist is the whole of its wiring; the
+# shape and the reasoning are boswell's, which the checks above read the same way.
+export sync_plist="$HOME/Library/LaunchAgents/io.github.timche.hachiko-sync.plist"
+
+check "the sync agent is a link into the checkout and a valid plist" \
+  '[ -L "$sync_plist" ] && [ -e "$sync_plist" ] && plutil -lint "$sync_plist" &&
+   [ "$sync_plist" -ef "$repo/home/Library/LaunchAgents/io.github.timche.hachiko-sync.plist" ] &&
+   ! grep -q "{{" "$sync_plist"'
+
+# launchd expands neither ~ nor $HOME in a plist, so every path this job needs belongs
+# to a shell — the one thing it hands a HOME to. No WatchPaths either, which is the one
+# key that would have to arrive absolute: sync polls `git status` itself.
+check "the sync agent runs hachiko sync through a shell, with no key launchd leaves unexpanded" \
+  '[ "$(plutil -extract ProgramArguments.0 raw -o - "$sync_plist")" = "/bin/sh" ] &&
+   [ "$(plutil -extract ProgramArguments.1 raw -o - "$sync_plist")" = "-c" ] &&
+   plutil -extract ProgramArguments.2 raw -o - "$sync_plist" |
+     grep -qF "exec \"\$HOME/.local/bin/hachiko\" sync" &&
+   ! plutil -extract StandardOutPath raw -o - "$sync_plist" &&
+   ! plutil -extract StandardErrorPath raw -o - "$sync_plist" &&
+   ! plutil -extract EnvironmentVariables xml1 -o - "$sync_plist" &&
+   ! plutil -extract WatchPaths xml1 -o - "$sync_plist"'
+
+# Its own commits are signed, and it reads no rc file: the socket has to come from the
+# agent or every push it makes fails on a key it cannot find. The PATH because launchd
+# hands a job almost none, and this one shells out to git on every pass.
+check "the sync agent reaches the ssh-agent holding the signing key, and git" \
+  'c="$(plutil -extract ProgramArguments.2 raw -o - "$sync_plist")" &&
+   printf "%s\n" "$c" | grep -qF "export SSH_AUTH_SOCK=\"\$HOME/.ssh/agent.sock\"" &&
+   printf "%s\n" "$c" | grep -qF "export PATH=\"\$HOME/.local/bin:" &&
+   printf "%s\n" "$c" | grep -qF ":/usr/bin:/bin:" &&
+   printf "%s\n" "$c" | grep -qF ">>\"\$HOME/Library/Logs/hachiko-sync.log\" 2>&1"'
+
+# It exits when a repository stops being synced and when the wrapper has built a new
+# binary behind it, which only helps if something brings it back — and only on a
+# failure, so one that was told to stop stays stopped.
+check "a sync that exits is restarted, after a wait" \
+  'plutil -extract RunAtLoad xml1 -o - "$sync_plist" | grep -q "<true/>" &&
+   plutil -extract KeepAlive.SuccessfulExit xml1 -o - "$sync_plist" | grep -q "<false/>" &&
+   [ "$(plutil -extract ThrottleInterval raw -o - "$sync_plist")" = 10 ]'
+
+# One config names both repositories, and the docs one is the easy one to forget: it is
+# cloned by install.sh rather than being the clone install.sh runs from. It ships as a
+# dry run, which is what lets it be loaded beside boswell without committing twice —
+# flipping that one line is the cutover.
+check "the sync config names both repositories and starts as a dry run" \
+  'grep -qx "mode = dry-run" "$HOME/.config/hachiko/sync" &&
+   grep -qx "repo = ~/projects/docs" "$HOME/.config/hachiko/sync" &&
+   grep -qx "repo = ~/.mac-mini" "$HOME/.config/hachiko/sync" &&
+   ! grep -q "/Users/" "$HOME/.config/hachiko/sync"'
+
+check "install.sh loads the sync agent behind the same gate as boswell, and reloads a changed one" \
+  'grep -q "launchctl bootstrap \"gui/\$uid\" \"\$sync_plist\"" "$repo/install.sh" &&
+   grep -q "launchctl bootout \"gui/\$uid/\$sync_label\"" "$repo/install.sh" &&
+   grep -q "cmp -s \"\$sync_plist\" \"\$sync_loaded\"" "$repo/install.sh" &&
+   grep -q "elif \[ \"\$boswell_ready\" != true \]; then" "$repo/install.sh"'
+
+# sync writes a heartbeat every half minute and the watch reads its age: a sync that has
+# stopped is the one thing about it nothing on this Mac could otherwise notice. The plist
+# being there is what makes the watch look at all, so a Mac install.sh has not reached is
+# not one reported as having stopped.
+check "the watch notices a sync that has stopped, and says nothing on a Mac with no sync agent" \
+  'grep -q "io.github.timche.hachiko-sync.plist" "$repo/hachiko/internal/config/config.go" &&
+   grep -q "func (c Config) SyncStamp()" "$repo/hachiko/internal/config/config.go" &&
+   grep -q "s.syncStopped(state, now)" "$repo/hachiko/internal/watch/sweep.go" &&
+   grep -q "func syncLastBeat" "$repo/hachiko/internal/watch/deps.go"'
+
 # hachiko, the one compiled tool here. Its behaviour is `go test ./...` in hachiko/,
 # which drives the whole of the decision-making against injected seams; what is left
 # for this script is the wiring a Go test cannot see — the links, the agent, and the
@@ -786,7 +853,65 @@ check "hachiko is a live symlink and runs through its wrapper" \
    hachiko --help | grep -q "dry-run" &&
    hachiko --help | grep -q "notify" &&
    hachiko --help | grep -q "oncall" &&
-   hachiko --help | grep -q "gc"'
+   hachiko --help | grep -q "gc" &&
+   hachiko --help | grep -q "sync"'
+
+# A binary that compiles is not one that works, and the agents it runs include the one
+# that commits and pushes every repository on the Mac — so the whole module's tests run
+# between the build and the move into place. A failing test keeps the last binary
+# exactly as a failing build does, and records no hash, so the next run tries again.
+#
+# Two deadlines rather than one shared between them: a slow build would otherwise leave
+# the tests a few seconds and make a suite that ran fine look hung.
+# Build, then test, then the move into place, in that order — and the hash written once,
+# after both, since a failing test that recorded it would never be tried again.
+check "the wrapper runs the tests between the build and the move, and records no hash until both pass" \
+  'w="$repo/home/.local/bin/hachiko" &&
+   grep -q "^build_timeout=120\$" "$w" &&
+   grep -q "^test_timeout=120\$" "$w" &&
+   grep -q "bounded \"\$test_timeout\" \"\$out\"" "$w" &&
+   grep -q "go test -C \"\$src\" \./\.\.\." "$w" &&
+   grep -q "the tests in \$src do not pass" "$w" &&
+   [ "$(grep -c "\"\$hash\" >\"\$stamp\"" "$w")" = 1 ] &&
+   build_at=$(grep -n "bounded \"\$build_timeout\"" "$w" | cut -d: -f1) &&
+   test_at=$(grep -n "bounded \"\$test_timeout\"" "$w" | cut -d: -f1) &&
+   move_at=$(grep -n "mv -f \"\$cache/hachiko" "$w" | cut -d: -f1) &&
+   hash_at=$(grep -n ">\"\$stamp\"" "$w" | cut -d: -f1) &&
+   [ "$build_at" -lt "$test_at" ] && [ "$test_at" -lt "$move_at" ] &&
+   [ "$test_at" -lt "$hash_at" ]'
+
+# A copy of the checkout rather than the checkout, because the test below has to break a
+# test on purpose and boswell commits anything dirty in this repository five seconds after
+# the last write. The wrapper finds the repository through its own resolved path, so a copy
+# with the wrapper in it is a whole second machine as far as it is concerned.
+#
+# The whole of home/ comes with it, because the tests read the files this repo ships —
+# the sync config among them — through their own relative path out of hachiko/.
+# MISE_TRUSTED_CONFIG_PATHS rather than `mise trust`, which would leave a temp folder in
+# the machine's trust store on every run.
+gate_fixture() {
+  local dir="$1"
+
+  cp "$repo/mise.toml" "$repo/mise.lock" "$dir/"
+  cp -R "$repo/hachiko" "$dir/hachiko"
+  cp -R "$repo/home" "$dir/home"
+}
+export -f gate_fixture
+
+# The gate is the whole of what stands between an edit and the agents running it: what
+# lands in this repository is main with no review behind it, and the wrapper is what
+# refuses to install a tree whose tests do not pass.
+check "a build whose tests fail leaves the binary that was already there" \
+  'd="$(mktemp -d)" && gate_fixture "$d" &&
+   export MISE_TRUSTED_CONFIG_PATHS="$d" HACHIKO_CACHE_DIR="$d/cache" &&
+   "$d/home/.local/bin/hachiko" --help >/dev/null &&
+   was="$(shasum -a 256 "$d/cache/hachiko" | cut -d" " -f1)" &&
+   printf "package wording\n\nimport \"testing\"\n\nfunc TestTheGateMustCatchThis(t *testing.T) { t.Fatal(\"on purpose\") }\n" \
+     > "$d/hachiko/internal/wording/zz_gate_test.go" &&
+   out="$("$d/home/.local/bin/hachiko" --help 2>&1 >/dev/null)" &&
+   printf "%s" "$out" | grep -q "do not pass" &&
+   [ "$was" = "$(shasum -a 256 "$d/cache/hachiko" | cut -d" " -f1)" ] &&
+   ! ls "$d/cache"/hachiko.* >/dev/null 2>&1'
 
 # Beside the wrapper because that is where the wrapper looks: `op run --env-file` is
 # given the path next to the script's own resolved location, so a missing link is an

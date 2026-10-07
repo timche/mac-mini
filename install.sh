@@ -628,6 +628,48 @@ else
   fi
 fi
 
+# `hachiko sync`, which commits and pushes the repositories ~/.config/hachiko/sync
+# lists. The shape is boswell's above, and so is the gate: it watches the same two
+# repositories and refuses a config naming a path that is not a work tree, so a Mac
+# whose docs clone failed is left unsynced rather than restart-looping.
+#
+# It is loaded beside boswell on purpose, and the config it ships with is what makes
+# that safe: `mode = dry-run` means this agent reports what it would commit and push
+# and changes nothing, so nothing is committed twice. Flipping that one line to
+# `live` is the cutover, and boswell goes after it.
+sync_label=io.github.timche.hachiko-sync
+sync_plist="$HOME/Library/LaunchAgents/$sync_label.plist"
+sync_loaded="$state/$sync_label.plist.loaded"
+
+if [ ! -f "$sync_plist" ]; then
+  echo "$sync_plist is missing — mise links it from mise.toml" >&2
+elif [ "$boswell_ready" != true ]; then
+  echo "$sync_label is not running — it watches $docs too and refuses a config" \
+       "naming a path that is not a git repository; clone it and re-run" \
+       "install.sh" >&2
+else
+  sync_is_loaded=false
+  if launchctl print "gui/$uid/$sync_label" >/dev/null 2>&1; then
+    sync_is_loaded=true
+  fi
+
+  if [ "$sync_is_loaded" = true ] && ! cmp -s "$sync_plist" "$sync_loaded"; then
+    launchctl bootout "gui/$uid/$sync_label" || true
+    sync_is_loaded=false
+  fi
+
+  if [ "$sync_is_loaded" = true ]; then
+    echo "$sync_label is already loaded"
+  elif launchctl bootstrap "gui/$uid" "$sync_plist"; then
+    mkdir -p "$state" && cp "$sync_plist" "$sync_loaded"
+    echo "loaded $sync_label"
+  else
+    echo "could not load $sync_label — the gui/$uid domain needs a GUI session" \
+         "logged in on the Mac; until it is loaded nothing of this repository's" \
+         "own syncing runs, and \`hachiko sync --once\` runs by hand" >&2
+  fi
+fi
+
 # The proxy agent this repo no longer makes, which ran portless as the account on
 # a port of its own. sh.portless.proxy holds 443, and an agent left loaded would
 # hold a second proxy while the two fight over ~/.portless/proxy.port, which is

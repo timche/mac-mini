@@ -7,7 +7,9 @@
 // that alert — the on-call session hachiko opens in herdr to work an incident, the two
 // commands that session runs for itself, and the listener that takes Tim's reply to it out
 // of Discord. `hachiko gc` is the other thing a Mac with nobody at it needs: every ten
-// minutes it sweeps what a removed worktree and a finished session left behind.
+// minutes it sweeps what a removed worktree and a finished session left behind. `hachiko
+// sync` is the third, and the one that never finishes: it polls the repositories it is given
+// and commits and pushes what gets written in them, so a session's work publishes itself.
 //
 // Nothing in this file does any of it: it parses the command and hands it to the package
 // that owns it, which is what keeps a new one to one case and one import.

@@ -1,4 +1,10 @@
-package main
+// Package totp is the second factor on an action from the never list. Why there is one
+// at all: a reply in Discord is whoever holds Tim's Discord account, and most of what he
+// replies is harmless — pick option two, stop the worker, leave it alone. What is not
+// harmless is the never list, and an account taken over should not be able to reach it.
+// So an action on that list needs a code from the authenticator on his phone as well,
+// checked here on the Mac against a secret the on-call agent is never given.
+package totp
 
 import (
 	"crypto/hmac"
@@ -13,19 +19,12 @@ import (
 	"time"
 )
 
-// Why there is a second factor at all: a reply in Discord is whoever holds Tim's Discord
-// account, and most of what he replies is harmless — pick option two, stop the worker,
-// leave it alone. What is not harmless is the never list, and an account taken over
-// should not be able to reach it. So an action on that list needs a code from the
-// authenticator on his phone as well, checked here on the Mac against a secret the
-// on-call agent is never given.
-//
 // RFC 6238 with the defaults every authenticator uses: SHA-1, thirty seconds, six
 // digits, and one step either side for a code typed a moment late.
 const (
-	totpStep   = 30 * time.Second
-	totpDigits = 6
-	totpSkew   = 1
+	stepLength = 30 * time.Second
+	codeDigits = 6
+	skew       = 1
 )
 
 // The secret as 1Password hands it over. An OTP field holds an otpauth:// URI and a
@@ -33,7 +32,7 @@ const (
 // `op read` answers with is 1Password's decision rather than this one's — so both are
 // read, and a URI asking for anything this does not implement is refused rather than
 // verified against the wrong algorithm.
-func totpSecret(value string) ([]byte, error) {
+func Secret(value string) ([]byte, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return nil, errors.New("there is no approval secret, so no code can be checked")
@@ -49,8 +48,8 @@ func totpSecret(value string) ([]byte, error) {
 		if algorithm := query.Get("algorithm"); algorithm != "" && !strings.EqualFold(algorithm, "SHA1") {
 			return nil, fmt.Errorf("the approval secret asks for %s and this checks SHA1", algorithm)
 		}
-		if digits := query.Get("digits"); digits != "" && digits != fmt.Sprint(totpDigits) {
-			return nil, fmt.Errorf("the approval secret asks for %s digits and this checks %d", digits, totpDigits)
+		if digits := query.Get("digits"); digits != "" && digits != fmt.Sprint(codeDigits) {
+			return nil, fmt.Errorf("the approval secret asks for %s digits and this checks %d", digits, codeDigits)
 		}
 		if period := query.Get("period"); period != "" && period != "30" {
 			return nil, fmt.Errorf("the approval secret asks for a %s second step and this checks 30", period)
@@ -68,7 +67,7 @@ func totpSecret(value string) ([]byte, error) {
 	return secret, nil
 }
 
-func totpAt(secret []byte, step int64) string {
+func At(secret []byte, step int64) string {
 	var counter [8]byte
 	binary.BigEndian.PutUint64(counter[:], uint64(step))
 
@@ -79,22 +78,22 @@ func totpAt(secret []byte, step int64) string {
 	offset := sum[len(sum)-1] & 0x0f
 	truncated := binary.BigEndian.Uint32(sum[offset:offset+4]) & 0x7fffffff
 
-	return fmt.Sprintf("%0*d", totpDigits, truncated%1_000_000)
+	return fmt.Sprintf("%0*d", codeDigits, truncated%1_000_000)
 }
 
 // The step a code belongs to, which is what makes one accepted once: a code is good for
 // thirty seconds and would otherwise be good for all of them, and a reply nobody can
 // take back is one somebody can replay.
-func totpVerify(secret []byte, code string, now time.Time) (int64, bool) {
+func Verify(secret []byte, code string, now time.Time) (int64, bool) {
 	code = strings.TrimSpace(code)
-	if len(code) != totpDigits {
+	if len(code) != codeDigits {
 		return 0, false
 	}
 
-	current := now.Unix() / int64(totpStep.Seconds())
-	for drift := -totpSkew; drift <= totpSkew; drift++ {
+	current := now.Unix() / int64(stepLength.Seconds())
+	for drift := -skew; drift <= skew; drift++ {
 		step := current + int64(drift)
-		if subtle.ConstantTimeCompare([]byte(totpAt(secret, step)), []byte(code)) == 1 {
+		if subtle.ConstantTimeCompare([]byte(At(secret, step)), []byte(code)) == 1 {
 			return step, true
 		}
 	}

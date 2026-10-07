@@ -14,6 +14,7 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
+	"github.com/timche/mac-mini/hachiko/internal/totp"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -277,14 +278,14 @@ func (l *listener) approve(incident, thread, messageID, code string) {
 		return
 	}
 
-	secret, err := totpSecret(l.secret)
+	secret, err := totp.Secret(l.secret)
 	if err != nil {
 		l.log.Say("a code arrived for %s and there is nothing to check it against: %v", incident, err)
 		l.sayInThread(thread, "Code not accepted.")
 		return
 	}
 
-	step, ok := totpVerify(secret, code, l.now())
+	step, ok := totp.Verify(secret, code, l.now())
 	if !ok || l.usedStep(step) {
 		l.wrongCode(incident, thread, action)
 		return

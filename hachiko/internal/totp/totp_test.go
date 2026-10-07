@@ -1,9 +1,11 @@
-package main
+package totp
 
 import (
 	"encoding/base32"
 	"testing"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/harness"
 )
 
 // RFC 6238's own vectors for HMAC-SHA1, which is what every authenticator does by default.
@@ -24,12 +26,12 @@ func TestTOTPAgreesWithRFC6238(t *testing.T) {
 		{20000000000, "353130"},
 	} {
 		step := tc.at / 30
-		equal(t, totpAt(secret, step), tc.want, "the code at the step covering unix time")
+		harness.Equal(t, At(secret, step), tc.want, "the code at the step covering unix time")
 
 		// And the same code verifies at that moment, which is the direction this is used in.
-		matched, ok := totpVerify(secret, tc.want, time.Unix(tc.at, 0))
-		equal(t, ok, true, "whether the published code verifies")
-		equal(t, matched, step, "the step it verified at")
+		matched, ok := Verify(secret, tc.want, time.Unix(tc.at, 0))
+		harness.Equal(t, ok, true, "whether the published code verifies")
+		harness.Equal(t, matched, step, "the step it verified at")
 	}
 }
 
@@ -41,24 +43,24 @@ func TestACodeVerifiesOneStepEitherSideAndNoFurther(t *testing.T) {
 	step := now.Unix() / 30
 
 	for _, drift := range []int64{-1, 0, 1} {
-		_, ok := totpVerify(secret, totpAt(secret, step+drift), now)
-		equal(t, ok, true, "whether a code one step away verifies")
+		_, ok := Verify(secret, At(secret, step+drift), now)
+		harness.Equal(t, ok, true, "whether a code one step away verifies")
 	}
 	for _, drift := range []int64{-2, 2, 100} {
-		_, ok := totpVerify(secret, totpAt(secret, step+drift), now)
-		equal(t, ok, false, "whether a code further away verifies")
+		_, ok := Verify(secret, At(secret, step+drift), now)
+		harness.Equal(t, ok, false, "whether a code further away verifies")
 	}
 
 	// Nothing that is not six digits is a code at all, and the right code for the wrong
 	// secret is not one either.
 	for _, bad := range []string{"", "12345", "1234567", "abcdef", "050472"} {
-		_, ok := totpVerify(secret, bad, now)
-		equal(t, ok, false, "whether "+bad+" verifies")
+		_, ok := Verify(secret, bad, now)
+		harness.Equal(t, ok, false, "whether "+bad+" verifies")
 	}
 
 	// Whitespace around it is the shape a code pasted off a phone has.
-	_, ok := totpVerify(secret, " 050471 ", now)
-	equal(t, ok, true, "whether a code with spaces around it verifies")
+	_, ok := Verify(secret, " 050471 ", now)
+	harness.Equal(t, ok, true, "whether a code with spaces around it verifies")
 }
 
 // Which of the two forms `op read` answers with for a one-time-password field is 1Password's
@@ -75,11 +77,11 @@ func TestTheApprovalSecretIsReadFromEitherFormOpGivesBack(t *testing.T) {
 		"otpauth://totp/hachiko:approval?secret=" + encoded + "&issuer=hachiko",
 		"otpauth://totp/hachiko?secret=" + encoded + "&algorithm=SHA1&digits=6&period=30",
 	} {
-		secret, err := totpSecret(value)
+		secret, err := Secret(value)
 		if err != nil {
 			t.Fatalf("%s was refused: %v", value, err)
 		}
-		equal(t, string(secret), string(want), "the secret read from "+value)
+		harness.Equal(t, string(secret), string(want), "the secret read from "+value)
 	}
 
 	for _, bad := range []string{
@@ -91,7 +93,7 @@ func TestTheApprovalSecretIsReadFromEitherFormOpGivesBack(t *testing.T) {
 		"otpauth://totp/x?secret=" + encoded + "&period=60",
 		"otpauth://totp/x?issuer=hachiko",
 	} {
-		if _, err := totpSecret(bad); err == nil {
+		if _, err := Secret(bad); err == nil {
 			t.Errorf("%q was accepted as an approval secret", bad)
 		}
 	}
@@ -111,11 +113,11 @@ func TestASecretIsReadHoweverItWasCopiedOut(t *testing.T) {
 	}
 
 	for _, value := range []string{spaced, lower(encoded), lower(spaced)} {
-		secret, err := totpSecret(value)
+		secret, err := Secret(value)
 		if err != nil {
 			t.Fatalf("%q was refused: %v", value, err)
 		}
-		equal(t, string(secret), string(want), "the secret read from "+value)
+		harness.Equal(t, string(secret), string(want), "the secret read from "+value)
 	}
 }
 

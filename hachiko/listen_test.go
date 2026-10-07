@@ -14,6 +14,7 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
+	"github.com/timche/mac-mini/hachiko/internal/totp"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -502,9 +503,9 @@ func TestAnUnconfiguredListenerSaysSoOnceAndAgainWhenItChanges(t *testing.T) {
 func currentCode(t *testing.T, f *listenFixture) string {
 	t.Helper()
 
-	secret, err := totpSecret(approvalSecret)
+	secret, err := totp.Secret(approvalSecret)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return totpAt(secret, f.l.now().Unix()/30)
+	return totp.At(secret, f.l.now().Unix()/30)
 }

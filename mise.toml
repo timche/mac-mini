@@ -65,7 +65,6 @@ go = "1.27"
 # and expands no $HOME in it, so that path has to arrive already absolute.
 "~/Library/LaunchAgents/io.github.timche.worktree-gc.plist" = { source = "home/Library/LaunchAgents/io.github.timche.worktree-gc.plist", mode = "template" }
 
-
 # The sweep that follows a removed worktree. In ~/.local/bin rather than under
 # ~/.claude, because it is the machine's rather than Claude Code's: the
 # LaunchAgent runs it on a timer whether or not a session is up.
@@ -95,13 +94,10 @@ go = "1.27"
 # `screencapture -l` of one app's window, by owner name rather than window id.
 "~/.local/bin/window-shot" = { source = "home/.local/bin/window-shot", mode = "symlink" }
 
-"~/.local/bin/memlog" = { source = "home/.local/bin/memlog", mode = "symlink" }
-
 # Ahead of Homebrew's op on PATH, so a project's `op run` is signed in with the
 # service-account token without the project knowing how.
 "~/.local/bin/op" = { source = "home/.local/bin/op", mode = "symlink" }
 
-"~/Library/LaunchAgents/io.github.timche.memlog.plist" = { source = "home/Library/LaunchAgents/io.github.timche.memlog.plist", mode = "symlink" }
 "~/Library/LaunchAgents/io.github.timche.hachiko.plist" = { source = "home/Library/LaunchAgents/io.github.timche.hachiko.plist", mode = "symlink" }
 "~/Library/LaunchAgents/io.github.timche.hachiko-listen.plist" = { source = "home/Library/LaunchAgents/io.github.timche.hachiko-listen.plist", mode = "symlink" }
 "~/.config/betterleaks/betterleaks.toml" = { source = "home/.config/betterleaks/betterleaks.toml", mode = "symlink" }

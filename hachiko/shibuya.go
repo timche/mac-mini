@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/logs"
 )
 
 // The check-in with shibuya, which is the half of the watch that is not on this Mac.
@@ -87,7 +88,7 @@ func (s switchClient) send(in Checkin) (string, string) {
 		// The token is redacted the way the webhook is: net/http names the URL it failed on,
 		// and a header value has no business in a log either way.
 		return checkinFailed, fmt.Sprintf("shibuya did not take this check-in, so it may say this Mac is offline: %v",
-			redactSecret(err.Error(), token, "the ping token"))
+			logs.Redact(err.Error(), token, "the ping token"))
 	}
 	return checkinSent, ""
 }

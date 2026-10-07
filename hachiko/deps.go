@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/logs"
 )
 
 // Deps is everything a sweep learns about the machine or does to it. Each one is a
@@ -67,22 +68,9 @@ type Deps struct {
 	CheckIn func(in Checkin) (string, string)
 }
 
-const logTime = "2006-01-02T15:04:05-0700"
-
-// One line per thing that happened and nothing at all on a quiet check: this runs
-// every five minutes forever, into a log somebody reads only when something is wrong.
-type logger struct {
-	out io.Writer
-	now func() time.Time
-}
-
-func (l logger) say(format string, args ...any) {
-	fmt.Fprintf(l.out, "%s hachiko: %s\n", l.now().Format(logTime), fmt.Sprintf(format, args...))
-}
-
 func realDeps(cfg config.Config) Deps {
 	now := config.ClockFromEnv()
-	log := logger{out: os.Stdout, now: now}
+	log := logs.Logger{Out: os.Stdout, Now: now}
 
 	// The volume free space is being counted on, so a path that has become a link to
 	// another one is not truncated in its name.

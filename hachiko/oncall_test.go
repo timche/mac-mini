@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/logs"
 )
 
 // The shapes the real herdr CLI answers in, so a regression here is caught without a
@@ -160,7 +161,7 @@ func newOncaller(t *testing.T, herdr *fakeHerdr) (oncaller, string, *bytes.Buffe
 	// times the status is read back, and sleeping the real window through would be five
 	// seconds of nothing per case.
 	o := oncaller{
-		cfg: cfg, run: herdr.run, now: now, log: logger{out: log, now: now},
+		cfg: cfg, run: herdr.run, now: now, log: logs.Logger{Out: log, Now: now},
 		escWindow: time.Second, escInterval: 100 * time.Millisecond,
 		sleep: func(time.Duration) {},
 	}

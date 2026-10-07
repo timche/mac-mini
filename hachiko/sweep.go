@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/logs"
 )
 
 type sweeper struct {
@@ -20,7 +21,7 @@ type sweeper struct {
 }
 
 func (s sweeper) say(format string, args ...any) {
-	logger{out: s.deps.Log, now: s.deps.Now}.say(format, args...)
+	logs.Logger{Out: s.deps.Log, Now: s.deps.Now}.Say(format, args...)
 }
 
 // Every message about an incident in one place. With the bot configured, the first message

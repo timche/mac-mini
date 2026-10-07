@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/logs"
 )
 
 // What this is for: Tim wakes up, reads one message on his phone, and answers it there.
@@ -49,7 +50,7 @@ var (
 // process does. One op call per start rather than one per poll, which is what keeps a
 // five-second loop off the service account's daily limit.
 func listen(cfg config.Config) error {
-	log := logger{out: os.Stdout, now: config.ClockFromEnv()}
+	log := logs.Logger{Out: os.Stdout, Now: config.ClockFromEnv()}
 	store := Store{dir: cfg.StateDir}
 
 	if !cfg.Discord.On() {
@@ -78,7 +79,7 @@ func listen(cfg config.Config) error {
 // else; it is never written, never an argument, and taken out of every error that leaves
 // here.
 func listenWithToken(cfg config.Config) error {
-	log := logger{out: os.Stdout, now: config.ClockFromEnv()}
+	log := logs.Logger{Out: os.Stdout, Now: config.ClockFromEnv()}
 
 	store := Store{dir: cfg.StateDir}
 
@@ -112,13 +113,13 @@ func listenWithToken(cfg config.Config) error {
 // line on every start is a line every five minutes for the life of the Mac about something
 // that is not wrong. So the state it last said is written down, and it says nothing again
 // until that changes — which is also how turning the feature on gets a line of its own.
-func sayOnce(store Store, log logger, state, message string) {
+func sayOnce(store Store, log logs.Logger, state, message string) {
 	path := filepath.Join(store.dir, "listen", "said")
 
 	if was, err := os.ReadFile(path); err == nil && strings.TrimSpace(string(was)) == state {
 		return
 	}
-	log.say("%s", message)
+	log.Say("%s", message)
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err == nil {
 		os.WriteFile(path, []byte(state), 0o644)
@@ -131,7 +132,7 @@ type listener struct {
 	bot   discordBot
 	herdr herdrRunner
 	now   func() time.Time
-	log   interface{ say(string, ...any) }
+	log   interface{ Say(string, ...any) }
 
 	// The otpauth URI or base32 as 1Password handed it over, decoded only when a code
 	// actually arrives. Never given to the agent, never logged, and never in an argument.
@@ -180,7 +181,7 @@ func (l *listener) failed(incident, thread string, err error) {
 	// the same rule the rest of this log is written to.
 	if !t.said {
 		t.said = true
-		l.log.say("the thread for %s could not be read, so it is tried again in %s and not said again until it answers: %v",
+		l.log.Say("the thread for %s could not be read, so it is tried again in %s and not said again until it answers: %v",
 			incident, wait, err)
 	}
 }
@@ -188,7 +189,7 @@ func (l *listener) failed(incident, thread string, err error) {
 func (l *listener) answered(incident, thread string) {
 	t := l.troubleWith(thread)
 	if t.said {
-		l.log.say("the thread for %s is readable again", incident)
+		l.log.Say("the thread for %s is readable again", incident)
 	}
 	t.fails, t.said, t.nextTry = 0, false, time.Time{}
 }
@@ -257,12 +258,12 @@ If what he is asking for is on the never list, do not do it on the strength of t
 	}
 
 	if err := l.handTo(incident, lead, clip(text, replyLimit)); err != nil {
-		l.log.say("Tim's reply on %s did not reach the on-call session: %v", incident, err)
+		l.log.Say("Tim's reply on %s did not reach the on-call session: %v", incident, err)
 		l.sayInThread(thread, "That did not reach the agent: "+err.Error())
 		return
 	}
 
-	l.log.say("Tim's reply on %s was handed to the on-call session", incident)
+	l.log.Say("Tim's reply on %s was handed to the on-call session", incident)
 	l.acknowledge(thread, messageID)
 	_ = state
 }
@@ -281,7 +282,7 @@ func (l *listener) approve(incident, thread, messageID, code string) {
 
 	secret, err := totpSecret(l.secret)
 	if err != nil {
-		l.log.say("a code arrived for %s and there is nothing to check it against: %v", incident, err)
+		l.log.Say("a code arrived for %s and there is nothing to check it against: %v", incident, err)
 		l.sayInThread(thread, "Code not accepted.")
 		return
 	}
@@ -298,13 +299,13 @@ func (l *listener) approve(incident, thread, messageID, code string) {
 		incident)
 
 	if err := l.handTo(incident, lead, "approved: "+clip(action, replyLimit)); err != nil {
-		l.log.say("the approval on %s did not reach the on-call session: %v", incident, err)
+		l.log.Say("the approval on %s did not reach the on-call session: %v", incident, err)
 		l.sayInThread(thread, "The code was accepted but did not reach the agent: "+err.Error())
 		return
 	}
 
 	l.store.CloseApproval(incident)
-	l.log.say("an approved action on %s was handed to the on-call session", incident)
+	l.log.Say("an approved action on %s was handed to the on-call session", incident)
 	l.acknowledge(thread, messageID)
 }
 
@@ -322,13 +323,13 @@ func (l *listener) wrongCode(incident, thread, action string) {
 	if tries >= approvalTries {
 		l.store.CloseApproval(incident)
 		l.clearAttempts(incident)
-		l.log.say("%d codes for %s were not accepted, so the request to be allowed that action is cancelled",
+		l.log.Say("%d codes for %s were not accepted, so the request to be allowed that action is cancelled",
 			tries, incident)
 		l.sayInThread(thread, "Code not accepted. That was the third try, so the request is cancelled and the agent has to ask again.")
 		return
 	}
 
-	l.log.say("a code for %s was not accepted (%d of %d)", incident, tries, approvalTries)
+	l.log.Say("a code for %s was not accepted (%d of %d)", incident, tries, approvalTries)
 	l.sayInThread(thread, "Code not accepted.")
 }
 
@@ -395,7 +396,7 @@ func (l *listener) acknowledge(thread, messageID string) {
 
 func (l *listener) sayInThread(thread, text string) {
 	if _, err := l.bot.post(thread, text); err != nil {
-		l.log.say("nothing could be posted back to the thread: %v", err)
+		l.log.Say("nothing could be posted back to the thread: %v", err)
 	}
 }
 
@@ -500,7 +501,7 @@ func approvalRequest(cfg config.Config, incident, actionFile string) error {
 		return err
 	}
 
-	logger{out: os.Stdout, now: config.ClockFromEnv()}.say(
+	logs.Logger{Out: os.Stdout, Now: config.ClockFromEnv()}.Say(
 		"%s is waiting for a code from Tim before it does what it registered", incident)
 	return nil
 }

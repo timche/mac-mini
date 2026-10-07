@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/logs"
 )
 
 // The listener against the shapes Discord and herdr both answer in: a thread with messages
@@ -103,7 +104,7 @@ func newListener(t *testing.T) *listenFixture {
 		bot:    bot,
 		herdr:  f.herdr.run,
 		now:    now,
-		log:    logger{out: f.log, now: now},
+		log:    logs.Logger{Out: f.log, Now: now},
 		secret: approvalSecret,
 	}
 
@@ -476,7 +477,7 @@ func TestAThreadThatWillNotAnswerIsBackedOffAndSaidOnce(t *testing.T) {
 func TestAnUnconfiguredListenerSaysSoOnceAndAgainWhenItChanges(t *testing.T) {
 	store := Store{dir: filepath.Join(t.TempDir(), "state")}
 	out := &bytes.Buffer{}
-	log := logger{out: out, now: func() time.Time { return base }}
+	log := logs.Logger{Out: out, Now: func() time.Time { return base }}
 
 	for i := 0; i < 5; i++ {
 		sayOnce(store, log, "unconfigured", "nothing is configured")

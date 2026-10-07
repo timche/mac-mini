@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/logs"
 )
 
 // herdrRunner is the one call out to herdr, so a test drives the whole of this
@@ -173,14 +174,14 @@ var oncallName = regexp.MustCompile(`\A[a-z][a-z0-9-]*\z`)
 func openOncall(cfg config.Config, run herdrRunner, name, brief string) (OncallSession, error) {
 	now := config.ClockFromEnv()
 	// stderr, because the caller reads the tab label off stdout.
-	return oncaller{cfg: cfg, run: run, now: now, log: logger{out: os.Stderr, now: now}}.open(name, brief)
+	return oncaller{cfg: cfg, run: run, now: now, log: logs.Logger{Out: os.Stderr, Now: now}}.open(name, brief)
 }
 
 type oncaller struct {
 	cfg config.Config
 	run herdrRunner
 	now func() time.Time
-	log interface{ say(string, ...any) }
+	log interface{ Say(string, ...any) }
 
 	// How long herdr may go on calling an agent `blocked` after the esc that cancelled its
 	// question, and how often that is read back. Fields rather than constants so a test
@@ -221,7 +222,7 @@ func (o oncaller) nap(d time.Duration) {
 
 type discard struct{}
 
-func (discard) say(string, ...any) {}
+func (discard) Say(string, ...any) {}
 
 func (o oncaller) open(name, brief string) (OncallSession, error) {
 	if !oncallName.MatchString(name) {
@@ -250,14 +251,14 @@ func (o oncaller) open(name, brief string) (OncallSession, error) {
 			// this is newer — so the question goes and the session is asked again, rather
 			// than the commonest update of an incident reaching nobody.
 			if _, err := o.interrupt(name, updateLead(name), brief); err != nil {
-				o.log.say("the on-call session in tab %s is waiting on a question that could not be cancelled, so the update was not delivered: %v", existing, err)
+				o.log.Say("the on-call session in tab %s is waiting on a question that could not be cancelled, so the update was not delivered: %v", existing, err)
 				return OncallSession{
 					Tab: existing,
 					Say: "The agent is already waiting for you in herdr — attach: " +
 						herdrWhere(o.cfg, existing) + ". This update did not reach it.",
 				}, nil
 			}
-			o.log.say("the on-call session in tab %s was waiting on a question, so it was cancelled and the session was asked again", existing)
+			o.log.Say("the on-call session in tab %s was waiting on a question, so it was cancelled and the session was asked again", existing)
 			session := o.delivered(existing)
 			session.Cancelled = true
 			return session, nil
@@ -298,7 +299,7 @@ func (o oncaller) open(name, brief string) (OncallSession, error) {
 	// send. A tab that exists is named even when the brief did not reach it, since the
 	// alternative is an idle Claude in a tab the alert never mentions.
 	if _, err := herdrCall(o.run, "agent", "prompt", agent, o.openingPrompt(name, brief, label)); err != nil {
-		o.log.say("the on-call session was started in tab %s but the brief did not reach it: %v", label, err)
+		o.log.Say("the on-call session was started in tab %s but the brief did not reach it: %v", label, err)
 		return OncallSession{
 			Tab: label,
 			Say: "A session is open in herdr but the brief did not reach it, so nothing is being worked — attach: " +

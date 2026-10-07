@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/logs"
 )
 
 const usage = `usage: hachiko [--dry-run | --test-alert]
@@ -132,7 +133,7 @@ func notify(cfg config.Config, incident, messageFile string, outcome bool) error
 	}
 
 	store := Store{dir: cfg.StateDir}
-	log := logger{out: os.Stdout, now: config.ClockFromEnv()}
+	log := logs.Logger{Out: os.Stdout, Now: config.ClockFromEnv()}
 
 	// Into the incident's own thread when there is one, so the analysis is under the alert
 	// it is about and Tim's reply to it is somewhere the listener is already watching. Read
@@ -152,17 +153,17 @@ func notify(cfg config.Config, incident, messageFile string, outcome bool) error
 	// under five minutes has none of them to spend waiting. The next sweep is what
 	// clears the incident, and it looks here first.
 	if err := store.MarkReported(incident, fallbackOption(string(message)), outcome); err != nil {
-		log.say("the report on %s was sent, but it was not recorded, so the raw details may follow it: %v",
+		log.Say("the report on %s was sent, but it was not recorded, so the raw details may follow it: %v",
 			incident, err)
 		return nil
 	}
 
 	if outcome {
-		log.say("the on-call session reported the outcome of %s", incident)
+		log.Say("the on-call session reported the outcome of %s", incident)
 		return nil
 	}
 
-	log.say("the on-call session reported on %s", incident)
+	log.Say("the on-call session reported on %s", incident)
 	return nil
 }
 

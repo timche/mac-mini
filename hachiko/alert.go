@@ -11,13 +11,12 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"sort"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/logs"
 )
 
 // Discord takes 2,000 characters. What is over that is detail, and the on-call tab
@@ -169,7 +168,7 @@ func sendMode(stdin io.Reader, out Outgoing, channel string) (string, error) {
 		// Not a thread, because there is no thread: the next check tries the bot again.
 		//
 		// stderr, because stdout is where the thread id goes.
-		logger{out: os.Stderr, now: config.ClockFromEnv()}.say(
+		logs.Logger{Out: os.Stderr, Now: config.ClockFromEnv()}.Say(
 			"the bot would not post, so this message went to the webhook instead: %v", err)
 	}
 
@@ -208,7 +207,7 @@ func sendThroughBot(bot discordBot, channel string, out Outgoing) (string, error
 	// thread is found by the id Discord answers with rather than by its name.
 	thread, err := bot.openThread(channel, posted, threadName(out.Text))
 	if err != nil {
-		logger{out: os.Stderr, now: config.ClockFromEnv()}.say(
+		logs.Logger{Out: os.Stderr, Now: config.ClockFromEnv()}.Say(
 			"the message was posted but no thread could be opened on it, so the rest of this incident goes to the channel: %v", err)
 		return "", nil
 	}
@@ -288,7 +287,7 @@ func postPlain(client *http.Client, webhook, text string) error {
 
 // stderr, because stdout is where the id of the post goes.
 func say(format string, args ...any) {
-	logger{out: os.Stderr, now: config.ClockFromEnv()}.say(format, args...)
+	logs.Logger{Out: os.Stderr, Now: config.ClockFromEnv()}.Say(format, args...)
 }
 
 // Which post a message landed in. A forum webhook answers with the message, whose
@@ -424,34 +423,4 @@ func capMessage(message string) string {
 	return strings.TrimRight(strings.Join(kept, "\n"), "\n") + "\n" + truncatedTail
 }
 
-// net/http names the URL it failed on, and an alert that could not be sent is logged
-// where everything else is — so every spelling of it a message could carry goes. A
-// *url.Error prints the target through %q, which escapes a newline or a byte outside
-// ASCII and so spells the same URL differently; net/url hands back the percent-escaped
-// forms. Longest first, so a prefix of one does not break the match for another.
-func redact(text, webhook string) string { return redactSecret(text, webhook, "the webhook") }
-
-// The same for any secret that could reach an error text — shibuya's ping token is the
-// other one — since what it is called is the only thing that differs.
-func redactSecret(text, secret, name string) string {
-	secret = strings.TrimSpace(secret)
-	if secret == "" {
-		return text
-	}
-
-	quoted := strconv.Quote(secret)
-	forms := []string{
-		secret,
-		quoted[1 : len(quoted)-1],
-		url.QueryEscape(secret),
-		url.PathEscape(secret),
-	}
-	sort.Slice(forms, func(i, j int) bool { return len(forms[i]) > len(forms[j]) })
-
-	for _, form := range forms {
-		if form != "" {
-			text = strings.ReplaceAll(text, form, name)
-		}
-	}
-	return text
-}
+func redact(text, webhook string) string { return logs.Redact(text, webhook, "the webhook") }

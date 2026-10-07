@@ -13,6 +13,7 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/logs"
 	"github.com/timche/mac-mini/hachiko/internal/oncall"
 	"github.com/timche/mac-mini/hachiko/internal/process"
+	"github.com/timche/mac-mini/hachiko/internal/shibuya"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
@@ -267,7 +268,7 @@ func (s sweeper) run() error {
 // still running — or that it ran and did not finish its job, which is a Mac whose monitor is
 // half blind and nothing a dead man's switch would ever notice by itself.
 func (s sweeper) checkIn(state *statedir.State, corrupt bool, disk diskFindings, cpu cpuFindings, free int64, open int) {
-	in := Checkin{
+	in := shibuya.Checkin{
 		FreeGB:        gbNum(free),
 		OpenIncidents: open,
 		HotProcesses:  len(cpu.hot),
@@ -291,7 +292,7 @@ func (s sweeper) checkIn(state *statedir.State, corrupt bool, disk diskFindings,
 	if line != "" {
 		s.say("%s", line)
 	}
-	if now == checkinSent && was != "" {
+	if now == shibuya.Sent && was != "" {
 		s.say("shibuya is hearing from this Mac again")
 	}
 }

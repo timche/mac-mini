@@ -16,6 +16,7 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/discord"
 	"github.com/timche/mac-mini/hachiko/internal/oncall"
 	"github.com/timche/mac-mini/hachiko/internal/process"
+	"github.com/timche/mac-mini/hachiko/internal/shibuya"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
@@ -117,7 +118,7 @@ type fixture struct {
 
 	// What each sweep told shibuya, and what the switch answered: the state to remember and
 	// the line to log when that state is new.
-	checkins     []Checkin
+	checkins     []shibuya.Checkin
 	checkinState string
 	checkinSay   string
 }
@@ -172,7 +173,7 @@ func newFixture(t *testing.T) *fixture {
 		pid: 999001,
 		// A switch that takes every check-in, which is the Mac with shibuya configured and
 		// answering; a test that wants it otherwise says so.
-		checkinState: checkinSent,
+		checkinState: shibuya.Sent,
 		// The account hachiko runs as, which every process the fixture makes belongs to
 		// unless a test says otherwise: a process of somebody else's is a system process, and
 		// that is a test of its own.
@@ -304,7 +305,7 @@ func (f *fixture) deps() Deps {
 			}
 			return "", nil
 		},
-		CheckIn: func(in Checkin) (string, string) {
+		CheckIn: func(in shibuya.Checkin) (string, string) {
 			f.checkins = append(f.checkins, in)
 			return f.checkinState, f.checkinSay
 		},

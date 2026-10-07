@@ -1,4 +1,9 @@
-package main
+// Package shibuya is the check-in with hachiko's dead man's switch, which is the half of
+// the watch that is not on this Mac. Nothing here watches hachiko: a LaunchAgent that
+// never loaded, a sweep hung on a stale mount and a Mac that lost power are the same
+// silence, and a watch cannot report its own. So every sweep says it ran, and a quarter of
+// an hour without one is shibuya's message to send rather than this process's.
+package shibuya
 
 import (
 	"bytes"
@@ -18,12 +23,6 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
-// The check-in with shibuya, which is the half of the watch that is not on this Mac.
-// Nothing here watches hachiko: a LaunchAgent that never loaded, a sweep hung on a stale
-// mount and a Mac that lost power are the same silence, and a watch cannot report its own.
-// So every sweep says it ran, and a quarter of an hour without one is shibuya's message to
-// send rather than this process's.
-//
 // One attempt and ten seconds. A sweep runs every five minutes and holds a lock the next
 // twelve wait on, so a retry here would cost more than the ping is worth — the next sweep is
 // the retry, and the grace at the other end is three of them.
@@ -46,22 +45,22 @@ type Checkin struct {
 // The state the log is keyed on, so a Mac with no token configured says so once rather than
 // every five minutes for the life of the machine.
 const (
-	checkinSent        = "sent"
-	checkinFailed      = "failed"
-	checkinUnset       = "unconfigured"
-	checkinNoToken     = "no-token"
-	checkinTokenPublic = "token-readable"
+	Sent        = "sent"
+	Failed      = "failed"
+	Unset       = "unconfigured"
+	NoToken     = "no-token"
+	TokenPublic = "token-readable"
 )
 
-type switchClient struct {
+type Client struct {
 	cfg     config.Config
 	client  *http.Client
 	readURL func(path string) (string, error)
 	readKey func(path string) (string, error)
 }
 
-func newSwitch(cfg config.Config) switchClient {
-	return switchClient{
+func New(cfg config.Config) Client {
+	return Client{
 		cfg:     cfg,
 		client:  &http.Client{Timeout: checkinTimeout},
 		readURL: switchURL,
@@ -71,30 +70,30 @@ func newSwitch(cfg config.Config) switchClient {
 
 // What the sweep records and the log is keyed on: the state this check-in ended in, and the
 // line to say when that state is new.
-func (s switchClient) send(in Checkin) (string, string) {
+func (s Client) Send(in Checkin) (string, string) {
 	target, err := s.readURL(s.cfg.SwitchConfig)
 	if err != nil {
-		return checkinUnset, fmt.Sprintf("there is no shibuya to check in with, so nothing is watching hachiko: %v", err)
+		return Unset, fmt.Sprintf("there is no shibuya to check in with, so nothing is watching hachiko: %v", err)
 	}
 
 	token, err := s.readKey(s.cfg.SwitchToken)
 	switch {
 	case errors.Is(err, errTokenPublic):
-		return checkinTokenPublic, fmt.Sprintf("%v", err)
+		return TokenPublic, fmt.Sprintf("%v", err)
 	case err != nil:
-		return checkinNoToken, fmt.Sprintf("there is no ping token, so nothing is watching hachiko: %v", err)
+		return NoToken, fmt.Sprintf("there is no ping token, so nothing is watching hachiko: %v", err)
 	}
 
 	if err := s.post(target, token, in); err != nil {
 		// The token is redacted the way the webhook is: net/http names the URL it failed on,
 		// and a header value has no business in a log either way.
-		return checkinFailed, fmt.Sprintf("shibuya did not take this check-in, so it may say this Mac is offline: %v",
+		return Failed, fmt.Sprintf("shibuya did not take this check-in, so it may say this Mac is offline: %v",
 			logs.Redact(err.Error(), token, "the ping token"))
 	}
-	return checkinSent, ""
+	return Sent, ""
 }
 
-func (s switchClient) post(target, token string, in Checkin) error {
+func (s Client) post(target, token string, in Checkin) error {
 	path, body := "/ping", map[string]any{
 		"host":           switchHost(s.cfg.Host),
 		"free_gb":        in.FreeGB,

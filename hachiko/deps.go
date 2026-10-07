@@ -13,6 +13,7 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/logs"
 	"github.com/timche/mac-mini/hachiko/internal/oncall"
 	"github.com/timche/mac-mini/hachiko/internal/process"
+	"github.com/timche/mac-mini/hachiko/internal/shibuya"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -67,7 +68,7 @@ type Deps struct {
 	// Tells shibuya this sweep happened, which is the half of the watch that is not on this
 	// Mac. It answers with the state to remember and the one line to log when that state is
 	// new, since a Mac with no token configured has nothing to say every five minutes.
-	CheckIn func(in Checkin) (string, string)
+	CheckIn func(in shibuya.Checkin) (string, string)
 }
 
 func realDeps(cfg config.Config) Deps {
@@ -116,7 +117,7 @@ func realDeps(cfg config.Config) Deps {
 			return oncall.Oncaller{Cfg: cfg, Herdr: oncall.HerdrCLI, Now: now, Log: log}.PromptWith(kind, lead, "INCIDENT DATA", data)
 		},
 		Send:    func(out discord.Outgoing) (string, error) { return discord.SendThroughOP(cfg, out) },
-		CheckIn: newSwitch(cfg).send,
+		CheckIn: shibuya.New(cfg).Send,
 	}
 }
 

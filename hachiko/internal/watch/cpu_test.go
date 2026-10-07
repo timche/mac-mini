@@ -1,10 +1,11 @@
-package main
+package watch
 
 import (
 	"testing"
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/harness"
 	"github.com/timche/mac-mini/hachiko/internal/process"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 )
@@ -45,8 +46,8 @@ func TestHalfACoreExactlyCountsAsBusy(t *testing.T) {
 
 	sample, hot := cpuHot(prev, procs, base.Add(300*time.Second), 50, time.Hour)
 
-	equal(t, len(hot), 0, "processes hot before the window is out")
-	equal(t, sample.Procs["7018:"+start].HotSince, base.Unix(), "the start of the busy run")
+	harness.Equal(t, len(hot), 0, "processes hot before the window is out")
+	harness.Equal(t, sample.Procs["7018:"+start].HotSince, base.Unix(), "the start of the busy run")
 }
 
 func TestJustUnderHalfACoreIsNotBusy(t *testing.T) {
@@ -57,7 +58,7 @@ func TestJustUnderHalfACoreIsNotBusy(t *testing.T) {
 	procs := []process.Process{{PID: 7018, Start: start, CPU: 149 * time.Second}}
 
 	sample, _ := cpuHot(prev, procs, base.Add(300*time.Second), 50, time.Hour)
-	equal(t, sample.Procs["7018:"+start].HotSince, int64(0), "the start of the busy run")
+	harness.Equal(t, sample.Procs["7018:"+start].HotSince, int64(0), "the start of the busy run")
 }
 
 // Because the window is a span of time rather than a count of runs, an interval the
@@ -75,8 +76,8 @@ func TestAMissedIntervalDoesNotRestartTheWindow(t *testing.T) {
 	// An hour after the run began, but only half an hour after the previous sample.
 	_, hot := cpuHot(prev, procs, base.Add(3600*time.Second), 50, time.Hour)
 
-	equal(t, len(hot), 1, "processes hot after a missed interval")
-	equal(t, hot[0].HotSince.Unix(), base.Unix(), "the start of the busy run")
+	harness.Equal(t, len(hot), 1, "processes hot after a missed interval")
+	harness.Equal(t, hot[0].HotSince.Unix(), base.Unix(), "the start of the busy run")
 	// 2400 seconds of CPU over the 3600 the run has lasted.
 	if share := hot[0].Share; share < 66.6 || share > 66.7 {
 		t.Errorf("the average over the window is %.2f%%", share)

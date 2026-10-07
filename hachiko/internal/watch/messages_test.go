@@ -1,4 +1,4 @@
-package main
+package watch
 
 import (
 	"errors"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/discord"
+	"github.com/timche/mac-mini/hachiko/internal/harness"
 	"github.com/timche/mac-mini/hachiko/internal/oncall"
 	"github.com/timche/mac-mini/hachiko/internal/session"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
@@ -47,7 +48,7 @@ func TestMessages(t *testing.T) {
 				}
 			}
 			for _, want := range kind.wants {
-				wants(t, text, want)
+				harness.Wants(t, text, want)
 			}
 		})
 	}
@@ -281,7 +282,7 @@ var messageKinds = []messageKind{{
 		f.at(600 + warnAt).sweep()
 
 		text := f.lastSent()
-		equal(t, session.FallbackOption(text), "stop pid 5073 and empty the log", "the option hachiko reads back")
+		harness.Equal(t, session.FallbackOption(text), "stop pid 5073 and empty the log", "the option hachiko reads back")
 		return text
 	},
 }, {
@@ -391,8 +392,8 @@ func TestTheClearedReadingIsPlainWords(t *testing.T) {
 	prompt := f.lastInterrupt()
 	t.Logf("\n\nthe prompt that carries it:\n%s\n", prompt)
 
-	wants(t, prompt, "Nothing is growing fast any more, and free space is back over every mark at 500 GB.")
-	wants(t, prompt, "What fired this incident is no longer firing")
-	wants(t, prompt, "Check for yourself whether it has really resolved")
-	wants(t, prompt, incident)
+	harness.Wants(t, prompt, "Nothing is growing fast any more, and free space is back over every mark at 500 GB.")
+	harness.Wants(t, prompt, "What fired this incident is no longer firing")
+	harness.Wants(t, prompt, "Check for yourself whether it has really resolved")
+	harness.Wants(t, prompt, incident)
 }

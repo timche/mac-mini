@@ -1,9 +1,11 @@
-package main
+package watch
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/timche/mac-mini/hachiko/internal/harness"
 )
 
 // A regression: a shell `case` pattern follows the locale's collation, where an
@@ -42,7 +44,7 @@ func TestTheAllowlistSkipsBlankLinesAndReasons(t *testing.T) {
 	}
 
 	patterns := readAllowlist(path)
-	equal(t, len(patterns), 3, "patterns read")
+	harness.Equal(t, len(patterns), 3, "patterns read")
 
 	if !allowed(patterns, "/usr/libexec/mds", "mds") {
 		t.Error("a name in the allowlist was not allowed")

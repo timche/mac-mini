@@ -1,4 +1,4 @@
-package main
+package watch
 
 import (
 	"bytes"
@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/harness"
 )
 
 func writeKB(t *testing.T, path string, kb int64) {
@@ -50,8 +51,8 @@ func TestBigFilesFindsWhatIsOverTheFloorAndNothingUnderIt(t *testing.T) {
 	if found(got.Files, small) {
 		t.Errorf("a file under the floor was reported: %v", got.Files)
 	}
-	equal(t, got.CutShort, false, "whether the walk ran out of time")
-	equal(t, len(got.Stalled), 0, "stalled directories")
+	harness.Equal(t, got.CutShort, false, "whether the walk ran out of time")
+	harness.Equal(t, len(got.Stalled), 0, "stalled directories")
 }
 
 // A VM's sparse disk image is apparently hundreds of gigabytes it is not occupying,
@@ -244,9 +245,9 @@ func TestADirectoryThatNeverAnswersIsAbandonedAndNamed(t *testing.T) {
 		t.Fatalf("the walk waited %s on a directory that never answers", took)
 	}
 
-	equal(t, len(got.Stalled), 1, "stalled directories")
+	harness.Equal(t, len(got.Stalled), 1, "stalled directories")
 	if len(got.Stalled) == 1 {
-		equal(t, got.Stalled[0], hangs, "the directory that stalled")
+		harness.Equal(t, got.Stalled[0], hangs, "the directory that stalled")
 	}
 
 	// And the rest of the disk was still read, which is the whole point of abandoning it.
@@ -290,9 +291,9 @@ func TestAMountWhoseLstatNeverAnswersIsAbandonedLikeAnyOtherDirectory(t *testing
 		t.Fatalf("the walk waited %s on a mount whose lstat never answers", took)
 	}
 
-	equal(t, len(got.Stalled), 1, "stalled directories")
+	harness.Equal(t, len(got.Stalled), 1, "stalled directories")
 	if len(got.Stalled) == 1 {
-		equal(t, got.Stalled[0], dead, "the directory that stalled")
+		harness.Equal(t, got.Stalled[0], dead, "the directory that stalled")
 	}
 	if !found(got.Files, filepath.Join(root, "fine", "worker.log")) {
 		t.Errorf("the walk gave up on the rest of the disk: %v", got.Files)
@@ -360,7 +361,7 @@ func TestADirectoryAlreadyKnownToStallIsNotOpenedAgain(t *testing.T) {
 	if opened {
 		t.Error("a directory known to stall was opened again")
 	}
-	equal(t, len(got.Stalled), 0, "stalled directories on the second run")
+	harness.Equal(t, len(got.Stalled), 0, "stalled directories on the second run")
 }
 
 // Enough hung directories and the walk itself has to give up, so that the CPU check and
@@ -398,5 +399,5 @@ func TestAWalkThatRunsOutOfTimeSaysSoRatherThanWaiting(t *testing.T) {
 	if took > 5*time.Second {
 		t.Fatalf("the walk waited %s with every directory hung", took)
 	}
-	equal(t, got.CutShort, true, "whether the walk said it ran out of time")
+	harness.Equal(t, got.CutShort, true, "whether the walk said it ran out of time")
 }

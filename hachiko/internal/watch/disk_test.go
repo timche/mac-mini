@@ -1,9 +1,10 @@
-package main
+package watch
 
 import (
 	"testing"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/harness"
 )
 
 func TestTruncatableOnlyUnderTheRootsWhereAFileIsALog(t *testing.T) {
@@ -49,8 +50,8 @@ func TestGrowthReportsNothingWithoutAPreviousSample(t *testing.T) {
 
 	sizes, growing := growth(nil, files, 2*config.GiB, false)
 
-	equal(t, len(growing), 0, "files growing on the first sample")
-	equal(t, sizes["/tmp/a.log"], 10*config.GiB, "the size recorded on the first sample")
+	harness.Equal(t, len(growing), 0, "files growing on the first sample")
+	harness.Equal(t, sizes["/tmp/a.log"], 10*config.GiB, "the size recorded on the first sample")
 }
 
 // A file the previous sample has no line for was under the floor then, so the whole of
@@ -64,9 +65,9 @@ func TestAFileThatWasUnderTheFloorCountsItsWholeSizeAsGrowth(t *testing.T) {
 
 	_, growing := growth(prev, files, 2*config.GiB, true)
 
-	equal(t, len(growing), 1, "files growing")
-	equal(t, growing[0].Path, "/tmp/new.log", "the growing file")
-	equal(t, growing[0].GrewKB, 9*config.GiB, "the growth of a file that was under the floor")
+	harness.Equal(t, len(growing), 1, "files growing")
+	harness.Equal(t, growing[0].Path, "/tmp/new.log", "the growing file")
+	harness.Equal(t, growing[0].GrewKB, 9*config.GiB, "the growth of a file that was under the floor")
 }
 
 // Fastest first, because the fastest is the only one a truncate ever touches.
@@ -80,9 +81,9 @@ func TestGrowingFilesComeFastestFirst(t *testing.T) {
 
 	_, growing := growth(prev, files, 2*config.GiB, true)
 
-	equal(t, len(growing), 3, "files growing")
-	equal(t, growing[0].Path, "/tmp/b.log", "the fastest growing file")
-	equal(t, growing[2].Path, "/tmp/a.log", "the slowest growing file")
+	harness.Equal(t, len(growing), 3, "files growing")
+	harness.Equal(t, growing[0].Path, "/tmp/b.log", "the fastest growing file")
+	harness.Equal(t, growing[2].Path, "/tmp/a.log", "the slowest growing file")
 }
 
 func TestAFileThatShrankIsNotGrowing(t *testing.T) {
@@ -90,5 +91,5 @@ func TestAFileThatShrankIsNotGrowing(t *testing.T) {
 	files := []FileSize{{Path: "/tmp/a.log", KB: 1 * config.GiB}}
 
 	_, growing := growth(prev, files, 2*config.GiB, true)
-	equal(t, len(growing), 0, "files growing after a truncate")
+	harness.Equal(t, len(growing), 0, "files growing after a truncate")
 }

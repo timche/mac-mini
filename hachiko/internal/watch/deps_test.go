@@ -1,9 +1,11 @@
-package main
+package watch
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/timche/mac-mini/hachiko/internal/harness"
 )
 
 func TestTruncateEmptiesTheLogAndLeavesItThere(t *testing.T) {
@@ -28,7 +30,7 @@ func TestTruncateEmptiesTheLogAndLeavesItThere(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the log was removed rather than emptied: %v", err)
 	}
-	equal(t, info.Size(), int64(0), "the truncated log")
+	harness.Equal(t, info.Size(), int64(0), "the truncated log")
 }
 
 // Minutes pass between the walk that chose a path and the decision to empty it, and the
@@ -56,7 +58,7 @@ func TestTruncateRefusesALinkSwappedInForTheLog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	equal(t, info.Size(), int64(7), "the file the link pointed at")
+	harness.Equal(t, info.Size(), int64(7), "the file the link pointed at")
 }
 
 // The volume free space is being counted on, and nothing else: a path that has become a
@@ -81,7 +83,7 @@ func TestTruncateRefusesAFileOnAnotherVolume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	equal(t, info.Size(), int64(10), "the log on the other volume")
+	harness.Equal(t, info.Size(), int64(10), "the log on the other volume")
 }
 
 func TestTruncateRefusesWhatIsNotAFile(t *testing.T) {

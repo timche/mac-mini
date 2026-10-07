@@ -1,28 +1,28 @@
-// hachiko watches a Mac with no screen for the two failures nobody is there to
-// notice: a process logging into a file nothing bounds, and a process burning a core
-// for an hour after whatever wanted it has gone. Every five minutes, from the
-// io.github.timche.hachiko LaunchAgent.
+// hachiko is the account's caretaker for this Mac: the things that have to be looked
+// after on a machine with no screen and nobody at it, each of them a command of its own
+// and a package of its own behind that.
 //
-// Nothing here kills anything, and the one thing it changes is a truncate. An alert
-// is a one-line message the moment something fires, an on-call session in herdr that
-// investigates and reports the analysis itself, and hachiko's own raw details if
-// that session never reports — the session is the better alert and the worse
-// guarantee, so hachiko never depends on it for the first word.
+// The watch is the one with a LaunchAgent on it, and the one a bare `hachiko` runs: every
+// five minutes it checks free space and what is burning CPU, and alerts when it matters.
+// The rest are what grew out of that alert — the on-call session hachiko opens in herdr to
+// work an incident, the two commands that session runs for itself, and the listener that
+// takes Tim's reply to it out of Discord.
+//
+// Nothing in this file does any of it: it parses the command and hands it to the package
+// that owns it, which is what keeps a new one to one case and one import.
 package main
 
 import (
 	"errors"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/discord"
 	"github.com/timche/mac-mini/hachiko/internal/listen"
 	"github.com/timche/mac-mini/hachiko/internal/oncall"
 	"github.com/timche/mac-mini/hachiko/internal/session"
-	"github.com/timche/mac-mini/hachiko/internal/statedir"
-	"github.com/timche/mac-mini/hachiko/internal/wording"
+	"github.com/timche/mac-mini/hachiko/internal/watch"
 )
 
 const usage = `usage: hachiko [--dry-run | --test-alert]
@@ -104,7 +104,7 @@ func run(args []string) error {
 		case "--dry-run":
 			dry = true
 		case "--test-alert":
-			return testAlert(cfg)
+			return watch.TestAlert(cfg)
 		// Left out of the usage: these two are how the steps that hold the webhook URL and
 		// the bot token are re-entered under `op run`, and nothing else should call them.
 		case "--send":
@@ -119,8 +119,7 @@ func run(args []string) error {
 		}
 	}
 
-	deps := realDeps(cfg)
-	return sweeper{cfg: cfg, deps: deps, store: statedir.Store{Dir: cfg.StateDir}, dry: dry}.run()
+	return watch.Run(cfg, dry)
 }
 
 // The flags the `op run` child is handed: a channel and a thread, which are ids in a URL
@@ -152,24 +151,5 @@ func sendFromStdin(args []string) error {
 	if thread != "" {
 		fmt.Println(thread)
 	}
-	return nil
-}
-
-func testAlert(cfg config.Config) error {
-	free, err := freeKB(cfg.Home)
-	if err != nil {
-		return err
-	}
-
-	message := wording.Lead(wording.MarkerInfo, "Test alert from hachiko — nothing is wrong").
-		Field(wording.LabelFreeSpace, wording.GBUnit(free)).
-		About("", cfg.Host).
-		String()
-
-	if _, err := discord.SendThroughOP(cfg, discord.Outgoing{Text: message}); err != nil {
-		return err
-	}
-
-	fmt.Fprintf(os.Stdout, "%s hachiko: sent a test alert\n", time.Now().Format("2006-01-02T15:04:05-0700"))
 	return nil
 }

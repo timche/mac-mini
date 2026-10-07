@@ -1,4 +1,4 @@
-package main
+package watch
 
 import (
 	"bytes"
@@ -580,27 +580,6 @@ func (f *fixture) onlyPendingID() string {
 		f.t.Fatalf("expected one pending incident, got %v", ids)
 	}
 	return ids[0]
-}
-
-func wants(t *testing.T, text, want string) {
-	t.Helper()
-	if !strings.Contains(text, want) {
-		t.Errorf("expected %q in:\n%s", want, text)
-	}
-}
-
-func lacks(t *testing.T, text, unwanted string) {
-	t.Helper()
-	if strings.Contains(text, unwanted) {
-		t.Errorf("did not expect %q in:\n%s", unwanted, text)
-	}
-}
-
-func equal[T comparable](t *testing.T, got, want T, what string) {
-	t.Helper()
-	if got != want {
-		t.Errorf("%s: got %v, want %v", what, got, want)
-	}
 }
 
 var errSendFailed = errors.New("the webhook answered 500")

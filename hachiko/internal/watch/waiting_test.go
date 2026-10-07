@@ -1,4 +1,4 @@
-package main
+package watch
 
 import (
 	"errors"
@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/harness"
 	"github.com/timche/mac-mini/hachiko/internal/oncall"
 	"github.com/timche/mac-mini/hachiko/internal/session"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
@@ -71,32 +72,32 @@ func TestTheClockStartsWhenTheAgentIsFirstSeenOnItsQuestion(t *testing.T) {
 	f := waiting(t)
 
 	w := f.state().Waiting["disk"]
-	equal(t, w.Since, base.Unix()+600, "when the question went up")
-	equal(t, w.Default, "stop pid 4242 and empty the log", "the option read out of the report")
-	equal(t, w.Asked.FreeKB, 500*config.GiB, "the free space the question was asked with")
-	equal(t, f.sentCount(), 1, "messages sent while the question is new")
+	harness.Equal(t, w.Since, base.Unix()+600, "when the question went up")
+	harness.Equal(t, w.Default, "stop pid 4242 and empty the log", "the option read out of the report")
+	harness.Equal(t, w.Asked.FreeKB, 500*config.GiB, "the free space the question was asked with")
+	harness.Equal(t, f.sentCount(), 1, "messages sent while the question is new")
 }
 
 func TestAReminderGoesOutAtAnHourAndOnlyOnce(t *testing.T) {
 	f := waiting(t)
 
-	equal(t, f.at(600+remindAt-300).sweep(), "", "the log before the reminder is due")
-	equal(t, f.sentCount(), 1, "messages sent before the reminder is due")
+	harness.Equal(t, f.at(600+remindAt-300).sweep(), "", "the log before the reminder is due")
+	harness.Equal(t, f.sentCount(), 1, "messages sent before the reminder is due")
 
 	out := f.at(600 + remindAt).sweep()
-	wants(t, out, "reminded about disk-")
-	equal(t, f.sentCount(), 2, "messages sent once the reminder is due")
+	harness.Wants(t, out, "reminded about disk-")
+	harness.Equal(t, f.sentCount(), 2, "messages sent once the reminder is due")
 
-	wants(t, f.lastSent(), "\u26a0\ufe0f Still no answer on the disk incident after 12 minutes")
-	wants(t, f.lastSent(), "Answer in herdr: workspace `.mac-mini`, tab `disk-0000`.")
+	harness.Wants(t, f.lastSent(), "\u26a0\ufe0f Still no answer on the disk incident after 12 minutes")
+	harness.Wants(t, f.lastSent(), "Answer in herdr: workspace `.mac-mini`, tab `disk-0000`.")
 	// Re-measured this run rather than quoted from the question.
-	wants(t, f.lastSent(), "**Now:** 500 GB free")
+	harness.Wants(t, f.lastSent(), "**Now:** 500 GB free")
 
 	// Never twice, however many checks go by.
 	for at := 600 + remindAt + 300; at < 600+warnAt; at += 300 {
-		lacks(t, f.at(int64(at)).sweep(), "reminded about")
+		harness.Lacks(t, f.at(int64(at)).sweep(), "reminded about")
 	}
-	equal(t, f.sentCount(), 2, "messages sent before the warning is due")
+	harness.Equal(t, f.sentCount(), 2, "messages sent before the warning is due")
 }
 
 // A quarter of an hour's notice, with the option the session itself named: Tim answers
@@ -106,19 +107,19 @@ func TestTheWarningQuotesTheOptionTheSessionWouldFallBackOn(t *testing.T) {
 	f.at(600 + remindAt).sweep()
 
 	out := f.at(600 + warnAt).sweep()
-	wants(t, out, "from the handover")
-	equal(t, f.sentCount(), 3, "messages sent once the warning is due")
+	harness.Wants(t, out, "from the handover")
+	harness.Equal(t, f.sentCount(), 3, "messages sent once the warning is due")
 
-	wants(t, f.lastSent(), "\u26a0\ufe0f No answer on the disk incident \u2014 the agent decides in 3 minutes")
-	wants(t, f.lastSent(), "\n**If no answer:** stop pid 4242 and empty the log\n")
+	harness.Wants(t, f.lastSent(), "\u26a0\ufe0f No answer on the disk incident \u2014 the agent decides in 3 minutes")
+	harness.Wants(t, f.lastSent(), "\n**If no answer:** stop pid 4242 and empty the log\n")
 
 	// And the line hachiko parses a session's own option out of still parses, which is the
 	// whole of why it is a line of its own.
-	equal(t, session.FallbackOption(f.lastSent()), "stop pid 4242 and empty the log", "the option read back")
-	wants(t, f.lastSent(), "**Now:** 500 GB free")
+	harness.Equal(t, session.FallbackOption(f.lastSent()), "stop pid 4242 and empty the log", "the option read back")
+	harness.Wants(t, f.lastSent(), "**Now:** 500 GB free")
 
-	lacks(t, f.at(600+warnAt+60).sweep(), "from the handover")
-	equal(t, f.sentCount(), 3, "messages sent after the warning")
+	harness.Lacks(t, f.at(600+warnAt+60).sweep(), "from the handover")
+	harness.Equal(t, f.sentCount(), 3, "messages sent after the warning")
 }
 
 // The handover itself: the question goes first, because herdr refuses a prompt to an
@@ -130,27 +131,27 @@ func TestTheDecisionIsHandedOverAtTheDeadlineAndOnlyOnce(t *testing.T) {
 	f.at(600 + warnAt).sweep()
 
 	out := f.at(600 + handoverAt).sweep()
-	wants(t, out, "handed the decision on disk-")
-	wants(t, out, "with no answer")
-	equal(t, len(f.interrupts), 1, "questions cancelled")
-	equal(t, f.sentCount(), 3, "messages sent by hachiko for the handover itself")
+	harness.Wants(t, out, "handed the decision on disk-")
+	harness.Wants(t, out, "with no answer")
+	harness.Equal(t, len(f.interrupts), 1, "questions cancelled")
+	harness.Equal(t, f.sentCount(), 3, "messages sent by hachiko for the handover itself")
 
 	handover := f.lastInterrupt()
-	wants(t, handover, "Tim has not answered for 36 minutes")
-	wants(t, handover, "least destructive option that resolves it")
-	wants(t, handover, "Spawn the oncall-partner agent")
-	wants(t, handover, "Re-check the situation from scratch")
-	wants(t, handover, "hachiko notify disk-")
-	wants(t, handover, "What you said you would do if nobody answered: stop pid 4242 and empty the log")
-	wants(t, handover, "**Now:** 500 GB free")
+	harness.Wants(t, handover, "Tim has not answered for 36 minutes")
+	harness.Wants(t, handover, "least destructive option that resolves it")
+	harness.Wants(t, handover, "Spawn the oncall-partner agent")
+	harness.Wants(t, handover, "Re-check the situation from scratch")
+	harness.Wants(t, handover, "hachiko notify disk-")
+	harness.Wants(t, handover, "What you said you would do if nobody answered: stop pid 4242 and empty the log")
+	harness.Wants(t, handover, "**Now:** 500 GB free")
 
 	// Once per incident. The agent is working on what it was handed, and a second
 	// handover would be a second decision on one question.
 	f.blocks("disk")
 	for at := 600 + handoverAt + 300; at < 600+handoverAt+1500; at += 300 {
-		lacks(t, f.at(int64(at)).sweep(), "handed the decision")
+		harness.Lacks(t, f.at(int64(at)).sweep(), "handed the decision")
 	}
-	equal(t, len(f.interrupts), 1, "questions cancelled after the deadline")
+	harness.Equal(t, len(f.interrupts), 1, "questions cancelled after the deadline")
 }
 
 // An answer from Tim leaves the agent working on what he picked, which is the one thing
@@ -163,23 +164,23 @@ func TestAnAnswerPausesTheClockAndTheOutcomeEndsTheWait(t *testing.T) {
 
 	// He picks an option, so herdr shows the agent working rather than blocked.
 	f.status["disk"] = oncall.StatusWorking
-	equal(t, f.at(600+remindAt).sweep(), "", "the log while the agent works on his answer")
-	equal(t, len(f.state().Waiting), 1, "waits still being counted")
-	equal(t, f.state().Waiting["disk"].Busy, base.Unix()+600+remindAt, "when it started working")
+	harness.Equal(t, f.at(600+remindAt).sweep(), "", "the log while the agent works on his answer")
+	harness.Equal(t, len(f.state().Waiting), 1, "waits still being counted")
+	harness.Equal(t, f.state().Waiting["disk"].Busy, base.Unix()+600+remindAt, "when it started working")
 
 	// Still paused five minutes later, which is what the grace is for.
-	equal(t, f.at(600+remindAt+300).sweep(), "", "the log while the turn is still fresh")
-	equal(t, f.sentCount(), 1, "messages sent while the turn is still fresh")
+	harness.Equal(t, f.at(600+remindAt+300).sweep(), "", "the log while the turn is still fresh")
+	harness.Equal(t, f.sentCount(), 1, "messages sent while the turn is still fresh")
 
 	// And the message it marks as the outcome is what ends it, with nothing of hachiko's
 	// having gone out in between.
 	incident := f.state().Waiting["disk"].Incident
 	f.notifyOutcome(incident)
-	wants(t, f.at(600+remindAt+600).sweep(), "reported the outcome of "+incident)
-	equal(t, len(f.state().Waiting), 0, "waits still being counted")
-	equal(t, f.sentCount(), 1, "messages sent after the answer")
-	equal(t, len(f.interrupts), 0, "questions cancelled after the answer")
-	equal(t, len(f.prompts), 0, "prompts sent after the answer")
+	harness.Wants(t, f.at(600+remindAt+600).sweep(), "reported the outcome of "+incident)
+	harness.Equal(t, len(f.state().Waiting), 0, "waits still being counted")
+	harness.Equal(t, f.sentCount(), 1, "messages sent after the answer")
+	harness.Equal(t, len(f.interrupts), 0, "questions cancelled after the answer")
+	harness.Equal(t, len(f.prompts), 0, "prompts sent after the answer")
 }
 
 // The grace is a grace and not a hole. A turn hung on a tool call reads as `working` for as
@@ -191,23 +192,23 @@ func TestAnAgentWorkingForEverStillGetsTheWholeTimeline(t *testing.T) {
 	f.status["disk"] = oncall.StatusWorking
 
 	// Nothing while the turn is fresh, through the hour the reminder was due in.
-	equal(t, f.at(900).sweep(), "", "the log while the turn is fresh")
-	equal(t, f.at(600+remindAt).sweep(), "", "the log while the turn is still inside its grace")
+	harness.Equal(t, f.at(900).sweep(), "", "the log while the turn is fresh")
+	harness.Equal(t, f.at(600+remindAt).sweep(), "", "the log while the turn is still inside its grace")
 
 	// Then the clock resumes over the top of it, with every step Tim's.
-	wants(t, f.at(1500).sweep(), "reminded about disk-")
-	wants(t, f.at(600+warnAt).sweep(), "from the handover")
+	harness.Wants(t, f.at(1500).sweep(), "reminded about disk-")
+	harness.Wants(t, f.at(600+warnAt).sweep(), "from the handover")
 
 	out := f.at(600 + handoverAt).sweep()
-	wants(t, out, "handed the decision on disk-")
-	equal(t, f.sentCount(), 3, "messages Tim had")
+	harness.Wants(t, out, "handed the decision on disk-")
+	harness.Equal(t, f.sentCount(), 3, "messages Tim had")
 
 	// The decision went as a prompt, which queues behind the turn rather than cancelling it:
 	// an esc to an agent that is not on a question takes away whatever it has started.
-	equal(t, len(f.interrupts), 0, "questions cancelled")
-	equal(t, len(f.prompts), 1, "prompts sent on their own")
-	wants(t, f.lastPrompt(), "Tim has not answered for 36 minutes")
-	equal(t, statedir.Contains(f.state().Waiting["disk"].Steps, stepHandover), true, "whether the handover is recorded")
+	harness.Equal(t, len(f.interrupts), 0, "questions cancelled")
+	harness.Equal(t, len(f.prompts), 1, "prompts sent on their own")
+	harness.Wants(t, f.lastPrompt(), "Tim has not answered for 36 minutes")
+	harness.Equal(t, statedir.Contains(f.state().Waiting["disk"].Steps, stepHandover), true, "whether the handover is recorded")
 }
 
 // And an early handover is the exception the grace does not hold: a disk that will be full
@@ -221,15 +222,15 @@ func TestAWorseningDiskHandsOverEvenWhileTheAgentIsWorking(t *testing.T) {
 	// a row the rule wants are two checks and not two checks after a grace.
 	f.freeGB = 470
 	out := f.at(900).sweep()
-	wants(t, out, "looks like reaching 300 GB in about")
-	lacks(t, out, "handed the decision")
+	harness.Wants(t, out, "looks like reaching 300 GB in about")
+	harness.Lacks(t, out, "handed the decision")
 
 	f.freeGB = 440
 	out = f.at(1200).sweep()
-	wants(t, out, "handed the decision on disk-")
-	wants(t, out, "early: free space reaches 300 GB in about")
-	equal(t, len(f.prompts), 1, "prompts sent on their own")
-	wants(t, f.lastPrompt(), "getting worse rapidly")
+	harness.Wants(t, out, "handed the decision on disk-")
+	harness.Wants(t, out, "early: free space reaches 300 GB in about")
+	harness.Equal(t, len(f.prompts), 1, "prompts sent on their own")
+	harness.Wants(t, f.lastPrompt(), "getting worse rapidly")
 }
 
 // A question that is gone with nothing in flight and nothing said about it is the weakest
@@ -242,25 +243,25 @@ func TestASilentUnblockKeepsTheTimeline(t *testing.T) {
 	// session is given to report in before anything is said over the top of it.
 	f.status["disk"] = "idle"
 	out := f.at(600 + remindAt).sweep()
-	lacks(t, out, "was answered after")
-	equal(t, out, "", "the log while the unblock is fresh")
-	equal(t, len(f.state().Waiting), 1, "waits still being counted")
+	harness.Lacks(t, out, "was answered after")
+	harness.Equal(t, out, "", "the log while the unblock is fresh")
+	harness.Equal(t, len(f.state().Waiting), 1, "waits still being counted")
 
 	// And then the timeline runs on, because an answer that was really an answer ends in an
 	// outcome and this one has not.
 	out = f.at(600 + remindAt + 600).sweep()
-	lacks(t, out, "was answered after")
-	wants(t, out, "reminded about disk-")
+	harness.Lacks(t, out, "was answered after")
+	harness.Wants(t, out, "reminded about disk-")
 
-	wants(t, f.at(600+warnAt).sweep(), "from the handover")
+	harness.Wants(t, f.at(600+warnAt).sweep(), "from the handover")
 
 	// And the handover comes, as the prompt alone: there is no question of its own to cancel,
 	// and an esc would take away whatever it has started instead.
 	out = f.at(600 + handoverAt).sweep()
-	wants(t, out, "handed the decision on disk-")
-	equal(t, len(f.interrupts), 0, "questions cancelled")
-	equal(t, len(f.prompts), 1, "prompts sent on their own")
-	wants(t, f.lastPrompt(), "Tim has not answered for 36 minutes")
+	harness.Wants(t, out, "handed the decision on disk-")
+	harness.Equal(t, len(f.interrupts), 0, "questions cancelled")
+	harness.Equal(t, len(f.prompts), 1, "prompts sent on their own")
+	harness.Wants(t, f.lastPrompt(), "Tim has not answered for 36 minutes")
 }
 
 // The pause an unblock gets is for an unblock hachiko did not cause. One it caused itself is
@@ -280,9 +281,9 @@ func TestAnUnblockHachikoCausedItselfGetsNoPause(t *testing.T) {
 	f.interruptErr, f.interruptEsc = nil, false
 	out := f.at(600 + handoverAt + 300).sweep()
 
-	wants(t, out, "the prompt owed to the disk on-call agent on disk-")
-	lacks(t, out, "was answered after")
-	equal(t, len(f.prompts), 1, "prompts sent on their own")
+	harness.Wants(t, out, "the prompt owed to the disk on-call agent on disk-")
+	harness.Lacks(t, out, "was answered after")
+	harness.Equal(t, len(f.prompts), 1, "prompts sent on their own")
 }
 
 // The grace for an outcome runs from the moment the agent went quiet and never from before
@@ -296,19 +297,19 @@ func TestTheGraceForAnOutcomeStartsAfterTheHandoverAndNotBeforeIt(t *testing.T) 
 	f.status["disk"] = "idle"
 	f.at(600 + remindAt).sweep()
 	f.at(600 + warnAt).sweep()
-	equal(t, f.state().Waiting["disk"].Settled, base.Unix()+600+remindAt, "when it went quiet")
+	harness.Equal(t, f.state().Waiting["disk"].Settled, base.Unix()+600+remindAt, "when it went quiet")
 
 	// The handover goes as a prompt, and herdr still calls it idle rather than working.
 	out := f.at(600 + handoverAt).sweep()
-	wants(t, out, "handed the decision on disk-")
-	equal(t, f.state().Waiting["disk"].Settled, int64(0), "when it went quiet, after the handover")
+	harness.Wants(t, out, "handed the decision on disk-")
+	harness.Equal(t, f.state().Waiting["disk"].Settled, int64(0), "when it went quiet, after the handover")
 
 	f.status["disk"] = "idle"
-	equal(t, f.at(600+handoverAt+300).sweep(), "", "the log on the check after the handover")
-	equal(t, len(f.state().Waiting), 1, "waits still being counted")
+	harness.Equal(t, f.at(600+handoverAt+300).sweep(), "", "the log on the check after the handover")
+	harness.Equal(t, len(f.state().Waiting), 1, "waits still being counted")
 
 	// And the grace runs from there.
-	wants(t, f.at(600+handoverAt+900).sweep(), "nothing reported the outcome of disk-")
+	harness.Wants(t, f.at(600+handoverAt+900).sweep(), "nothing reported the outcome of disk-")
 }
 
 // What ends a wait that has nothing to show: the decision was handed over, the session went
@@ -322,17 +323,17 @@ func TestAWaitEndsWhenTheHandoverIsFollowedBySilence(t *testing.T) {
 
 	// It acted on what it was handed and went quiet rather than reporting.
 	f.status["disk"] = "done"
-	equal(t, f.at(600+handoverAt+300).sweep(), "", "the log the moment it went quiet")
-	equal(t, len(f.state().Waiting), 1, "waits still being counted")
+	harness.Equal(t, f.at(600+handoverAt+300).sweep(), "", "the log the moment it went quiet")
+	harness.Equal(t, len(f.state().Waiting), 1, "waits still being counted")
 
 	out := f.at(600 + handoverAt + 900).sweep()
-	wants(t, out, "nothing reported the outcome of disk-")
-	wants(t, out, "has nothing left in flight, so the wait on it ends after")
-	lacks(t, out, "was answered after")
-	equal(t, len(f.state().Waiting), 0, "waits still being counted")
+	harness.Wants(t, out, "nothing reported the outcome of disk-")
+	harness.Wants(t, out, "has nothing left in flight, so the wait on it ends after")
+	harness.Lacks(t, out, "was answered after")
+	harness.Equal(t, len(f.state().Waiting), 0, "waits still being counted")
 
 	// Said once, and nothing afterwards.
-	equal(t, f.at(600+handoverAt+1200).sweep(), "", "the log after the wait ended")
+	harness.Equal(t, f.at(600+handoverAt+1200).sweep(), "", "the log after the wait ended")
 }
 
 // An outcome for an incident nothing is waiting on any more: the wait was lost, or it was
@@ -344,11 +345,11 @@ func TestAnOutcomeWithNoWaitIsLoggedAndTheMarkerCleared(t *testing.T) {
 	f.notifyOutcome("cpu-1700000000")
 
 	out := f.at(300).sweep()
-	wants(t, out, "reported the outcome of cpu-1700000000, which nothing was waiting on any more")
-	equal(t, len(f.store.ReportedIDs()), 0, "markers left behind")
+	harness.Wants(t, out, "reported the outcome of cpu-1700000000, which nothing was waiting on any more")
+	harness.Equal(t, len(f.store.ReportedIDs()), 0, "markers left behind")
 
 	// Said once: the marker is gone, so there is nothing left to say it about.
-	equal(t, f.at(600).sweep(), "", "the log on the next check")
+	harness.Equal(t, f.at(600).sweep(), "", "the log on the next check")
 }
 
 // The message the session marks as the outcome is the other way a wait ends.
@@ -359,9 +360,9 @@ func TestTheOutcomeReportEndsTheWait(t *testing.T) {
 	f.notifyOutcome(incident)
 	out := f.at(900).sweep()
 
-	wants(t, out, "reported the outcome of "+incident)
-	equal(t, len(f.state().Waiting), 0, "waits still being counted")
-	equal(t, len(f.store.ReportedIDs()), 0, "markers left behind")
+	harness.Wants(t, out, "reported the outcome of "+incident)
+	harness.Equal(t, len(f.state().Waiting), 0, "waits still being counted")
+	harness.Equal(t, len(f.store.ReportedIDs()), 0, "markers left behind")
 }
 
 // A session sends more than two messages, and the orders for the Discord path require one of
@@ -376,23 +377,23 @@ func TestASecondReportThatIsNotTheOutcomeKeepsTheTimelineAndTheDefault(t *testin
 	f.notify(incident)
 	out := f.at(900).sweep()
 
-	lacks(t, out, "reported the outcome")
-	equal(t, len(f.state().Waiting), 1, "waits still being counted")
+	harness.Lacks(t, out, "reported the outcome")
+	harness.Equal(t, len(f.state().Waiting), 1, "waits still being counted")
 
 	// The clock is where it was, and the option the first report named is still there: a
 	// marker merges with the one before it rather than replacing it, which is what lost the
 	// option every time a later message happened not to repeat it.
 	w := f.state().Waiting["disk"]
-	equal(t, w.Since, base.Unix()+600, "when the question went up")
-	equal(t, w.Default, "stop pid 4242 and empty the log", "the option the warning has to quote")
+	harness.Equal(t, w.Since, base.Unix()+600, "when the question went up")
+	harness.Equal(t, w.Default, "stop pid 4242 and empty the log", "the option the warning has to quote")
 
 	// And the timeline runs on exactly as it would have.
-	wants(t, f.at(600+remindAt).sweep(), "reminded about "+incident)
+	harness.Wants(t, f.at(600+remindAt).sweep(), "reminded about "+incident)
 	out = f.at(600 + warnAt).sweep()
-	wants(t, out, "from the handover")
-	wants(t, f.lastSent(), "**If no answer:** stop pid 4242 and empty the log")
+	harness.Wants(t, out, "from the handover")
+	harness.Wants(t, f.lastSent(), "**If no answer:** stop pid 4242 and empty the log")
 
-	wants(t, f.at(600+handoverAt).sweep(), "handed the decision on "+incident)
+	harness.Wants(t, f.at(600+handoverAt).sweep(), "handed the decision on "+incident)
 }
 
 // Two reports between one check and the next, the second with no option in it. Merging is
@@ -407,15 +408,15 @@ func TestAMarkerKeepsTheOptionAnEarlierReportNamed(t *testing.T) {
 	if err := store.MarkReported("disk-1700000300", "", false); err != nil {
 		t.Fatal(err)
 	}
-	equal(t, store.ReportedFallback("disk-1700000300"), "stop pid 4242", "the option read back")
-	equal(t, store.ReportedOutcome("disk-1700000300"), false, "whether it reads as the outcome")
+	harness.Equal(t, store.ReportedFallback("disk-1700000300"), "stop pid 4242", "the option read back")
+	harness.Equal(t, store.ReportedOutcome("disk-1700000300"), false, "whether it reads as the outcome")
 
 	// A later report that does name one has changed its mind, which is allowed: what is not
 	// allowed is a message that says nothing about it erasing what the last one said.
 	if err := store.MarkReported("disk-1700000300", "empty the log instead", false); err != nil {
 		t.Fatal(err)
 	}
-	equal(t, store.ReportedFallback("disk-1700000300"), "empty the log instead", "the option after it changed its mind")
+	harness.Equal(t, store.ReportedFallback("disk-1700000300"), "empty the log instead", "the option after it changed its mind")
 
 	// And --outcome sticks, whatever is sent after it: the incident is resolved or it is not.
 	if err := store.MarkReported("disk-1700000300", "", true); err != nil {
@@ -424,8 +425,8 @@ func TestAMarkerKeepsTheOptionAnEarlierReportNamed(t *testing.T) {
 	if err := store.MarkReported("disk-1700000300", "", false); err != nil {
 		t.Fatal(err)
 	}
-	equal(t, store.ReportedOutcome("disk-1700000300"), true, "whether the outcome survives a later report")
-	equal(t, store.ReportedFallback("disk-1700000300"), "empty the log instead", "the option after four reports")
+	harness.Equal(t, store.ReportedOutcome("disk-1700000300"), true, "whether the outcome survives a later report")
+	harness.Equal(t, store.ReportedFallback("disk-1700000300"), "empty the log instead", "the option after four reports")
 }
 
 // The session depends on herdr and on Tim not having closed the tab, and a wait that
@@ -434,18 +435,18 @@ func TestASessionClosedBeforeTheDeadlineGetsAMessageSayingNothingWasDone(t *test
 	f := waiting(t)
 
 	f.status["disk"] = oncall.StatusGone
-	equal(t, f.at(600+warnAt).sweep(), "", "the log before the deadline with no agent")
-	equal(t, f.sentCount(), 1, "messages sent before the deadline with no agent")
+	harness.Equal(t, f.at(600+warnAt).sweep(), "", "the log before the deadline with no agent")
+	harness.Equal(t, f.sentCount(), 1, "messages sent before the deadline with no agent")
 
 	out := f.at(600 + handoverAt).sweep()
-	wants(t, out, "has no on-call agent left after 0h36m")
-	equal(t, f.sentCount(), 2, "messages sent once the deadline passed with no agent")
-	wants(t, f.lastSent(), "\U0001f534 No answer on the disk incident, and no agent left to decide")
-	wants(t, f.lastSent(), "**Why:** the session is closed, so nothing was done about it")
-	wants(t, f.lastSent(), "**Now:** 500 GB free")
+	harness.Wants(t, out, "has no on-call agent left after 0h36m")
+	harness.Equal(t, f.sentCount(), 2, "messages sent once the deadline passed with no agent")
+	harness.Wants(t, f.lastSent(), "\U0001f534 No answer on the disk incident, and no agent left to decide")
+	harness.Wants(t, f.lastSent(), "**Why:** the session is closed, so nothing was done about it")
+	harness.Wants(t, f.lastSent(), "**Now:** 500 GB free")
 
-	equal(t, len(f.interrupts), 0, "questions cancelled with no agent")
-	equal(t, len(f.state().Waiting), 0, "waits still being counted")
+	harness.Equal(t, len(f.interrupts), 0, "questions cancelled with no agent")
+	harness.Equal(t, len(f.state().Waiting), 0, "waits still being counted")
 }
 
 // A question whose options were written against a file half this size is the wrong
@@ -458,22 +459,22 @@ func TestAFileDoublingWhileTheAgentWaitsCancelsTheQuestionAndAsksAgain(t *testin
 	path := f.grow("tmp/worker.log", 11*mb)
 	out := f.at(900).sweep()
 
-	wants(t, out, "a file has at least doubled in size since the question was asked")
-	wants(t, out, "its question was cancelled and it was asked again")
-	equal(t, len(f.interrupts), 1, "questions cancelled")
-	wants(t, f.lastInterrupt(), "your question has been cancelled")
-	wants(t, f.lastInterrupt(), "ask again with options that fit what it is now")
+	harness.Wants(t, out, "a file has at least doubled in size since the question was asked")
+	harness.Wants(t, out, "its question was cancelled and it was asked again")
+	harness.Equal(t, len(f.interrupts), 1, "questions cancelled")
+	harness.Wants(t, f.lastInterrupt(), "your question has been cancelled")
+	harness.Wants(t, f.lastInterrupt(), "ask again with options that fit what it is now")
 	// The name is in the data, not in the lead: the lead is above the fence.
-	wants(t, f.lastInterrupt(), wording.Safe(path, wording.PathLimit))
+	harness.Wants(t, f.lastInterrupt(), wording.Safe(path, wording.PathLimit))
 
 	// The clock keeps running from the first question: he has been unanswered since
 	// then, and a writer that worsens every hour would otherwise push the deadline out
 	// for ever.
-	equal(t, f.state().Waiting["disk"].Since, before, "when the question went up")
-	wants(t, f.lastInterrupt(), "still counted from the first question")
+	harness.Equal(t, f.state().Waiting["disk"].Since, before, "when the question went up")
+	harness.Wants(t, f.lastInterrupt(), "still counted from the first question")
 
 	// And nothing of hachiko's own went out about it: the session is going to ask again.
-	equal(t, f.sentCount(), 1, "messages sent for the refresh")
+	harness.Equal(t, f.sentCount(), 1, "messages sent for the refresh")
 }
 
 // The other thing the cpu session needed and never got. dasd dropped to nothing by itself at
@@ -486,32 +487,32 @@ func TestATriggerThatHasClearedReachesTheAgentOnce(t *testing.T) {
 	// saying so says only that, since a writer between bursts reads exactly the same.
 	f.keepGrowing = ""
 	out := f.at(900).sweep()
-	wants(t, out, "one more check saying so tells the disk on-call agent")
-	lacks(t, out, "its question was cancelled")
-	equal(t, len(f.interrupts), 0, "questions cancelled on the first check that said so")
+	harness.Wants(t, out, "one more check saying so tells the disk on-call agent")
+	harness.Lacks(t, out, "its question was cancelled")
+	harness.Equal(t, len(f.interrupts), 0, "questions cancelled on the first check that said so")
 
 	// The second agrees, and that is what reaches the agent.
 	out = f.at(1200).sweep()
 
-	wants(t, out, "what fired this incident is no longer firing")
-	wants(t, out, "its question was cancelled and it was asked again")
-	equal(t, len(f.interrupts), 1, "questions cancelled")
+	harness.Wants(t, out, "what fired this incident is no longer firing")
+	harness.Wants(t, out, "its question was cancelled and it was asked again")
+	harness.Equal(t, len(f.interrupts), 1, "questions cancelled")
 
 	prompt := f.lastInterrupt()
-	wants(t, prompt, "What fired this incident is no longer firing, by this minute's reading")
-	wants(t, prompt, "Check for yourself whether it has really resolved")
-	wants(t, prompt, "hachiko notify --outcome <incident> <file>")
-	wants(t, prompt, "that it stopped by itself")
+	harness.Wants(t, prompt, "What fired this incident is no longer firing, by this minute's reading")
+	harness.Wants(t, prompt, "Check for yourself whether it has really resolved")
+	harness.Wants(t, prompt, "hachiko notify --outcome <incident> <file>")
+	harness.Wants(t, prompt, "that it stopped by itself")
 	// The number is in the data, below the fence, and not in the lead.
-	wants(t, prompt, "Nothing is growing fast any more, and free space is back over every mark at 500 GB.")
+	harness.Wants(t, prompt, "Nothing is growing fast any more, and free space is back over every mark at 500 GB.")
 
 	// Once per incident: a quiet Mac is every check after this one, and nothing of hachiko's
 	// own goes to the channel about it — the session's message is what says what happened.
 	for at := int64(1500); at <= 2100; at += 300 {
-		lacks(t, f.at(at).sweep(), "no longer firing")
+		harness.Lacks(t, f.at(at).sweep(), "no longer firing")
 	}
-	equal(t, len(f.interrupts), 1, "questions cancelled after the first")
-	equal(t, len(f.prompts), 0, "prompts sent about the trigger clearing")
+	harness.Equal(t, len(f.interrupts), 1, "questions cancelled after the first")
+	harness.Equal(t, len(f.prompts), 0, "prompts sent about the trigger clearing")
 }
 
 // It outlives the handover, which every other change does not: a session that was handed the
@@ -530,9 +531,9 @@ func TestATriggerThatClearsAfterTheHandoverStillReachesTheAgent(t *testing.T) {
 	f.blocks("disk")
 	out := f.at(600 + handoverAt + 600).sweep()
 
-	wants(t, out, "what fired this incident is no longer firing")
-	equal(t, len(f.interrupts), 2, "questions cancelled in all")
-	wants(t, f.lastInterrupt(), "Check for yourself whether it has really resolved")
+	harness.Wants(t, out, "what fired this incident is no longer firing")
+	harness.Equal(t, len(f.interrupts), 2, "questions cancelled in all")
+	harness.Wants(t, f.lastInterrupt(), "Check for yourself whether it has really resolved")
 }
 
 // And with no question up it is the prompt alone, since there is nothing of the agent's to
@@ -547,11 +548,11 @@ func TestATriggerThatClearsWithNoQuestionUpIsThePromptAlone(t *testing.T) {
 	f.at(1500).sweep()
 	out := f.at(1800).sweep()
 
-	wants(t, out, "what fired this incident is no longer firing")
-	wants(t, out, "so it was asked again")
-	equal(t, len(f.interrupts), 0, "questions cancelled")
-	equal(t, len(f.prompts), 1, "prompts sent on their own")
-	wants(t, f.lastPrompt(), "You have no question up, so nothing of yours was cancelled")
+	harness.Wants(t, out, "what fired this incident is no longer firing")
+	harness.Wants(t, out, "so it was asked again")
+	harness.Equal(t, len(f.interrupts), 0, "questions cancelled")
+	harness.Equal(t, len(f.prompts), 1, "prompts sent on their own")
+	harness.Wants(t, f.lastPrompt(), "You have no question up, so nothing of yours was cancelled")
 }
 
 // A hot process that drops under the share is the same news on the other half of the watch.
@@ -564,7 +565,7 @@ func TestACPUTriggerThatHasClearedReachesTheAgent(t *testing.T) {
 	// Thirteen samples of a process over half a core, which is the hour the rule is about.
 	f.cpuRuns(13, 240)
 	incident := f.onlyPendingID()
-	equal(t, statedir.KindOf(incident), "cpu", "the kind of the incident")
+	harness.Equal(t, statedir.KindOf(incident), "cpu", "the kind of the incident")
 
 	f.notifyWithFallback(incident, "leave it alone")
 	f.blocks("cpu")
@@ -575,16 +576,16 @@ func TestACPUTriggerThatHasClearedReachesTheAgent(t *testing.T) {
 	// because one is a daemon between runs as readily as one that has finished.
 	f.proc(7018, 13*240, firstStart, "/usr/local/bin/node worker.js")
 	out := f.at(14 * 300).sweep()
-	wants(t, out, "one more check saying so tells the cpu on-call agent")
-	equal(t, len(f.interrupts), 0, "questions cancelled on the first check that said so")
+	harness.Wants(t, out, "one more check saying so tells the cpu on-call agent")
+	harness.Equal(t, len(f.interrupts), 0, "questions cancelled on the first check that said so")
 
 	f.proc(7018, 13*240, firstStart, "/usr/local/bin/node worker.js")
 	out = f.at(15 * 300).sweep()
 
-	wants(t, out, "what fired this incident is no longer firing")
-	equal(t, len(f.interrupts), 1, "questions cancelled")
-	wants(t, f.lastInterrupt(), "Check for yourself whether it has really resolved")
-	wants(t, f.lastInterrupt(), "Nothing is using much CPU any more")
+	harness.Wants(t, out, "what fired this incident is no longer firing")
+	harness.Equal(t, len(f.interrupts), 1, "questions cancelled")
+	harness.Wants(t, f.lastInterrupt(), "Check for yourself whether it has really resolved")
+	harness.Wants(t, f.lastInterrupt(), "Nothing is using much CPU any more")
 }
 
 // A system process is one the session may only recommend stopping, handover or not, so the
@@ -616,24 +617,24 @@ func TestASystemProcessIncidentHandsOverOnceAndThenGoesQuiet(t *testing.T) {
 		return f.at(at).sweep()
 	}
 
-	wants(t, keepHot(start+remindAt), "reminded about "+incident)
-	wants(t, keepHot(start+warnAt), "from the handover")
-	wants(t, f.lastSent(), "**If no answer:** leave dasd alone, it needs sudo")
+	harness.Wants(t, keepHot(start+remindAt), "reminded about "+incident)
+	harness.Wants(t, keepHot(start+warnAt), "from the handover")
+	harness.Wants(t, f.lastSent(), "**If no answer:** leave dasd alone, it needs sudo")
 
 	out := keepHot(start + handoverAt)
-	wants(t, out, "handed the decision on "+incident)
-	equal(t, len(f.interrupts), 1, "questions cancelled")
-	equal(t, f.sentCount(), 3, "messages hachiko sent in all")
+	harness.Wants(t, out, "handed the decision on "+incident)
+	harness.Equal(t, len(f.interrupts), 1, "questions cancelled")
+	harness.Equal(t, f.sentCount(), 3, "messages hachiko sent in all")
 
 	// It said what it said and asked again, which is what a fix needing sudo leaves it to do.
 	// One handover, and nothing of hachiko's after it.
 	for at := start + handoverAt + 300; at <= start+handoverAt+1800; at += 300 {
 		f.blocks("cpu")
-		equal(t, keepHot(at), "", "the log after the handover on an incident only Tim can fix")
+		harness.Equal(t, keepHot(at), "", "the log after the handover on an incident only Tim can fix")
 	}
-	equal(t, len(f.interrupts), 1, "questions cancelled after the handover")
-	equal(t, f.sentCount(), 3, "messages hachiko sent after the handover")
-	equal(t, len(f.state().Waiting), 1, "waits still being counted")
+	harness.Equal(t, len(f.interrupts), 1, "questions cancelled after the handover")
+	harness.Equal(t, f.sentCount(), 3, "messages hachiko sent after the handover")
+	harness.Equal(t, len(f.state().Waiting), 1, "waits still being counted")
 }
 
 // One quiet interval is a writer between bursts, which is what most of them are: the writer
@@ -644,28 +645,28 @@ func TestAWriterThatStartsAgainNeverCountsAsHavingCleared(t *testing.T) {
 	first := f.state().Waiting["disk"].Incident
 
 	f.keepGrowing = ""
-	wants(t, f.at(900).sweep(), "one more check saying so tells the disk on-call agent")
-	equal(t, f.state().Waiting["disk"].Clear, base.Unix()+900, "the check that said so")
+	harness.Wants(t, f.at(900).sweep(), "one more check saying so tells the disk on-call agent")
+	harness.Equal(t, f.state().Waiting["disk"].Clear, base.Unix()+900, "the check that said so")
 
 	// It starts writing again, which is a fresh alert on the same kind.
 	f.keepGrowing, f.keepKB = "tmp/worker.log", 3*mb
 	out := f.at(1200).sweep()
-	lacks(t, out, "no longer firing")
-	wants(t, out, "growing fast:")
+	harness.Lacks(t, out, "no longer firing")
+	harness.Wants(t, out, "growing fast:")
 
 	w := f.state().Waiting["disk"]
 	if w.Incident == first {
 		t.Fatal("the writer starting again did not raise an incident of its own")
 	}
-	equal(t, w.Clear, int64(0), "the check that said the last one had stopped")
+	harness.Equal(t, w.Clear, int64(0), "the check that said the last one had stopped")
 
 	// And when this one stops, it starts counting again from one rather than from where the
 	// last incident left off.
 	f.keepGrowing = ""
 	f.blocks("disk")
 	out = f.at(1500).sweep()
-	wants(t, out, "one more check saying so tells the disk on-call agent")
-	lacks(t, out, "no longer firing")
+	harness.Wants(t, out, "one more check saying so tells the disk on-call agent")
+	harness.Lacks(t, out, "no longer firing")
 }
 
 // A directory the walk was told to skip may be holding the very file the incident is about,
@@ -681,14 +682,14 @@ func TestADirectoryTheWalkSkippedIsNotATriggerThatHasCleared(t *testing.T) {
 	// next. Nothing is growing fast, because nothing was looked at.
 	f.keepGrowing = ""
 	f.stalls = []string{filepath.Dir(path)}
-	lacks(t, f.at(1200).sweep(), "no longer firing")
-	lacks(t, f.at(1500).sweep(), "no longer firing")
-	equal(t, len(f.interrupts), 0, "questions cancelled while the directory would not answer")
+	harness.Lacks(t, f.at(1200).sweep(), "no longer firing")
+	harness.Lacks(t, f.at(1500).sweep(), "no longer firing")
+	harness.Equal(t, len(f.interrupts), 0, "questions cancelled while the directory would not answer")
 
 	// Once it answers again and the file really has stopped, two readings tell the agent.
 	f.stalls = nil
-	wants(t, f.at(1800).sweep(), "one more check saying so tells the disk on-call agent")
-	wants(t, f.at(2100).sweep(), "what fired this incident is no longer firing")
+	harness.Wants(t, f.at(1800).sweep(), "one more check saying so tells the disk on-call agent")
+	harness.Wants(t, f.at(2100).sweep(), "what fired this incident is no longer firing")
 }
 
 // A pid is reused and the history behind one belongs to whoever held it, so the number alone
@@ -722,8 +723,8 @@ func TestClearingIsJudgedByTheProcessKeyAndNotThePid(t *testing.T) {
 	// By the end of that hour it is hot in its own right, so something is over the share and
 	// nothing has cleared by the time it is. The pid being the same number is no part of it
 	// either way: the identity hachiko judges by is the pid and the start time together.
-	wants(t, all.String(), "hot for an hour: pid 7018 node")
-	lacks(t, f.at(28*300).sweep(), "no longer firing")
+	harness.Wants(t, all.String(), "hot for an hour: pid 7018 node")
+	harness.Lacks(t, f.at(28*300).sweep(), "no longer firing")
 }
 
 // A reading that is missing is not a reading that is clear: a check with no process sample
@@ -733,14 +734,14 @@ func TestAMissingReadingIsNotATriggerThatHasCleared(t *testing.T) {
 
 	f.keepGrowing = ""
 	f.cutShort = true
-	lacks(t, f.at(900).sweep(), "no longer firing")
-	lacks(t, f.at(1200).sweep(), "no longer firing")
-	equal(t, len(f.interrupts), 0, "questions cancelled on a walk that saw part of the disk")
+	harness.Lacks(t, f.at(900).sweep(), "no longer firing")
+	harness.Lacks(t, f.at(1200).sweep(), "no longer firing")
+	harness.Equal(t, len(f.interrupts), 0, "questions cancelled on a walk that saw part of the disk")
 
 	// And once it has seen the whole of it, two readings running tell the agent.
 	f.cutShort = false
-	wants(t, f.at(1500).sweep(), "one more check saying so tells the disk on-call agent")
-	wants(t, f.at(1800).sweep(), "what fired this incident is no longer firing")
+	harness.Wants(t, f.at(1500).sweep(), "one more check saying so tells the disk on-call agent")
+	harness.Wants(t, f.at(1800).sweep(), "what fired this incident is no longer firing")
 }
 
 // A threshold crossed either way is a question whose options were written for a disk
@@ -761,36 +762,36 @@ func TestWhatCountsAsTheIncidentHavingMoved(t *testing.T) {
 		writers: []string{"4242 (worker)"},
 	}
 
-	equal(t, materialChange(asked, same).happened(), false, "a question about an incident that has not moved")
+	harness.Equal(t, materialChange(asked, same).happened(), false, "a question about an incident that has not moved")
 
 	crossed := same
 	crossed.level = 20
-	wants(t, materialChange(asked, crossed).why, "free space crossed the 20 GB mark")
+	harness.Wants(t, materialChange(asked, crossed).why, "free space crossed the 20 GB mark")
 
 	recovered := same
 	recovered.level = 0
-	wants(t, materialChange(asked, recovered).why, "free space is back over every mark")
+	harness.Wants(t, materialChange(asked, recovered).why, "free space is back over every mark")
 
 	// Hachiko's own words in the reason, which goes above the fence, and the name in the
 	// detail, which goes inside it.
 	doubled := same
 	doubled.sizes = map[string]int64{"/private/tmp/a.log": 20 * mb, "/private/tmp/b.log": 4 * mb}
-	equal(t, materialChange(asked, doubled).why,
+	harness.Equal(t, materialChange(asked, doubled).why,
 		"a file has at least doubled in size since the question was asked", "why the question went stale")
-	wants(t, materialChange(asked, doubled).detail, "/private/tmp/a.log")
+	harness.Wants(t, materialChange(asked, doubled).detail, "/private/tmp/a.log")
 
 	joined := same
 	joined.writers = []string{"4242 (worker)", "5151 (another)"}
-	equal(t, materialChange(asked, joined).why,
+	harness.Equal(t, materialChange(asked, joined).why,
 		"a process is writing that was not there when the question was asked", "why the question went stale")
-	wants(t, materialChange(asked, joined).detail, "5151 (another)")
+	harness.Wants(t, materialChange(asked, joined).detail, "5151 (another)")
 
 	// Nobody was recorded holding it when the question was asked, so there is nothing for
 	// a writer found later to be new against — and reading it as new would cancel the
 	// question on every incident whose file was between writes at that moment.
 	unknown := asked
 	unknown.Asked.Writers = nil
-	equal(t, materialChange(unknown, joined).happened(), false, "a writer with none recorded to compare against")
+	harness.Equal(t, materialChange(unknown, joined).happened(), false, "a writer with none recorded to compare against")
 }
 
 // A prompt owed on an incident a fresh alert has just superseded is a prompt nothing owes
@@ -809,8 +810,8 @@ func TestAPromptOwedOnASupersededIncidentIsNotOwedOnTheNewOne(t *testing.T) {
 	f.at(900).sweep()
 
 	first := f.state().Waiting["disk"]
-	wants(t, first.Owed, "getting worse rapidly")
-	equal(t, statedir.Contains(first.OwedSteps, stepEarly), true, "whether the owed prompt carries the early handover")
+	harness.Wants(t, first.Owed, "getting worse rapidly")
+	harness.Equal(t, statedir.Contains(first.OwedSteps, stepEarly), true, "whether the owed prompt carries the early handover")
 
 	// Before the next check can send it, a second file starts filling the disk: a fresh alert
 	// for the same kind, whose brief reaches the agent. The owed prompt is about a question
@@ -819,33 +820,33 @@ func TestAPromptOwedOnASupersededIncidentIsNotOwedOnTheNewOne(t *testing.T) {
 	f.grow("tmp/second.log", 3*mb)
 	out := f.at(1200).sweep()
 
-	wants(t, out, "growing fast:")
-	lacks(t, out, "the prompt owed to the disk on-call agent")
+	harness.Wants(t, out, "growing fast:")
+	harness.Lacks(t, out, "the prompt owed to the disk on-call agent")
 
 	w := f.state().Waiting["disk"]
 	if w.Incident == first.Incident {
 		t.Fatal("the new incident did not replace the one the prompt was owed on")
 	}
-	equal(t, w.Owed, "", "the prompt still owed")
-	equal(t, len(w.OwedSteps), 0, "the steps the owed prompt carried")
-	equal(t, len(w.Steps), 0, "steps recorded on the new incident")
-	equal(t, w.Busy, int64(0), "when the agent started working on the new brief")
-	equal(t, w.Escs, 0, "attempts recorded against the question that is gone")
-	equal(t, len(f.prompts), 0, "prompts sent on their own")
+	harness.Equal(t, w.Owed, "", "the prompt still owed")
+	harness.Equal(t, len(w.OwedSteps), 0, "the steps the owed prompt carried")
+	harness.Equal(t, len(w.Steps), 0, "steps recorded on the new incident")
+	harness.Equal(t, w.Busy, int64(0), "when the agent started working on the new brief")
+	harness.Equal(t, w.Escs, 0, "attempts recorded against the question that is gone")
+	harness.Equal(t, len(f.prompts), 0, "prompts sent on their own")
 	// Measured from this check rather than carried over from something the agent was doing
 	// about the incident before this one.
-	equal(t, w.Settled, base.Unix()+1200, "when the agent last went quiet")
+	harness.Equal(t, w.Settled, base.Unix()+1200, "when the agent last went quiet")
 
 	// So the new incident still has its own early handover coming, which the owed steps would
 	// have spent on it the moment it arrived.
 	f.blocks("disk")
 	f.freeGB = 280
-	wants(t, f.at(1500).sweep(), "one more check saying so hands the decision over")
+	harness.Wants(t, f.at(1500).sweep(), "one more check saying so hands the decision over")
 	f.blocks("disk")
 	f.freeGB = 200
 	out = f.at(1800).sweep()
-	wants(t, out, "handed the decision on "+w.Incident)
-	wants(t, out, "early:")
+	harness.Wants(t, out, "handed the decision on "+w.Incident)
+	harness.Wants(t, out, "early:")
 }
 
 // A fresh alert for the same kind while the agent is on its question: the brief cannot be
@@ -858,26 +859,26 @@ func TestANewIncidentWhileTheAgentWaitsCancelsTheQuestionAndKeepsTheClock(t *tes
 
 	w := f.state().Waiting["disk"]
 	first, since := w.Incident, w.Since
-	equal(t, len(w.Steps), 1, "steps recorded before the new incident")
+	harness.Equal(t, len(w.Steps), 1, "steps recorded before the new incident")
 
 	f.freeGB = 90
 	out := f.at(600 + remindAt + 300).sweep()
 
-	wants(t, out, "only 90.0 GB free, under the 100 GB threshold")
-	equal(t, len(f.interrupts), 1, "questions cancelled")
-	wants(t, f.lastInterrupt(), "The situation changed")
+	harness.Wants(t, out, "only 90.0 GB free, under the 100 GB threshold")
+	harness.Equal(t, len(f.interrupts), 1, "questions cancelled")
+	harness.Wants(t, f.lastInterrupt(), "The situation changed")
 
 	w = f.state().Waiting["disk"]
 	if w.Incident == first {
 		t.Fatal("the new incident did not replace the one the question was about")
 	}
-	equal(t, w.Since, since, "when Tim was first asked something")
-	equal(t, len(w.Steps), 0, "steps carried over to the new incident")
+	harness.Equal(t, w.Since, since, "when Tim was first asked something")
+	harness.Equal(t, len(w.Steps), 0, "steps carried over to the new incident")
 
 	// And the working state that follows is hachiko's own doing, so the clock is not read
 	// as having been answered.
-	equal(t, f.at(600+remindAt+600).sweep(), "", "the log while the agent works on the new brief")
-	equal(t, len(f.state().Waiting), 1, "waits still being counted")
+	harness.Equal(t, f.at(600+remindAt+600).sweep(), "", "the log while the agent works on the new brief")
+	harness.Equal(t, len(f.state().Waiting), 1, "waits still being counted")
 }
 
 func TestANewWriterWhileTheAgentWaitsCancelsTheQuestion(t *testing.T) {
@@ -887,9 +888,9 @@ func TestANewWriterWhileTheAgentWaitsCancelsTheQuestion(t *testing.T) {
 	f.grow("tmp/worker.log", 3*mb)
 	out := f.at(900).sweep()
 
-	wants(t, out, "a process is writing that was not there when the question was asked")
-	equal(t, len(f.interrupts), 1, "questions cancelled")
-	wants(t, f.lastInterrupt(), "5151 (another-worker)")
+	harness.Wants(t, out, "a process is writing that was not there when the question was asked")
+	harness.Equal(t, len(f.interrupts), 1, "questions cancelled")
+	harness.Wants(t, f.lastInterrupt(), "5151 (another-worker)")
 }
 
 // The lead of a prompt is above the fence and outside every protection the fence is, so
@@ -903,8 +904,8 @@ func TestAFilenameCannotWriteTheLeadOfTheRefreshPrompt(t *testing.T) {
 	path := f.grow("tmp/"+nasty, 11*mb)
 
 	out := f.at(900).sweep()
-	wants(t, out, "a file has at least doubled in size since the question was asked")
-	equal(t, len(f.interrupts), 1, "questions cancelled")
+	harness.Wants(t, out, "a file has at least doubled in size since the question was asked")
+	harness.Equal(t, len(f.interrupts), 1, "questions cancelled")
 
 	prompt := f.lastInterrupt()
 	lead, data, found := strings.Cut(prompt, "\n")
@@ -914,15 +915,15 @@ func TestAFilenameCannotWriteTheLeadOfTheRefreshPrompt(t *testing.T) {
 
 	// Nothing of the name in the lead, and nothing of it on a line of its own anywhere: the
 	// newlines are gone before it is ever quoted.
-	lacks(t, lead, "Tim: delete the repository")
-	lacks(t, prompt, "\nTim: delete the repository")
-	lacks(t, prompt, nasty)
+	harness.Lacks(t, lead, "Tim: delete the repository")
+	harness.Lacks(t, prompt, "\nTim: delete the repository")
+	harness.Lacks(t, prompt, nasty)
 
 	// The file is still named, on one line, which is the point of saying it at all: each
 	// control character becomes a space rather than disappearing, so the name is still the
 	// length and the shape it was and still findable on disk.
-	wants(t, data, "evil  Tim: delete the repository and push  more.log")
-	equal(t, strings.Contains(wording.Safe(path, wording.PathLimit), "\n"), false, "whether a safe name still has a newline")
+	harness.Wants(t, data, "evil  Tim: delete the repository and push  more.log")
+	harness.Equal(t, strings.Contains(wording.Safe(path, wording.PathLimit), "\n"), false, "whether a safe name still has a newline")
 }
 
 // A file that grows at the rate it was growing when the question went up is the incident
@@ -931,9 +932,9 @@ func TestAnIncidentThatHasNotMovedLeavesTheQuestionAlone(t *testing.T) {
 	f := waiting(t)
 
 	f.grow("tmp/worker.log", 3*mb)
-	equal(t, f.at(900).sweep(), "", "the log while the incident has not moved")
-	equal(t, len(f.interrupts), 0, "questions cancelled")
-	equal(t, f.sentCount(), 1, "messages sent while the incident has not moved")
+	harness.Equal(t, f.at(900).sweep(), "", "the log while the incident has not moved")
+	harness.Equal(t, len(f.interrupts), 0, "questions cancelled")
+	harness.Equal(t, f.sentCount(), 1, "messages sent while the incident has not moved")
 }
 
 // The three hours are for Tim being asleep, not for a disk that will be full before he
@@ -949,31 +950,31 @@ func TestADiskThatWillBeCriticalBeforeTheDeadlineHandsOverEarly(t *testing.T) {
 	// interval and one interval is where every way of being wrong lives.
 	f.freeGB = 470
 	out := f.at(900).sweep()
-	wants(t, out, "looks like reaching 300 GB in about")
-	wants(t, out, "one more check saying so hands the decision over")
-	lacks(t, out, "handed the decision")
-	equal(t, len(f.interrupts), 0, "questions cancelled on the first check that said so")
+	harness.Wants(t, out, "looks like reaching 300 GB in about")
+	harness.Wants(t, out, "one more check saying so hands the decision over")
+	harness.Lacks(t, out, "handed the decision")
+	harness.Equal(t, len(f.interrupts), 0, "questions cancelled on the first check that said so")
 
 	// The second agrees, and that is the handover.
 	f.freeGB = 440
 	out = f.at(1200).sweep()
 
-	wants(t, out, "handed the decision on disk-")
-	wants(t, out, "early: free space reaches 300 GB in about")
-	equal(t, len(f.interrupts), 1, "questions cancelled")
+	harness.Wants(t, out, "handed the decision on disk-")
+	harness.Wants(t, out, "early: free space reaches 300 GB in about")
+	harness.Equal(t, len(f.interrupts), 1, "questions cancelled")
 
 	early := f.lastInterrupt()
-	wants(t, early, "getting worse rapidly")
-	wants(t, early, "the check before this one said so too")
-	wants(t, early, "the three-hour handover would come too late")
-	wants(t, early, "If you judge instead that it is about to stop by itself")
-	wants(t, early, "with the oncall-partner agent's agreement first")
+	harness.Wants(t, early, "getting worse rapidly")
+	harness.Wants(t, early, "the check before this one said so too")
+	harness.Wants(t, early, "the three-hour handover would come too late")
+	harness.Wants(t, early, "If you judge instead that it is about to stop by itself")
+	harness.Wants(t, early, "with the oncall-partner agent's agreement first")
 
 	// One early handover per incident, however many checks agree after it.
 	f.blocks("disk")
 	f.freeGB = 420
-	lacks(t, f.at(1500).sweep(), "handed the decision")
-	equal(t, len(f.interrupts), 1, "questions cancelled after the early handover")
+	harness.Lacks(t, f.at(1500).sweep(), "handed the decision")
+	harness.Equal(t, len(f.interrupts), 1, "questions cancelled after the early handover")
 }
 
 // One interval that says the disk is going is a sample taken late as readily as a writer
@@ -984,19 +985,19 @@ func TestOneCheckAloneNeverHandsTheDecisionOverEarly(t *testing.T) {
 	f.cfg.CriticalKB = 300 * config.GiB
 
 	f.freeGB = 470
-	wants(t, f.at(900).sweep(), "one more check saying so hands the decision over")
+	harness.Wants(t, f.at(900).sweep(), "one more check saying so hands the decision over")
 
 	// The burst stops, which is what most of them do.
 	f.freeGB = 469
-	lacks(t, f.at(1200).sweep(), "handed the decision")
-	equal(t, f.state().Waiting["disk"].Worsening, int64(0), "the first check that said so")
+	harness.Lacks(t, f.at(1200).sweep(), "handed the decision")
+	harness.Equal(t, f.state().Waiting["disk"].Worsening, int64(0), "the first check that said so")
 
 	// And it starts again from one rather than from where it left off.
 	f.freeGB = 430
 	out := f.at(1500).sweep()
-	wants(t, out, "one more check saying so hands the decision over")
-	lacks(t, out, "handed the decision")
-	equal(t, len(f.interrupts), 0, "questions cancelled")
+	harness.Wants(t, out, "one more check saying so hands the decision over")
+	harness.Lacks(t, out, "handed the decision")
+	harness.Equal(t, len(f.interrupts), 0, "questions cancelled")
 }
 
 // A span the check had to invent is a clock that moved — the Mac slept, somebody set the
@@ -1013,10 +1014,10 @@ func TestAClockThatMovedIsNotADiskAboutToFill(t *testing.T) {
 	f.freeGB = 470
 	out := f.at(600).sweep()
 
-	lacks(t, out, "looks like reaching")
-	lacks(t, out, "handed the decision")
-	equal(t, len(f.interrupts), 0, "questions cancelled on a clock that moved")
-	equal(t, f.state().Waiting["disk"].Worsening, int64(0), "the first check that said so")
+	harness.Lacks(t, out, "looks like reaching")
+	harness.Lacks(t, out, "handed the decision")
+	harness.Equal(t, len(f.interrupts), 0, "questions cancelled on a clock that moved")
+	harness.Equal(t, f.state().Waiting["disk"].Worsening, int64(0), "the first check that said so")
 }
 
 // An early handover is not the deadline's. Recorded as the deadline's, a session that was
@@ -1027,23 +1028,23 @@ func TestAnEarlyHandoverDoesNotConsumeTheDeadlineHandover(t *testing.T) {
 
 	// The quarter-gone trigger, which needs no second check.
 	f.freeGB = 374
-	wants(t, f.at(900).sweep(), "handed the decision on disk-")
-	equal(t, len(f.interrupts), 1, "questions cancelled early")
+	harness.Wants(t, f.at(900).sweep(), "handed the decision on disk-")
+	harness.Equal(t, len(f.interrupts), 1, "questions cancelled early")
 
 	// The session judged that waiting was safe and asked again.
 	f.blocks("disk")
-	equal(t, f.at(1200).sweep(), "", "the log while the question is up again")
+	harness.Equal(t, f.at(1200).sweep(), "", "the log while the question is up again")
 
 	// Three hours with no answer is still three hours with no answer.
 	out := f.at(600 + handoverAt).sweep()
-	wants(t, out, "handed the decision on disk-")
-	wants(t, out, "with no answer")
-	equal(t, len(f.interrupts), 2, "questions cancelled in all")
+	harness.Wants(t, out, "handed the decision on disk-")
+	harness.Wants(t, out, "with no answer")
+	harness.Equal(t, len(f.interrupts), 2, "questions cancelled in all")
 
 	// And that one is the last: the deadline comes once.
 	f.blocks("disk")
-	lacks(t, f.at(600+handoverAt+300).sweep(), "handed the decision")
-	equal(t, len(f.interrupts), 2, "questions cancelled after the deadline")
+	harness.Lacks(t, f.at(600+handoverAt+300).sweep(), "handed the decision")
+	harness.Equal(t, len(f.interrupts), 2, "questions cancelled after the deadline")
 }
 
 // The other trigger, which needs no rate at all: a quarter of what was free when he was
@@ -1056,9 +1057,9 @@ func TestAQuarterOfTheFreeSpaceGoingHandsOverEarly(t *testing.T) {
 	f.freeGB = 374
 	out := f.at(600 + remindAt).sweep()
 
-	wants(t, out, "handed the decision on disk-")
-	wants(t, out, "of the 500 GB free when the question was asked is already gone")
-	equal(t, len(f.interrupts), 1, "questions cancelled")
+	harness.Wants(t, out, "handed the decision on disk-")
+	harness.Wants(t, out, "of the 500 GB free when the question was asked is already gone")
+	harness.Equal(t, len(f.interrupts), 1, "questions cancelled")
 }
 
 // Slowly is what the three hours are for. A file still growing at the rate it was and a
@@ -1068,9 +1069,9 @@ func TestSlowGrowthDoesNotHandOverEarly(t *testing.T) {
 
 	for at := int64(900); at < 600+warnAt; at += 300 {
 		f.grow("tmp/worker.log", 1*mb)
-		lacks(t, f.at(at).sweep(), "handed the decision")
+		harness.Lacks(t, f.at(at).sweep(), "handed the decision")
 	}
-	equal(t, len(f.interrupts), 0, "questions cancelled")
+	harness.Equal(t, len(f.interrupts), 0, "questions cancelled")
 }
 
 // A step is done only once its message has left the machine: a webhook that was down for
@@ -1079,15 +1080,15 @@ func TestAStepThatCouldNotSendIsTriedAgainOnTheNextCheck(t *testing.T) {
 	f := waiting(t)
 
 	f.sendErr = errSendFailed
-	wants(t, f.at(600+remindAt).sweep(), "the remind step on disk-")
-	equal(t, len(f.state().Waiting["disk"].Steps), 0, "steps recorded while the webhook was down")
+	harness.Wants(t, f.at(600+remindAt).sweep(), "the remind step on disk-")
+	harness.Equal(t, len(f.state().Waiting["disk"].Steps), 0, "steps recorded while the webhook was down")
 
 	f.sendErr = nil
-	wants(t, f.at(600+remindAt+300).sweep(), "reminded about disk-")
-	equal(t, f.sentCount(), 2, "messages sent once the webhook was back")
+	harness.Wants(t, f.at(600+remindAt+300).sweep(), "reminded about disk-")
+	harness.Equal(t, f.sentCount(), 2, "messages sent once the webhook was back")
 
 	// And having sent, it is not sent again.
-	lacks(t, f.at(600+remindAt+600).sweep(), "reminded about")
+	harness.Lacks(t, f.at(600+remindAt+600).sweep(), "reminded about")
 }
 
 // The same for the handover, which is a prompt rather than a message: a herdr that could
@@ -1098,13 +1099,13 @@ func TestAHandoverThatCouldNotBeDeliveredIsTriedAgainOnTheNextCheck(t *testing.T
 	f.at(600 + warnAt).sweep()
 
 	f.interruptErr = errors.New("the agent is still on its question after the esc")
-	wants(t, f.at(600+handoverAt).sweep(), "could not be handed to the disk on-call agent")
-	equal(t, statedir.Contains(f.state().Waiting["disk"].Steps, stepHandover), false,
+	harness.Wants(t, f.at(600+handoverAt).sweep(), "could not be handed to the disk on-call agent")
+	harness.Equal(t, statedir.Contains(f.state().Waiting["disk"].Steps, stepHandover), false,
 		"whether the handover is recorded while herdr refused")
 
 	f.interruptErr = nil
-	wants(t, f.at(600+handoverAt+300).sweep(), "handed the decision on disk-")
-	equal(t, len(f.interrupts), 1, "questions cancelled")
+	harness.Wants(t, f.at(600+handoverAt+300).sweep(), "handed the decision on disk-")
+	harness.Equal(t, len(f.interrupts), 1, "questions cancelled")
 }
 
 // The other half of it: the esc landed and the prompt did not, so the agent has no question
@@ -1121,10 +1122,10 @@ func TestAnEscThatLandedWithoutItsPromptIsRetriedAsThePromptAlone(t *testing.T) 
 	f.interruptEsc = true
 	out := f.at(600 + handoverAt).sweep()
 
-	wants(t, out, "its question is already cancelled, so the next check sends the prompt alone")
+	harness.Wants(t, out, "its question is already cancelled, so the next check sends the prompt alone")
 	w := f.state().Waiting["disk"]
-	wants(t, w.Owed, "Tim has not answered for")
-	equal(t, statedir.Contains(w.Steps, stepHandover), false, "whether the handover is recorded while its prompt is owing")
+	harness.Wants(t, w.Owed, "Tim has not answered for")
+	harness.Equal(t, statedir.Contains(w.Steps, stepHandover), false, "whether the handover is recorded while its prompt is owing")
 
 	// The next check finds it idle, which is exactly what an agent whose question was taken
 	// away looks like. The prompt goes on its own: a second esc would cancel whatever the
@@ -1132,21 +1133,21 @@ func TestAnEscThatLandedWithoutItsPromptIsRetriedAsThePromptAlone(t *testing.T) 
 	f.interruptErr, f.interruptEsc = nil, false
 	out = f.at(600 + handoverAt + 300).sweep()
 
-	lacks(t, out, "was answered after")
-	wants(t, out, "the prompt owed to the disk on-call agent on disk-")
-	equal(t, len(f.interrupts), 0, "cancel-and-prompts that went through whole")
-	equal(t, len(f.prompts), 1, "prompts sent on their own")
-	wants(t, f.lastPrompt(), "Tim has not answered for")
+	harness.Lacks(t, out, "was answered after")
+	harness.Wants(t, out, "the prompt owed to the disk on-call agent on disk-")
+	harness.Equal(t, len(f.interrupts), 0, "cancel-and-prompts that went through whole")
+	harness.Equal(t, len(f.prompts), 1, "prompts sent on their own")
+	harness.Wants(t, f.lastPrompt(), "Tim has not answered for")
 	// This minute's numbers rather than the ones the attempt that failed carried.
-	wants(t, f.lastPrompt(), "**Now:** 500 GB free")
-	wants(t, f.lastPrompt(), "hachiko notify disk-")
+	harness.Wants(t, f.lastPrompt(), "**Now:** 500 GB free")
+	harness.Wants(t, f.lastPrompt(), "hachiko notify disk-")
 
 	// Nothing is owing any more, the handover counts as made so it does not go twice, and
 	// the wait is still being counted.
 	w = f.state().Waiting["disk"]
-	equal(t, w.Owed, "", "the prompt still owing")
-	equal(t, statedir.Contains(w.Steps, stepHandover), true, "whether the handover is recorded")
-	equal(t, len(f.state().Waiting), 1, "waits still being counted")
+	harness.Equal(t, w.Owed, "", "the prompt still owing")
+	harness.Equal(t, statedir.Contains(w.Steps, stepHandover), true, "whether the handover is recorded")
+	harness.Equal(t, len(f.state().Waiting), 1, "waits still being counted")
 }
 
 // A prompt that is owed and asked for again is still one prompt: nothing sends it twice,
@@ -1164,14 +1165,14 @@ func TestAnOwedPromptThatCannotBeSentEitherIsLeftToTheNextCheck(t *testing.T) {
 	f.promptErr = errors.New("herdr would not take the prompt")
 	out := f.at(600 + handoverAt + 300).sweep()
 
-	wants(t, out, "did not reach it either, so the next check tries again")
-	wants(t, f.state().Waiting["disk"].Owed, "Tim has not answered for")
-	equal(t, len(f.prompts), 0, "prompts sent on their own")
+	harness.Wants(t, out, "did not reach it either, so the next check tries again")
+	harness.Wants(t, f.state().Waiting["disk"].Owed, "Tim has not answered for")
+	harness.Equal(t, len(f.prompts), 0, "prompts sent on their own")
 
 	f.promptErr = nil
-	wants(t, f.at(600+handoverAt+600).sweep(), "the prompt owed to the disk on-call agent")
-	equal(t, len(f.prompts), 1, "prompts sent on their own once herdr took it")
-	equal(t, len(f.interrupts), 0, "cancel-and-prompts that went through whole")
+	harness.Wants(t, f.at(600+handoverAt+600).sweep(), "the prompt owed to the disk on-call agent")
+	harness.Equal(t, len(f.prompts), 1, "prompts sent on their own once herdr took it")
+	harness.Equal(t, len(f.interrupts), 0, "cancel-and-prompts that went through whole")
 }
 
 // An agent that put a question of its own up after hachiko's esc is one with something in
@@ -1190,12 +1191,12 @@ func TestAnAgentThatAsksAgainAfterTheEscIsOwedNothing(t *testing.T) {
 	f.blocks("disk")
 	out := f.at(600 + handoverAt + 300).sweep()
 
-	equal(t, len(f.prompts), 0, "prompts sent on their own")
-	equal(t, f.state().Waiting["disk"].Owed, "", "the prompt still owing")
+	harness.Equal(t, len(f.prompts), 0, "prompts sent on their own")
+	harness.Equal(t, f.state().Waiting["disk"].Owed, "", "the prompt still owing")
 
 	// And the handover, which was never recorded, comes round again as the whole of it.
-	wants(t, out, "handed the decision on disk-")
-	equal(t, len(f.interrupts), 1, "questions cancelled")
+	harness.Wants(t, out, "handed the decision on disk-")
+	harness.Equal(t, len(f.interrupts), 1, "questions cancelled")
 }
 
 // A handover that reaches nobody was silent in the channel. Tim's last message about
@@ -1205,22 +1206,22 @@ func TestAHandoverThatReachesNobodySaysSoInTheChannel(t *testing.T) {
 	f := waiting(t)
 	f.at(600 + remindAt).sweep()
 	f.at(600 + warnAt).sweep()
-	equal(t, f.sentCount(), 3, "messages sent up to the warning")
+	harness.Equal(t, f.sentCount(), 3, "messages sent up to the warning")
 
 	f.interruptErr = errors.New("the agent is still on its question after the esc")
 	out := f.at(600 + handoverAt).sweep()
 
-	wants(t, out, "could not be handed to the disk on-call agent")
-	wants(t, out, "said in the channel that the decision on disk-")
-	equal(t, f.sentCount(), 4, "messages sent once the handover reached nobody")
-	wants(t, f.lastSent(), "\U0001f534 The decision on the disk incident reached no agent")
-	wants(t, f.lastSent(), "**Why:** its question could not be cancelled, so nothing was prompted")
-	wants(t, f.lastSent(), "Nothing has acted on it")
-	wants(t, f.lastSent(), "**Now:** 500 GB free")
+	harness.Wants(t, out, "could not be handed to the disk on-call agent")
+	harness.Wants(t, out, "said in the channel that the decision on disk-")
+	harness.Equal(t, f.sentCount(), 4, "messages sent once the handover reached nobody")
+	harness.Wants(t, f.lastSent(), "\U0001f534 The decision on the disk incident reached no agent")
+	harness.Wants(t, f.lastSent(), "**Why:** its question could not be cancelled, so nothing was prompted")
+	harness.Wants(t, f.lastSent(), "Nothing has acted on it")
+	harness.Wants(t, f.lastSent(), "**Now:** 500 GB free")
 
 	// One line, however many checks go on failing.
-	lacks(t, f.at(600+handoverAt+300).sweep(), "said in the channel")
-	equal(t, f.sentCount(), 4, "messages sent after a second check that failed too")
+	harness.Lacks(t, f.at(600+handoverAt+300).sweep(), "said in the channel")
+	harness.Equal(t, f.sentCount(), 4, "messages sent after a second check that failed too")
 }
 
 // The same for the half of it that fails after the esc: the question is gone, the prompt
@@ -1234,8 +1235,8 @@ func TestAnEscThatLandedWithoutItsPromptSaysSoInTheChannelToo(t *testing.T) {
 	f.interruptEsc = true
 	f.at(600 + handoverAt).sweep()
 
-	equal(t, f.sentCount(), 4, "messages sent once the prompt was left owing")
-	wants(t, f.lastSent(), "its question was cancelled but the prompt telling it to decide did not reach it")
+	harness.Equal(t, f.sentCount(), 4, "messages sent once the prompt was left owing")
+	harness.Wants(t, f.lastSent(), "its question was cancelled but the prompt telling it to decide did not reach it")
 }
 
 // A wait that ends with nothing to show says so, since the alternative is a channel whose
@@ -1245,22 +1246,22 @@ func TestAWaitEndingWithNoOutcomeSaysSoInTheChannel(t *testing.T) {
 	f.at(600 + remindAt).sweep()
 	f.at(600 + warnAt).sweep()
 	f.at(600 + handoverAt).sweep()
-	equal(t, f.sentCount(), 3, "messages sent up to the handover")
+	harness.Equal(t, f.sentCount(), 3, "messages sent up to the handover")
 
 	f.status["disk"] = "done"
 	f.at(600 + handoverAt + 300).sweep()
 	out := f.at(600 + handoverAt + 900).sweep()
 
-	wants(t, out, "nothing reported the outcome of disk-")
-	equal(t, f.sentCount(), 4, "messages sent once the wait ended with nothing")
-	wants(t, f.lastSent(), "\u26a0\ufe0f No outcome reported on the disk incident")
-	wants(t, f.lastSent(), "**Why:** the agent was handed the decision and went quiet without reporting an outcome")
-	wants(t, f.lastSent(), "**Now:** 500 GB free")
-	equal(t, len(f.state().Waiting), 0, "waits still being counted")
+	harness.Wants(t, out, "nothing reported the outcome of disk-")
+	harness.Equal(t, f.sentCount(), 4, "messages sent once the wait ended with nothing")
+	harness.Wants(t, f.lastSent(), "\u26a0\ufe0f No outcome reported on the disk incident")
+	harness.Wants(t, f.lastSent(), "**Why:** the agent was handed the decision and went quiet without reporting an outcome")
+	harness.Wants(t, f.lastSent(), "**Now:** 500 GB free")
+	harness.Equal(t, len(f.state().Waiting), 0, "waits still being counted")
 
 	// Said once, and the wait is not counted again afterwards.
-	equal(t, f.at(600+handoverAt+1200).sweep(), "", "the log after the wait ended")
-	equal(t, f.sentCount(), 4, "messages sent after the wait ended")
+	harness.Equal(t, f.at(600+handoverAt+1200).sweep(), "", "the log after the wait ended")
+	harness.Equal(t, f.sentCount(), 4, "messages sent after the wait ended")
 }
 
 // And a session Tim closed after the decision was handed to it: whatever it did went with
@@ -1274,11 +1275,11 @@ func TestASessionClosedAfterTheHandoverSaysNothingReportedAnOutcome(t *testing.T
 	f.status["disk"] = oncall.StatusGone
 	out := f.at(600 + handoverAt + 300).sweep()
 
-	wants(t, out, "has since been closed without reporting an outcome")
-	equal(t, f.sentCount(), 4, "messages sent once the session went")
-	wants(t, f.lastSent(), "\u26a0\ufe0f No outcome reported on the disk incident")
-	wants(t, f.lastSent(), "**Why:** the session was handed the decision and has since been closed")
-	equal(t, len(f.state().Waiting), 0, "waits still being counted")
+	harness.Wants(t, out, "has since been closed without reporting an outcome")
+	harness.Equal(t, f.sentCount(), 4, "messages sent once the session went")
+	harness.Wants(t, f.lastSent(), "\u26a0\ufe0f No outcome reported on the disk incident")
+	harness.Wants(t, f.lastSent(), "**Why:** the session was handed the decision and has since been closed")
+	harness.Equal(t, len(f.state().Waiting), 0, "waits still being counted")
 }
 
 // The question comes after the reading, and the reading may take longer than the ten minutes
@@ -1304,18 +1305,18 @@ func TestAQuestionAskedAfterTheReportDeadlineStillGetsTheWholeTimeline(t *testin
 	f.keepGrowing, f.keepKB = "tmp/worker.log", 128
 	f.at(840).sweep()
 	f.at(1200).sweep()
-	equal(t, len(f.state().Waiting), 1, "waits still being counted past the report deadline")
+	harness.Equal(t, len(f.state().Waiting), 1, "waits still being counted past the report deadline")
 
 	// And then it asks, which is where Tim's clock starts.
 	f.blocks("disk")
 	out := f.at(1500).sweep()
-	wants(t, out, "the disk on-call agent is waiting for an answer on "+incident)
-	equal(t, f.state().Waiting["disk"].Since, base.Unix()+1500, "when the question went up")
+	harness.Wants(t, out, "the disk on-call agent is waiting for an answer on "+incident)
+	harness.Equal(t, f.state().Waiting["disk"].Since, base.Unix()+1500, "when the question went up")
 
 	// The whole of the timeline follows from there.
-	wants(t, f.at(1500+remindAt).sweep(), "reminded about "+incident)
-	wants(t, f.at(1500+warnAt).sweep(), "from the handover")
-	wants(t, f.at(1500+handoverAt).sweep(), "handed the decision on "+incident)
+	harness.Wants(t, f.at(1500+remindAt).sweep(), "reminded about "+incident)
+	harness.Wants(t, f.at(1500+warnAt).sweep(), "from the handover")
+	harness.Wants(t, f.at(1500+handoverAt).sweep(), "handed the decision on "+incident)
 }
 
 // An agent that is alive and has asked nothing at all is still dropped, an hour later: by
@@ -1331,11 +1332,11 @@ func TestAWaitOnASessionThatNeverAsksAnythingIsDroppedAfterAnHour(t *testing.T) 
 	f.notify(incident)
 
 	f.at(1200).sweep()
-	equal(t, len(f.state().Waiting), 1, "waits still being counted at fifteen minutes")
+	harness.Equal(t, len(f.state().Waiting), 1, "waits still being counted at fifteen minutes")
 
 	out := f.at(300 + 3600).sweep()
-	wants(t, out, "never asked anything about "+incident)
-	equal(t, len(f.state().Waiting), 0, "waits still being counted after an hour")
+	harness.Wants(t, out, "never asked anything about "+incident)
+	harness.Equal(t, len(f.state().Waiting), 0, "waits still being counted after an hour")
 }
 
 // An esc that keeps failing is a question taken away every five minutes with nothing put in
@@ -1355,35 +1356,35 @@ func TestARepeatedlyFailingEscIsCappedUntilTheAgentMoves(t *testing.T) {
 	for i := 0; i < escAttempts; i++ {
 		f.blocks("disk")
 		out := f.at(at).sweep()
-		wants(t, out, "the next check sends the prompt alone")
+		harness.Wants(t, out, "the next check sends the prompt alone")
 		at += 300
 	}
-	equal(t, f.state().Waiting["disk"].Escs, escAttempts, "attempts recorded")
+	harness.Equal(t, f.state().Waiting["disk"].Escs, escAttempts, "attempts recorded")
 
 	// The cap: nothing of the agent's is cancelled again while it sits on its question.
 	for i := 0; i < 4; i++ {
 		f.blocks("disk")
 		out := f.at(at).sweep()
-		lacks(t, out, "the next check sends the prompt alone")
-		lacks(t, out, "could not be handed")
+		harness.Lacks(t, out, "the next check sends the prompt alone")
+		harness.Lacks(t, out, "could not be handed")
 		at += 300
 	}
-	equal(t, f.state().Waiting["disk"].Escs, escAttempts, "attempts recorded while the cap held")
-	equal(t, len(f.state().Waiting), 1, "waits still being counted")
+	harness.Equal(t, f.state().Waiting["disk"].Escs, escAttempts, "attempts recorded while the cap held")
+	harness.Equal(t, len(f.state().Waiting), 1, "waits still being counted")
 
 	// Tim was told once, and the wait is still there to act on when herdr comes back.
-	equal(t, f.sentCount(), 4, "messages Tim had")
-	wants(t, f.lastSent(), "\U0001f534 The decision on the disk incident reached no agent")
+	harness.Equal(t, f.sentCount(), 4, "messages Tim had")
+	harness.Wants(t, f.lastSent(), "\U0001f534 The decision on the disk incident reached no agent")
 
 	// And the agent leaving its question is what spends the cap: there is nothing left for an
 	// esc to take away, so the decision goes as a prompt and the count resets. After the
 	// minutes an unblock nothing cancelled is given, which this one has to count as.
 	f.status["disk"] = "idle"
-	equal(t, f.at(at).sweep(), "", "the log while the unblock is fresh")
+	harness.Equal(t, f.at(at).sweep(), "", "the log while the unblock is fresh")
 	out := f.at(at + 600).sweep()
-	wants(t, out, "handed the decision on disk-")
-	equal(t, len(f.prompts), 1, "prompts sent on their own")
-	equal(t, f.state().Waiting["disk"].Escs, 0, "attempts recorded once it was off its question")
+	harness.Wants(t, out, "handed the decision on disk-")
+	harness.Equal(t, len(f.prompts), 1, "prompts sent on their own")
+	harness.Equal(t, f.state().Waiting["disk"].Escs, 0, "attempts recorded once it was off its question")
 }
 
 // The line saying so goes out on the attempt that reaches the cap and not on every check
@@ -1403,7 +1404,7 @@ func TestTheEscCapIsSaidOnceInTheLog(t *testing.T) {
 		}
 		at += 300
 	}
-	equal(t, said, 1, "times the cap was said")
+	harness.Equal(t, said, 1, "times the cap was said")
 }
 
 // herdr not answering at all is not an answer from Tim, so the wait is left exactly as
@@ -1413,18 +1414,18 @@ func TestHerdrNotAnsweringLeavesTheWaitAsItWas(t *testing.T) {
 	f := waiting(t)
 	f.statusErr = errors.New("no server is listening")
 
-	wants(t, f.at(600+handoverAt).sweep(), "herdr did not say what the disk on-call agent is doing")
-	equal(t, len(f.state().Waiting), 1, "waits still being counted")
-	equal(t, len(f.interrupts), 0, "questions cancelled")
-	equal(t, f.sentCount(), 1, "messages sent")
-	equal(t, f.state().Waiting["disk"].Unreachable, base.Unix()+600+handoverAt, "when herdr first did not answer")
+	harness.Wants(t, f.at(600+handoverAt).sweep(), "herdr did not say what the disk on-call agent is doing")
+	harness.Equal(t, len(f.state().Waiting), 1, "waits still being counted")
+	harness.Equal(t, len(f.interrupts), 0, "questions cancelled")
+	harness.Equal(t, f.sentCount(), 1, "messages sent")
+	harness.Equal(t, f.state().Waiting["disk"].Unreachable, base.Unix()+600+handoverAt, "when herdr first did not answer")
 
 	// And any answer at all ends the run, so the next outage is measured from itself rather
 	// than from one that came back.
 	f.statusErr = nil
 	f.blocks("disk")
 	f.at(600 + handoverAt + 300).sweep()
-	equal(t, f.state().Waiting["disk"].Unreachable, int64(0), "when herdr first did not answer, after it answered")
+	harness.Equal(t, f.state().Waiting["disk"].Unreachable, int64(0), "when herdr first did not answer, after it answered")
 }
 
 // An unbroken run of them is the other thing entirely: there is no session to remind, nothing
@@ -1437,26 +1438,26 @@ func TestHerdrNotAnsweringForLongEnoughSaysNothingIsBeingWorked(t *testing.T) {
 
 	// The minutes a session is given to report in, and not a check sooner.
 	for at := int64(900); at < 900+600; at += 300 {
-		wants(t, f.at(at).sweep(), "is left as it was")
-		equal(t, len(f.state().Waiting), 1, "waits still being counted")
-		equal(t, f.sentCount(), 1, "messages sent while herdr was down")
+		harness.Wants(t, f.at(at).sweep(), "is left as it was")
+		harness.Equal(t, len(f.state().Waiting), 1, "waits still being counted")
+		harness.Equal(t, f.sentCount(), 1, "messages sent while herdr was down")
 	}
 
 	out := f.at(1500).sweep()
-	wants(t, out, "herdr has not answered about the disk on-call agent for")
-	wants(t, out, "the wait on it ends here")
-	equal(t, len(f.state().Waiting), 0, "waits still being counted")
+	harness.Wants(t, out, "herdr has not answered about the disk on-call agent for")
+	harness.Wants(t, out, "the wait on it ends here")
+	harness.Equal(t, len(f.state().Waiting), 0, "waits still being counted")
 
-	equal(t, f.sentCount(), 2, "messages sent once herdr had been down long enough")
-	wants(t, f.lastSent(), "\U0001f534 Cannot reach the on-call session on the disk incident")
-	wants(t, f.lastSent(), "-# Incident "+incident)
-	wants(t, f.lastSent(), "**Why:** herdr has not answered for 10 minutes")
-	wants(t, f.lastSent(), "Nothing is being worked and nothing can be handed to it.")
-	wants(t, f.lastSent(), "**Now:** 500 GB free")
+	harness.Equal(t, f.sentCount(), 2, "messages sent once herdr had been down long enough")
+	harness.Wants(t, f.lastSent(), "\U0001f534 Cannot reach the on-call session on the disk incident")
+	harness.Wants(t, f.lastSent(), "-# Incident "+incident)
+	harness.Wants(t, f.lastSent(), "**Why:** herdr has not answered for 10 minutes")
+	harness.Wants(t, f.lastSent(), "Nothing is being worked and nothing can be handed to it.")
+	harness.Wants(t, f.lastSent(), "**Now:** 500 GB free")
 
 	// Said once: the wait is gone, so there is nothing left to say it about.
-	equal(t, f.at(1800).sweep(), "", "the log after the wait ended")
-	equal(t, f.sentCount(), 2, "messages sent after the wait ended")
+	harness.Equal(t, f.at(1800).sweep(), "", "the log after the wait ended")
+	harness.Equal(t, f.sentCount(), 2, "messages sent after the wait ended")
 }
 
 // An outage that came back and went again is two outages, each measured from itself: the
@@ -1471,19 +1472,19 @@ func TestAnAnswerInBetweenStartsTheOutageAgain(t *testing.T) {
 	// herdr comes back for one check, on which the hour's reminder is also due.
 	f.statusErr = nil
 	f.blocks("disk")
-	wants(t, f.at(1500).sweep(), "reminded about disk-")
+	harness.Wants(t, f.at(1500).sweep(), "reminded about disk-")
 
 	// And goes again. The ten minutes start from here, so the check that would have been the
 	// last of the first outage is only the second of this one.
 	f.statusErr = errors.New("no server is listening")
-	wants(t, f.at(1800).sweep(), "is left as it was")
-	wants(t, f.at(2100).sweep(), "is left as it was")
-	equal(t, len(f.state().Waiting), 1, "waits still being counted")
-	equal(t, f.sentCount(), 2, "messages sent before the second outage is long enough")
+	harness.Wants(t, f.at(1800).sweep(), "is left as it was")
+	harness.Wants(t, f.at(2100).sweep(), "is left as it was")
+	harness.Equal(t, len(f.state().Waiting), 1, "waits still being counted")
+	harness.Equal(t, f.sentCount(), 2, "messages sent before the second outage is long enough")
 
-	wants(t, f.at(2400).sweep(), "the wait on it ends here")
-	equal(t, f.sentCount(), 3, "messages sent in all")
-	equal(t, len(f.state().Waiting), 0, "waits still being counted")
+	harness.Wants(t, f.at(2400).sweep(), "the wait on it ends here")
+	harness.Equal(t, f.sentCount(), 3, "messages sent in all")
+	harness.Equal(t, len(f.state().Waiting), 0, "waits still being counted")
 }
 
 // A send that did not leave the machine leaves the wait where it is, like every other message
@@ -1496,12 +1497,12 @@ func TestAWaitOnAnUnreachableHerdrSurvivesASendThatFailed(t *testing.T) {
 	for at := int64(900); at <= 1500; at += 300 {
 		f.at(at).sweep()
 	}
-	wants(t, f.at(1800).sweep(), "the message saying so did not send either")
-	equal(t, len(f.state().Waiting), 1, "waits still being counted")
+	harness.Wants(t, f.at(1800).sweep(), "the message saying so did not send either")
+	harness.Equal(t, len(f.state().Waiting), 1, "waits still being counted")
 
 	f.sendErr = nil
-	wants(t, f.at(2100).sweep(), "the wait on it ends here")
-	equal(t, len(f.state().Waiting), 0, "waits still being counted")
+	harness.Wants(t, f.at(2100).sweep(), "the wait on it ends here")
+	harness.Equal(t, len(f.state().Waiting), 0, "waits still being counted")
 }
 
 // The night of cpu-1791071900, walked through end to end. At the handover hachiko sent the
@@ -1514,9 +1515,9 @@ func TestTheNightOfTheHandoverThatWentNowhereNowHandsOver(t *testing.T) {
 	incident := f.state().Waiting["disk"].Incident
 
 	// 02:03 and 03:49: the reminder and the warning, which did go out.
-	wants(t, f.at(600+remindAt).sweep(), "reminded about "+incident)
-	wants(t, f.at(600+warnAt).sweep(), "from the handover")
-	equal(t, f.sentCount(), 3, "messages Tim had before the handover")
+	harness.Wants(t, f.at(600+remindAt).sweep(), "reminded about "+incident)
+	harness.Wants(t, f.at(600+warnAt).sweep(), "from the handover")
+	harness.Equal(t, f.sentCount(), 3, "messages Tim had before the handover")
 
 	// 04:04: the esc lands and herdr goes on calling the agent blocked, so nothing is
 	// prompted. The difference is that hachiko now knows it took the question away.
@@ -1524,20 +1525,20 @@ func TestTheNightOfTheHandoverThatWentNowhereNowHandsOver(t *testing.T) {
 	f.interruptEsc = true
 	out := f.at(600 + handoverAt).sweep()
 
-	wants(t, out, "the next check sends the prompt alone")
-	equal(t, f.sentCount(), 4, "messages Tim had once the handover reached nobody")
-	wants(t, f.lastSent(), "Nothing has acted on it")
+	harness.Wants(t, out, "the next check sends the prompt alone")
+	harness.Equal(t, f.sentCount(), 4, "messages Tim had once the handover reached nobody")
+	harness.Wants(t, f.lastSent(), "Nothing has acted on it")
 
 	// 04:09: the agent is off its question with nothing in flight, which is what the sweep
 	// read as Tim answering. It is not an answer, and the prompt it was owed goes.
 	f.interruptErr, f.interruptEsc = nil, false
 	out = f.at(600 + handoverAt + 300).sweep()
 
-	lacks(t, out, "was answered after")
-	wants(t, out, "the prompt owed to the disk on-call agent on "+incident)
-	wants(t, f.lastPrompt(), "the autonomy in your standing orders is handed over to you now")
-	wants(t, f.lastPrompt(), "Spawn the oncall-partner agent")
-	equal(t, len(f.state().Waiting), 1, "waits still being counted")
+	harness.Lacks(t, out, "was answered after")
+	harness.Wants(t, out, "the prompt owed to the disk on-call agent on "+incident)
+	harness.Wants(t, f.lastPrompt(), "the autonomy in your standing orders is handed over to you now")
+	harness.Wants(t, f.lastPrompt(), "Spawn the oncall-partner agent")
+	harness.Equal(t, len(f.state().Waiting), 1, "waits still being counted")
 
 	// And the wait does not end in silence either: the session is given the minutes it had
 	// to report its findings in, and then one line says nothing reported an outcome.
@@ -1545,10 +1546,10 @@ func TestTheNightOfTheHandoverThatWentNowhereNowHandsOver(t *testing.T) {
 	f.at(600 + handoverAt + 600).sweep()
 	out = f.at(600 + handoverAt + 1200).sweep()
 
-	wants(t, out, "nothing reported the outcome of "+incident)
-	equal(t, f.sentCount(), 5, "messages Tim had in all")
-	wants(t, f.lastSent(), "-# Incident "+incident)
-	equal(t, len(f.state().Waiting), 0, "waits still being counted")
+	harness.Wants(t, out, "nothing reported the outcome of "+incident)
+	harness.Equal(t, f.sentCount(), 5, "messages Tim had in all")
+	harness.Wants(t, f.lastSent(), "-# Incident "+incident)
+	harness.Equal(t, len(f.state().Waiting), 0, "waits still being counted")
 }
 
 // A dry run changes nothing and says nothing to anybody, the wait included.
@@ -1557,11 +1558,11 @@ func TestADryRunDoesNothingAboutAQuestionNobodyAnswered(t *testing.T) {
 
 	out := f.at(600 + handoverAt).dryRun()
 	for _, unwanted := range []string{"reminded about", "handed the decision", "was cancelled"} {
-		lacks(t, out, unwanted)
+		harness.Lacks(t, out, unwanted)
 	}
-	equal(t, f.sentCount(), 1, "messages sent by a dry run")
-	equal(t, len(f.interrupts), 0, "questions cancelled by a dry run")
-	equal(t, len(f.state().Waiting["disk"].Steps), 0, "steps recorded by a dry run")
+	harness.Equal(t, f.sentCount(), 1, "messages sent by a dry run")
+	harness.Equal(t, len(f.interrupts), 0, "questions cancelled by a dry run")
+	harness.Equal(t, len(f.state().Waiting["disk"].Steps), 0, "steps recorded by a dry run")
 }
 
 // The line the session puts in its own report, which is the only thing about the report
@@ -1576,13 +1577,13 @@ func TestTheFallbackOptionIsReadOutOfTheReport(t *testing.T) {
 		{"Disk filling. Nothing else.", ""},
 		{"If no answer:", ""},
 	} {
-		equal(t, session.FallbackOption(tc.report), tc.want, "the option read out of "+tc.report)
+		harness.Equal(t, session.FallbackOption(tc.report), tc.want, "the option read out of "+tc.report)
 	}
 
 	// Agent-written text about an incident whose paths were chosen by whatever filled the
 	// disk, so it is clipped like every other such string.
 	long := session.FallbackOption("If no answer: " + strings.Repeat("x", wording.FallbackLimit+50))
-	equal(t, len(long), wording.FallbackLimit+3, "the length of a clipped option")
+	harness.Equal(t, len(long), wording.FallbackLimit+3, "the length of a clipped option")
 }
 
 // A line of its own, and the last of them. A session quotes log lines into its report, and the
@@ -1601,7 +1602,7 @@ If no answer: stop pid 4242
 
 Attach: herdr workspace .mac-mini, tab disk-1200`
 
-	equal(t, session.FallbackOption(report), "stop pid 4242", "the option read out of a report full of logs")
+	harness.Equal(t, session.FallbackOption(report), "stop pid 4242", "the option read out of a report full of logs")
 
 	// A log line indented under a heading is not a line of its own in the sense that matters,
 	// and nothing in the middle of a sentence is either.
@@ -1610,11 +1611,11 @@ Attach: herdr workspace .mac-mini, tab disk-1200`
 		"I wondered if no answer: would be better",
 		"Nothing here says it.",
 	} {
-		equal(t, session.FallbackOption(report), "", "the option read out of "+report)
+		harness.Equal(t, session.FallbackOption(report), "", "the option read out of "+report)
 	}
 
 	// Control characters go, because this ends up in a message and in a prompt.
-	equal(t, session.FallbackOption("If no answer: stop\u0007 pid 4242"), "stop  pid 4242",
+	harness.Equal(t, session.FallbackOption("If no answer: stop\u0007 pid 4242"), "stop  pid 4242",
 		"the option with a control character in it")
 }
 
@@ -1636,8 +1637,8 @@ func TestOneIncidentGetsOneThreadAndEveryLaterMessageGoesIntoIt(t *testing.T) {
 	f.at(300).sweep()
 
 	incident := f.onlyPendingID()
-	equal(t, len(f.opened), 1, "threads opened")
-	equal(t, f.state().Threads[incident], "thread-"+incident, "the thread recorded for the incident")
+	harness.Equal(t, len(f.opened), 1, "threads opened")
+	harness.Equal(t, f.state().Threads[incident], "thread-"+incident, "the thread recorded for the incident")
 
 	// Every message after it goes into that thread rather than opening a second.
 	f.notifyWithFallback(incident, "stop pid 4242")
@@ -1646,14 +1647,14 @@ func TestOneIncidentGetsOneThreadAndEveryLaterMessageGoesIntoIt(t *testing.T) {
 	f.at(600).sweep()
 	f.at(600 + remindAt).sweep()
 
-	equal(t, len(f.opened), 1, "threads opened by the reminder")
-	equal(t, f.sentTo[len(f.sentTo)-1], "thread-"+incident, "where the reminder went")
+	harness.Equal(t, len(f.opened), 1, "threads opened by the reminder")
+	harness.Equal(t, f.sentTo[len(f.sentTo)-1], "thread-"+incident, "where the reminder went")
 
 	// And the thread goes once nothing is open on it, so the listener stops polling it and
 	// the state does not keep one per incident for the life of the Mac.
 	f.notifyOutcome(incident)
 	f.at(600 + remindAt + 300).sweep()
-	equal(t, len(f.state().Threads), 0, "threads still recorded")
+	harness.Equal(t, len(f.state().Threads), 0, "threads still recorded")
 }
 
 // Without a bot there is no thread, and every message goes to the channel exactly as it
@@ -1667,7 +1668,7 @@ func TestWithNoBotNothingOpensAThreadAndNothingIsRecorded(t *testing.T) {
 	f.grow("tmp/worker.log", 4*mb)
 	f.at(300).sweep()
 
-	equal(t, len(f.opened), 0, "threads opened")
-	equal(t, len(f.state().Threads), 0, "threads recorded")
-	equal(t, f.sentTo[0], "", "where the first message went")
+	harness.Equal(t, len(f.opened), 0, "threads opened")
+	harness.Equal(t, len(f.state().Threads), 0, "threads recorded")
+	harness.Equal(t, f.sentTo[0], "", "where the first message went")
 }

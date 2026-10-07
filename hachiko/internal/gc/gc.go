@@ -1,7 +1,7 @@
 // Package gc sweeps what a finished session leaves behind: a removed worktree's compose
-// project and the processes still sitting in its folder, the scratch folder of a session
-// nobody is running any more, and the worktree entries git keeps for folders that are gone.
-// It runs from the io.github.timche.hachiko-gc LaunchAgent.
+// project and the volumes that project made, the processes still sitting in its folder, the
+// scratch folder of a session nobody is running any more, and the worktree entries git
+// keeps for folders that are gone. It runs from the io.github.timche.hachiko-gc LaunchAgent.
 //
 // A garbage collector rather than a hook on the removal, because no removal reliably hands
 // us one. herdr removes a worktree, so does Claude Code, so does `git worktree remove` by
@@ -30,16 +30,22 @@ import (
 // the interval the LaunchAgent runs on is taken over.
 const lockStale = 10 * time.Minute
 
-// A dry run changes nothing at all: no container, no process, no file, and not the lock
-// either.
+// A dry run changes nothing at all: no container, no volume, no process, no file, and
+// neither the state directory nor the lock.
 func Run(cfg config.Config, dry bool) error {
-	return (&sweeper{cfg: cfg, deps: realDeps(cfg), dry: dry}).run()
+	return (&sweeper{
+		cfg:   cfg,
+		deps:  realDeps(cfg),
+		store: Store{Dir: cfg.GCStateDir},
+		dry:   dry,
+	}).run()
 }
 
 type sweeper struct {
-	cfg  config.Config
-	deps Deps
-	dry  bool
+	cfg   config.Config
+	deps  Deps
+	store Store
+	dry   bool
 
 	// Whether the daemon answered, asked once: two sweeps need it and a daemon that is down
 	// costs the whole of `docker info`'s timeout to establish.
@@ -74,13 +80,30 @@ func (s *sweeper) run() error {
 		}
 	}
 
-	s.compose()
+	state, err := s.store.Load()
+	if err != nil {
+		// A state file that cannot be read costs this sweep the record of which compose
+		// projects ran in a worktree, which is the whole of what authorises a volume
+		// removal — so it removes no volume this run rather than stopping.
+		s.say("%v", err)
+	}
+
+	// The order the bash script swept in, with the volumes behind the compose projects: a
+	// project this sweep has just taken down has no volumes left to find, so the record of
+	// it can be forgotten in the same run.
+	s.compose(state)
+	s.volumes(state)
 	s.processes()
 	s.scratch(now)
 	s.worktreeEntries()
 
 	if s.dry {
 		s.say("dry run over")
+		return nil
+	}
+
+	if err := s.store.Save(state); err != nil {
+		s.say("the state could not be written, so the next sweep starts from nothing: %v", err)
 	}
 	return nil
 }

@@ -15,16 +15,21 @@ func TestAQuietSweepSaysNothing(t *testing.T) {
 	harness.Equal(t, f.sweep(), "", "the log of a quiet sweep")
 }
 
-// A dry run changes nothing at all, the lock included.
-func TestADryRunLeavesNoLock(t *testing.T) {
+// A dry run changes nothing at all, the state directory and the lock included.
+func TestADryRunLeavesNoStateAndNoLock(t *testing.T) {
 	f := newFixture(t)
 	removed := f.herdrWorktree("app", "gone", false)
 	f.containers = []Container{{Project: "gc-gone", WorkingDir: removed}}
+	f.volumes = []Volume{{Name: "gc-gone_data", Project: "gc-gone"}}
 
 	out := f.dryRun()
 	harness.Wants(t, out, "dry run over")
+
+	for _, path := range []string{f.cfg.GCStateDir, f.cfg.GCLock} {
+		gone(t, path)
+	}
 	harness.Equal(t, len(f.downs), 0, "projects taken down")
-	gone(t, f.cfg.GCLock)
+	harness.Equal(t, len(f.removed), 0, "volumes removed")
 }
 
 // A sweep already running is one this one has nothing to say about.
@@ -65,4 +70,17 @@ func TestALockIsReleasedOnlyByTheRunThatHoldsIt(t *testing.T) {
 	f.sweep()
 
 	gone(t, f.cfg.GCLock)
+}
+
+// A state file that cannot be read costs the record of which projects ran in a worktree,
+// which is the whole of what authorises a volume removal — so a corrupt one removes none.
+func TestACorruptStateFileRemovesNoVolume(t *testing.T) {
+	f := recordedThenRemoved(t)
+	f.volumes = []Volume{{Name: "app-gone_data", Project: "app-gone"}}
+
+	harness.WriteFile(t, filepath.Join(f.cfg.GCStateDir, "state.json"), "{not json")
+
+	out := f.at(600).sweep()
+	harness.Wants(t, out, "the state file could not be read")
+	harness.Equal(t, len(f.removed), 0, "volumes removed")
 }

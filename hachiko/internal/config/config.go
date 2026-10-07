@@ -73,10 +73,12 @@ type Config struct {
 
 	StateDir string
 
-	// The lock the sweep that follows a removed worktree takes, which is its own rather than
-	// the watch's: each of the two holds its lock across minutes of work, so a gc waiting on
-	// the watch or the watch on a gc would be an interval of neither.
-	GCLock string
+	// The sweep that follows a removed worktree, which keeps a state directory of its own and
+	// a lock beside it rather than the watch's: each of the two holds its lock across minutes
+	// of work, so a gc waiting on the watch or the watch on a gc would be an interval of
+	// neither.
+	GCStateDir string
+	GCLock     string
 
 	// Where the sweep prunes worktree entries. Its own name rather than HACHIKO_PROJECTS,
 	// which it falls back to: the watch only reads that root to say which checkout a busy
@@ -167,6 +169,7 @@ func FromEnv() Config {
 
 		StateDir: envString("HACHIKO_STATE_DIR", filepath.Join(cache, "hachiko")),
 
+		GCStateDir:     envString("HACHIKO_GC_STATE_DIR", filepath.Join(cache, "hachiko-gc")),
 		GCLock:         envString("HACHIKO_GC_LOCK", filepath.Join(cache, "hachiko-gc.lock")),
 		GCProjectsRoot: envString("HACHIKO_GC_PROJECTS", projects),
 		Discord: readDiscordConfig(envString("HACHIKO_DISCORD_CONFIG",

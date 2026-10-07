@@ -41,6 +41,11 @@ type fixture struct {
 	downs         []string
 	downErr       map[string]string
 
+	volumes    []Volume
+	volumesErr error
+	removed    []string
+	volumeErr  map[string]string
+
 	procs    []process.Process
 	procsErr error
 	cwds     []CWD
@@ -73,17 +78,20 @@ func newFixture(t *testing.T) *fixture {
 		dockerUp: true,
 		gitUp:    true,
 
-		alive:    map[int]bool{},
-		stubborn: map[int]bool{},
-		immortal: map[int]bool{},
-		pruneOut: map[string]string{},
-		pruneErr: map[string]string{},
+		downErr:   map[string]string{},
+		volumeErr: map[string]string{},
+		alive:     map[int]bool{},
+		stubborn:  map[int]bool{},
+		immortal:  map[int]bool{},
+		pruneOut:  map[string]string{},
+		pruneErr:  map[string]string{},
 
 		cfg: config.Config{
 			Home:           home,
 			HerdrRoot:      filepath.Join(home, ".herdr", "worktrees"),
 			ScratchRoot:    filepath.Join(home, ".cache", "claude-tmp"),
 			GCProjectsRoot: filepath.Join(home, "projects"),
+			GCStateDir:     filepath.Join(home, "state"),
 			GCLock:         filepath.Join(home, "gc.lock"),
 			Host:           "mac-mini",
 		},
@@ -114,6 +122,15 @@ func (f *fixture) deps() Deps {
 			}
 			return []byte("Container " + project + "-db  Removed\n"), nil
 		},
+		Volumes: func() ([]Volume, error) { return f.volumes, f.volumesErr },
+		RemoveVolume: func(name string) ([]byte, error) {
+			if said, bad := f.volumeErr[name]; bad {
+				return []byte(said), fmt.Errorf("exit status 1")
+			}
+			f.removed = append(f.removed, name)
+			return []byte(name + "\n"), nil
+		},
+
 		IsDir:        real.IsDir,
 		Exists:       real.Exists,
 		ReadDir:      real.ReadDir,
@@ -170,11 +187,21 @@ func (f *fixture) run(dry bool) string {
 	f.t.Helper()
 	f.log.Reset()
 
-	s := &sweeper{cfg: f.cfg, deps: f.deps(), dry: dry}
+	s := &sweeper{cfg: f.cfg, deps: f.deps(), store: Store{Dir: f.cfg.GCStateDir}, dry: dry}
 	if err := s.run(); err != nil {
 		f.t.Fatalf("the sweep failed: %v", err)
 	}
 	return f.log.String()
+}
+
+func (f *fixture) state() *State {
+	f.t.Helper()
+
+	state, err := (Store{Dir: f.cfg.GCStateDir}).Load()
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return state
 }
 
 // A worktree of herdr's, made and then removed, which is the shape every sweep here is

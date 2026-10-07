@@ -24,7 +24,7 @@ func (s *sweeper) docker() bool {
 // docker absent or its daemon down is not a fault and says nothing: a Mac with OrbStack
 // stopped has no containers to sweep, and a line about it every ten minutes would bury the
 // lines that matter.
-func (s *sweeper) compose() {
+func (s *sweeper) compose(state *State) {
 	if !s.docker() {
 		return
 	}
@@ -35,11 +35,19 @@ func (s *sweeper) compose() {
 		return
 	}
 
+	now := s.deps.Now()
+
 	for _, p := range byProject(found) {
 		worktree, inRoot := worktreeOf(s.cfg.HerdrRoot, p.WorkingDir)
 		if !inRoot {
 			continue
 		}
+
+		// Written down whether or not the worktree is still there, because this is the only
+		// moment a project and a folder are ever seen together: a volume carries the project
+		// and nothing else, and by the time one is worth removing there is no container left
+		// to ask.
+		state.see(p.Project, worktree, now)
 
 		if p.WorkingDir == "" || s.deps.IsDir(p.WorkingDir) || s.deps.IsDir(worktree) {
 			continue
@@ -68,6 +76,72 @@ func (s *sweeper) anyConfigLeft(files []string) bool {
 		}
 	}
 	return false
+}
+
+// Named volumes of a worktree that is gone. A volume says which compose project made it and
+// nothing about where that project was, so the record above is what authorises this: a
+// project never seen running inside a worktree root is never touched, however its volumes
+// are named.
+//
+// Anonymous volumes are left alone whatever project they carry. One is a mount a Dockerfile
+// or a compose file asked for without naming, so what is in it was never anybody's to find
+// again — but it is also the one kind a `down -v` already takes, so the ones left here are
+// the ones something else is keeping.
+func (s *sweeper) volumes(state *State) {
+	if !s.docker() {
+		return
+	}
+
+	all, err := s.deps.Volumes()
+	if err != nil {
+		s.say("docker would not list its volumes, so none was swept: %v", err)
+		return
+	}
+
+	// How many volumes each project still has, which decides whether its record has
+	// anything left to do.
+	left := map[string]int{}
+	for _, v := range all {
+		if v.Project != "" {
+			left[v.Project]++
+		}
+	}
+
+	for _, v := range all {
+		if v.Anonymous || v.InUse || v.Project == "" {
+			continue
+		}
+
+		seen, ok := state.Projects[v.Project]
+		if !ok || s.deps.IsDir(seen.Worktree) {
+			continue
+		}
+
+		if s.dry {
+			s.say("would remove volume %s of compose project %s, whose worktree %s is gone",
+				safe(v.Name), safe(v.Project), safe(seen.Worktree))
+			continue
+		}
+
+		s.say("removing volume %s of compose project %s, whose worktree %s is gone",
+			safe(v.Name), safe(v.Project), safe(seen.Worktree))
+
+		out, err := s.deps.RemoveVolume(v.Name)
+		if err != nil {
+			s.say("volume %s would not go: %s", safe(v.Name), lastLine(out, err))
+			continue
+		}
+		left[v.Project]--
+	}
+
+	// A record for a worktree that is gone and a project with nothing left of it is a record
+	// that can never authorise anything again. One whose removal failed keeps its own, which
+	// is what makes the next sweep try it.
+	for _, project := range sortedKeys(state.Projects) {
+		if left[project] == 0 && !s.deps.IsDir(state.Projects[project].Worktree) {
+			delete(state.Projects, project)
+		}
+	}
 }
 
 // One decision per project rather than per container: a project with three containers has
@@ -129,6 +203,25 @@ func (s *sweeper) indent(out []byte) {
 			s.say("  %s", safe(line))
 		}
 	}
+}
+
+// The one line of a command's output a message quotes. The last rather than the first:
+// docker and git both print what they were doing before they print what went wrong.
+func lastLine(out []byte, err error) string {
+	for _, line := range reversed(strings.Split(strings.TrimRight(string(out), "\n"), "\n")) {
+		if text := strings.TrimSpace(line); text != "" {
+			return text
+		}
+	}
+	return err.Error()
+}
+
+func reversed(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	for i := len(lines) - 1; i >= 0; i-- {
+		out = append(out, lines[i])
+	}
+	return out
 }
 
 // Everything in a line of this log was chosen by whatever a session was running: a path, a

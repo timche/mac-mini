@@ -40,6 +40,12 @@ type Deps struct {
 	Containers func() ([]Container, error)
 	Down       func(project string) ([]byte, error)
 
+	// Every volume, with whether a container is using it. Both halves matter: the one no
+	// container uses is the candidate, and the one some container does is the record that a
+	// project is not finished with.
+	Volumes      func() ([]Volume, error)
+	RemoveVolume func(name string) ([]byte, error)
+
 	IsDir   func(path string) bool
 	Exists  func(path string) bool
 	ReadDir func(path string) ([]string, error)
@@ -71,6 +77,16 @@ type Container struct {
 	ConfigFiles []string
 }
 
+// Volume is one named volume. Project is `com.docker.compose.project`, which is the only
+// thing a volume carries about where it came from — never the folder, which is why a sweep
+// has to have written down which projects ran in a worktree.
+type Volume struct {
+	Name      string
+	Project   string
+	Anonymous bool
+	InUse     bool
+}
+
 // CWD is one process and the directory it is sitting in.
 type CWD struct {
 	PID int
@@ -81,10 +97,11 @@ type CWD struct {
 // sweep that never returns is one holding the lock that keeps the next six from running.
 // `down` gets the longest because it stops containers and waits on them.
 const (
-	infoTimeout  = 10 * time.Second
-	listTimeout  = 20 * time.Second
-	downTimeout  = 180 * time.Second
-	pruneTimeout = 30 * time.Second
+	infoTimeout   = 10 * time.Second
+	listTimeout   = 20 * time.Second
+	downTimeout   = 180 * time.Second
+	volumeTimeout = 60 * time.Second
+	pruneTimeout  = 30 * time.Second
 )
 
 func realDeps(cfg config.Config) Deps {
@@ -105,6 +122,11 @@ func realDeps(cfg config.Config) Deps {
 		Down: func(project string) ([]byte, error) {
 			return run(downTimeout, "docker", "compose", "-p", project, "down", "-v", "--remove-orphans")
 		},
+		Volumes: volumes,
+		RemoveVolume: func(name string) ([]byte, error) {
+			return run(volumeTimeout, "docker", "volume", "rm", name)
+		},
+
 		IsDir: func(path string) bool {
 			info, err := os.Stat(path)
 			return err == nil && info.IsDir()
@@ -179,6 +201,71 @@ func containers() ([]Container, error) {
 		found = append(found, c)
 	}
 	return found, nil
+}
+
+// Two listings rather than one: `--filter dangling=true` is docker's own answer to which
+// volumes no container is using, and reading it off the full list would mean deciding for
+// ourselves what counts as a user.
+func volumes() ([]Volume, error) {
+	out, err := run(listTimeout, "docker", "volume", "ls", "--format", "{{.Name}}\t{{.Labels}}")
+	if err != nil {
+		return nil, err
+	}
+
+	idle, err := run(listTimeout, "docker", "volume", "ls",
+		"--filter", "dangling=true", "--format", "{{.Name}}")
+	if err != nil {
+		return nil, err
+	}
+
+	unused := map[string]bool{}
+	for _, name := range strings.Split(string(idle), "\n") {
+		if name = strings.TrimSpace(name); name != "" {
+			unused[name] = true
+		}
+	}
+
+	var found []Volume
+	for _, line := range strings.Split(string(out), "\n") {
+		name, labels, _ := strings.Cut(strings.TrimRight(line, "\r"), "\t")
+		if name = strings.TrimSpace(name); name == "" {
+			continue
+		}
+		found = append(found, parseVolume(name, labels, !unused[name]))
+	}
+	return found, nil
+}
+
+// `{{.Labels}}` is `k=v` pairs joined with commas. A value holding one would be read wrong,
+// which neither of the two keys this looks for can hold: compose rejects a project name
+// outside [a-z0-9_-], and the anonymous marker has no value at all.
+func parseVolume(name, labels string, inUse bool) Volume {
+	v := Volume{Name: name, InUse: inUse, Anonymous: anonymousName(name)}
+
+	for _, label := range strings.Split(labels, ",") {
+		key, value, _ := strings.Cut(strings.TrimSpace(label), "=")
+		switch key {
+		case "com.docker.compose.project":
+			v.Project = value
+		case "com.docker.volume.anonymous":
+			v.Anonymous = true
+		}
+	}
+	return v
+}
+
+// What docker names a volume nobody named: 64 hex characters. Checked as well as the label,
+// because the label is compose's and a volume from a Dockerfile's VOLUME has neither.
+func anonymousName(name string) bool {
+	if len(name) != 64 {
+		return false
+	}
+	for _, r := range name {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // Names only, sorted, so a sweep walks a folder in the order a log reads in. Whether one of

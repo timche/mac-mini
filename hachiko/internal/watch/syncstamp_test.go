@@ -40,7 +40,7 @@ func TestASyncThatHasStoppedIsOneMessageAndNoSession(t *testing.T) {
 	harness.Wants(t, f.lastSent(), "⚠️ Auto-sync has not run for 1 hour 5 minutes")
 	harness.Wants(t, f.lastSent(), "**Last heartbeat:** ")
 	harness.Wants(t, f.lastSent(), "**You can run:** `launchctl kickstart -k gui/501/io.github.timche.hachiko-sync`")
-	harness.Wants(t, f.lastSent(), "~/Library/Logs/io.github.timche.hachiko-sync.log")
+	harness.Wants(t, f.lastSent(), "~/Library/Logs/hachiko-sync.log")
 
 	// Not an incident: the answer is already written in the message, and it is Tim's.
 	harness.Equal(t, f.oncallCalls, 0, "sessions opened")

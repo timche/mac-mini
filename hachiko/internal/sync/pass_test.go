@@ -449,3 +449,40 @@ func TestADelayOverARepositoryWithNothingUnpushedWaitsForNothing(t *testing.T) {
 		t.Fatalf("outcome %v", result.Outcome)
 	}
 }
+
+// Somebody resolving a conflict by hand has a dirty tree that is theirs to finish: a commit
+// would land inside their rebase or merge.
+func TestATreeMidRebaseOrMergeIsLeftAlone(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		detached  bool
+		pseudoRef string
+	}{
+		{"rebase", true, ""},
+		{"merge", false, "MERGE_HEAD"},
+		{"cherry-pick", false, "CHERRY_PICK_HEAD"},
+		{"revert", false, "REVERT_HEAD"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.tree.status = "UU a.md\x00"
+			f.tree.staged = []string{"a.md"}
+			f.tree.unpushed = []string{"aaa earlier"}
+			f.tree.detached, f.tree.pseudoRef = tc.detached, tc.pseudoRef
+
+			result, log := f.pass(pushNow)
+
+			if result.Outcome != Nothing {
+				t.Fatalf("outcome %v", result.Outcome)
+			}
+			for _, prefix := range []string{"add", "commit", "push", "pull", "fetch"} {
+				if f.ranAny(prefix) {
+					t.Errorf("ran %s: %v", prefix, f.calls)
+				}
+			}
+			if !strings.Contains(log, "left alone:") {
+				t.Errorf("log: %s", log)
+			}
+		})
+	}
+}

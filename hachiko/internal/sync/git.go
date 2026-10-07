@@ -63,6 +63,21 @@ func (g gitRepo) branch() (string, error) {
 	return strings.TrimSpace(out.Stdout), nil
 }
 
+// Why the tree is somebody's to finish by hand, or "" when it is not. A rebase and a bisect
+// both detach HEAD; a merge, a cherry-pick and a revert stop on the branch and leave a
+// pseudo-ref behind instead.
+func (g gitRepo) busy(branch string) string {
+	if branch == "HEAD" {
+		return "HEAD is detached, so a rebase or a bisect is under way"
+	}
+	for _, ref := range []string{"MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"} {
+		if g.run("rev-parse", "-q", "--verify", ref).OK {
+			return ref + " is there, so a merge, a cherry-pick or a revert is under way"
+		}
+	}
+	return ""
+}
+
 func (g gitRepo) hasUpstream() bool {
 	return g.run("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}").OK
 }

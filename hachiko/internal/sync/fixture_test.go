@@ -31,6 +31,8 @@ type fakeRepo struct {
 	upstream    string
 	noUpstream  bool
 	midRebase   bool
+	detached    bool
+	pseudoRef   string
 	pushRefused int
 	pushText    string
 
@@ -107,7 +109,15 @@ func (f *fixture) git(dir string, args ...string) Output {
 	case "rev-parse --is-inside-work-tree":
 		return ok("true\n")
 	case "rev-parse --abbrev-ref HEAD":
+		if t.detached {
+			return ok("HEAD\n")
+		}
 		return ok("main\n")
+	case "rev-parse -q --verify MERGE_HEAD", "rev-parse -q --verify CHERRY_PICK_HEAD", "rev-parse -q --verify REVERT_HEAD":
+		if args[3] == t.pseudoRef {
+			return ok("ccc\n")
+		}
+		return bad("")
 	case "rev-parse --abbrev-ref --symbolic-full-name @{upstream}":
 		if t.noUpstream {
 			return bad("fatal: no upstream configured for branch 'main'")

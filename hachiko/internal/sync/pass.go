@@ -83,6 +83,13 @@ func (p passer) try(mode pushMode) Result {
 		return p.unreachable("the branch could not be read: " + err.Error())
 	}
 
+	// A commit in the middle of somebody's rebase or merge would land in it, and a push of a
+	// detached HEAD names no branch at all.
+	if why := p.git.busy(branch); why != "" {
+		p.say("left alone: %s", why)
+		return Result{Outcome: Nothing}
+	}
+
 	setUpstream := !p.git.hasUpstream()
 	dirty := p.git.status() != ""
 

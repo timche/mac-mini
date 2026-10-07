@@ -3,9 +3,9 @@
 # sources have changed since the binary in the cache was made.
 #
 # There is no install step and no release pipeline because there is nowhere to
-# release to: boswell commits every edit to this repository within seconds and pulls
-# it onto the Mac, so a change to hachiko/ is live on the next five-minute run as
-# soon as it lands. What that costs is a build on the Mac, and what it buys is that a
+# release to: this runs from the checkout and builds from its working tree, so a
+# change to hachiko/ is live on the next five-minute run as soon as it is written.
+# What that costs is a build on the Mac, and what it buys is that a
 # half-written edit cannot take the monitor down: a source tree that does not compile
 # leaves the last binary that did in place and logs one line about it.
 #
@@ -16,7 +16,7 @@
 # worked.
 #
 # A build that compiles is not the same as one that works, and the agents this binary
-# runs include the one that commits and pushes every repository on the Mac. So the
+# runs include the one that commits and pushes the project docs. So the
 # whole module's tests run between the build and the move into place, and a failing
 # test keeps the last binary exactly as a failing build does. Nothing here is a
 # review step — it is the one gate there is, since what lands in this repository is

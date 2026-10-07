@@ -234,7 +234,7 @@ else
   echo
   if [ -z "$auto_login_user" ]; then
     echo "warning: auto-login is off. After a restart this Mac sits at the login" >&2
-    echo "window, where there is no gui/$(id -u) domain — so boswell and the" >&2
+    echo "window, where there is no gui/$(id -u) domain — so hachiko and the" >&2
     echo "ssh-agent that holds the signing key are not running, and nothing says" >&2
     echo "so beyond commits failing to sign." >&2
   else

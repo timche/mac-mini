@@ -23,7 +23,7 @@
   </array>
   <key>RunAtLoad</key>
   <true/>
-  <!-- Unconditional, unlike boswell's: this job is never meant to be finished
+  <!-- Unconditional, unlike the sync agent's: this job is never meant to be finished
        with, and a restart is also how the key is re-read after the token or the
        network came back. bootout is the only thing that stops it. -->
   <key>KeepAlive</key>

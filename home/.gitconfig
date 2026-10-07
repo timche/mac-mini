@@ -20,7 +20,7 @@
 # a hook defined in config (git 2.54) runs alongside .git/hooks and a repository's
 # core.hooksPath, where a global core.hooksPath would have switched those off.
 # Staged changes only, redacted, so a finding never prints the value. A Mac
-# without betterleaks warns instead of refusing every commit, boswell's included.
+# without betterleaks warns instead of refusing every commit, `hachiko sync`'s included.
 [hook "betterleaks"]
 	event = pre-commit
 	command = "command -v betterleaks >/dev/null 2>&1 || { echo 'betterleaks is not installed, so this commit was not scanned for secrets' >&2; exit 0; }; betterleaks git --pre-commit --staged --redact --no-banner --verbose --config \"$HOME/.config/betterleaks/betterleaks.toml\""

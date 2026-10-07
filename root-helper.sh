@@ -177,8 +177,8 @@ fi
 # password is the moment to read it.
 #
 # The diff rather than a log of the commits behind it: a commit range from the
-# installed copy would have to be guessed at — boswell commits this repository
-# every few seconds, and a local edit matches no commit at all — where the diff
+# installed copy would have to be guessed at — a local edit matches no commit at
+# all, and the helper is installed from the working tree — where the diff
 # is exactly what will change, whatever produced it.
 #
 # The helper is world-readable, so the diff needs no root. The sudoers rule is 0440

@@ -1,6 +1,6 @@
 .DS_Store
-# Claude Code's worktrees of this repository, which boswell would otherwise commit
-# within seconds as an embedded repository.
+# Claude Code's worktrees of this repository, which a commit here would otherwise
+# take in as an embedded repository.
 .claude/worktrees/
 # Synced onto every machine from the claude.ai account, so there is nothing to
 # version, and the folder name carries the account's organisation id.
@@ -9,7 +9,7 @@ home/.claude/skills/synced/
 # the repository's; the tracked half is home/.claude/settings.json.
 /.claude/settings.local.json
 # What a session writes to show a change working. It is attached to a pull request
-# or copied off, and boswell would otherwise publish every frame of it.
+# or copied off, and this repository is public.
 *.png
 *.mov
 *.mp4

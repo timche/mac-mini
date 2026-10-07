@@ -135,7 +135,7 @@ func TestASessionsDryRunWritesNoHeartbeat(t *testing.T) {
 }
 
 // The agent in the config's dry run is alive all the same, and the watch reads the heartbeat
-// as exactly that. Without it, a dry run beside boswell was reported as sync having stopped.
+// as exactly that. Without it, an agent put into dry run is reported as sync having stopped.
 func TestTheAgentsDryRunStillBeats(t *testing.T) {
 	f := newFixture(t)
 	f.dry = true

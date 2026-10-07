@@ -7,8 +7,8 @@
      with no SSH_* in its environment and herdr, not tailscaled, as the app macOS
      asks its privacy grants of. Tim still attaches from the MacBook with
      `herdr remote-client-bridge` over Tailscale SSH, which only talks to the
-     socket. Linked like boswell's agent, and for the same reason it names no path
-     launchd would have to expand. -->
+     socket. Linked like the agents beside it, and for the same reason it names no
+     path launchd would have to expand. -->
 <plist version="1.0">
 <dict>
   <key>Label</key>
@@ -24,7 +24,7 @@
   </array>
   <key>RunAtLoad</key>
   <true/>
-  <!-- Unconditionally, unlike boswell's: a server missing for any reason, even a
+  <!-- Unconditionally, unlike the sync agent's: a server missing for any reason, even a
        deliberate `herdr server stop`, would otherwise be replaced by the next
        remote client starting one of its own over SSH, which is exactly the server
        this agent exists to avoid. -->

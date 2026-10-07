@@ -89,7 +89,7 @@ fi
 target="${MAC_MINI_DIR:-$HOME/.mac-mini}"
 
 if [ -d "$target/.git" ]; then
-  # boswell commits to this clone's main on its own, so a pull can refuse to
+  # A session commits to this clone's main directly, so a pull can refuse to
   # fast-forward over work that has not been pushed yet. What is checked out still
   # provisions the Mac, and ending the run over a pull would leave the machine
   # half built for a reason that has nothing to do with it.

@@ -129,8 +129,12 @@ func (d *daemon) once() error {
 			continue
 		}
 
+		// Through the same record as a pass of the daemon's, so a `--once` run posts the
+		// message the daemon would have posted and a conflict it meets pauses the repository
+		// rather than leaving the daemon to rebase over it again.
 		result := d.passer(repo).run(pushNow)
-		d.report(repo.Path, result.Failure)
+		d.record(repo, d.git(repo.Path), result)
+
 		if result.Outcome.isFailure() {
 			bad++
 		}

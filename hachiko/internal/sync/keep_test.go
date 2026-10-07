@@ -11,8 +11,30 @@ import (
 
 // A real sleep rather than the fixture's clock, because this loop is the one that is meant
 // to go round for ever: a Sleep that returned at once would spin a core in a test.
-func briefly(d *daemon) {
-	d.deps.Sleep = func(time.Duration) { time.Sleep(time.Millisecond) }
+//
+// The function it answers with parks the loop for good and waits until it has, which a test
+// of a loop that never returns has to have: a keeper still going round after its test has
+// finished writes a heartbeat into a temp directory the harness is in the middle of
+// removing. A test whose loop returns on its own never calls it.
+func briefly(d *daemon) func() {
+	stop, parked := make(chan struct{}), make(chan struct{})
+
+	d.deps.Sleep = func(time.Duration) {
+		select {
+		case <-stop:
+			close(parked)
+			// A receive on a nil channel blocks for ever, which is what parks it.
+			var never chan struct{}
+			<-never
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	return func() {
+		close(stop)
+		<-parked
+	}
 }
 
 func blind(d *daemon) {
@@ -47,7 +69,7 @@ func TestTheDaemonExitsWhenItsBinaryHasBeenReplaced(t *testing.T) {
 // every half minute for ever.
 func TestADaemonThatCannotSeeItsOwnBinaryKeepsRunning(t *testing.T) {
 	d := newFixture(t).daemon()
-	briefly(d)
+	park := briefly(d)
 	blind(d)
 
 	done := make(chan error, 1)
@@ -58,6 +80,7 @@ func TestADaemonThatCannotSeeItsOwnBinaryKeepsRunning(t *testing.T) {
 		t.Fatalf("it exited: %v", err)
 	case <-time.After(50 * time.Millisecond):
 	}
+	park()
 }
 
 // The heartbeat is the oldest of the repositories' own ticks, so a loop wedged on something
@@ -99,11 +122,12 @@ func TestADryRunWritesNoHeartbeat(t *testing.T) {
 	f.dry = true
 
 	d := f.daemon()
-	briefly(d)
+	park := briefly(d)
 	blind(d)
 
 	go d.keep()
 	time.Sleep(20 * time.Millisecond)
+	park()
 
 	if _, err := os.Stat(filepath.Join(d.store.Dir, "heartbeat")); err == nil {
 		t.Error("a dry run wrote a heartbeat")

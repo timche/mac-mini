@@ -36,9 +36,6 @@ func (s *sweeper) worktreeEntries() {
 		// git reports what it pruned on stderr, hence the whole of its output and the filter
 		// on the lines that name an entry.
 		out, err := s.deps.Prune(repo, s.dry)
-		if err != nil {
-			s.say("%s's worktree entries could not be pruned: %v", safe(repo), err)
-		}
 
 		for _, line := range strings.Split(string(out), "\n") {
 			rest, ok := strings.CutPrefix(strings.TrimRight(line, "\r"), "Removing ")
@@ -54,6 +51,10 @@ func (s *sweeper) worktreeEntries() {
 
 			s.say("%s %s's worktree entry %s, whose folder is gone (%s)",
 				verb, safe(repo), safe(entry), safe(reason))
+		}
+
+		if err != nil {
+			s.failed(Failure{Kind: failedPrune, Subject: repo, Detail: lastLine(out, err)})
 		}
 	}
 }

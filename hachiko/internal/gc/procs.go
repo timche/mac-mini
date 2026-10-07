@@ -1,16 +1,24 @@
 package gc
 
 import (
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/process"
+	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
 // A dev server closing sockets and a database flushing both want a moment; what is still
 // there after it was not going to leave.
 const termGrace = 10
+
+// What a process gets to disappear in after SIGKILL before the sweep says it did not. The
+// kernel does not refuse a SIGKILL, so anything still answering is in an uninterruptible
+// wait — and the one false reading would be a zombie, which the launchd these are
+// reparented to reaps in microseconds.
+const killGrace = 2 * time.Second
 
 // A process whose cwd no longer exists, inside a worktree that no longer exists. Both
 // halves matter: a cwd that is still there belongs to a session that is still working, and
@@ -109,9 +117,23 @@ func (s *sweeper) stop(victims []process.Process) {
 		s.deps.Sleep(time.Second)
 	}
 
-	for _, p := range s.stillThere(victims) {
+	stubborn := s.stillThere(victims)
+	for _, p := range stubborn {
 		s.say("%d ignored SIGTERM, sending SIGKILL", p.PID)
 		s.deps.Signal(p.PID, syscall.SIGKILL)
+	}
+	if len(stubborn) == 0 {
+		return
+	}
+
+	s.deps.Sleep(killGrace)
+	for _, p := range s.stillThere(stubborn) {
+		s.failed(Failure{
+			Kind:    failedKill,
+			Subject: strconv.Itoa(p.PID),
+			Label:   wording.PIDLabel(wording.Safe(p.Name(), wording.NameLimit), strconv.Itoa(p.PID)),
+			Detail:  safe(p.Command),
+		})
 	}
 }
 

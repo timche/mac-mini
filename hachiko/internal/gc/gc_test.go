@@ -9,10 +9,11 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/harness"
 )
 
-func TestAQuietSweepSaysNothing(t *testing.T) {
+func TestAQuietSweepSaysNothingAndSendsNothing(t *testing.T) {
 	f := newFixture(t)
 
 	harness.Equal(t, f.sweep(), "", "the log of a quiet sweep")
+	harness.Equal(t, len(f.sent), 0, "messages sent")
 }
 
 // A dry run changes nothing at all, the state directory and the lock included.
@@ -28,8 +29,7 @@ func TestADryRunLeavesNoStateAndNoLock(t *testing.T) {
 	for _, path := range []string{f.cfg.GCStateDir, f.cfg.GCLock} {
 		gone(t, path)
 	}
-	harness.Equal(t, len(f.downs), 0, "projects taken down")
-	harness.Equal(t, len(f.removed), 0, "volumes removed")
+	harness.Equal(t, len(f.sent), 0, "messages sent")
 }
 
 // A sweep already running is one this one has nothing to say about.

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/discord"
 	"github.com/timche/mac-mini/hachiko/internal/process"
 )
 
@@ -65,6 +66,11 @@ type Deps struct {
 
 	Git   func() bool
 	Prune func(repo string, dry bool) ([]byte, error)
+
+	// Reaches the channel Tim watches, and answers with the thread it opened. The only
+	// thing that ever sees the webhook or the bot token, and it is the watch's own sender:
+	// a failure here goes out the same way an alert does.
+	Send func(out discord.Outgoing) (string, error)
 }
 
 // Container is one compose container as its own labels describe it. The labels rather than
@@ -159,6 +165,8 @@ func realDeps(cfg config.Config) Deps {
 			}
 			return run(pruneTimeout, "git", args...)
 		},
+
+		Send: func(out discord.Outgoing) (string, error) { return discord.SendThroughOP(cfg, out) },
 	}
 }
 

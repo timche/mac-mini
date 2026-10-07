@@ -69,6 +69,21 @@ func TestComposeSaysNothingWithNoDaemon(t *testing.T) {
 
 	harness.Equal(t, f.sweep(), "", "the log of a sweep with no daemon")
 	harness.Equal(t, len(f.downs), 0, "projects taken down")
+	harness.Equal(t, len(f.sent), 0, "messages sent")
+}
+
+func TestComposeDownThatFailsIsOneMessage(t *testing.T) {
+	f := composeFixture(t)
+	f.downErr["gc-gone"] = "Error response from daemon: removal of container gc-gone-db is already in progress"
+
+	out := f.sweep()
+	harness.Wants(t, out, "compose project gc-gone would not go down: Error response from daemon")
+
+	harness.Equal(t, len(f.sent), 1, "messages sent")
+	harness.Wants(t, f.lastSent(), "⚠️ A removed worktree's containers would not go")
+	harness.Wants(t, f.lastSent(), "**Compose project:** `gc-gone`")
+	harness.Wants(t, f.lastSent(), "already in progress")
+	harness.Wants(t, f.lastSent(), "**You can run:** `docker compose -p gc-gone down -v --remove-orphans`")
 }
 
 // One container per service, so a project with three of them is one decision and one

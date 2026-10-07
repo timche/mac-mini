@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/discord"
 	"github.com/timche/mac-mini/hachiko/internal/process"
 )
 
@@ -63,6 +64,10 @@ type fixture struct {
 	pruned   []string
 	pruneOut map[string]string
 	pruneErr map[string]string
+
+	sent    []discord.Outgoing
+	sendErr string
+	threads int
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -152,6 +157,8 @@ func (f *fixture) deps() Deps {
 			}
 			return []byte(f.pruneOut[repo]), nil
 		},
+
+		Send: f.send,
 	}
 }
 
@@ -181,8 +188,29 @@ func (f *fixture) signal(pid int, sig syscall.Signal) error {
 	return nil
 }
 
+func (f *fixture) send(out discord.Outgoing) (string, error) {
+	if f.sendErr != "" {
+		return "", fmt.Errorf("%s", f.sendErr)
+	}
+
+	f.sent = append(f.sent, out)
+	if out.OpenThread == "" {
+		return "", nil
+	}
+	f.threads++
+	return fmt.Sprintf("thread-%d", f.threads), nil
+}
+
 func (f *fixture) sweep() string  { return f.run(false) }
 func (f *fixture) dryRun() string { return f.run(true) }
+func (f *fixture) lastSent() string {
+	f.t.Helper()
+	if len(f.sent) == 0 {
+		f.t.Fatal("nothing was sent")
+	}
+	return f.sent[len(f.sent)-1].Text
+}
+
 func (f *fixture) run(dry bool) string {
 	f.t.Helper()
 	f.log.Reset()

@@ -89,13 +89,17 @@ func TestAVolumeWithNoProjectOfItsOwnIsNeverRemoved(t *testing.T) {
 	harness.Equal(t, len(f.removed), 0, "volumes removed")
 }
 
-func TestAVolumeThatWillNotGoKeepsItsRecord(t *testing.T) {
+func TestAVolumeThatWillNotGoIsOneMessageAndKeepsItsRecord(t *testing.T) {
 	f := recordedThenRemoved(t)
 	f.volumes = []Volume{{Name: "app-gone_data", Project: "app-gone"}}
 	f.volumeErr["app-gone_data"] = "Error response from daemon: volume is in use"
 
 	out := f.at(600).sweep()
 	harness.Wants(t, out, "volume app-gone_data would not go: Error response from daemon: volume is in use")
+
+	harness.Wants(t, f.lastSent(), "⚠️ A removed worktree's volume would not go")
+	harness.Wants(t, f.lastSent(), "**Volume:** `app-gone_data`")
+	harness.Wants(t, f.lastSent(), "**You can run:** `docker volume rm app-gone_data`")
 
 	harness.Equal(t, len(f.state().Projects), 1, "the record the next sweep needs")
 }

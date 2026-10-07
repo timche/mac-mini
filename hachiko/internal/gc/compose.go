@@ -64,8 +64,14 @@ func (s *sweeper) compose(state *State) {
 
 		s.say("removing compose project %s, whose worktree %s is gone", safe(p.Project), safe(worktree))
 
-		out, _ := s.deps.Down(p.Project)
+		out, err := s.deps.Down(p.Project)
 		s.indent(out)
+		if err != nil {
+			s.failed(Failure{
+				Kind: failedDown, Subject: p.Project, Worktree: worktree,
+				Detail: lastLine(out, err),
+			})
+		}
 	}
 }
 
@@ -128,7 +134,10 @@ func (s *sweeper) volumes(state *State) {
 
 		out, err := s.deps.RemoveVolume(v.Name)
 		if err != nil {
-			s.say("volume %s would not go: %s", safe(v.Name), lastLine(out, err))
+			s.failed(Failure{
+				Kind: failedVolume, Subject: v.Name, Project: v.Project,
+				Worktree: seen.Worktree, Detail: lastLine(out, err),
+			})
 			continue
 		}
 		left[v.Project]--
@@ -229,7 +238,8 @@ func reversed(lines []string) []string {
 // line that reads as the sweep's own.
 //
 // Long enough for any path macOS will make, since the log is where somebody looks for the
-// one it was about.
+// one it was about; a message is `short` instead, because Discord counts the whole of it.
 const logLimit = 1024
 
-func safe(s string) string { return wording.Safe(s, logLimit) }
+func safe(s string) string  { return wording.Safe(s, logLimit) }
+func short(s string) string { return wording.Safe(s, wording.PathLimit) }

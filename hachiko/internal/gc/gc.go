@@ -15,6 +15,10 @@
 // session, and so is a process whose cwd still exists, a scratch folder a live session
 // claims, and a worktree git still finds on disk. Only the gone ones are swept, and only
 // inside the roots this machine makes them in.
+//
+// This is the one part of hachiko that kills a process and takes a database down, so what
+// it tells Tim is only what it could not do: a sweep that worked is lines in a log nobody
+// reads, and a compose project that will not go down is a message.
 package gc
 
 import (
@@ -30,8 +34,8 @@ import (
 // the interval the LaunchAgent runs on is taken over.
 const lockStale = 10 * time.Minute
 
-// A dry run changes nothing at all: no container, no volume, no process, no file, and
-// neither the state directory nor the lock.
+// A dry run changes nothing at all: no container, no process, no file, and neither the
+// state directory nor the lock.
 func Run(cfg config.Config, dry bool) error {
 	return (&sweeper{
 		cfg:   cfg,
@@ -46,6 +50,11 @@ type sweeper struct {
 	deps  Deps
 	store Store
 	dry   bool
+
+	// What this sweep could not do, gathered as it goes: a failure is only worth a message
+	// while it persists, and whether it persists is this list measured against the last
+	// sweep's.
+	failures []Failure
 
 	// Whether the daemon answered, asked once: two sweeps need it and a daemon that is down
 	// costs the whole of `docker info`'s timeout to establish.
@@ -102,8 +111,11 @@ func (s *sweeper) run() error {
 		return nil
 	}
 
+	s.report(state, now)
+
 	if err := s.store.Save(state); err != nil {
 		s.say("the state could not be written, so the next sweep starts from nothing: %v", err)
 	}
+
 	return nil
 }

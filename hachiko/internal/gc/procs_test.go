@@ -99,6 +99,23 @@ func TestAProcessThatIgnoresSIGTERMIsKilled(t *testing.T) {
 	out := f.sweep()
 	harness.Wants(t, out, "4242 ignored SIGTERM, sending SIGKILL")
 	harness.Equal(t, strings.Join(f.signals, ","), "4242:15,4242:9", "the signals sent")
+	harness.Equal(t, len(f.sent), 0, "messages sent")
+}
+
+func TestAProcessThatSurvivesSIGKILLIsOneMessage(t *testing.T) {
+	f := newFixture(t)
+	gone := f.herdrWorktree("app", "gone", false)
+
+	f.sitting(4242, accountUID, gone, "/opt/homebrew/bin/node server.js")
+	f.stubborn[4242] = true
+	f.immortal[4242] = true
+
+	out := f.sweep()
+	harness.Wants(t, out, "4242 is still there after SIGKILL")
+
+	harness.Wants(t, f.lastSent(), "⚠️ A process in a removed worktree survived SIGKILL")
+	harness.Wants(t, f.lastSent(), "**Process:** node (pid 4242)")
+	harness.Wants(t, f.lastSent(), "**Needs you:** a process that survives SIGKILL")
 }
 
 func TestADryRunSignalsNothing(t *testing.T) {

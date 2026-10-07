@@ -20,11 +20,30 @@ type State struct {
 	// checkout's — `repeek-main_postgres-data` is the main checkout's database with no
 	// container in front of it, and it is never in here.
 	Projects map[string]Project `json:"projects,omitempty"`
+
+	// What has already been said about a failure, so one that persists is one message
+	// rather than six an hour, and one that clears is a line saying so.
+	Posted map[string]Posted `json:"posted,omitempty"`
 }
 
 type Project struct {
 	Worktree string `json:"worktree"`
 	SeenAt   int64  `json:"seen_at"`
+}
+
+type Posted struct {
+	Kind    string `json:"kind"`
+	Subject string `json:"subject"`
+	Since   int64  `json:"since"`
+
+	// The thread the message opened, so the line that says it cleared lands under the one
+	// that said it had not.
+	Thread string `json:"thread,omitempty"`
+
+	// Whether the message actually left the machine. A send that failed is recorded all the
+	// same — the next sweep tries it again rather than treating a failure nobody has heard
+	// about as one already reported.
+	Sent bool `json:"sent,omitempty"`
 }
 
 func (s *State) see(project, worktree string, now time.Time) {

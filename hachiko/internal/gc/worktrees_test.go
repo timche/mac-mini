@@ -51,10 +51,14 @@ func TestNothingIsPrunedWithNoGit(t *testing.T) {
 	harness.Equal(t, len(f.pruned), 0, "repositories pruned")
 }
 
-func TestAPruneThatFailsIsSaid(t *testing.T) {
+func TestAPruneThatFailsIsOneMessage(t *testing.T) {
 	f, repo := pruneFixture(t)
 	f.pruneErr[repo] = "fatal: not a git repository: '.git'"
 
 	out := f.sweep()
-	harness.Wants(t, out, repo+"'s worktree entries could not be pruned: exit status 128")
+	harness.Wants(t, out, repo+"'s worktree entries could not be pruned: fatal: not a git repository")
+
+	harness.Wants(t, f.lastSent(), "⚠️ A repository's worktree entries would not prune")
+	harness.Wants(t, f.lastSent(), "**Repository:** `"+repo+"`")
+	harness.Wants(t, f.lastSent(), "**Needs you:** run `git worktree prune -v`")
 }

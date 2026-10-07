@@ -109,7 +109,9 @@ func TestADotfileKeepsTheProjectFolder(t *testing.T) {
 	there(t, empty)
 }
 
-func TestAFolderThatWouldNotGoIsSaidAndKeepsItsProjectFolder(t *testing.T) {
+// The one thing that makes rmdir fail here is something still in the folder, which is the
+// folder staying and is what the rule is for — so it is not worth a message.
+func TestAFolderThatWouldNotGoIsOneMessage(t *testing.T) {
 	f, app, _ := scratchFixture(t)
 
 	// A folder the account cannot write is one whose contents it cannot remove.
@@ -121,7 +123,8 @@ func TestAFolderThatWouldNotGoIsSaidAndKeepsItsProjectFolder(t *testing.T) {
 
 	out := f.sweep()
 	harness.Wants(t, out, dead+" could not be removed")
-	harness.Lacks(t, out, "project folder "+app)
+	harness.Wants(t, f.lastSent(), "⚠️ A finished session's scratch folder would not go")
+	harness.Wants(t, f.lastSent(), "**Folder:** `"+dead+"`")
 }
 
 func gone(t *testing.T, path string) {

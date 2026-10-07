@@ -71,7 +71,7 @@ func (s *sweeper) scratch(now time.Time) {
 			s.say("removing scratch folder %s, whose session is over", safe(session))
 			if err := s.deps.Remove(session); err != nil {
 				kept++
-				s.say("%s could not be removed: %v", safe(session), err)
+				s.failed(Failure{Kind: failedRemove, Subject: session, Detail: err.Error()})
 			}
 		}
 
@@ -84,9 +84,9 @@ func (s *sweeper) scratch(now time.Time) {
 			continue
 		}
 
-		// A failed rmdir says nothing: the only thing that makes one fail here is something
-		// still in the folder, which is the folder staying and is what everything above it is
-		// for.
+		// A failed rmdir is not a failure worth a message: the only thing that makes one fail
+		// here is something still in the folder, which is the folder staying and is what
+		// everything above it is for.
 		if s.deps.Rmdir(dir) == nil {
 			s.say("removed the empty project folder %s", safe(dir))
 		}

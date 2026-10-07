@@ -37,7 +37,23 @@ func (s *sweeper) compose(state *State) {
 
 	now := s.deps.Now()
 
+	// A project is named `<repo>-<branch>`, so a branch first run in a worktree and later
+	// checked out in the main checkout is the same project with the same volumes. Seen
+	// running anywhere outside a worktree root, it is somebody's checkout again: its record
+	// goes, and nothing of it is taken down.
+	outside := map[string]bool{}
+	for _, c := range found {
+		if _, inRoot := worktreeOf(s.cfg.HerdrRoot, c.WorkingDir); c.Project != "" && c.WorkingDir != "" && !inRoot {
+			outside[c.Project] = true
+		}
+	}
+
 	for _, p := range byProject(found) {
+		if outside[p.Project] {
+			delete(state.Projects, p.Project)
+			continue
+		}
+
 		worktree, inRoot := worktreeOf(s.cfg.HerdrRoot, p.WorkingDir)
 		if !inRoot {
 			continue

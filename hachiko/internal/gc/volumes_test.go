@@ -54,6 +54,27 @@ func TestAVolumeOfARemovedWorktreesProjectGoes(t *testing.T) {
 	harness.Equal(t, len(f.state().Projects), 0, "projects recorded")
 }
 
+// The branch outlives its worktree: checked out in the main checkout afterwards, it is the
+// same project and the same volumes, and the database is that checkout's now.
+func TestABranchCheckedOutInTheMainCheckoutKeepsItsVolumes(t *testing.T) {
+	f := newFixture(t)
+	worktree := f.herdrWorktree("repeek", "fix-ui", true)
+
+	f.containers = []Container{{Project: "repeek-fix-ui", WorkingDir: worktree}}
+	f.volumes = []Volume{{Name: "repeek-fix-ui_postgres-data", Project: "repeek-fix-ui", InUse: true}}
+	f.at(0).sweep()
+
+	remove(t, worktree)
+	f.containers = []Container{{Project: "repeek-fix-ui", WorkingDir: f.mkdir(f.home + "/projects/repeek")}}
+	f.at(600).sweep()
+	harness.Equal(t, len(f.state().Projects), 0, "projects recorded once the checkout ran it")
+
+	f.containers = nil
+	f.volumes[0].InUse = false
+	f.at(1200).sweep()
+	harness.Equal(t, len(f.removed), 0, "volumes removed after the checkout stopped")
+}
+
 func TestAVolumeInUseAndAnAnonymousOneAreNeverRemoved(t *testing.T) {
 	f := recordedThenRemoved(t)
 	f.volumes = []Volume{

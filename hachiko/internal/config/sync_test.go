@@ -169,20 +169,21 @@ func TestSyncNamesTheLineItRefused(t *testing.T) {
 }
 
 // The file this repository ships, read as the Mac reads it.
-func TestTheShippedSyncConfigNamesBothRepositoriesAndStartsAsADryRun(t *testing.T) {
+func TestTheShippedSyncConfigNamesTheProjectDocsAndIsLive(t *testing.T) {
 	home := t.TempDir()
 
 	cfg, err := LoadSync(filepath.Join("..", "..", "..", "home", ".config", "hachiko", "sync"), home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.DryRun() {
-		t.Error("the shipped config is not a dry run, so a first install would commit beside boswell")
+	if cfg.DryRun() {
+		t.Error("the shipped config is a dry run, so the Mac commits and pushes nothing")
 	}
 
+	// The docs and nothing else: this repository is committed by the session that
+	// changes it, and a path here is a path the daemon would commit behind one.
 	want := map[string]time.Duration{
 		filepath.Join(home, "projects", "docs"): time.Minute,
-		filepath.Join(home, ".mac-mini"):        time.Hour,
 	}
 	if len(cfg.Repos) != len(want) {
 		t.Fatalf("got %d repos", len(cfg.Repos))
@@ -190,7 +191,7 @@ func TestTheShippedSyncConfigNamesBothRepositoriesAndStartsAsADryRun(t *testing.
 	for _, repo := range cfg.Repos {
 		delay, listed := want[repo.Path]
 		if !listed {
-			t.Errorf("%s is not one of the two repositories", repo.Path)
+			t.Errorf("%s is not a repository this config names", repo.Path)
 			continue
 		}
 		if repo.PushDelay != delay {

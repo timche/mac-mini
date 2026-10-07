@@ -47,7 +47,7 @@ for path in .zshrc .zshenv .zprofile .bashrc .gitconfig \
             .config/git/worktree-install \
             .config/herdr/config.toml .config/starship.toml \
             .terminfo/x/xterm-ghostty .terminfo/78/xterm-ghostty \
-            .config/boswell/config.toml .config/hachiko/sync; do
+            .config/hachiko/sync; do
   check "$path is a live symlink" "[ -L \"\$HOME/$path\" ] && [ -e \"\$HOME/$path\" ]"
 done
 
@@ -151,23 +151,23 @@ check "the Brewfile's dependencies are satisfied" \
 
 # Provenance rather than a version, because a mise-installed copy of the same
 # name runs just as well and the point is which one the Mac has.
-for formula in fd ffmpeg glow ripgrep shellcheck starship tuicr zoxide boswell; do
+for formula in fd ffmpeg glow ripgrep shellcheck starship tuicr zoxide betterleaks; do
   check "$formula is Homebrew's" \
     "brew list --formula --full-name | grep -qxE '(.*/)?$formula'"
 done
 
 # Read off the repo rather than the machine: the rule is that mise carries the
 # language runtimes and the Brewfile carries the Homebrew packages, and a `brew:`
-# entry creeping back into mise.toml is how that stops being true. boswell is the
-# one that used to be neither, installed by a line of install.sh's own.
+# entry creeping back into mise.toml is how that stops being true. betterleaks is
+# the one that proves the tap, which mise's bootstrap cannot fetch from at all.
 check "mise.toml declares no Homebrew package" \
   '! grep -qE "^\"brew(-cask)?:" "$repo/mise.toml"'
 
-check "install.sh installs the Brewfile, boswell included, and moves no version" \
+check "install.sh installs the Brewfile, the tap included, and moves no version" \
   'grep -q "brew bundle --no-upgrade --file=\"\$repo/Brewfile\"" "$repo/install.sh" &&
    ! grep -qE "(^|[^A-Za-z])brew install " "$repo/install.sh" &&
    grep -q "^tap \"timche/tap\", trusted: true$" "$repo/Brewfile" &&
-   grep -q "^brew \"boswell\"$" "$repo/Brewfile"'
+   grep -q "^brew \"betterleaks\"$" "$repo/Brewfile"'
 
 # Tim's preferences on the Mac, read back rather than taken on trust: mise warns
 # about a config key it does not recognise and carries on, so an older mise would
@@ -218,7 +218,7 @@ check "a second pass over the declared defaults has nothing to write" \
 # Reading before writing, and restarting only what changed, is the part a runner
 # cannot show: it has already been installed once by the time this runs, so every
 # guard above is satisfied and no branch is left to exercise. Read instead, as the
-# boswell and gc checks read theirs.
+# sync and gc checks read theirs.
 check "install.sh writes a preference only when it differs and restarts only then" \
   'grep -q "if \[ \"\$(defaults read com.apple.screencapture location 2>/dev/null)\" != \"\$screenshots\" \]" \
      "$repo/install.sh" &&
@@ -382,118 +382,37 @@ check "an install that fails leaves the worktree added and says what to run" \
    [ -d "$d/wt" ] &&
    printf "%s" "$out" | grep -q "cd \"$d/wt\" && bun install --frozen-lockfile"'
 
-# Auto-sync is one boswell daemon watching every repository its config lists. A
-# runner has no docs clone and so cannot start it, which is why the wiring is what
-# gets checked rather than a running daemon. boswell-agent.sh is the one that makes
-# launchd load the plist.
+# Auto-sync is one `hachiko sync` daemon watching every repository its config lists,
+# and the project docs are the whole of that list. Its own wiring is checked with the
+# sync agent further down; what belongs here is the clone it watches, and that
+# boswell, the daemon it took over from, is gone.
 #
-# An agent gets no PATH worth anything, so it names boswell where Homebrew keeps it.
-export plist="$HOME/Library/LaunchAgents/io.github.timche.boswell.plist"
-
-# A link rather than a rendered copy: launchd resolves it at bootstrap and reads
-# the file behind it, so a pull is the whole of an update.
-check "boswell's LaunchAgent is a link into the checkout" \
-  '[ -L "$plist" ] &&
-   [ "$plist" -ef "$repo/home/Library/LaunchAgents/io.github.timche.boswell.plist" ]'
-# Through the link, which is what launchd reads: a plist it cannot parse is a job
-# rejected at load with nothing in it to say why.
-check "the agent lints through the link" 'plutil -lint "$plist"'
-check "nothing in the agent is left to render" \
-  '[ -f "$plist" ] && ! grep -q "{{" "$plist"'
-
-# launchd expands neither ~ nor $HOME in a plist, so every path this job needs
-# belongs to a shell — the one thing it hands a HOME to. That is what lets the
-# file be a link and name no account.
-check "the agent runs its command through a shell" \
-  '[ "$(plutil -extract ProgramArguments.0 raw -o - "$plist")" = "/bin/sh" ] &&
-   [ "$(plutil -extract ProgramArguments.1 raw -o - "$plist")" = "-c" ]'
-
-export agent_command="$(plutil -extract ProgramArguments.2 raw -o - "$plist")"
-
-# exec, so the status launchd reads is boswell's rather than the shell's and
-# KeepAlive below still means what it says.
-check "the agent execs Homebrew's boswell" \
-  'printf "%s\n" "$agent_command" | grep -qF "exec /opt/homebrew/bin/boswell"'
-check "the agent starts at load" \
-  'plutil -extract RunAtLoad xml1 -o - "$plist" | grep -q "<true/>"'
-
-# boswell exits when a watcher dies rather than staying up watching nothing,
-# which only helps if something brings it back — and only on a failure, so a
-# boswell that was told to stop stays stopped.
-check "a boswell that exits is restarted" \
-  'plutil -extract KeepAlive.SuccessfulExit xml1 -o - "$plist" | grep -q "<false/>"'
-check "the agent waits before restarting boswell" \
-  '[ "$(plutil -extract ThrottleInterval raw -o - "$plist")" = 10 ]'
-
-# git's credential helper is gh, and boswell asks gh for a token when it files
-# an issue. launchd hands a job almost no PATH, so the command exports its own.
-check "the agent's PATH reaches the shims and Homebrew" \
-  'printf "%s\n" "$agent_command" |
-     grep -qF "export PATH=\"\$HOME/.local/share/mise/shims:/opt/homebrew/bin:"'
-
-# boswell's own commits are signed, and it reads no rc file: the socket has to
-# come from the agent or every push it makes fails on a key it cannot find.
-check "the agent reaches the ssh-agent holding the signing key" \
-  'printf "%s\n" "$agent_command" |
-     grep -qF "export SSH_AUTH_SOCK=\"\$HOME/.ssh/agent.sock\""'
-# Appended by the shell, since a log that came back to the same file every
-# restart is the only way to read why the last one died.
-check "the agent appends to the log in ~/Library/Logs" \
-  'printf "%s\n" "$agent_command" |
-     grep -qF ">>\"\$HOME/Library/Logs/boswell.log\" 2>&1"'
-
-# StandardOutPath holding a $HOME is an EX_CONFIG failure at load, with nothing
-# anywhere naming the key that was wrong, and EnvironmentVariables are not
-# expanded either — which is why both moved into the command above.
-check "the agent names no key launchd leaves unexpanded" \
-  '[ -f "$plist" ] &&
-   ! plutil -extract StandardOutPath raw -o - "$plist" &&
-   ! plutil -extract StandardErrorPath raw -o - "$plist" &&
-   ! plutil -extract EnvironmentVariables xml1 -o - "$plist"'
-
-# One process watches both, and the docs repo is the one that is easy to
-# forget: it is cloned by install.sh rather than being the clone install.sh
-# runs from.
-check "the config lists both repositories" \
-  'grep -q "^path = \"~/projects/docs\"$" "$HOME/.config/boswell/config.toml" &&
-   grep -q "^path = \"~/.mac-mini\"$" "$HOME/.config/boswell/config.toml"'
-
-# Homebrew's, from a tap of its own rather than from homebrew/core — so that the
-# formula landed and runs is worth proving rather than assuming.
-check "boswell runs"        'boswell --help'
-
 # A token that reaches this repo does not necessarily reach the docs one, and
 # CI's does not. The clone has to degrade to a warning, or the shell never gets
 # installed on a machine whose only problem is a missing docs repo.
 check "a failed docs clone does not abort install.sh" \
   'grep -q "elif gh repo clone timche/docs" "$repo/install.sh"'
 
-check "install.sh loads the daemon and clones the docs repo" \
-  'grep -q "launchctl bootstrap \"gui/\$uid\" \"\$plist\"" "$repo/install.sh" &&
-   grep -q "gh repo clone timche/docs" "$repo/install.sh"'
+check "install.sh clones the docs repo" \
+  'grep -q "gh repo clone timche/docs" "$repo/install.sh"'
 
-# One config names both repositories and boswell rejects all of it if either
-# path is not a work tree, so starting the daemon on a machine whose docs clone
-# failed would cost the dotfiles their sync too. One gate for both, which is why
-# the greps are for the variable rather than for two conditions.
-check "install.sh starts the daemon only once both repositories exist" \
-  'grep -q "^if \[ -d \"\$repo/.git\" \] && \[ -d \"\$docs/.git\" \]; then" \
-     "$repo/install.sh" &&
-   grep -q "elif \[ \"\$boswell_ready\" != true \]; then" "$repo/install.sh"'
-
-# launchd reads a plist when it loads the job and never again, so one that changed —
-# the SSH_AUTH_SOCK added to it, say — would otherwise wait for a reboot. The reload
-# is not reachable from here, a runner having no docs clone, so this reads the wiring
-# as the checks around it do.
-#
-# The plist is a link into the checkout, and a link that still points where it did
-# says nothing about the file behind it: what the comparison reads is a copy of the
-# definition the daemon was last loaded from, kept outside the checkout and written
-# only once the load succeeded.
-check "install.sh reloads boswell when the definition it loaded changed" \
-  'grep -q "launchctl bootout \"gui/\$uid/\$boswell_label\"" "$repo/install.sh" &&
-   grep -q "cmp -s \"\$plist\" \"\$boswell_loaded\"" "$repo/install.sh" &&
-   grep -c "^ *record_boswell_loaded$" "$repo/install.sh" | grep -q 1'
+# Two daemons committing one tree would each commit what the other wrote, so
+# boswell's agent goes before sync is loaded, and nothing here declares its plist,
+# its config or its formula any more. mise removes no link it no longer declares, so
+# both of its links are install.sh's to take back — each only when it points into
+# this checkout or nowhere at all.
+check "boswell is gone, and install.sh takes it back" \
+  '[ ! -e "$repo/home/Library/LaunchAgents/io.github.timche.boswell.plist" ] &&
+   [ ! -e "$repo/home/.config/boswell" ] &&
+   ! grep -q boswell "$repo/mise.toml" &&
+   ! grep -q boswell "$repo/Brewfile" &&
+   grep -q "launchctl bootout \"gui/\$uid/\$old_sync_label\"" "$repo/install.sh" &&
+   grep -q "rm \"\$old_sync_path\"" "$repo/install.sh" &&
+   grep -q "brew uninstall boswell" "$repo/install.sh" &&
+   ! launchctl print "gui/$(id -u)/io.github.timche.boswell" &&
+   [ ! -e "$HOME/Library/LaunchAgents/io.github.timche.boswell.plist" ] &&
+   [ ! -e "$HOME/.config/boswell/config.toml" ] &&
+   ! command -v boswell'
 
 # Claude Code updates itself, which is why it is not in the tool list at all:
 # something that pinned it would have to turn the updater off, and then the pin
@@ -525,7 +444,7 @@ check "every session has the context7 MCP server" \
 # wire it back up.
 check "no auto-sync hook is left in settings.json" \
   '[ -f "$HOME/.claude/settings.json" ] &&
-   ! grep -qE "git-sync|dotfiles-sync|boswell" "$HOME/.claude/settings.json"'
+   ! grep -qE "git-sync|dotfiles-sync" "$HOME/.claude/settings.json"'
 
 # Nothing under home/ spells a home directory out, and mise.toml is in it because
 # the one plist launchd reads a path out of itself is rendered from there. The
@@ -720,7 +639,7 @@ check "install.sh never restarts the herdr server it may be running in" \
 # The sweep is on a timer rather than on a session, so the agent is the whole of
 # its wiring: an unrendered or invalid plist is a job launchd rejects at load
 # with nothing in it to say why. Not reachable on a runner with no GUI session,
-# so this reads the file as boswell's checks do.
+# so this reads the file rather than loading the job.
 export gc_plist="$HOME/Library/LaunchAgents/io.github.timche.hachiko-gc.plist"
 
 check "the sweep's LaunchAgent is rendered" '[ -f "$gc_plist" ]'
@@ -778,8 +697,8 @@ check "the watch notices a sweep that has stopped, and says nothing on a Mac wit
    grep -q "s.gcStopped(state, now)" "$repo/hachiko/internal/watch/sweep.go"'
 
 # `hachiko sync`, which commits and pushes the repositories its config lists. It is a
-# long-running agent rather than a timer, so the plist is the whole of its wiring; the
-# shape and the reasoning are boswell's, which the checks above read the same way.
+# long-running agent rather than a timer, so the plist is the whole of what assert.sh
+# can read; sync-agent.sh is the one that makes launchd load it.
 export sync_plist="$HOME/Library/LaunchAgents/io.github.timche.hachiko-sync.plist"
 
 check "the sync agent is a link into the checkout and a valid plist" \
@@ -818,21 +737,31 @@ check "a sync that exits is restarted, after a wait" \
    plutil -extract KeepAlive.SuccessfulExit xml1 -o - "$sync_plist" | grep -q "<false/>" &&
    [ "$(plutil -extract ThrottleInterval raw -o - "$sync_plist")" = 10 ]'
 
-# One config names both repositories, and the docs one is the easy one to forget: it is
-# cloned by install.sh rather than being the clone install.sh runs from. It ships as a
-# dry run, which is what lets it be loaded beside boswell without committing twice —
-# flipping that one line is the cutover.
-check "the sync config names both repositories and starts as a dry run" \
-  'grep -qx "mode = dry-run" "$HOME/.config/hachiko/sync" &&
+# The project docs and nothing else. This repository is committed by the session that
+# changes it, so a daemon listed on it would commit behind one mid-edit; and the docs
+# clone is the one install.sh makes rather than the one it runs from, which is why the
+# load is gated on it.
+check "the sync config names the project docs, not this repository, and is live" \
+  'grep -qx "mode = live" "$HOME/.config/hachiko/sync" &&
    grep -qx "repo = ~/projects/docs" "$HOME/.config/hachiko/sync" &&
-   grep -qx "repo = ~/.mac-mini" "$HOME/.config/hachiko/sync" &&
+   ! grep -qE "^repo = .*mac-mini" "$HOME/.config/hachiko/sync" &&
    ! grep -q "/Users/" "$HOME/.config/hachiko/sync"'
 
-check "install.sh loads the sync agent behind the same gate as boswell, and reloads a changed one" \
+# launchd reads a plist when it loads the job and never again, so one that changed —
+# the SSH_AUTH_SOCK added to it, say — would otherwise wait for a reboot. The reload
+# is not reachable from here, a runner having no docs clone, so this reads the wiring
+# as the checks around it do.
+#
+# The plist is a link into the checkout, and a link that still points where it did
+# says nothing about the file behind it: what the comparison reads is a copy of the
+# definition the daemon was last loaded from, kept outside the checkout and written
+# only once the load succeeded.
+check "install.sh loads the sync agent once the docs are cloned, and reloads a changed one" \
   'grep -q "launchctl bootstrap \"gui/\$uid\" \"\$sync_plist\"" "$repo/install.sh" &&
    grep -q "launchctl bootout \"gui/\$uid/\$sync_label\"" "$repo/install.sh" &&
    grep -q "cmp -s \"\$sync_plist\" \"\$sync_loaded\"" "$repo/install.sh" &&
-   grep -q "elif \[ \"\$boswell_ready\" != true \]; then" "$repo/install.sh"'
+   grep -q "^if \[ -d \"\$docs/.git\" \]; then" "$repo/install.sh" &&
+   grep -q "elif \[ \"\$sync_ready\" != true \]; then" "$repo/install.sh"'
 
 # sync writes a heartbeat every half minute and the watch reads its age: a sync that has
 # stopped is the one thing about it nothing on this Mac could otherwise notice. The plist
@@ -857,7 +786,7 @@ check "hachiko is a live symlink and runs through its wrapper" \
    hachiko --help | grep -q "sync"'
 
 # A binary that compiles is not one that works, and the agents it runs include the one
-# that commits and pushes every repository on the Mac — so the whole module's tests run
+# that commits and pushes the project docs — so the whole module's tests run
 # between the build and the move into place. A failing test keeps the last binary
 # exactly as a failing build does, and records no hash, so the next run tries again.
 #
@@ -881,9 +810,10 @@ check "the wrapper runs the tests between the build and the move, and records no
    [ "$test_at" -lt "$hash_at" ]'
 
 # A copy of the checkout rather than the checkout, because the test below has to break a
-# test on purpose and boswell commits anything dirty in this repository five seconds after
-# the last write. The wrapper finds the repository through its own resolved path, so a copy
-# with the wrapper in it is a whole second machine as far as it is concerned.
+# test on purpose and the wrapper builds from the working tree, so a broken source in the
+# real one reaches the agents running off it. The wrapper finds the repository through its
+# own resolved path, so a copy with the wrapper in it is a whole second machine as far as
+# it is concerned.
 #
 # The whole of home/ comes with it, because the tests read the files this repo ships —
 # the sync config among them — through their own relative path out of hachiko/.
@@ -1223,10 +1153,10 @@ check "hachiko finishes a sweep under launchd, where it has no privacy grants" \
 # it is asked about, so a question asked without one is answered for `/` — where nothing
 # this repo declares is active. The check that catches it is the next one.
 #
-# The promise the whole build-in-place arrangement rests on: boswell publishes every edit
-# within seconds, so a half-written one reaches the Mac, and the agent has to keep
-# watching with the last binary that compiled. Against a copy of the module, because the
-# check deliberately breaks it.
+# The promise the whole build-in-place arrangement rests on: the wrapper builds from the
+# working tree, so a half-written edit is on the Mac as soon as it is written, and the
+# agent has to keep watching with the last binary that compiled. Against a copy of the
+# module, because the check deliberately breaks it.
 check "the wrapper rebuilds from the directory launchd starts the agent in" \
   'cd / && d="$(mktemp -d)" && mkdir -p "$d/home/.local/bin" &&
    cp -R "$repo/hachiko" "$d/hachiko" &&
@@ -1392,8 +1322,8 @@ check "the project-docs hook says nothing without a docs folder" \
 
 # ~/projects/docs/<repo> and nothing else: a checkout's own docs/ is the project's
 # published documentation rather than its working docs. Run against a throwaway
-# HOME, so the check does not leave a folder in the real one for boswell to
-# publish.
+# HOME, so the check does not leave a folder in the real one for `hachiko sync`
+# to publish.
 check "the project-docs hook reads ~/projects/docs/<repo>, not the checkout's docs folder" \
   'hook="$HOME/.claude/hooks/project-docs.sh" &&
    h="$(mktemp -d)" && d="$(mktemp -d)" && git -C "$d" init -q &&

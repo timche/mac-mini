@@ -2,8 +2,8 @@ name: test
 
 # On GitHub's hosted macOS runners, which are free to a public repository — and
 # being free to this one is why it is public. A private repository's macOS
-# minutes count tenfold against the free allowance, and boswell pushes every edit
-# to main on its own.
+# minutes count tenfold against the free allowance, and every change here lands on
+# main as it is made.
 #
 # The paths filter is for the same reason: only a change the suite can catch
 # starts a run, and a burst of them ends as one.
@@ -44,8 +44,8 @@ jobs:
   #
   # Nothing is logged in and there is no service account, which is the state every
   # fresh Mac is in: every step that needs one has to skip rather than fail. The
-  # docs clone fails for want of a token, so boswell stays unloaded and
-  # boswell-agent.sh is what proves its wiring against launchd instead.
+  # docs clone fails for want of a token, so `hachiko sync` stays unloaded and
+  # sync-agent.sh is what proves its wiring against launchd instead.
   macos:
     runs-on: macos-latest
     timeout-minutes: 90
@@ -154,9 +154,9 @@ jobs:
       # proves the two links: a symlinked plist bootstraps, and a wrapper that
       # changed in the checkout restarts the job. A runner has a gui domain, which
       # is the one thing this cannot do without — and the same is what
-      # boswell-agent.sh needs.
+      # sync-agent.sh needs.
       - run: test/agent-links.sh
-      - run: test/boswell-agent.sh
+      - run: test/sync-agent.sh
 
       # machine.sh left the sshd drop-in out for want of a key to log in with,
       # which is the refusal that keeps a Mac nobody can walk up to reachable.

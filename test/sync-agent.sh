@@ -1,18 +1,18 @@
 #!/bin/bash
 
-# boswell's LaunchAgent as launchd actually loads it, which is the one thing
+# `hachiko sync`'s LaunchAgent as launchd actually loads it, which is the one thing
 # assert.sh cannot say: it reads the plist and never loads a job, and launchd
 # refuses one it dislikes with an EX_CONFIG and no word about which key was wrong.
 # A plist that names a $HOME where launchd expands none passes every check in
 # assert.sh and starts nothing at all.
 #
 # So this loads the agent for real, with two substitutions: a label of its own, and
-# a stand-in for boswell that reports the environment the agent's shell built for it
-# and exits with a status nothing else would produce. Everything being proved is
-# launchd's side — that it resolves a symlinked plist, that the HOME it hands a
-# gui-domain job is what the shell expands, that the redirect opens the log, and
-# that the status reaching KeepAlive is the program's — so boswell itself is beside
-# the point, and a real one refuses to start without the two clones anyway.
+# a stand-in for the hachiko wrapper that reports the environment the agent's shell
+# built for it and exits with a status nothing else would produce. Everything being
+# proved is launchd's side — that it resolves a symlinked plist, that the HOME it
+# hands a gui-domain job is what the shell expands, that the redirect opens the log,
+# and that the status reaching KeepAlive is the program's — so the daemon itself is
+# beside the point, and a real one refuses to start without the docs clone anyway.
 #
 # macOS only, and it wants a console login: the gui/<uid> domain an agent lives in
 # belongs to one, so an SSH session against a Mac at its login window cannot run
@@ -25,15 +25,15 @@
 set -uo pipefail
 
 if [ "$(uname -s)" != Darwin ]; then
-  echo "  skip  boswell's LaunchAgent (launchd is macOS's)"
+  echo "  skip  the sync LaunchAgent (launchd is macOS's)"
   exit 0
 fi
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-source_plist="$repo/home/Library/LaunchAgents/io.github.timche.boswell.plist"
+source_plist="$repo/home/Library/LaunchAgents/io.github.timche.hachiko-sync.plist"
 
-export label=io.github.timche.boswell-agent-test
+export label=io.github.timche.hachiko-sync-agent-test
 export uid="$(id -u)"
 export link="$HOME/Library/LaunchAgents/$label.plist"
 export log="$HOME/Library/Logs/$label.log"
@@ -53,9 +53,9 @@ check() {
 
 # Under $HOME rather than /var/folders, whose path launchd may print resolved
 # through the link /var is: the check below compares the path it read.
-export work="$(mktemp -d "$HOME/.boswell-agent-test.XXXXXX")"
+export work="$(mktemp -d "$HOME/.sync-agent-test.XXXXXX")"
 export plist="$work/$label.plist"
-stand_in="$work/boswell"
+stand_in="$work/hachiko"
 
 cleanup() {
   launchctl bootout "gui/$uid/$label" >/dev/null 2>&1
@@ -73,10 +73,12 @@ SH
 chmod +x "$stand_in"
 
 # The repo's plist with its label, its program and its log moved aside, and nothing
-# else touched: what is under test is every other key exactly as it ships.
-sed -e "s|<string>io.github.timche.boswell</string>|<string>$label</string>|" \
-    -e "s|/opt/homebrew/bin/boswell|$stand_in|" \
-    -e "s|Logs/boswell.log|Logs/$label.log|" \
+# else touched: what is under test is every other key exactly as it ships. The
+# program is matched with the $HOME the plist spells out, which the shell is what
+# expands, so the pattern is single-quoted and the stand-in path is not.
+sed -e "s|<string>io.github.timche.hachiko-sync</string>|<string>$label</string>|" \
+    -e 's|exec "$HOME/.local/bin/hachiko" sync|exec '"$stand_in"'|' \
+    -e "s|Logs/hachiko-sync.log|Logs/$label.log|" \
     "$source_plist" >"$plist"
 
 # A link, because that is half of what is being proved: launchd resolves it when the
@@ -111,8 +113,8 @@ check "the shell opened the log the plist names" '[ -s "$log" ]'
 # nothing for: the account's home directory reached the job, and the shell spent it.
 check "launchd handed the job the account's home directory" \
   'grep -qx "HOME=$HOME" "$log"'
-check "the job's PATH reaches the shims and Homebrew" \
-  'grep -q "^PATH=$HOME/.local/share/mise/shims:/opt/homebrew/bin:" "$log"'
+check "the job's PATH reaches the wrapper and Homebrew" \
+  'grep -q "^PATH=$HOME/.local/bin:/opt/homebrew/bin:" "$log"'
 check "the job reaches the ssh-agent holding the signing key" \
   'grep -qx "SSH_AUTH_SOCK=$HOME/.ssh/agent.sock" "$log"'
 

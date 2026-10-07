@@ -3,6 +3,7 @@ package gc
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -16,8 +17,20 @@ func TestAQuietSweepSaysNothingAndSendsNothing(t *testing.T) {
 	harness.Equal(t, len(f.sent), 0, "messages sent")
 }
 
+// What the watch reads to tell a Mac that is sweeping from one that has stopped.
+func TestASweepThatRanWritesTheLastRunStamp(t *testing.T) {
+	f := newFixture(t)
+	f.at(1234).sweep()
+
+	stamp, err := os.ReadFile(filepath.Join(f.cfg.GCStateDir, "last-run"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	harness.Equal(t, string(stamp), strconv.FormatInt(base.Unix()+1234, 10)+"\n", "the stamp")
+}
+
 // A dry run changes nothing at all, the state directory and the lock included.
-func TestADryRunLeavesNoStateAndNoLock(t *testing.T) {
+func TestADryRunLeavesNoStateNoStampAndNoLock(t *testing.T) {
 	f := newFixture(t)
 	removed := f.herdrWorktree("app", "gone", false)
 	f.containers = []Container{{Project: "gc-gone", WorkingDir: removed}}

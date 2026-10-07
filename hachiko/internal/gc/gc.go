@@ -117,5 +117,10 @@ func (s *sweeper) run() error {
 		s.say("the state could not be written, so the next sweep starts from nothing: %v", err)
 	}
 
+	// Last, and only on a sweep that ran to the end: it is what the watch reads to tell a
+	// Mac nothing is sweeping from one that is.
+	if err := s.store.Stamp(now); err != nil {
+		s.say("the last-run stamp could not be written, so the watch will say this sweep has stopped: %v", err)
+	}
 	return nil
 }

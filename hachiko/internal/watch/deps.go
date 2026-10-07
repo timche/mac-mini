@@ -38,6 +38,10 @@ type Deps struct {
 	Processes func() ([]process.Process, error)
 	CWD       func(pid int) string
 
+	// When `hachiko gc` last finished a sweep, and whether this Mac has the agent that runs
+	// it at all. A Mac without one is not a Mac whose sweep has stopped.
+	GCLastRun func() (time.Time, bool)
+
 	// Opens the on-call session and answers with where it is and whether the brief
 	// reached it, which is what the message about to go out has to say.
 	Oncall func(name, brief string) (oncall.Session, error)
@@ -104,6 +108,8 @@ func realDeps(cfg config.Config) Deps {
 		Processes: process.Sample,
 		CWD:       process.CWD,
 
+		GCLastRun: func() (time.Time, bool) { return gcLastRun(cfg) },
+
 		Oncall: func(name, brief string) (oncall.Session, error) {
 			return oncall.Oncaller{Cfg: cfg, Herdr: oncall.HerdrCLI, Now: now, Log: log}.Open(name, brief)
 		},
@@ -130,6 +136,20 @@ func freeKB(path string) (int64, error) {
 		return 0, fmt.Errorf("statfs %s: %w", path, err)
 	}
 	return int64(fs.Bavail) * int64(fs.Bsize) / 1024, nil
+}
+
+// The stamp's modification time, or the plist's where there is no stamp yet. The plist is
+// also what says the sweep is meant to be running at all: there is no agent on a Mac
+// install.sh has not reached, and nothing to report about a sweep nothing runs.
+func gcLastRun(cfg config.Config) (time.Time, bool) {
+	plist, err := os.Stat(cfg.GCPlist)
+	if err != nil {
+		return time.Time{}, false
+	}
+	if stamp, err := os.Stat(cfg.GCStamp()); err == nil {
+		return stamp.ModTime(), true
+	}
+	return plist.ModTime(), true
 }
 
 func deviceOf(path string) (int32, bool) {

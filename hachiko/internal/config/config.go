@@ -73,17 +73,23 @@ type Config struct {
 
 	StateDir string
 
-	// The sweep that follows a removed worktree, which keeps a state directory of its own and
-	// a lock beside it rather than the watch's: each of the two holds its lock across minutes
-	// of work, so a gc waiting on the watch or the watch on a gc would be an interval of
-	// neither.
+	// The sweep that follows a removed worktree, which keeps all of its own: a state
+	// directory, a lock beside it rather than the watch's, and the plist of the agent that
+	// runs it. Each of the two holds its lock across minutes of work, so a gc waiting on the
+	// watch or the watch on a gc would be an interval of neither.
 	GCStateDir string
 	GCLock     string
+	GCPlist    string
 
 	// Where the sweep prunes worktree entries. Its own name rather than HACHIKO_PROJECTS,
 	// which it falls back to: the watch only reads that root to say which checkout a busy
 	// process is in, and the sweep runs git in every repository under it.
 	GCProjectsRoot string
+
+	// How long the watch gives the sweep's last-run stamp before it says nothing is
+	// sweeping. Six intervals of the sweep's own ten minutes.
+	GCStaleAfter time.Duration
+
 	// The channel and the one account replies are taken from, both empty unless Tim has
 	// filled them in, which is what turns the bot and `hachiko listen` on.
 	Discord DiscordConfig
@@ -101,6 +107,15 @@ type Config struct {
 // so a check with the thresholds turned down reads as the numbers it was given.
 func (c Config) LowGB() int64      { return c.LowKB / GiB }
 func (c Config) CriticalGB() int64 { return c.CriticalKB / GiB }
+
+// Where the sweep writes the time it last finished, and the label of the agent that runs
+// it. Both derived rather than configured, so the stamp the sweep writes and the stamp the
+// watch reads cannot be two paths, and the command a message tells Tim to run cannot name
+// an agent other than the one whose plist decided whether to look at all.
+func (c Config) GCStamp() string { return filepath.Join(c.GCStateDir, "last-run") }
+func (c Config) GCLabel() string {
+	return strings.TrimSuffix(filepath.Base(c.GCPlist), ".plist")
+}
 
 // WorkspaceLabel is the herdr workspace the on-call session goes in: the one for
 // this machine's own repository, so a session that starts there has the machine's
@@ -169,9 +184,13 @@ func FromEnv() Config {
 
 		StateDir: envString("HACHIKO_STATE_DIR", filepath.Join(cache, "hachiko")),
 
-		GCStateDir:     envString("HACHIKO_GC_STATE_DIR", filepath.Join(cache, "hachiko-gc")),
-		GCLock:         envString("HACHIKO_GC_LOCK", filepath.Join(cache, "hachiko-gc.lock")),
+		GCStateDir: envString("HACHIKO_GC_STATE_DIR", filepath.Join(cache, "hachiko-gc")),
+		GCLock:     envString("HACHIKO_GC_LOCK", filepath.Join(cache, "hachiko-gc.lock")),
+		GCPlist: envString("HACHIKO_GC_PLIST",
+			filepath.Join(home, "Library", "LaunchAgents", "io.github.timche.hachiko-gc.plist")),
 		GCProjectsRoot: envString("HACHIKO_GC_PROJECTS", projects),
+		GCStaleAfter:   time.Duration(envInt64("HACHIKO_GC_STALE", 3600)) * time.Second,
+
 		Discord: readDiscordConfig(envString("HACHIKO_DISCORD_CONFIG",
 			filepath.Join(home, ".config", "hachiko", "discord"))),
 

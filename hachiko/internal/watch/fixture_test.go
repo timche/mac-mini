@@ -84,6 +84,12 @@ type fixture struct {
 	writer    string
 	allowlist string
 
+	// Whether this Mac has the agent that runs the worktree sweep, and when that sweep last
+	// finished — which is on this very check unless a test pins it, since these tests walk
+	// the clock for hours and a sweep is not what they are about.
+	gcStamp     time.Time
+	gcInstalled bool
+
 	oncallName    string
 	oncallBrief   string
 	oncallCalls   int
@@ -185,7 +191,16 @@ func newFixture(t *testing.T) *fixture {
 		// Nothing is waiting on a question until a test says so, which is what every
 		// check written before the wait existed assumes.
 		status: map[string]string{},
+
+		gcInstalled: true,
 	}
+}
+
+func (f *fixture) lastSweep() time.Time {
+	if f.gcStamp.IsZero() {
+		return f.now
+	}
+	return f.gcStamp
 }
 
 func (f *fixture) at(seconds int64) *fixture {
@@ -221,6 +236,8 @@ func (f *fixture) deps() Deps {
 			return f.procs, nil
 		},
 		CWD: func(pid int) string { return f.cwd[pid] },
+
+		GCLastRun: func() (time.Time, bool) { return f.lastSweep(), f.gcInstalled },
 
 		Oncall: func(name, brief string) (oncall.Session, error) {
 			f.oncallCalls++

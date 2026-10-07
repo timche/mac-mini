@@ -53,6 +53,13 @@ type State struct {
 	// what `hachiko listen` reads a reply out of.
 	Threads map[string]string `json:"threads,omitempty"`
 
+	// When the watch first found the worktree sweep's last-run stamp too old, and the thread
+	// it said so in. Kept so that a sweep that has stopped is one message rather than twelve
+	// an hour, and so that the line saying it is back lands under the one that said it was
+	// gone.
+	GCStale  int64  `json:"gc_stale,omitempty"`
+	GCThread string `json:"gc_thread,omitempty"`
+
 	// What the last check-in with shibuya came to. Kept so that a token that is missing, a
 	// file anyone can read or a Worker that will not answer is one line rather than twelve
 	// an hour for the life of the Mac.

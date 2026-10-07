@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 )
 
@@ -88,8 +89,17 @@ func (st Store) Save(state *State) error {
 	return st.write("state-*.json", st.path(), data)
 }
 
+// When the sweep last ran to the end, which is the one thing about gc the watch reads. A
+// file of its own rather than a field of the state, because the watch may not parse a file
+// this writes the shape of, and because what it has to know is a modification time.
+func (st Store) Stamp(now time.Time) error {
+	return st.write("last-run-*", filepath.Join(st.Dir, "last-run"),
+		[]byte(strconv.FormatInt(now.Unix(), 10)+"\n"))
+}
+
 // Written whole and moved into place, so a sweep killed mid-write leaves the last file that
-// was finished rather than half of this one.
+// was finished rather than half of this one — which for the stamp is the difference between
+// a watch that reads an older time and one that reads nothing and raises an incident.
 func (st Store) write(pattern, path string, data []byte) error {
 	if err := os.MkdirAll(st.Dir, 0o755); err != nil {
 		return err

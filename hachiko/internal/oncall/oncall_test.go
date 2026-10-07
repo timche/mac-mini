@@ -293,7 +293,7 @@ func TestTheOpeningPromptCarriesTheAutonomyLimits(t *testing.T) {
 		"Use --outcome on that message and on no other",
 		"a database or a docker volume",
 		"anything under sudo",
-		"restarting herdr, boswell, a launchd service or the Mac",
+		"restarting herdr, a launchd service or the Mac",
 		"unless that process is itself the one causing the incident",
 		"least destructive option that actually resolves it",
 		// The cpu session read hachiko's own esc as Tim declining and told him so, which was

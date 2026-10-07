@@ -974,7 +974,7 @@ hachiko_limits_in_step() {
 SIGTERM first and SIGKILL only if it is still there ten seconds later
 *.log, *.out, *.err, *.output or *.log.N
 a database or a docker volume
-restarting herdr, boswell, a launchd service or the Mac
+restarting herdr, a launchd service or the Mac
 unless that process is itself the one causing the incident
 is not a licence to empty a folder
 PHRASES

@@ -249,10 +249,6 @@ func (o Oncaller) nap(d time.Duration) {
 	time.Sleep(d)
 }
 
-type discard struct{}
-
-func (discard) Say(string, ...any) {}
-
 func (o Oncaller) Open(name, brief string) (Session, error) {
 	if !oncallName.MatchString(name) {
 		return Session{}, fmt.Errorf("%s is not a name herdr will take (lowercase, digits and dashes)", name)

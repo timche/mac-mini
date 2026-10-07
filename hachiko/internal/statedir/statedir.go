@@ -60,10 +60,27 @@ type State struct {
 	GCStale  int64  `json:"gc_stale,omitempty"`
 	GCThread string `json:"gc_thread,omitempty"`
 
+	// The same two for `hachiko sync`, whose heartbeat the watch reads the same way, and
+	// beside them what it has said about each repository that fell behind with sync running
+	// and reporting nothing wrong.
+	SyncStale  int64             `json:"sync_stale,omitempty"`
+	SyncThread string            `json:"sync_thread,omitempty"`
+	SyncBehind map[string]Behind `json:"sync_behind,omitempty"`
+
 	// What the last check-in with shibuya came to. Kept so that a token that is missing, a
 	// file anyone can read or a Worker that will not answer is one line rather than twelve
 	// an hour for the life of the Mac.
 	Switch string `json:"switch,omitempty"`
+}
+
+// One repository the watch has found behind. Since is when it first found it so, which for a
+// dirty tree is the whole of how long it has been dirty — nothing else on this Mac records
+// when a file was written. Said is whether a message went out, so a send that failed is said
+// again rather than treated as one nobody has to hear twice.
+type Behind struct {
+	Since  int64  `json:"since"`
+	Said   bool   `json:"said,omitempty"`
+	Thread string `json:"thread,omitempty"`
 }
 
 type DiskSample struct {

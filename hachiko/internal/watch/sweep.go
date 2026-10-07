@@ -129,6 +129,7 @@ func (s sweeper) run() error {
 	// hachiko rather than about the machine, and because it is the half of the sweep a dry
 	// run reaches too.
 	s.gcStopped(state, now)
+	s.syncStopped(state, now)
 
 	// disk when anything about the disk fired, since that is the half with a deadline
 	// on it; the kind only decides which session the incident goes to, and one

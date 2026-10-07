@@ -90,6 +90,14 @@ type fixture struct {
 	gcStamp     time.Time
 	gcInstalled bool
 
+	// The same two for sync, and what git says about each repository it is meant to be
+	// keeping upstream — all of it on this very check unless a test pins it, for the same
+	// reason.
+	syncBeat      time.Time
+	syncInstalled bool
+	syncRepos     []SyncRepo
+	syncState     map[string]SyncRepoState
+
 	oncallName    string
 	oncallBrief   string
 	oncallCalls   int
@@ -193,6 +201,9 @@ func newFixture(t *testing.T) *fixture {
 		status: map[string]string{},
 
 		gcInstalled: true,
+
+		syncInstalled: true,
+		syncState:     map[string]SyncRepoState{},
 	}
 }
 
@@ -201,6 +212,13 @@ func (f *fixture) lastSweep() time.Time {
 		return f.now
 	}
 	return f.gcStamp
+}
+
+func (f *fixture) lastBeat() time.Time {
+	if f.syncBeat.IsZero() {
+		return f.now
+	}
+	return f.syncBeat
 }
 
 func (f *fixture) at(seconds int64) *fixture {
@@ -238,6 +256,10 @@ func (f *fixture) deps() Deps {
 		CWD: func(pid int) string { return f.cwd[pid] },
 
 		GCLastRun: func() (time.Time, bool) { return f.lastSweep(), f.gcInstalled },
+
+		SyncLastBeat:  func() (time.Time, bool) { return f.lastBeat(), f.syncInstalled },
+		SyncRepos:     func() []SyncRepo { return f.syncRepos },
+		SyncRepoState: func(path string) SyncRepoState { return f.syncState[path] },
 
 		Oncall: func(name, brief string) (oncall.Session, error) {
 			f.oncallCalls++

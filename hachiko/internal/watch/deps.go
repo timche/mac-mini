@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -41,6 +42,14 @@ type Deps struct {
 	// When `hachiko gc` last finished a sweep, and whether this Mac has the agent that runs
 	// it at all. A Mac without one is not a Mac whose sweep has stopped.
 	GCLastRun func() (time.Time, bool)
+
+	// The same for `hachiko sync`, which writes a heartbeat rather than a last-run stamp
+	// because it never finishes a run; then the repositories it is meant to be keeping
+	// upstream, out of sync's own config so the two cannot be two lists, and what git says
+	// about each one.
+	SyncLastBeat  func() (time.Time, bool)
+	SyncRepos     func() []SyncRepo
+	SyncRepoState func(path string) SyncRepoState
 
 	// Opens the on-call session and answers with where it is and whether the brief
 	// reached it, which is what the message about to go out has to say.
@@ -110,6 +119,10 @@ func realDeps(cfg config.Config) Deps {
 
 		GCLastRun: func() (time.Time, bool) { return gcLastRun(cfg) },
 
+		SyncLastBeat:  func() (time.Time, bool) { return syncLastBeat(cfg) },
+		SyncRepos:     func() []SyncRepo { return syncRepos(cfg) },
+		SyncRepoState: syncRepoState,
+
 		Oncall: func(name, brief string) (oncall.Session, error) {
 			return oncall.Oncaller{Cfg: cfg, Herdr: oncall.HerdrCLI, Now: now, Log: log}.Open(name, brief)
 		},
@@ -151,6 +164,65 @@ func gcLastRun(cfg config.Config) (time.Time, bool) {
 	}
 	return plist.ModTime(), true
 }
+
+// The heartbeat's modification time, or the plist's where there is no heartbeat yet. The
+// plist is also what says sync is meant to be running at all: there is no agent on a Mac
+// install.sh has not reached, and nothing to report about a sync nothing runs.
+func syncLastBeat(cfg config.Config) (time.Time, bool) {
+	plist, err := os.Stat(cfg.SyncPlist)
+	if err != nil {
+		return time.Time{}, false
+	}
+	if beat, err := os.Stat(cfg.SyncStamp()); err == nil {
+		return beat.ModTime(), true
+	}
+	return plist.ModTime(), true
+}
+
+// Sync's own config, and a config that will not parse is no list at all: the daemon refuses
+// to start on one, so there is nothing for the watch to check and the daemon's own absence is
+// what gets reported.
+func syncRepos(cfg config.Config) []SyncRepo {
+	loaded, err := config.LoadSync(cfg.SyncConfig, cfg.Home)
+	if err != nil {
+		return nil
+	}
+
+	repos := make([]SyncRepo, 0, len(loaded.Repos))
+	for _, repo := range loaded.Repos {
+		repos = append(repos, SyncRepo{Path: repo.Path, PushDelay: repo.PushDelay})
+	}
+	return repos
+}
+
+// Two git commands in a repository the watch does not otherwise touch, both read-only and
+// both bounded: a git that hangs on a mount that has gone away may not cost the Mac its
+// monitor. Nothing is read from a remote, so neither of them goes near the network.
+func syncRepoState(path string) SyncRepoState {
+	status, err := process.Run(gitTimeout, "git", "-C", path, "status", "--porcelain=v1")
+	if err != nil {
+		return SyncRepoState{}
+	}
+
+	state := SyncRepoState{Read: true, Dirty: len(strings.TrimSpace(string(status))) > 0}
+
+	// A branch with no upstream has nothing to be late against, and git says so by failing.
+	stamps, err := process.Run(gitTimeout, "git", "-C", path, "log", "--format=%ct", "@{upstream}..HEAD")
+	if err != nil {
+		return state
+	}
+
+	lines := strings.Fields(string(stamps))
+	if len(lines) == 0 {
+		return state
+	}
+	if seconds, err := strconv.ParseInt(lines[len(lines)-1], 10, 64); err == nil {
+		state.Oldest = time.Unix(seconds, 0)
+	}
+	return state
+}
+
+const gitTimeout = 10 * time.Second
 
 func deviceOf(path string) (int32, bool) {
 	info, err := os.Lstat(path)

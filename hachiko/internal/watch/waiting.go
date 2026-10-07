@@ -38,8 +38,9 @@ const (
 
 // How many esc-and-prompt attempts in a row may fail before nothing of the agent's is
 // cancelled again until it is seen off its question. Three, because the failure this answers
-// is herdr taking the keys and the agent not acting on them, which the poll in interruptWith
-// already waits out — a fourth try in the same state is a question taken away for nothing.
+// is herdr taking the keys and the agent not acting on them, which the poll in
+// oncall.Oncaller.InterruptWith already waits out — a fourth try in the same state is a
+// question taken away for nothing.
 //
 // The cap holds only while the agent sits on a question that will not go, which is the one
 // state nothing can be delivered in at all: once there is no question, every step goes as a

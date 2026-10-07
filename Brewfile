@@ -16,10 +16,10 @@
 # unattended provision for a step it is never going to run, and would turn aria2's
 # absence from a slower download into a failed dependency.
 
-# gh clones with the token it holds and boswell shells out to it for the issue it
-# files; op reads the signing key and the signing certificates out of 1Password;
-# jq patches a config in docker.sh and in install.sh. btop is the one that is only
-# for whoever logs in to look at the machine.
+# gh clones with the token it holds, and git's credential helper shells out to it
+# for every push made here; op reads the signing key and the signing certificates
+# out of 1Password; jq patches a config in docker.sh and in install.sh. btop is the
+# one that is only for whoever logs in to look at the machine.
 brew "btop"
 brew "gh"
 brew "jq"
@@ -47,14 +47,6 @@ cask "orbstack"
 # refusing to lay a cask over it.
 cask "1password-cli"
 
-# boswell is published from a tap of its own. `trusted: true` because Homebrew
-# refuses to load a formula from a third-party tap it has no trust entry for:
-# naming one fully qualified on the command line is consent, a bare `brew` line in
-# a Brewfile is not, and brew bundle writes the trust entry from this option
-# before it loads anything. An older Homebrew with no trust store ignores it.
-tap "timche/tap", trusted: true
-brew "boswell"
-
 # macOS ships zsh itself, so the highlighting is the only half of the shell left
 # to install.
 brew "zsh-syntax-highlighting"
@@ -70,7 +62,12 @@ brew "tuicr"
 brew "zoxide"
 
 # The secrets scan .gitconfig runs before every commit in every repository here,
-# boswell's auto-commits included.
+# `hachiko sync`'s included. Published from a tap of its own, and `trusted: true`
+# because Homebrew refuses to load a formula from a third-party tap it has no trust
+# entry for: naming one fully qualified on the command line is consent, a bare
+# `brew` line in a Brewfile is not, and brew bundle writes the trust entry from this
+# option before it loads anything. An older Homebrew with no trust store ignores it.
+tap "timche/tap", trusted: true
 brew "betterleaks"
 
 # The browser sessions drive.

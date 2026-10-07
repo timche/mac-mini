@@ -40,7 +40,6 @@ go = "1.27"
 "~/.zshenv" = { source = "home/.zshenv", mode = "symlink" }
 "~/.zshrc" = { source = "home/.zshrc", mode = "symlink" }
 
-"~/.config/boswell/config.toml" = { source = "home/.config/boswell/config.toml", mode = "symlink" }
 "~/.config/ccstatusline/settings.json" = { source = "home/.config/ccstatusline/settings.json", mode = "symlink" }
 "~/.config/herdr/config.toml" = { source = "home/.config/herdr/config.toml", mode = "symlink" }
 "~/.config/git/worktree-install" = { source = "home/.config/git/worktree-install", mode = "symlink" }
@@ -56,9 +55,6 @@ go = "1.27"
 
 # Linked like everything above it: launchd resolves the link at bootstrap, and the
 # plist leaves every path it needs to a shell that expands $HOME for itself.
-# install.sh is what loads it, and only once ~/projects/docs is a clone: boswell refuses a
-# config naming a path that is not a work tree.
-"~/Library/LaunchAgents/io.github.timche.boswell.plist" = { source = "home/Library/LaunchAgents/io.github.timche.boswell.plist", mode = "symlink" }
 "~/Library/LaunchAgents/io.github.timche.herdr.plist" = { source = "home/Library/LaunchAgents/io.github.timche.herdr.plist", mode = "symlink" }
 
 # The sweep that follows a removed worktree, and the one plist still rendered rather

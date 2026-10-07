@@ -39,8 +39,8 @@ if ! command -v brew >/dev/null 2>&1; then
   exit 1
 fi
 
-# Every Homebrew package this repo installs, boswell included: one declarative
-# file, and `brew bundle check` in test/assert.sh reads the same one back.
+# Every Homebrew package this repo installs: one declarative file, and
+# `brew bundle check` in test/assert.sh reads the same one back.
 #
 # --no-upgrade so that a re-run installs what is missing and moves no version,
 # which is the promise `mise install --locked` makes for the tool list beside it.
@@ -82,23 +82,14 @@ fi
 
 # The machine
 
-boswell_label=io.github.timche.boswell
-plist="$HOME/Library/LaunchAgents/$boswell_label.plist"
-
-# boswell's plist is a symlink into this checkout, so comparing the target across
-# the bootstrap below says nothing: what the link points at is a file a pull
-# changed before this script ever ran. A copy of the definition the daemon was
-# last loaded from is kept instead, and compared against. Beside the Dock marker
-# rather than in ~/Library/LaunchAgents, which launchd reads at login and is for
-# plists.
+# Every agent below whose plist is a symlink into this checkout keeps a copy here
+# of the definition launchd was last loaded from: comparing the link's target
+# across the bootstrap says nothing, since what it points at is a file a pull
+# changed before this script ever ran. Each copy is written only once the load
+# succeeded, so a load that failed leaves the next run to try again rather than to
+# skip the reload. Beside the Dock marker rather than in ~/Library/LaunchAgents,
+# which launchd reads at login and is for plists.
 state="${XDG_STATE_HOME:-$HOME/.local/state}/mac-mini"
-boswell_loaded="$state/$(basename "$plist").loaded"
-
-# Written only once the daemon is running the definition it is a copy of, so a load
-# that failed leaves the next run to try again rather than to skip the reload.
-record_boswell_loaded() {
-  mkdir -p "$state" && cp "$plist" "$boswell_loaded"
-}
 
 gc_label=io.github.timche.hachiko-gc
 gc_plist="$HOME/Library/LaunchAgents/$gc_label.plist"
@@ -414,80 +405,21 @@ if [ ! -d "$docs/.git" ]; then
   fi
 fi
 
-# The daemon that carries edits upstream, watching both repositories from one
-# process. It replaced a per-repository timer, which replaced a Claude Code
-# hook, so it has to survive a machine with no session attached — which is what
-# the GUI login unattended.sh arranges is for. A runner may have no GUI session,
-# so none of this is fatal: the links are already made and a real machine starts
-# the daemon on its next install.
-#
-# boswell rejects the whole config when any path in it is not a work tree, so a
-# machine whose docs clone failed above would restart-loop and sync neither
-# repository. Left unstarted instead, which syncs nothing but says so.
-boswell_ready=false
-if [ -d "$repo/.git" ] && [ -d "$docs/.git" ]; then
-  boswell_ready=true
-fi
-
 uid="$(id -u)"
 
-# The agent's own shell opens the log, and a redirect into a directory that is
-# not there fails before boswell starts.
+# Each agent's own shell opens its log, and a redirect into a directory that is
+# not there fails before the job starts.
 mkdir -p "$HOME/Library/Logs"
-
-if [ ! -f "$plist" ]; then
-  echo "$plist is missing — mise links it from mise.toml" >&2
-elif [ "$boswell_ready" != true ]; then
-  echo "boswell is not running — it watches $docs too and refuses a config" \
-       "naming a path that is not a git repository; clone it and re-run" \
-       "install.sh" >&2
-else
-  loaded=false
-  if launchctl print "gui/$uid/$boswell_label" >/dev/null 2>&1; then
-    loaded=true
-  fi
-
-  # launchd keeps the copy of the plist it read when it loaded the job, and
-  # kickstart restarts the process from that copy — so a plist that has changed
-  # is a bootout and a fresh bootstrap or it is nothing at all until the Mac
-  # reboots. The link still pointing where it did says nothing about the file
-  # behind it, which is what the copy taken above is for. claude/ssh-agent.sh
-  # keeps a hash beside its wrapper for the same reason.
-  reloading=false
-  if [ "$loaded" = true ] && ! cmp -s "$plist" "$boswell_loaded"; then
-    launchctl bootout "gui/$uid/$boswell_label" || true
-    loaded=false
-    reloading=true
-  fi
-
-  if [ "$loaded" = true ]; then
-    echo "$boswell_label is already loaded"
-  elif launchctl bootstrap "gui/$uid" "$plist"; then
-    record_boswell_loaded
-
-    if [ "$reloading" = true ]; then
-      echo "reloaded $boswell_label, which is what reaches the running boswell"
-    else
-      echo "loaded $boswell_label"
-    fi
-  else
-    # The gui domain belongs to a logged-in GUI session, which an SSH login to
-    # a Mac sitting at its login window does not have.
-    echo "could not load $boswell_label — the gui/$uid domain needs a GUI" \
-         "session logged in on the Mac; log in there and re-run install.sh, or" \
-         "start it by hand with: launchctl bootstrap gui/$uid $plist" >&2
-  fi
-fi
 
 # The sweep that follows a removed worktree, on a timer because no removal hands
 # anything a hook: herdr, Claude Code and `git worktree remove` all leave, and
 # Claude Code's WorktreeRemove does not fire for a git worktree. Nothing gates it
-# the way boswell is gated on the docs clone — it has nothing to wait for, and a
-# machine with no worktrees gives it nothing to do.
+# the way `hachiko sync` is gated on the docs clone — it has nothing to wait for,
+# and a machine with no worktrees gives it nothing to do.
 #
-# The shape is boswell's above, for the reason given there: launchd keeps the copy
-# of the plist it read at load, so one the bootstrap re-rendered reaches a job
-# that is already loaded only through a bootout and a fresh bootstrap.
+# launchd keeps the copy of the plist it read at load, so one the bootstrap
+# re-rendered reaches a job that is already loaded only through a bootout and a
+# fresh bootstrap.
 #
 # WatchPaths wants the path to exist when the job loads, and herdr creates its
 # worktree root only when it makes the first worktree.
@@ -557,9 +489,9 @@ else
   fi
 fi
 
-# The watch over free space and the CPU, every five minutes. The shape is boswell's:
-# the plist is a link, so what it points at says nothing about the file launchd read
-# at load, and a copy of that is what a reload is decided against.
+# The watch over free space and the CPU, every five minutes. The plist is a link, so
+# what it points at says nothing about the file launchd read at load, and a copy of
+# that is what a reload is decided against.
 #
 # Nothing gates it, and nothing here builds it. A webhook it cannot resolve and a
 # herdr it cannot reach are lines in its log rather than reasons not to watch, and
@@ -628,23 +560,76 @@ else
   fi
 fi
 
-# `hachiko sync`, which commits and pushes the repositories ~/.config/hachiko/sync
-# lists. The shape is boswell's above, and so is the gate: it watches the same two
-# repositories and refuses a config naming a path that is not a work tree, so a Mac
-# whose docs clone failed is left unsynced rather than restart-looping.
+# The daemon that carries edits upstream: `hachiko sync`, which commits and pushes
+# the repositories ~/.config/hachiko/sync lists. It has to survive a machine with no
+# session attached — which is what the GUI login unattended.sh arranges is for. A
+# runner may have no GUI session, so none of this is fatal: the links are already
+# made and a real machine starts the daemon on its next install.
 #
-# It is loaded beside boswell on purpose, and the config it ships with is what makes
-# that safe: `mode = dry-run` means this agent reports what it would commit and push
-# and changes nothing, so nothing is committed twice. Flipping that one line to
-# `live` is the cutover, and boswell goes after it.
+# It refuses the whole config when a path in it is not a work tree, and the one path
+# in it is the docs clone above, so a Mac whose clone failed is left unsynced rather
+# than restart-looping.
 sync_label=io.github.timche.hachiko-sync
 sync_plist="$HOME/Library/LaunchAgents/$sync_label.plist"
 sync_loaded="$state/$sync_label.plist.loaded"
 
+sync_ready=false
+if [ -d "$docs/.git" ]; then
+  sync_ready=true
+fi
+
+# boswell, the daemon `hachiko sync` took over from. Booted out before sync is
+# loaded, because two daemons committing one tree each commit what the other wrote.
+# mise removes no link it no longer declares, so its plist and its config are this
+# repository's to take back — each only when it points into this checkout or nowhere
+# at all, which is the rule the portless link below follows. It is this account's own
+# job and this account's own links, so no sudo.
+old_sync_label=io.github.timche.boswell
+
+if launchctl print "gui/$uid/$old_sync_label" >/dev/null 2>&1; then
+  if launchctl bootout "gui/$uid/$old_sync_label"; then
+    echo "removed $old_sync_label, the daemon hachiko sync took over"
+  else
+    echo "could not remove $old_sync_label — it commits and pushes the same" \
+         "repositories $sync_label does; run: launchctl bootout" \
+         "gui/$uid/$old_sync_label" >&2
+  fi
+fi
+
+for old_sync_path in "$HOME/Library/LaunchAgents/$old_sync_label.plist" \
+                     "$HOME/.config/boswell/config.toml"; do
+  old_sync_path_is_ours=false
+
+  if [ -L "$old_sync_path" ]; then
+    case "$(readlink "$old_sync_path")" in
+      "$repo"/*) old_sync_path_is_ours=true ;;
+      *) [ -e "$old_sync_path" ] || old_sync_path_is_ours=true ;;
+    esac
+  fi
+
+  if [ "$old_sync_path_is_ours" = true ]; then
+    rm "$old_sync_path"
+    echo "removed $old_sync_path, a link this repo no longer makes"
+  fi
+done
+
+rm -f "$state/$old_sync_label.plist.loaded"
+
+# Asked of Homebrew rather than run blind: `brew uninstall` fails on a formula that
+# is not installed, which on a fresh Mac is every Mac.
+if brew list --formula boswell >/dev/null 2>&1; then
+  if brew uninstall boswell; then
+    echo "uninstalled boswell, which nothing loads any more"
+  else
+    echo "could not uninstall boswell — nothing loads it, so it is only taking up" \
+         "space; run: brew uninstall boswell" >&2
+  fi
+fi
+
 if [ ! -f "$sync_plist" ]; then
   echo "$sync_plist is missing — mise links it from mise.toml" >&2
-elif [ "$boswell_ready" != true ]; then
-  echo "$sync_label is not running — it watches $docs too and refuses a config" \
+elif [ "$sync_ready" != true ]; then
+  echo "$sync_label is not running — it watches $docs and refuses a config" \
        "naming a path that is not a git repository; clone it and re-run" \
        "install.sh" >&2
 else
@@ -665,8 +650,8 @@ else
     echo "loaded $sync_label"
   else
     echo "could not load $sync_label — the gui/$uid domain needs a GUI session" \
-         "logged in on the Mac; until it is loaded nothing of this repository's" \
-         "own syncing runs, and \`hachiko sync --once\` runs by hand" >&2
+         "logged in on the Mac; until it is loaded nothing carries what a session" \
+         "writes in $docs upstream, and \`hachiko sync --once\` runs by hand" >&2
   fi
 fi
 
@@ -725,8 +710,8 @@ herdr_switch="launchctl bootout gui/$uid/$herdr_label; herdr server stop; launch
 if [ ! -f "$herdr_plist" ]; then
   echo "$herdr_plist is missing — mise links it from mise.toml" >&2
 elif launchctl print "gui/$uid/$herdr_label" >/dev/null 2>&1; then
-  # boswell reloads on a missing record, treating it as changed. Here a reload
-  # ends every session, so a missing record is said out loud and nothing else.
+  # The agents above reload on a missing record, treating it as changed. Here a
+  # reload ends every session, so a missing record is said out loud and nothing else.
   if [ ! -f "$herdr_loaded" ]; then
     echo "no record of which $herdr_label plist launchd loaded — restart herdr" \
          "when convenient, from a shell outside herdr (a plain ssh" \

@@ -218,6 +218,7 @@ func (f *fixture) daemon() *daemon {
 		deps:  f.deps(),
 		store: &Store{Dir: filepath.Join(f.home, "state")},
 		dry:   f.dry,
+		beat:  !f.dry,
 	}
 }
 

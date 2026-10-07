@@ -115,9 +115,9 @@ func TestTheHeartbeatIsWrittenWholeWhereTheWatchReadsIt(t *testing.T) {
 	}
 }
 
-// A dry run writes no state at all, the heartbeat included: the check would otherwise read a
-// sync that is only reporting as one that is syncing.
-func TestADryRunWritesNoHeartbeat(t *testing.T) {
+// A session's --dry-run writes no heartbeat: it is not the agent, and beating for it would
+// hide an agent that has stopped.
+func TestASessionsDryRunWritesNoHeartbeat(t *testing.T) {
 	f := newFixture(t)
 	f.dry = true
 
@@ -130,6 +130,26 @@ func TestADryRunWritesNoHeartbeat(t *testing.T) {
 	park()
 
 	if _, err := os.Stat(filepath.Join(d.store.Dir, "heartbeat")); err == nil {
-		t.Error("a dry run wrote a heartbeat")
+		t.Error("a session's dry run wrote a heartbeat")
+	}
+}
+
+// The agent in the config's dry run is alive all the same, and the watch reads the heartbeat
+// as exactly that. Without it, a dry run beside boswell was reported as sync having stopped.
+func TestTheAgentsDryRunStillBeats(t *testing.T) {
+	f := newFixture(t)
+	f.dry = true
+
+	d := f.daemon()
+	d.beat = true
+	park := briefly(d)
+	blind(d)
+
+	go d.keep()
+	time.Sleep(20 * time.Millisecond)
+	park()
+
+	if _, err := os.Stat(filepath.Join(d.store.Dir, "heartbeat")); err != nil {
+		t.Errorf("the agent's dry run wrote no heartbeat: %v", err)
 	}
 }

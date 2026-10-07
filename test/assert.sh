@@ -1232,6 +1232,7 @@ check "the wrapper rebuilds from the directory launchd starts the agent in" \
    cp -R "$repo/hachiko" "$d/hachiko" &&
    cp "$repo/mise.toml" "$d/mise.toml" &&
    cp "$repo/home/.local/bin/hachiko" "$d/home/.local/bin/hachiko" &&
+   cp -R "$repo/home/.config" "$d/home/.config" &&
    export MISE_TRUSTED_CONFIG_PATHS="$d" &&
    export HACHIKO_CACHE_DIR="$d/cache" &&
    "$d/home/.local/bin/hachiko" --help >/dev/null 2>"$d/first" &&
@@ -1247,6 +1248,7 @@ check "the wrapper keeps the last good binary when the sources do not compile" \
    cp -R "$repo/hachiko" "$d/hachiko" &&
    cp "$repo/mise.toml" "$d/mise.toml" &&
    cp "$repo/home/.local/bin/hachiko" "$d/home/.local/bin/hachiko" &&
+   cp -R "$repo/home/.config" "$d/home/.config" &&
    export MISE_TRUSTED_CONFIG_PATHS="$d" &&
    export HACHIKO_CACHE_DIR="$d/cache" &&
    "$d/home/.local/bin/hachiko" --help >/dev/null &&
@@ -1266,6 +1268,7 @@ check "the wrapper says why it could not rebuild and keeps watching" \
    cp -R "$repo/hachiko" "$d/hachiko" &&
    cp "$repo/mise.toml" "$d/mise.toml" &&
    cp "$repo/home/.local/bin/hachiko" "$d/home/.local/bin/hachiko" &&
+   cp -R "$repo/home/.config" "$d/home/.config" &&
    export MISE_TRUSTED_CONFIG_PATHS="$d" &&
    export HACHIKO_CACHE_DIR="$d/cache" &&
    "$d/home/.local/bin/hachiko" --help >/dev/null &&
@@ -1291,6 +1294,7 @@ check "the wrapper runs the cached binary without a go of any kind when nothing 
    cp -R "$repo/hachiko" "$d/hachiko" &&
    cp "$repo/mise.toml" "$d/mise.toml" &&
    cp "$repo/home/.local/bin/hachiko" "$d/home/.local/bin/hachiko" &&
+   cp -R "$repo/home/.config" "$d/home/.config" &&
    export MISE_TRUSTED_CONFIG_PATHS="$d" &&
    export HACHIKO_CACHE_DIR="$d/cache" &&
    "$d/home/.local/bin/hachiko" --help >/dev/null &&

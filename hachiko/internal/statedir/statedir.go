@@ -284,11 +284,20 @@ var ErrLockHeld = errors.New("another check holds the lock")
 // with nothing left is exactly the fault this watch exists to catch — so the sweep
 // goes ahead without a lock rather than going quiet about a full disk.
 func (st Store) Acquire(stale time.Duration, now time.Time) (*Lock, string, error) {
-	if err := os.MkdirAll(st.Dir, 0o755); err != nil {
+	return LockDir(filepath.Join(st.Dir, "lock"), stale, now, "an earlier check")
+}
+
+// The same lock at a path of its own, which is what `hachiko gc` takes: it sweeps for ten
+// minutes to the watch's five and the two may never wait on each other, so it holds a lock
+// outside this directory — and this is still the one implementation of it. `unknown` is what
+// to call the run whose lock is being taken over when it left no pid behind.
+//
+// The second value is empty unless a lock was taken over, so a caller cannot read a missing
+// pid as nobody having held one.
+func LockDir(dir string, stale time.Duration, now time.Time, unknown string) (*Lock, string, error) {
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 		return nil, "", err
 	}
-
-	dir := filepath.Join(st.Dir, "lock")
 
 	lock, err := tryLock(dir, now)
 	if err == nil {
@@ -306,7 +315,7 @@ func (st Store) Acquire(stale time.Duration, now time.Time) (*Lock, string, erro
 		return nil, "", ErrLockHeld
 	}
 
-	owner := "an earlier check"
+	owner := unknown
 	if pid, err := os.ReadFile(filepath.Join(dir, "pid")); err == nil && len(pid) > 0 {
 		owner = strings.TrimSpace(string(pid))
 	}

@@ -2,11 +2,12 @@
 // after on a machine with no screen and nobody at it, each of them a command of its own
 // and a package of its own behind that.
 //
-// The watch is the one with a LaunchAgent on it, and the one a bare `hachiko` runs: every
-// five minutes it checks free space and what is burning CPU, and alerts when it matters.
-// The rest are what grew out of that alert — the on-call session hachiko opens in herdr to
-// work an incident, the two commands that session runs for itself, and the listener that
-// takes Tim's reply to it out of Discord.
+// The watch is the one a bare `hachiko` runs: every five minutes it checks free space and
+// what is burning CPU, and alerts when it matters. Most of the rest are what grew out of
+// that alert — the on-call session hachiko opens in herdr to work an incident, the two
+// commands that session runs for itself, and the listener that takes Tim's reply to it out
+// of Discord. `hachiko gc` is the other thing a Mac with nobody at it needs: every ten
+// minutes it sweeps what a removed worktree and a finished session left behind.
 //
 // Nothing in this file does any of it: it parses the command and hands it to the package
 // that owns it, which is what keeps a new one to one case and one import.
@@ -19,6 +20,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/discord"
+	"github.com/timche/mac-mini/hachiko/internal/gc"
 	"github.com/timche/mac-mini/hachiko/internal/listen"
 	"github.com/timche/mac-mini/hachiko/internal/oncall"
 	"github.com/timche/mac-mini/hachiko/internal/session"
@@ -26,6 +28,7 @@ import (
 )
 
 const usage = `usage: hachiko [--dry-run | --test-alert]
+       hachiko gc [--dry-run]
        hachiko notify [--outcome] <incident-id> <message-file>
        hachiko oncall <name> <brief-file>
        hachiko approval-request <incident-id> <action-file>
@@ -34,6 +37,9 @@ const usage = `usage: hachiko [--dry-run | --test-alert]
   (no option)        check free space and what is burning CPU, and alert when it matters
   --dry-run          report what a check sees, change nothing, alert nothing
   --test-alert       send a short message to the channel, to prove it works
+  gc                 sweep what a removed worktree and a finished session left behind:
+                     their compose projects, volumes, processes and scratch folders;
+                     --dry-run says what a sweep would do and changes nothing
   notify             send a message about an incident to the channel Tim watches,
                      which is how the on-call session reports its findings;
                      --outcome marks the one that says the incident is resolved
@@ -68,6 +74,15 @@ func run(args []string) error {
 
 	if len(args) > 0 {
 		switch args[0] {
+		case "gc":
+			dry := false
+			for _, arg := range args[1:] {
+				if arg != "--dry-run" {
+					return badUsage("gc takes --dry-run and nothing else")
+				}
+				dry = true
+			}
+			return gc.Run(cfg, dry)
 		case "notify":
 			// A constant word and nothing of the incident's, so it is one of the few things
 			// here that may be an argument: ps showing it says only that a session said it had

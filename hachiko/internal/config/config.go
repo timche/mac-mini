@@ -73,6 +73,15 @@ type Config struct {
 
 	StateDir string
 
+	// The lock the sweep that follows a removed worktree takes, which is its own rather than
+	// the watch's: each of the two holds its lock across minutes of work, so a gc waiting on
+	// the watch or the watch on a gc would be an interval of neither.
+	GCLock string
+
+	// Where the sweep prunes worktree entries. Its own name rather than HACHIKO_PROJECTS,
+	// which it falls back to: the watch only reads that root to say which checkout a busy
+	// process is in, and the sweep runs git in every repository under it.
+	GCProjectsRoot string
 	// The channel and the one account replies are taken from, both empty unless Tim has
 	// filled them in, which is what turns the bot and `hachiko listen` on.
 	Discord DiscordConfig
@@ -117,6 +126,8 @@ func FromEnv() Config {
 	// binary lives in a cache that holds nothing else.
 	envFile := envString("HACHIKO_ENV_FILE", filepath.Join(home, ".local", "bin", "hachiko.env.op"))
 
+	projects := envString("HACHIKO_PROJECTS", filepath.Join(home, "projects"))
+
 	return Config{
 		LowKB:      envInt64("HACHIKO_LOW_GB", 100) * GiB,
 		CriticalKB: envInt64("HACHIKO_CRITICAL_GB", 20) * GiB,
@@ -142,7 +153,7 @@ func FromEnv() Config {
 		ScratchRoot:  envString("CLAUDE_CODE_TMPDIR", filepath.Join(home, ".cache", "claude-tmp")),
 		LogsRoot:     filepath.Join(home, "Library", "Logs"),
 		HerdrRoot:    filepath.Join(home, ".herdr", "worktrees"),
-		ProjectsRoot: envString("HACHIKO_PROJECTS", filepath.Join(home, "projects")),
+		ProjectsRoot: projects,
 
 		CPUAllowPath: envString("HACHIKO_CPU_ALLOW", filepath.Join(home, ".config", "hachiko", "cpu-allow")),
 		EnvFile:      envFile,
@@ -156,6 +167,8 @@ func FromEnv() Config {
 
 		StateDir: envString("HACHIKO_STATE_DIR", filepath.Join(cache, "hachiko")),
 
+		GCLock:         envString("HACHIKO_GC_LOCK", filepath.Join(cache, "hachiko-gc.lock")),
+		GCProjectsRoot: envString("HACHIKO_GC_PROJECTS", projects),
 		Discord: readDiscordConfig(envString("HACHIKO_DISCORD_CONFIG",
 			filepath.Join(home, ".config", "hachiko", "discord"))),
 

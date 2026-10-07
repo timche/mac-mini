@@ -14,6 +14,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/discord"
+	"github.com/timche/mac-mini/hachiko/internal/oncall"
 	"github.com/timche/mac-mini/hachiko/internal/process"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
@@ -220,23 +221,23 @@ func (f *fixture) deps() Deps {
 		},
 		CWD: func(pid int) string { return f.cwd[pid] },
 
-		Oncall: func(name, brief string) (OncallSession, error) {
+		Oncall: func(name, brief string) (oncall.Session, error) {
 			f.oncallCalls++
 			f.oncallName, f.oncallBrief = name, brief
 
 			switch {
 			case f.oncallErr != nil:
-				return OncallSession{}, f.oncallErr
+				return oncall.Session{}, f.oncallErr
 			case f.oncallBlocked:
 				// The agent is on a question whose cancelling did not work, so nothing of
 				// the update reached it.
-				return OncallSession{
+				return oncall.Session{
 					Tab: name + "-0000",
 					Say: fmt.Sprintf("The agent is already waiting for you in herdr — attach: workspace `.mac-mini`, tab `%s-0000`. This update did not reach it.", name),
 				}, nil
 			}
 
-			session := OncallSession{
+			session := oncall.Session{
 				Tab:       name + "-0000",
 				Delivered: true,
 				Say:       fmt.Sprintf("An agent is looking into it — attach in herdr: workspace `.mac-mini`, tab `%s-0000`. Details to follow.", name),
@@ -244,9 +245,9 @@ func (f *fixture) deps() Deps {
 
 			// What the real oncaller does with an agent herdr would refuse a prompt to: the
 			// question goes and the brief takes its place, which leaves it working.
-			if f.status[name] == statusBlocked {
+			if f.status[name] == oncall.StatusBlocked {
 				f.interrupts = append(f.interrupts, "The situation changed\n"+brief)
-				f.status[name] = statusWorking
+				f.status[name] = oncall.StatusWorking
 				session.Cancelled = true
 			}
 			return session, nil
@@ -274,7 +275,7 @@ func (f *fixture) deps() Deps {
 			f.interrupts = append(f.interrupts, lead+"\n"+data)
 			// The agent herdr refuses a prompt to is the one still on its question, so a
 			// cancelled question leaves it working on what it was handed instead.
-			f.status[kind] = statusWorking
+			f.status[kind] = oncall.StatusWorking
 			return true, nil
 		},
 		Prompt: func(kind, lead, data string) error {
@@ -284,7 +285,7 @@ func (f *fixture) deps() Deps {
 			f.prompts = append(f.prompts, lead+"\n"+data)
 			// A prompt queues behind whatever the agent is doing, and an agent that has been
 			// handed one is working on it.
-			f.status[kind] = statusWorking
+			f.status[kind] = oncall.StatusWorking
 			return nil
 		},
 		Send: func(out discord.Outgoing) (string, error) {
@@ -551,7 +552,7 @@ func (f *fixture) notifyOutcome(incident string) {
 }
 
 // The agent puts its question up, which is where the wait starts.
-func (f *fixture) blocks(kind string) { f.status[kind] = statusBlocked }
+func (f *fixture) blocks(kind string) { f.status[kind] = oncall.StatusBlocked }
 
 func (f *fixture) lastInterrupt() string {
 	f.t.Helper()

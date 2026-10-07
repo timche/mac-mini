@@ -14,6 +14,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/discord"
+	"github.com/timche/mac-mini/hachiko/internal/harness"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/totp"
@@ -25,7 +26,7 @@ import (
 type listenFixture struct {
 	t     *testing.T
 	l     *listener
-	herdr *fakeHerdr
+	herdr *harness.Herdr
 	log   *bytes.Buffer
 	now   time.Time
 
@@ -66,7 +67,7 @@ func newListener(t *testing.T) *listenFixture {
 
 	f := &listenFixture{
 		t:     t,
-		herdr: &fakeHerdr{hasAgent: true, hasWorkspace: true, blockedPrompt: true},
+		herdr: &harness.Herdr{HasAgent: true, HasWorkspace: true, BlockedPrompt: true},
 		log:   &bytes.Buffer{},
 		now:   time.Unix(1111111111, 0),
 	}
@@ -107,7 +108,7 @@ func newListener(t *testing.T) *listenFixture {
 		cfg:    cfg,
 		store:  statedir.Store{Dir: cfg.StateDir},
 		bot:    bot,
-		herdr:  f.herdr.run,
+		herdr:  f.herdr.Run,
 		now:    now,
 		log:    logs.Logger{Out: f.log, Now: now},
 		secret: approvalSecret,
@@ -138,7 +139,7 @@ func (f *listenFixture) once() string {
 	f.t.Helper()
 	f.log.Reset()
 	f.messages = nil
-	f.herdr.calls = nil
+	f.herdr.Calls = nil
 	return f.pass()
 }
 
@@ -163,9 +164,9 @@ func TestAReplyFromTimCancelsTheQuestionAndReachesTheAgent(t *testing.T) {
 	out := f.pass()
 	wants(t, out, "Tim's reply on "+diskIncident+" was handed to the on-call session")
 
-	assertOrder(t, f.herdr, "agent send-keys oncall-disk esc", "agent get oncall-disk", "agent prompt oncall-disk ")
+	harness.AssertOrder(t, f.herdr, "agent send-keys oncall-disk esc", "agent get oncall-disk", "agent prompt oncall-disk ")
 
-	prompt := f.herdr.prompt()
+	prompt := f.herdr.Prompt()
 	wants(t, prompt, "Tim has replied in Discord")
 	wants(t, prompt, "it is an instruction from him")
 	wants(t, prompt, "stop the worker, leave the log")
@@ -184,7 +185,7 @@ func TestABareNumberIsReadAsTheOptionHePicked(t *testing.T) {
 	f.says("300000000000000001", "2")
 
 	f.pass()
-	prompt := f.herdr.prompt()
+	prompt := f.herdr.Prompt()
 	wants(t, prompt, "His reply is the single number 2, which is option 2 of the question you asked.")
 	wants(t, prompt, "----- BEGIN REPLY FROM TIM ")
 }
@@ -203,7 +204,7 @@ func TestOnlyTimsOwnMessagesAreActedOn(t *testing.T) {
 
 	out := f.pass()
 	lacks(t, out, "was handed to the on-call session")
-	equal(t, f.herdr.said("agent prompt"), false, "whether anything was prompted")
+	equal(t, f.herdr.Said("agent prompt"), false, "whether anything was prompted")
 	equal(t, len(f.reacted), 0, "reactions added")
 
 	// Every one of them is still marked as seen, or it would be read again for ever.
@@ -218,10 +219,10 @@ func TestEveryMessageIsHandledOnce(t *testing.T) {
 	f.pass()
 	equal(t, f.l.lastSeen(threadID), "300000000000000001", "the last message read")
 
-	f.herdr.calls = nil
+	f.herdr.Calls = nil
 	f.messages = nil
 	f.pass()
-	equal(t, f.herdr.said("agent prompt"), false, "whether the same reply was handed over twice")
+	equal(t, f.herdr.Said("agent prompt"), false, "whether the same reply was handed over twice")
 }
 
 // A thread nothing is open on any more, so the state directory does not grow a file per
@@ -242,17 +243,17 @@ func TestAThreadNothingIsOpenOnIsForgotten(t *testing.T) {
 // whatever it is doing rather than being refused.
 func TestAReplyToAnAgentThatIsWorkingIsQueuedRatherThanInterrupting(t *testing.T) {
 	f := newListener(t)
-	f.herdr.blockedPrompt = false
+	f.herdr.BlockedPrompt = false
 	f.says("300000000000000001", "stop the worker")
 
 	wants(t, f.pass(), "was handed to the on-call session")
-	equal(t, f.herdr.said("agent send-keys"), false, "whether a question was cancelled")
-	wants(t, f.herdr.prompt(), "Tim has replied in Discord")
+	equal(t, f.herdr.Said("agent send-keys"), false, "whether a question was cancelled")
+	wants(t, f.herdr.Prompt(), "Tim has replied in Discord")
 }
 
 func TestAReplyWithNoSessionLeftSaysSoInTheThread(t *testing.T) {
 	f := newListener(t)
-	f.herdr.agentGone = true
+	f.herdr.AgentGone = true
 	f.says("300000000000000001", "stop the worker")
 
 	wants(t, f.pass(), "did not reach the on-call session")
@@ -272,7 +273,7 @@ func TestAnApprovalCodeApprovesTheActionTheAgentRegistered(t *testing.T) {
 	f.says("300000000000000001", "approve "+currentCode(t, f))
 	wants(t, f.pass(), "an approved action on "+diskIncident+" was handed to the on-call session")
 
-	prompt := f.herdr.prompt()
+	prompt := f.herdr.Prompt()
 	wants(t, prompt, "approved one action on "+diskIncident+" with a code from his authenticator")
 	wants(t, prompt, "approved: delete the orphaned postgres volume")
 	wants(t, prompt, "You may now carry out that action and nothing else")
@@ -300,7 +301,7 @@ func TestAnApprovalCodeIsAcceptedOnce(t *testing.T) {
 
 	equal(t, len(f.posted), 1, "messages posted back")
 	wants(t, f.posted[0], "Code not accepted.")
-	wants(t, f.herdr.prompt(), "")
+	wants(t, f.herdr.Prompt(), "")
 	equal(t, f.l.store.OpenApproval(diskIncident), "second action", "the request left open after a replay")
 }
 
@@ -314,7 +315,7 @@ func TestACodeWithNoRequestAndAWrongCodeAreBothRefusedWithoutAHint(t *testing.T)
 	wants(t, f.pass(), "")
 	equal(t, len(f.posted), 1, "messages posted back with no request open")
 	equal(t, f.posted[0], "Code not accepted.", "what a code with no request is answered with")
-	equal(t, f.herdr.said("agent prompt"), false, "whether anything was prompted")
+	equal(t, f.herdr.Said("agent prompt"), false, "whether anything was prompted")
 
 	if err := f.l.store.RequestApproval(diskIncident, "delete the volume"); err != nil {
 		t.Fatal(err)
@@ -324,7 +325,7 @@ func TestACodeWithNoRequestAndAWrongCodeAreBothRefusedWithoutAHint(t *testing.T)
 	f.pass()
 
 	equal(t, f.posted[len(f.posted)-1], "Code not accepted.", "what a wrong code is answered with")
-	equal(t, f.herdr.said("agent prompt"), false, "whether a wrong code prompted anything")
+	equal(t, f.herdr.Said("agent prompt"), false, "whether a wrong code prompted anything")
 	equal(t, f.l.store.OpenApproval(diskIncident), "delete the volume", "the request left open")
 }
 
@@ -339,7 +340,7 @@ func TestAnApprovalWithNoSecretConfiguredIsRefused(t *testing.T) {
 	f.says("300000000000000001", "approve "+currentCode(t, f))
 	wants(t, f.pass(), "there is nothing to check it against")
 	equal(t, f.posted[len(f.posted)-1], "Code not accepted.", "what a code with no secret is answered with")
-	equal(t, f.herdr.said("agent prompt"), false, "whether anything was prompted")
+	equal(t, f.herdr.Said("agent prompt"), false, "whether anything was prompted")
 }
 
 // A bot without permission to react still has to say the reply landed.
@@ -412,7 +413,7 @@ func TestThreeWrongCodesCancelTheRequest(t *testing.T) {
 	f.once()
 	f.says("300000000000000200", "approve "+currentCode(t, f))
 	f.pass()
-	equal(t, f.herdr.said("agent prompt"), false, "whether a code approved anything after the request went")
+	equal(t, f.herdr.Said("agent prompt"), false, "whether a code approved anything after the request went")
 }
 
 // The count is there to stop somebody guessing at one approval, not to lock the session out

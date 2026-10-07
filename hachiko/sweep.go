@@ -11,6 +11,7 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/discord"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
+	"github.com/timche/mac-mini/hachiko/internal/oncall"
 	"github.com/timche/mac-mini/hachiko/internal/process"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
@@ -710,7 +711,7 @@ func (s sweeper) raise(state *statedir.State, now time.Time, kind string, alert 
 	session, err := s.deps.Oncall(kind, s.brief(incident, alert.brief()))
 	if err != nil {
 		s.say("no on-call session was opened: %v", err)
-		session = OncallSession{}
+		session = oncall.Session{}
 	}
 
 	// Urgent is free space already critical, or a file this truncated: either way Tim
@@ -768,7 +769,7 @@ func (s sweeper) raise(state *statedir.State, now time.Time, kind string, alert 
 // A new incident keeps the kind's clock and resets its steps: he has been unanswered
 // since the first question either way, but the handover is a decision about an incident
 // and each one gets its own.
-func (s sweeper) expectAQuestion(state *statedir.State, now time.Time, kind, incident string, session OncallSession) {
+func (s sweeper) expectAQuestion(state *statedir.State, now time.Time, kind, incident string, session oncall.Session) {
 	if state.Waiting == nil {
 		state.Waiting = map[string]statedir.Waiting{}
 	}

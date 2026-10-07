@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/oncall"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
@@ -160,7 +161,7 @@ func TestAnAnswerPausesTheClockAndTheOutcomeEndsTheWait(t *testing.T) {
 	f := waiting(t)
 
 	// He picks an option, so herdr shows the agent working rather than blocked.
-	f.status["disk"] = statusWorking
+	f.status["disk"] = oncall.StatusWorking
 	equal(t, f.at(600+remindAt).sweep(), "", "the log while the agent works on his answer")
 	equal(t, len(f.state().Waiting), 1, "waits still being counted")
 	equal(t, f.state().Waiting["disk"].Busy, base.Unix()+600+remindAt, "when it started working")
@@ -186,7 +187,7 @@ func TestAnAnswerPausesTheClockAndTheOutcomeEndsTheWait(t *testing.T) {
 // prevent, reached by the one state hachiko was treating as reassuring.
 func TestAnAgentWorkingForEverStillGetsTheWholeTimeline(t *testing.T) {
 	f := waiting(t)
-	f.status["disk"] = statusWorking
+	f.status["disk"] = oncall.StatusWorking
 
 	// Nothing while the turn is fresh, through the hour the reminder was due in.
 	equal(t, f.at(900).sweep(), "", "the log while the turn is fresh")
@@ -213,7 +214,7 @@ func TestAnAgentWorkingForEverStillGetsTheWholeTimeline(t *testing.T) {
 func TestAWorseningDiskHandsOverEvenWhileTheAgentIsWorking(t *testing.T) {
 	f := waiting(t)
 	f.cfg.CriticalKB = 300 * config.GiB
-	f.status["disk"] = statusWorking
+	f.status["disk"] = oncall.StatusWorking
 
 	// The projection is read on every check whatever the agent is doing, so the two checks in
 	// a row the rule wants are two checks and not two checks after a grace.
@@ -431,7 +432,7 @@ func TestAMarkerKeepsTheOptionAnEarlierReportNamed(t *testing.T) {
 func TestASessionClosedBeforeTheDeadlineGetsAMessageSayingNothingWasDone(t *testing.T) {
 	f := waiting(t)
 
-	f.status["disk"] = statusGone
+	f.status["disk"] = oncall.StatusGone
 	equal(t, f.at(600+warnAt).sweep(), "", "the log before the deadline with no agent")
 	equal(t, f.sentCount(), 1, "messages sent before the deadline with no agent")
 
@@ -1269,7 +1270,7 @@ func TestASessionClosedAfterTheHandoverSaysNothingReportedAnOutcome(t *testing.T
 	f.at(600 + warnAt).sweep()
 	f.at(600 + handoverAt).sweep()
 
-	f.status["disk"] = statusGone
+	f.status["disk"] = oncall.StatusGone
 	out := f.at(600 + handoverAt + 300).sweep()
 
 	wants(t, out, "has since been closed without reporting an outcome")

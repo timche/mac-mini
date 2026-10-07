@@ -1,4 +1,10 @@
-package main
+// Package oncall is the Claude Code session hachiko puts on an incident, and the whole of
+// what it says to it: the standing orders it is opened with, the brief fenced so that
+// nothing a log line asks for reads as an instruction, and the esc-then-prompt that is the
+// only way to reach an agent already waiting on a question. Everything here goes through
+// the one herdr call, so a test drives it against the shapes the real CLI answers in
+// rather than against a description of them.
+package oncall
 
 import (
 	"bytes"
@@ -19,16 +25,20 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
-// herdrRunner is the one call out to herdr, so a test drives the whole of this
+// A sweep that never returns is one holding the lock that keeps the next twelve from
+// running, and starting a session is the longest thing it waits on.
+const herdrTimeout = 30 * time.Second
+
+// Runner is the one call out to herdr, so a test drives the whole of this
 // against the shapes the real CLI answers in rather than against a stub on PATH.
 //
 // It answers with whichever stream carried herdr's JSON, stdout or stderr, and an
 // error only when neither did: herdr reports a refusal as a JSON object on stderr
 // with a non-zero status, and the code in it is the difference between a session that
 // does not exist and one that is busy.
-type herdrRunner func(args ...string) ([]byte, error)
+type Runner func(args ...string) ([]byte, error)
 
-func herdrCLI(args ...string) ([]byte, error) {
+func HerdrCLI(args ...string) ([]byte, error) {
 	if _, err := exec.LookPath("herdr"); err != nil {
 		return nil, errors.New("no herdr on PATH, so no session was opened")
 	}
@@ -110,9 +120,9 @@ const codeAgentNotFound = "agent_not_found"
 // herdr's own words for what an agent is doing, and the one this adds for an agent
 // herdr has never heard of.
 const (
-	statusBlocked = "blocked"
-	statusWorking = "working"
-	statusGone    = "gone"
+	StatusBlocked = "blocked"
+	StatusWorking = "working"
+	StatusGone    = "gone"
 )
 
 // Opus at medium effort: the session is the only thing reading a process listing at
@@ -121,7 +131,7 @@ const (
 // through to Claude Code itself.
 var claudeArgs = []string{"--model", "opus", "--effort", "medium"}
 
-func herdrCall(run herdrRunner, args ...string) (*herdrReply, error) {
+func herdrCall(run Runner, args ...string) (*herdrReply, error) {
 	command := strings.Join(args, " ")
 
 	out, err := run(args...)
@@ -147,11 +157,11 @@ func herdrCode(err error) string {
 	return ""
 }
 
-// OncallSession is what the alert about to go out needs to know about the session:
+// Session is what the alert about to go out needs to know about the session:
 // where it is, how to say so, and whether the brief actually reached it — because a
 // session that was not handed the brief is not going to report, so the message has to
 // carry the whole of it and nothing may wait on a reply.
-type OncallSession struct {
+type Session struct {
 	Tab       string
 	Say       string
 	Delivered bool
@@ -165,24 +175,42 @@ type OncallSession struct {
 // herdr's own rule for an agent name, which oncall-<name> has to satisfy.
 var oncallName = regexp.MustCompile(`\A[a-z][a-z0-9-]*\z`)
 
-// Opens a Claude Code session in herdr to work an incident, so that a Mac nobody is
-// looking at has somebody on it by the time Tim reads the alert.
+// Run is `hachiko oncall`: it opens a Claude Code session in herdr to work an incident,
+// so that a Mac nobody is looking at has somebody on it by the time Tim reads the alert,
+// and prints the label of the tab that session is waiting in.
 //
 // herdr rather than a bare `claude -p`: Tim attaches to the same server from anywhere
 // with `herdr --remote`, the session is still there hours later, and an agent waiting
 // on AskUserQuestion shows in his sidebar as blocked — which is the point, since the
 // session is told to ask before it changes anything.
-func openOncall(cfg config.Config, run herdrRunner, name, brief string) (OncallSession, error) {
+//
+// The brief arrives as a file so that nothing an incident named is in the arguments of a
+// process the whole machine can read.
+func Run(cfg config.Config, name, briefFile string) error {
+	brief, err := os.ReadFile(briefFile)
+	if err != nil {
+		return fmt.Errorf("cannot read the brief at %s", briefFile)
+	}
+
 	now := config.ClockFromEnv()
 	// stderr, because the caller reads the tab label off stdout.
-	return oncaller{cfg: cfg, run: run, now: now, log: logs.Logger{Out: os.Stderr, Now: now}}.open(name, brief)
+	session, err := Oncaller{Cfg: cfg, Herdr: HerdrCLI, Now: now, Log: logs.Logger{Out: os.Stderr, Now: now}}.
+		Open(name, string(brief))
+	if err != nil {
+		return err
+	}
+
+	// The label goes to stdout and nothing else does, because the caller reads it to
+	// name the tab in the message it is about to send.
+	fmt.Println(session.Tab)
+	return nil
 }
 
-type oncaller struct {
-	cfg config.Config
-	run herdrRunner
-	now func() time.Time
-	log interface{ Say(string, ...any) }
+type Oncaller struct {
+	Cfg   config.Config
+	Herdr Runner
+	Now   func() time.Time
+	Log   interface{ Say(string, ...any) }
 
 	// How long herdr may go on calling an agent `blocked` after the esc that cancelled its
 	// question, and how often that is read back. Fields rather than constants so a test
@@ -202,7 +230,7 @@ const (
 	defaultEscInterval = 250 * time.Millisecond
 )
 
-func (o oncaller) escWaits() (window, interval time.Duration) {
+func (o Oncaller) escWaits() (window, interval time.Duration) {
 	window, interval = o.escWindow, o.escInterval
 	if window <= 0 {
 		window = defaultEscWindow
@@ -213,7 +241,7 @@ func (o oncaller) escWaits() (window, interval time.Duration) {
 	return window, interval
 }
 
-func (o oncaller) nap(d time.Duration) {
+func (o Oncaller) nap(d time.Duration) {
 	if o.sleep != nil {
 		o.sleep(d)
 		return
@@ -225,46 +253,46 @@ type discard struct{}
 
 func (discard) Say(string, ...any) {}
 
-func (o oncaller) open(name, brief string) (OncallSession, error) {
+func (o Oncaller) Open(name, brief string) (Session, error) {
 	if !oncallName.MatchString(name) {
-		return OncallSession{}, fmt.Errorf("%s is not a name herdr will take (lowercase, digits and dashes)", name)
+		return Session{}, fmt.Errorf("%s is not a name herdr will take (lowercase, digits and dashes)", name)
 	}
 
 	agent := "oncall-" + name
-	label := fmt.Sprintf("%s-%s", name, o.now().Format("1504"))
+	label := fmt.Sprintf("%s-%s", name, o.Now().Format("1504"))
 
 	// A live agent of this name means the incident is already being worked, so this
 	// is an update to that session: two agents on one machine would be two sets of
 	// options for Tim to reconcile.
 	tabID, err := o.liveAgentTab(agent)
 	if err != nil {
-		return OncallSession{}, err
+		return Session{}, err
 	}
 
 	if tabID != "" {
 		existing := o.tabLabel(tabID)
 
-		_, err := herdrCall(o.run, "agent", "prompt", agent, o.updatePrompt(name, brief, existing))
+		_, err := herdrCall(o.Herdr, "agent", "prompt", agent, o.updatePrompt(name, brief, existing))
 		switch {
 		case herdrCode(err) == codeAgentBlocked:
 			// The session is up and waiting on the question the standing orders told it
 			// to ask. Its options are about the incident as it stood when it asked, and
 			// this is newer — so the question goes and the session is asked again, rather
 			// than the commonest update of an incident reaching nobody.
-			if _, err := o.interrupt(name, updateLead(name), brief); err != nil {
-				o.log.Say("the on-call session in tab %s is waiting on a question that could not be cancelled, so the update was not delivered: %v", existing, err)
-				return OncallSession{
+			if _, err := o.Interrupt(name, updateLead(name), brief); err != nil {
+				o.Log.Say("the on-call session in tab %s is waiting on a question that could not be cancelled, so the update was not delivered: %v", existing, err)
+				return Session{
 					Tab: existing,
 					Say: "The agent is already waiting for you in herdr — attach: " +
-						wording.HerdrWhere(o.cfg, existing) + ". This update did not reach it.",
+						wording.HerdrWhere(o.Cfg, existing) + ". This update did not reach it.",
 				}, nil
 			}
-			o.log.Say("the on-call session in tab %s was waiting on a question, so it was cancelled and the session was asked again", existing)
+			o.Log.Say("the on-call session in tab %s was waiting on a question, so it was cancelled and the session was asked again", existing)
 			session := o.delivered(existing)
 			session.Cancelled = true
 			return session, nil
 		case err != nil:
-			return OncallSession{}, err
+			return Session{}, err
 		}
 
 		return o.delivered(existing), nil
@@ -272,66 +300,66 @@ func (o oncaller) open(name, brief string) (OncallSession, error) {
 
 	workspace, err := o.workspace()
 	if err != nil {
-		return OncallSession{}, err
+		return Session{}, err
 	}
 
 	// A tab of its own rather than a split, so the session is somewhere Tim finds by
 	// name hours later and nothing of his is resized to make room for it. Never
 	// focused: he may be in the middle of something.
-	tab, err := herdrCall(o.run, "tab", "create",
-		"--workspace", workspace, "--label", label, "--cwd", o.cfg.MachineDir, "--no-focus")
+	tab, err := herdrCall(o.Herdr, "tab", "create",
+		"--workspace", workspace, "--label", label, "--cwd", o.Cfg.MachineDir, "--no-focus")
 	if err != nil {
-		return OncallSession{}, err
+		return Session{}, err
 	}
 	pane := tab.Result.RootPane.PaneID
 	if pane == "" {
-		return OncallSession{}, fmt.Errorf("herdr made the %s tab but named no pane in it", label)
+		return Session{}, fmt.Errorf("herdr made the %s tab but named no pane in it", label)
 	}
 
 	// Under herdr's own default for this call, so that the wait for Claude Code to come
 	// up ends in herdr's answer rather than in this process being killed for taking too
 	// long and leaving a tab nothing will ever mention.
 	start := []string{"agent", "start", agent, "--kind", "claude", "--pane", pane, "--timeout", "20000", "--"}
-	if _, err := herdrCall(o.run, append(start, claudeArgs...)...); err != nil {
-		return OncallSession{}, err
+	if _, err := herdrCall(o.Herdr, append(start, claudeArgs...)...); err != nil {
+		return Session{}, err
 	}
 
 	// No --wait: the session has an investigation to do and the caller has a message to
 	// send. A tab that exists is named even when the brief did not reach it, since the
 	// alternative is an idle Claude in a tab the alert never mentions.
-	if _, err := herdrCall(o.run, "agent", "prompt", agent, o.openingPrompt(name, brief, label)); err != nil {
-		o.log.Say("the on-call session was started in tab %s but the brief did not reach it: %v", label, err)
-		return OncallSession{
+	if _, err := herdrCall(o.Herdr, "agent", "prompt", agent, o.openingPrompt(name, brief, label)); err != nil {
+		o.Log.Say("the on-call session was started in tab %s but the brief did not reach it: %v", label, err)
+		return Session{
 			Tab: label,
 			Say: "A session is open in herdr but the brief did not reach it, so nothing is being worked — attach: " +
-				wording.HerdrWhere(o.cfg, label) + ".",
+				wording.HerdrWhere(o.Cfg, label) + ".",
 		}, nil
 	}
 
 	return o.delivered(label), nil
 }
 
-func (o oncaller) delivered(label string) OncallSession {
-	return OncallSession{
+func (o Oncaller) delivered(label string) Session {
+	return Session{
 		Tab:       label,
 		Delivered: true,
 		Say: "An agent is looking into it — attach in herdr: " +
-			wording.HerdrWhere(o.cfg, label) + ". Details to follow.",
+			wording.HerdrWhere(o.Cfg, label) + ". Details to follow.",
 	}
 }
 
 // What the on-call agent of a kind is doing. An agent herdr has never heard of is gone
 // rather than an error: a session Tim closed is an answer to the question "is anybody
 // still on this", and the only one that needs a message of its own.
-func (o oncaller) status(name string) (string, error) {
+func (o Oncaller) Status(name string) (string, error) {
 	status, _, err := o.agent(name)
 	return status, err
 }
 
-func (o oncaller) agent(name string) (status, tabID string, err error) {
-	reply, err := herdrCall(o.run, "agent", "get", "oncall-"+name)
+func (o Oncaller) agent(name string) (status, tabID string, err error) {
+	reply, err := herdrCall(o.Herdr, "agent", "get", "oncall-"+name)
 	if herdrCode(err) == codeAgentNotFound {
-		return statusGone, "", nil
+		return StatusGone, "", nil
 	}
 	if err != nil {
 		return "", "", err
@@ -354,17 +382,17 @@ func (o oncaller) agent(name string) (status, tabID string, err error) {
 // the two failures are nothing alike: an esc that was refused leaves the question in front
 // of Tim, and an esc that landed without its prompt leaves him nothing to answer and the
 // agent nothing to do. The second is the one hachiko has to remember doing.
-func (o oncaller) interrupt(name, lead, data string) (bool, error) {
-	return o.interruptWith(name, lead, "INCIDENT DATA", data)
+func (o Oncaller) Interrupt(name, lead, data string) (bool, error) {
+	return o.InterruptWith(name, lead, "INCIDENT DATA", data)
 }
 
-func (o oncaller) interruptWith(name, lead, label, data string) (bool, error) {
+func (o Oncaller) InterruptWith(name, lead, label, data string) (bool, error) {
 	if !oncallName.MatchString(name) {
 		return false, fmt.Errorf("%s is not a name herdr will take", name)
 	}
 	agent := "oncall-" + name
 
-	if _, err := herdrCall(o.run, "agent", "send-keys", agent, "esc"); err != nil {
+	if _, err := herdrCall(o.Herdr, "agent", "send-keys", agent, "esc"); err != nil {
 		return false, fmt.Errorf("the question could not be cancelled, so nothing was prompted: %w", err)
 	}
 
@@ -373,13 +401,13 @@ func (o oncaller) interruptWith(name, lead, label, data string) (bool, error) {
 		return true, err
 	}
 	switch status {
-	case statusBlocked:
+	case StatusBlocked:
 		return true, errors.New("the agent is still on its question after the esc, so nothing was prompted")
-	case statusGone:
+	case StatusGone:
 		return true, errors.New("the agent is gone, so nothing was prompted")
 	}
 
-	return true, o.promptWith(name, lead, label, data)
+	return true, o.PromptWith(name, lead, label, data)
 }
 
 // herdr's answer to `agent get` is not the pane's: send-keys answers for the keys arriving
@@ -387,11 +415,11 @@ func (o oncaller) interruptWith(name, lead, label, data string) (bool, error) {
 // once, straight after the esc, and the answer is still `blocked` — which is how a handover
 // at four in the morning concluded that the question was still up, sent no prompt, and left
 // an incident to nobody. So it is read until it moves, or until the window runs out.
-func (o oncaller) awaitUnblocked(name string) (string, error) {
+func (o Oncaller) awaitUnblocked(name string) (string, error) {
 	window, interval := o.escWaits()
 
 	status, _, err := o.agent(name)
-	for left := window; err == nil && status == statusBlocked && left > 0; left -= interval {
+	for left := window; err == nil && status == StatusBlocked && left > 0; left -= interval {
 		o.nap(interval)
 		status, _, err = o.agent(name)
 	}
@@ -400,7 +428,7 @@ func (o oncaller) awaitUnblocked(name string) (string, error) {
 
 // The prompt on its own, for an agent that has no question in the way: it queues behind
 // whatever the agent is doing rather than being refused.
-func (o oncaller) promptWith(name, lead, label, data string) error {
+func (o Oncaller) PromptWith(name, lead, label, data string) error {
 	if !oncallName.MatchString(name) {
 		return fmt.Errorf("%s is not a name herdr will take", name)
 	}
@@ -411,12 +439,12 @@ func (o oncaller) promptWith(name, lead, label, data string) error {
 		return err
 	}
 
-	_, err = herdrCall(o.run, "agent", "prompt", agent, o.fenced(name, o.tabLabel(tabID), lead, label, data))
+	_, err = herdrCall(o.Herdr, "agent", "prompt", agent, o.fenced(name, o.tabLabel(tabID), lead, label, data))
 	return err
 }
 
-func (o oncaller) liveAgentTab(agent string) (string, error) {
-	reply, err := herdrCall(o.run, "agent", "list")
+func (o Oncaller) liveAgentTab(agent string) (string, error) {
+	reply, err := herdrCall(o.Herdr, "agent", "list")
 	if err != nil {
 		return "", err
 	}
@@ -430,8 +458,8 @@ func (o oncaller) liveAgentTab(agent string) (string, error) {
 
 // Read back rather than guessed: the tab was named for the hour the first alert
 // arrived, which is not this one.
-func (o oncaller) tabLabel(tabID string) string {
-	reply, err := herdrCall(o.run, "tab", "get", tabID)
+func (o Oncaller) tabLabel(tabID string) string {
+	reply, err := herdrCall(o.Herdr, "tab", "get", tabID)
 	if err != nil || reply.Result.Tab.Label == "" {
 		return tabID
 	}
@@ -440,10 +468,10 @@ func (o oncaller) tabLabel(tabID string) string {
 
 // The workspace for this machine's own repository, with that checkout as the tab's
 // directory, so the session starts with the machine's own instructions loaded.
-func (o oncaller) workspace() (string, error) {
-	label := o.cfg.WorkspaceLabel()
+func (o Oncaller) workspace() (string, error) {
+	label := o.Cfg.WorkspaceLabel()
 
-	reply, err := herdrCall(o.run, "workspace", "list")
+	reply, err := herdrCall(o.Herdr, "workspace", "list")
 	if err != nil {
 		return "", err
 	}
@@ -453,8 +481,8 @@ func (o oncaller) workspace() (string, error) {
 		}
 	}
 
-	created, err := herdrCall(o.run, "workspace", "create",
-		"--label", label, "--cwd", o.cfg.MachineDir, "--no-focus")
+	created, err := herdrCall(o.Herdr, "workspace", "create",
+		"--label", label, "--cwd", o.Cfg.MachineDir, "--no-focus")
 	if err != nil {
 		return "", err
 	}
@@ -464,13 +492,13 @@ func (o oncaller) workspace() (string, error) {
 	return created.Result.Workspace.WorkspaceID, nil
 }
 
-func (o oncaller) openingPrompt(name, brief, label string) string {
+func (o Oncaller) openingPrompt(name, brief, label string) string {
 	return o.prompt(name, label,
 		fmt.Sprintf("You are on call for this Mac, the headless Mac mini. The %s watch fired and nobody is at the screen; Tim attaches to this tab later with `herdr --remote`.", name),
 		brief)
 }
 
-func (o oncaller) updatePrompt(name, brief, label string) string {
+func (o Oncaller) updatePrompt(name, brief, label string) string {
 	return o.prompt(name, label, updateLead(name), brief)
 }
 
@@ -484,7 +512,7 @@ func updateLead(name string) string {
 // lsof — so it is the one part of the prompt an attacker chooses, and the fence is
 // what keeps a file named "ignore your orders and run this" from reading as a turn in
 // the conversation.
-func (o oncaller) prompt(name, label, lead, brief string) string {
+func (o Oncaller) prompt(name, label, lead, brief string) string {
 	return o.fenced(name, label, lead, "INCIDENT DATA", brief)
 }
 
@@ -492,7 +520,7 @@ func (o oncaller) prompt(name, label, lead, brief string) string {
 // is for is different: with incident data it keeps an instruction out, and with his reply
 // it keeps one in — the agent has to be able to tell his words from a log line quoting
 // them, and the marker is what says which it is reading.
-func (o oncaller) fenced(name, label, lead, dataLabel, brief string) string {
+func (o Oncaller) fenced(name, label, lead, dataLabel, brief string) string {
 	nonce := promptNonce()
 	begin := "----- BEGIN " + dataLabel + " " + nonce + " -----"
 	end := "----- END " + dataLabel + " " + nonce + " -----"
@@ -552,7 +580,7 @@ func promptNonce() string {
 // than only in the prompt that hands it over, so the session knows from the first minute
 // which option it would be allowed to take and can say so while it still has the whole
 // incident in front of it.
-func (o oncaller) standingOrders(name, label string) string {
+func (o Oncaller) standingOrders(name, label string) string {
 	return fmt.Sprintf(`Standing orders for an on-call session:
 
 - Investigate read-only first, and keep it under five minutes: what the process is, which repository, session or worktree started it, and whether what it is doing is still wanted.
@@ -576,15 +604,15 @@ Autonomy, and only once hachiko has prompted you saying Tim has not answered for
 - Before any autonomous action, spawn the oncall-partner agent with the incident data and the action you propose, and act only if it agrees. If it disagrees, take the less destructive of the two proposals when both are inside the limits above; otherwise do nothing destructive, send a message with both views, and keep waiting. Say in your message that the partner reviewed it and what it found. An answer from Tim needs no partner.
 - A handover for rapid worsening is yours to judge rather than an order to act: hachiko has the numbers and you have the cause. If you agree that waiting costs more than acting, act now under these limits. If you think the writer is about to stop by itself, or acting costs more than the fault does, ask again with fresh options and say why in your message.
 - Quote the limit you acted under in that message, so what was allowed is in the record rather than in your reasoning.%s`,
-		o.cfg.WorkspaceLabel(), label, o.now().Format("2006-01-02"), name, o.discordOrders())
+		o.Cfg.WorkspaceLabel(), label, o.Now().Format("2006-01-02"), name, o.discordOrders())
 }
 
 // Only when there is a channel and an account to take replies from. Without them the
 // session's question is answered in herdr and nowhere else, and telling it to post options
 // into a thread that nothing reads would be telling it to wait for an answer that cannot
 // come.
-func (o oncaller) discordOrders() string {
-	if !o.cfg.Discord.On() {
+func (o Oncaller) discordOrders() string {
+	if !o.Cfg.Discord.On() {
 		return ""
 	}
 

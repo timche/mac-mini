@@ -11,6 +11,7 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/discord"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
+	"github.com/timche/mac-mini/hachiko/internal/oncall"
 	"github.com/timche/mac-mini/hachiko/internal/process"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
@@ -38,7 +39,7 @@ type Deps struct {
 
 	// Opens the on-call session and answers with where it is and whether the brief
 	// reached it, which is what the message about to go out has to say.
-	Oncall func(name, brief string) (OncallSession, error)
+	Oncall func(name, brief string) (oncall.Session, error)
 
 	// What herdr says the on-call agent of a kind is doing — blocked, working, idle,
 	// done, or gone when there is no such agent any more. Blocked is the whole of how
@@ -102,26 +103,22 @@ func realDeps(cfg config.Config) Deps {
 		Processes: process.Sample,
 		CWD:       process.CWD,
 
-		Oncall: func(name, brief string) (OncallSession, error) {
-			return oncaller{cfg: cfg, run: herdrCLI, now: now, log: log}.open(name, brief)
+		Oncall: func(name, brief string) (oncall.Session, error) {
+			return oncall.Oncaller{Cfg: cfg, Herdr: oncall.HerdrCLI, Now: now, Log: log}.Open(name, brief)
 		},
 		AgentStatus: func(kind string) (string, error) {
-			return oncaller{cfg: cfg, run: herdrCLI, now: now, log: log}.status(kind)
+			return oncall.Oncaller{Cfg: cfg, Herdr: oncall.HerdrCLI, Now: now, Log: log}.Status(kind)
 		},
 		Interrupt: func(kind, lead, data string) (bool, error) {
-			return oncaller{cfg: cfg, run: herdrCLI, now: now, log: log}.interrupt(kind, lead, data)
+			return oncall.Oncaller{Cfg: cfg, Herdr: oncall.HerdrCLI, Now: now, Log: log}.Interrupt(kind, lead, data)
 		},
 		Prompt: func(kind, lead, data string) error {
-			return oncaller{cfg: cfg, run: herdrCLI, now: now, log: log}.promptWith(kind, lead, "INCIDENT DATA", data)
+			return oncall.Oncaller{Cfg: cfg, Herdr: oncall.HerdrCLI, Now: now, Log: log}.PromptWith(kind, lead, "INCIDENT DATA", data)
 		},
 		Send:    func(out discord.Outgoing) (string, error) { return discord.SendThroughOP(cfg, out) },
 		CheckIn: newSwitch(cfg).send,
 	}
 }
-
-// A sweep that never returns is one holding the lock that keeps the next twelve from
-// running, and starting a session is the longest thing it waits on.
-const herdrTimeout = 30 * time.Second
 
 // What df reads, without a df: statfs answers for the volume a path is on, in the
 // blocks available to somebody who is not root, which is the number that decides

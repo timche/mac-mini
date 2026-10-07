@@ -21,6 +21,7 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/discord"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
+	"github.com/timche/mac-mini/hachiko/internal/oncall"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
@@ -84,7 +85,7 @@ func run(args []string) error {
 			if len(args) != 3 {
 				return badUsage("oncall takes a name and a file")
 			}
-			return oncall(cfg, args[1], args[2])
+			return oncall.Run(cfg, args[1], args[2])
 		case "approval-request":
 			if len(args) != 3 {
 				return badUsage("approval-request takes an incident id and a file")
@@ -223,23 +224,6 @@ func fallbackOption(message string) string {
 		return ""
 	}
 	return wording.Safe(matches[len(matches)-1][1], wording.FallbackLimit)
-}
-
-func oncall(cfg config.Config, name, briefFile string) error {
-	brief, err := os.ReadFile(briefFile)
-	if err != nil {
-		return fmt.Errorf("cannot read the brief at %s", briefFile)
-	}
-
-	// The label goes to stdout and nothing else does, because the caller reads it to
-	// name the tab in the message it is about to send.
-	session, err := openOncall(cfg, herdrCLI, name, string(brief))
-	if err != nil {
-		return err
-	}
-
-	fmt.Println(session.Tab)
-	return nil
 }
 
 func testAlert(cfg config.Config) error {

@@ -967,7 +967,7 @@ check "the on-call session's review partner is there, reads Opus's second opinio
    grep -qx "model: fable" "$p" &&
    grep -qx "tools: Read, Grep, Glob, Bash" "$p" &&
    grep -q "Read-only, absolutely" "$p" &&
-   grep -q "oncall-partner" "$repo/hachiko/oncall.go"'
+   grep -q "oncall-partner" "$repo/hachiko/internal/oncall/oncall.go"'
 
 # The partner checks a proposed action against limits it is given in its own prompt, so one
 # that drifted from the limits the session was told is a reviewer agreeing to something nobody
@@ -996,7 +996,7 @@ PHRASES
 export -f hachiko_limits_in_step
 
 check "the partner's limits are the same words as the standing orders'" \
-  'hachiko_limits_in_step "$HOME/.claude/agents/oncall-partner.md" "$repo/hachiko/oncall.go"'
+  'hachiko_limits_in_step "$HOME/.claude/agents/oncall-partner.md" "$repo/hachiko/internal/oncall/oncall.go"'
 
 # The numbers the README and the plist comment both name. Every one of them is an
 # environment variable so that a test can trip the same arithmetic with megabytes and

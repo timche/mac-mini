@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/oncall"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
@@ -146,10 +147,10 @@ func (s sweeper) chaseAnswers(state *statedir.State, now time.Time, reading nowR
 		}
 
 		switch {
-		case status == statusGone:
+		case status == oncall.StatusGone:
 			s.noAgent(state, now, kind, w, reading)
 
-		case status == statusBlocked:
+		case status == oncall.StatusBlocked:
 			// It is on a question again, so nothing is owing: the prompt hachiko owed was to
 			// replace the question it took away, and this is not that one. Whatever step
 			// wanted that prompt is unrecorded and comes round again.
@@ -173,7 +174,7 @@ func (s sweeper) chaseAnswers(state *statedir.State, now time.Time, reading nowR
 				delete(state.Waiting, kind)
 			}
 
-		case status == statusWorking:
+		case status == oncall.StatusWorking:
 			// Something is in flight: the answer Tim gave it, or what hachiko handed it in
 			// place of the question. The clock defers to that, since a reminder or a handover
 			// on top of it is hachiko talking over the work it asked for — but only for the

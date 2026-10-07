@@ -8,6 +8,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/discord"
+	"github.com/timche/mac-mini/hachiko/internal/oncall"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -326,7 +327,7 @@ var messageKinds = []messageKind{{
 		f := waitingOnAQuestion(t)
 		f.at(600 + handoverAt).sweep()
 
-		f.status["disk"] = statusGone
+		f.status["disk"] = oncall.StatusGone
 		f.at(600 + handoverAt + 300).sweep()
 		return f.lastSent()
 	},
@@ -341,7 +342,7 @@ var messageKinds = []messageKind{{
 	},
 	render: func(t *testing.T) string {
 		f := waitingOnAQuestion(t)
-		f.status["disk"] = statusGone
+		f.status["disk"] = oncall.StatusGone
 		f.at(600 + handoverAt).sweep()
 		return f.lastSent()
 	},

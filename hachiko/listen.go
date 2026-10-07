@@ -14,6 +14,7 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/discord"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
+	"github.com/timche/mac-mini/hachiko/internal/oncall"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/totp"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
@@ -94,7 +95,7 @@ func listenWithToken(cfg config.Config) error {
 		cfg:    cfg,
 		store:  store,
 		bot:    discord.NewBot(token),
-		herdr:  herdrCLI,
+		herdr:  oncall.HerdrCLI,
 		now:    config.ClockFromEnv(),
 		log:    log,
 		secret: strings.TrimSpace(os.Getenv("HACHIKO_APPROVAL_TOTP")),
@@ -129,7 +130,7 @@ type listener struct {
 	cfg   config.Config
 	store statedir.Store
 	bot   discord.Bot
-	herdr herdrRunner
+	herdr oncall.Runner
 	now   func() time.Time
 	log   interface{ Say(string, ...any) }
 
@@ -366,23 +367,23 @@ func (l listener) clearAttempts(incident string) { os.Remove(l.attemptsPath(inci
 func (l *listener) handTo(incident, lead, data string) error {
 	kind := kindOf(incident)
 
-	o := oncaller{cfg: l.cfg, run: l.herdr, now: l.now, log: l.log}
+	o := oncall.Oncaller{Cfg: l.cfg, Herdr: l.herdr, Now: l.now, Log: l.log}
 
-	status, err := o.status(kind)
+	status, err := o.Status(kind)
 	if err != nil {
 		return err
 	}
 	switch status {
-	case statusGone:
+	case oncall.StatusGone:
 		return errors.New("there is no on-call session open on it any more")
-	case statusBlocked:
-		_, err := o.interruptWith(kind, lead, "REPLY FROM TIM", data)
+	case oncall.StatusBlocked:
+		_, err := o.InterruptWith(kind, lead, "REPLY FROM TIM", data)
 		return err
 	}
 
 	// Working or finished, so there is no question in the way: the prompt queues behind
 	// whatever it is doing.
-	return o.promptWith(kind, lead, "REPLY FROM TIM", data)
+	return o.PromptWith(kind, lead, "REPLY FROM TIM", data)
 }
 
 // A tick on his own message, which is the shortest way to say it landed, and a sentence in

@@ -65,8 +65,7 @@ func Run(cfg config.Config) error {
 	if !cfg.Discord.On() {
 		sayOnce(store, log, "unconfigured",
 			"no Discord channel and user are configured, so there is nothing to listen to")
-		stopBeating(cfg)
-		time.Sleep(listenIdle)
+		goIdle(cfg, switchedOff, time.Sleep)
 		return nil
 	}
 
@@ -97,8 +96,7 @@ func WithToken(cfg config.Config) error {
 	if token == "" {
 		sayOnce(store, log, "no-token",
 			"the bot token did not resolve, so replies are off and the webhook is what alerts go to")
-		stopBeating(cfg)
-		time.Sleep(listenIdle)
+		goIdle(cfg, configuredAndBroken, time.Sleep)
 		return nil
 	}
 
@@ -144,8 +142,9 @@ func (l *listener) poll(binary *self.Watch) error {
 // so what nothing can report about itself is not running at all.
 //
 // Written only while it is actually polling, which is what makes a missing one mean the
-// feature is off rather than the listener dead — the two idle paths below say nothing, poll
-// nothing and would otherwise look exactly like a listener that had hung.
+// feature is off rather than the listener dead: a listener with nothing configured says
+// nothing and polls nothing for the life of the Mac, and counting that as a stoppage would
+// alert on every machine here that has never turned replies on.
 func (l *listener) beat() {
 	now := l.now()
 	if !l.lastBeat.IsZero() && now.Sub(l.lastBeat) < beatInterval {
@@ -160,11 +159,30 @@ func (l *listener) beat() {
 	os.WriteFile(path, []byte(strconv.FormatInt(now.Unix(), 10)+"\n"), 0o644)
 }
 
-// A listener that is off takes its heartbeat with it, so a feature Tim turned off is read as
-// off rather than as a listener that stopped ten minutes ago — and so an alert the check
-// already had open on it has something that clears it, instead of standing for the life of
-// the Mac with nothing left to answer it.
-func stopBeating(cfg config.Config) { os.Remove(cfg.ListenStamp()) }
+// The two reasons the listener idles instead of polling, which are not the same thing to
+// anything watching it.
+const (
+	// Nothing in the config file: nobody has asked for replies from Discord, and a listener
+	// that is not meant to be running is not one that stopped. It takes its heartbeat with it
+	// so the check reads the feature as off — and so an alert the check already had open on
+	// it has something that clears it, instead of standing for the life of the Mac with
+	// nothing left to answer it.
+	switchedOff = true
+
+	// A channel and a user are set, so somebody does mean replies to work, and only the token
+	// did not resolve — revoked, or a vault that would not answer. That is a listener which
+	// has stopped, so the heartbeat is left exactly where it is to go stale and be reported.
+	// The message the check sends points at this log, where the line just written says the
+	// token is what failed.
+	configuredAndBroken = false
+)
+
+func goIdle(cfg config.Config, off bool, sleep func(time.Duration)) {
+	if off {
+		os.Remove(cfg.ListenStamp())
+	}
+	sleep(listenIdle)
+}
 
 // launchd restarts this agent every five minutes for as long as nothing is configured, and a
 // line on every start is a line every five minutes for the life of the Mac about something

@@ -600,16 +600,32 @@ func TestTheHeartbeatIsWrittenTwiceAMinuteAndNotTwiceAPass(t *testing.T) {
 
 // An unconfigured listener idles and exits, which from outside looks exactly like one that
 // has hung — so the check reads a missing heartbeat as the feature being off, and a listener
-// going off has to take its own with it.
-func TestAListenerThatGoesOffTakesItsHeartbeatWithIt(t *testing.T) {
+// nobody asked for has to take its own with it.
+func TestAListenerNobodyConfiguredTakesItsHeartbeatWithIt(t *testing.T) {
 	f := newListener(t)
 	f.l.beat()
 
-	stopBeating(f.l.cfg)
+	goIdle(f.l.cfg, switchedOff, func(time.Duration) {})
 
 	if _, err := os.Stat(f.l.cfg.ListenStamp()); err == nil {
-		t.Error("a listener that is off left a heartbeat behind")
+		t.Error("a listener nobody configured left a heartbeat behind")
 	}
+}
+
+// The other idle path is not the same thing at all: a channel and a user are set, so
+// somebody means replies to work and only the token did not resolve. That is a listener
+// which has stopped, and giving up the heartbeat would be the one case the check promises to
+// catch going quietly unreported for the life of the Mac.
+func TestAListenerWhoseTokenDidNotResolveKeepsItsHeartbeatToGoStale(t *testing.T) {
+	f := newListener(t)
+	f.l.beat()
+
+	goIdle(f.l.cfg, configuredAndBroken, func(time.Duration) {})
+
+	if _, err := os.Stat(f.l.cfg.ListenStamp()); err != nil {
+		t.Errorf("a listener that is configured and broken gave up its heartbeat: %v", err)
+	}
+	harness.Equal(t, beatAt(t, f), "1111111111", "the heartbeat left to go stale")
 }
 
 func beatAt(t *testing.T, f *listenFixture) string {

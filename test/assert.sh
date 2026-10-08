@@ -1105,7 +1105,8 @@ check "the watch notices a listener that has stopped, and says nothing where the
    grep -q "func (c Config) ListenStamp()" "$repo/hachiko/internal/config/config.go" &&
    grep -q "func listenLastBeat" "$repo/hachiko/internal/watch/deps.go" &&
    grep -q "statedir.AgentListen" "$repo/hachiko/internal/watch/liveness.go" &&
-   grep -q "func stopBeating" "$repo/hachiko/internal/listen/listen.go"'
+   grep -q "goIdle(cfg, switchedOff" "$repo/hachiko/internal/listen/listen.go" &&
+   grep -q "goIdle(cfg, configuredAndBroken" "$repo/hachiko/internal/listen/listen.go"'
 
 # The one check that is the agent rather than a description of it. Everything else here
 # runs hachiko as this session, which holds the privacy grants herdr was given — and that

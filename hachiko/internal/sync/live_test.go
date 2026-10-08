@@ -122,7 +122,22 @@ func (l *live) onTheRemote() []string {
 	return fields(l.run(l.remote, "log", "--format=%s", "main"), "\n")
 }
 
+// The daemon on one repository, started and with its loop ready to tick.
 func (l *live) daemon(repo config.SyncRepo) (*daemon, *loop) {
+	d, err := l.daemonFor(repo)
+	if err != nil {
+		l.t.Fatal(err)
+	}
+
+	loop := d.loopFor(d.sync.Repos[0], 0)
+	loop.start()
+	return d, loop
+}
+
+// Through the startup every daemon goes through, and whatever it made of what it was given:
+// a limited repository's branch is the one real git resolves out of this clone rather than
+// one a test decided, and a repository it could not start is one it leaves out.
+func (l *live) daemonFor(repos ...config.SyncRepo) (*daemon, error) {
 	state, err := filepath.EvalSymlinks(l.t.TempDir())
 	if err != nil {
 		l.t.Fatal(err)
@@ -144,18 +159,9 @@ func (l *live) daemon(repo config.SyncRepo) (*daemon, *loop) {
 			Self: func() (self.ID, bool) { return self.ID{}, false },
 		},
 	}
-	d.sync.Repos = []config.SyncRepo{repo}
+	d.sync.Repos = repos
 
-	// Through the startup every daemon goes through, so a limited repository's branch is the
-	// one real git resolves out of this clone rather than one a test decided.
-	if err := d.prepare(); err != nil {
-		l.t.Fatal(err)
-	}
-	repo = d.sync.Repos[0]
-
-	loop := d.loopFor(repo, 0)
-	loop.start()
-	return d, loop
+	return d, d.prepare()
 }
 
 func (l *live) repoConfig() config.SyncRepo {

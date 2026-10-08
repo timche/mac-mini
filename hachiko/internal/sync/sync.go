@@ -82,48 +82,77 @@ func Run(cfg config.Config, once, dryFlag bool) error {
 }
 
 // What every repository is asked about once, before any pass: where it really is, that it is
-// a repository at all, and which branch a limited one is synced on. A config this cannot be
-// answered for is a config to fix, so nothing starts.
+// a repository at all, and which branch a limited one is synced on.
 //
-// Canonicalised before anything else looks at it, so the path in a message and the path in
-// the state are the one git is being run in — a home reached through a symlink is
-// `/var/folders/x` in the config and `/private/var/folders/x` to git.
+// One that cannot answer is left out and the daemon starts on the rest, because these are
+// separate repositories: an `origin/HEAD` nobody set on one of them is no reason for the
+// others to stop being published, and a daemon that exited over it would take every one of
+// them down and retry the same refusal every ten seconds for as long as the Mac is up. It is
+// a failure of its own, said and posted like any other, and nothing starts only when nothing
+// could.
 func (d *daemon) prepare() error {
-	for i := range d.sync.Repos {
-		real, err := filepath.EvalSymlinks(d.sync.Repos[i].Path)
-		if err != nil {
-			return fmt.Errorf("%s: %w", d.sync.Repos[i].Path, err)
-		}
-		d.sync.Repos[i].Path = real
+	var started []config.SyncRepo
 
-		repo := d.sync.Repos[i]
-		if !d.git(repo).isWorkTree() {
-			return fmt.Errorf("%s is not a git work tree, so %s was not started",
-				real, d.cfg.SyncConfig)
-		}
-
-		if !repo.Limited() {
+	for _, repo := range d.sync.Repos {
+		ready, err := d.ready(repo)
+		if err == nil {
+			started = append(started, ready)
 			continue
 		}
 
-		// A limited repository is one whose other branches are somebody's work in progress,
-		// and with pulling off there is nothing that would ever bring a commit on one of them
-		// back to the branch it was meant for. Read here and not per pass, because a daemon
-		// that refuses to start is a config to fix, where one that decides this a thousand
-		// times a day decides it differently as soon as somebody checks something out.
-		branch, err := d.git(repo).defaultBranch(repo.Remote)
-		if err != nil {
-			return fmt.Errorf("%s is limited to paths and the branch to sync it on could not "+
-				"be read from %s/HEAD, so %s was not started (git remote set-head %s --auto "+
-				"is what records it): %w",
-				real, repo.Remote, d.cfg.SyncConfig, repo.Remote, err)
+		d.say("%s is not being synced: %v", ready.Path, err)
+		if !d.dry {
+			d.report(ready.Path, &Failure{
+				Kind:    failedSetup,
+				Subject: ready.Path,
+				Remote:  repo.Remote,
+				Detail:  err.Error(),
+			})
 		}
-		if d.onBranch == nil {
-			d.onBranch = map[string]string{}
-		}
-		d.onBranch[real] = branch
 	}
+
+	if len(started) == 0 {
+		return fmt.Errorf("not one repository %s names could be synced", d.cfg.SyncConfig)
+	}
+	d.sync.Repos = started
 	return nil
+}
+
+// One repository's startup, and the branch a limited one is to be synced on. The path is
+// canonicalised before anything else looks at it, so the path in a message and the path in
+// the state are the one git is being run in — a home reached through a symlink is
+// `/var/folders/x` in the config and `/private/var/folders/x` to git.
+func (d *daemon) ready(repo config.SyncRepo) (config.SyncRepo, error) {
+	real, err := filepath.EvalSymlinks(repo.Path)
+	if err != nil {
+		return repo, fmt.Errorf("its path could not be resolved: %w", err)
+	}
+	repo.Path = real
+
+	if !d.git(repo).isWorkTree() {
+		return repo, fmt.Errorf("%s is not a git work tree", real)
+	}
+	if !repo.Limited() {
+		return repo, nil
+	}
+
+	// A limited repository is one whose other branches are somebody's work in progress, and
+	// with pulling off there is nothing that would ever bring a commit on one of them back to
+	// the branch it was meant for. Read here and not per pass, because a repository that is
+	// not synced is something to fix, where one that decides this a thousand times a day
+	// decides it differently as soon as somebody checks something out.
+	branch, err := d.git(repo).defaultBranch(repo.Remote)
+	if err != nil {
+		return repo, fmt.Errorf("it is limited to paths and the branch to sync it on could not "+
+			"be read from %s/HEAD, which `git remote set-head %s --auto` records: %w",
+			repo.Remote, repo.Remote, err)
+	}
+
+	if d.onBranch == nil {
+		d.onBranch = map[string]string{}
+	}
+	d.onBranch[real] = branch
+	return repo, nil
 }
 
 type daemon struct {

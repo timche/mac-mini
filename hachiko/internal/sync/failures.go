@@ -10,13 +10,14 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
-// The three things a sync can fail at. Everything else it does is a line in a log nobody
+// The four things a sync can fail at. Everything else it does is a line in a log nobody
 // reads — this is what Tim hears about, because each one of them means nothing written in
 // that repository is reaching the origin and nothing will until he looks.
 const (
 	failedPush     = "push"
 	failedConflict = "rebase-conflict"
 	failedCommit   = "commit"
+	failedSetup    = "setup"
 )
 
 // The labels these messages go under. Here rather than in wording because they are sync's
@@ -63,6 +64,9 @@ func (f Failure) line() string {
 			short(f.Subject), oneLine(short(f.Detail)))
 	case failedCommit:
 		return fmt.Sprintf("nothing in %s could be committed: %s", short(f.Subject), oneLine(short(f.Detail)))
+	case failedSetup:
+		return fmt.Sprintf("%s is not being synced at all: %s",
+			short(f.Subject), oneLine(short(f.Detail)))
 	default:
 		return fmt.Sprintf("%s could not be pushed to %s: %s",
 			short(f.Subject), short(f.Remote), oneLine(short(f.Detail)))
@@ -180,6 +184,13 @@ func (f Failure) action() string {
 			"Rebase it by hand, or reset to whichever side is right. Pulling there is paused " +
 			"until its HEAD or its upstream moves, and sync picks it up by itself within the " +
 			"minute after that — there is nothing here to close."
+	case failedSetup:
+		return "**Needs you:** that repository is not being synced at all, while the others " +
+			"are. What it says above is what git refused — a branch it could not read is " +
+			wording.CodeSpan("git remote set-head origin --auto") + ", and a clone that is " +
+			"not there is a clone to make. This is read once when sync starts, so it picks " +
+			"the repository up the next time it does: an edit to hachiko's own sources is " +
+			"enough, and so is restarting the agent."
 	case failedCommit:
 		return "**Needs you:** nothing in that repository is being committed, so nothing " +
 			"written there is safe. " + wording.CodeSpan("git status") + " in it says why; a " +
@@ -198,6 +209,8 @@ func failSentence(kind string) string {
 		return "A repository's rebase conflicted, so it is not being pulled"
 	case failedCommit:
 		return "A repository's changes could not be committed"
+	case failedSetup:
+		return "A repository is not being synced at all"
 	default:
 		return "A repository could not be pushed"
 	}
@@ -209,6 +222,8 @@ func clearSentence(kind string) string {
 		return "The repository that could not rebase is syncing again"
 	case failedCommit:
 		return "The repository's changes are being committed again"
+	case failedSetup:
+		return "The repository that was not being synced is being synced"
 	default:
 		return "The repository that could not be pushed is pushing again"
 	}

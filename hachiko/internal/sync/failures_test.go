@@ -206,7 +206,7 @@ func TestMessages(t *testing.T) {
 
 	t.Log("\n" + f.message("mac-mini", base, base.Add(2*time.Hour)))
 
-	for _, kind := range []string{failedPush, failedCommit} {
+	for _, kind := range []string{failedPush, failedCommit, failedSetup} {
 		f.Kind = kind
 		t.Log("\n" + f.message("mac-mini", base, base.Add(5*time.Minute)))
 	}

@@ -598,6 +598,78 @@ func TestTheHeartbeatIsWrittenTwiceAMinuteAndNotTwiceAPass(t *testing.T) {
 	harness.Equal(t, beatAt(t, f) != first, true, "whether the heartbeat moved after half a minute")
 }
 
+// The poll itself for a pass or two, which is the only place a pass's reading of Discord and
+// the heartbeat meet. It returns when the binary behind it has moved, so the watch it is
+// handed is what counts the passes out: the baseline is one look and every pass after it is
+// another.
+func (f *listenFixture) polls(passes int) {
+	f.t.Helper()
+	f.l.sleep = func(time.Duration) {}
+
+	looks := 0
+	err := f.l.poll(self.Looking(func() (self.ID, bool) {
+		if looks++; looks > passes {
+			return self.ID{Inode: 2}, true
+		}
+		return self.ID{Inode: 1}, true
+	}))
+
+	if !errors.Is(err, self.ErrReplaced) {
+		f.t.Fatalf("the listener stopped for something other than a new binary: %v", err)
+	}
+}
+
+// A listener Discord answers beats, which is the ordinary case and the one the check reads as
+// a listener doing its job.
+func TestAListenerDiscordAnswersGoesOnBeating(t *testing.T) {
+	f := newListener(t)
+	f.says("300000000000000001", "2")
+
+	f.polls(1)
+
+	harness.Equal(t, beatAt(t, f), "1111111111", "the heartbeat of a listener Discord answers")
+}
+
+// Nothing open is not a listener in trouble: there is no thread to read a reply out of,
+// nothing was asked of Discord, and a Mac with no incident on it is every Mac here nearly all
+// of the time. Counting that as a stoppage would alert on a listener that is working.
+func TestAListenerWithNoThreadToReadGoesOnBeating(t *testing.T) {
+	f := newListener(t)
+	if err := f.l.store.Save(&statedir.State{}); err != nil {
+		t.Fatal(err)
+	}
+
+	f.polls(1)
+
+	harness.Equal(t, beatAt(t, f), "1111111111", "the heartbeat of a listener with nothing open")
+}
+
+// A token Discord rejects, or a permission somebody took off the bot: the listener polls for
+// ever and reads nothing, every reply Tim sends reaches nobody, and the heartbeat is the only
+// thing on this Mac that could notice. So it stops being written, goes stale ten minutes later
+// and the watch's ⚠️ fires.
+func TestAListenerDiscordWillNotAnswerStopsBeatingSoItGoesStale(t *testing.T) {
+	f := newListener(t)
+	f.l.beat()
+	was := beatAt(t, f)
+
+	f.readErr = http.StatusUnauthorized
+	f.tick(time.Minute)
+
+	f.polls(1)
+
+	harness.Equal(t, beatAt(t, f), was, "the heartbeat after a pass Discord rejected")
+	harness.Wants(t, f.log.String(), "could not be read")
+
+	// And the passes inside the backoff, which are almost all of them once one has failed: a
+	// pass that asked nothing because it is waiting to try again is not a pass that found
+	// Discord answering, and reading it as one is how a rejected token kept its heartbeat.
+	f.tick(2 * time.Second)
+	f.polls(1)
+
+	harness.Equal(t, beatAt(t, f), was, "the heartbeat during the backoff")
+}
+
 // An unconfigured listener idles and exits, which from outside looks exactly like one that
 // has hung — so the check reads a missing heartbeat as the feature being off, and a listener
 // nobody asked for has to take its own with it.

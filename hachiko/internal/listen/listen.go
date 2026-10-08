@@ -135,8 +135,13 @@ func WithToken(cfg config.Config) error {
 // At five seconds a pass, that costs the new binary one pass of latency.
 func (l *listener) poll(binary *self.Watch) error {
 	for {
-		l.beat()
-		l.once()
+		// The heartbeat after the pass and only where the pass found Discord answering. A
+		// token Discord rejects is a listener that polls for ever and reads nothing, and one
+		// that beat its way through that would be the one stoppage the check can see and never
+		// reports.
+		if l.once() {
+			l.beat()
+		}
 
 		if binary.Replaced() {
 			return self.ErrReplaced
@@ -303,19 +308,47 @@ func (l *listener) answered(incident, thread string) {
 	t.fails, t.said, t.nextTry = 0, false, time.Time{}
 }
 
-// One pass over the threads the open incidents have. The threads come from the state the
-// sweep writes, read without the lock: a sweep holds that lock across a herdr call and an
-// `op run`, and a loop that waited for it would be a loop that misses replies for minutes.
-func (l *listener) once() {
+// One pass over the threads the open incidents have, and whether Discord answered it. The
+// threads come from the state the sweep writes, read without the lock: a sweep holds that lock
+// across a herdr call and an `op run`, and a loop that waited for it would be a loop that
+// misses replies for minutes.
+func (l *listener) once() bool {
 	state, err := l.store.Load()
 	if err != nil && !errors.Is(err, statedir.ErrCorrupt) {
-		return
+		// Nothing was asked of Discord, so nothing was learned about it. The state file is the
+		// sweep's, and a listener can neither mend it nor be blamed for it.
+		return true
 	}
 
 	for _, incident := range statedir.SortedKeys(state.Threads) {
 		l.thread(state, incident, state.Threads[incident])
 	}
 	l.forgetSeenExcept(state.Threads)
+
+	return l.answering(state.Threads)
+}
+
+// Whether Discord is answering this listener, which is the whole of what the heartbeat may be
+// written on: a bot token that was revoked, or a permission somebody took away, is a listener
+// that polls for ever and reads nothing, and the only thing on this Mac that could notice is
+// the heartbeat it stops writing.
+//
+// A thread in trouble is one whose last read failed, and a thread inside its backoff counts as
+// one: with up to five minutes between tries, almost every pass of a failing listener is a pass
+// that asked nothing, and reading those as healthy is exactly how a rejected token kept its
+// heartbeat alive.
+//
+// Nothing open is not trouble. There is no thread to read a reply out of, nothing was asked,
+// and a listener polling an empty list is doing its job — which is also the limit of what this
+// can see: a token Discord would reject is not found out until there is an incident whose
+// thread it has to read.
+func (l *listener) answering(threads map[string]string) bool {
+	for _, thread := range threads {
+		if t := l.trouble[thread]; t == nil || t.fails == 0 {
+			return true
+		}
+	}
+	return len(threads) == 0
 }
 
 func (l *listener) thread(state *statedir.State, incident, thread string) {

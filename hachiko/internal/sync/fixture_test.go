@@ -10,6 +10,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/discord"
+	"github.com/timche/mac-mini/hachiko/internal/self"
 )
 
 var base = time.Unix(1700000000, 0)
@@ -57,7 +58,7 @@ type fixture struct {
 	tree   *fakeRepo
 	dry    bool
 	noSelf bool
-	selfID fileID
+	selfID self.ID
 
 	calls   []string
 	slept   []time.Duration
@@ -94,7 +95,7 @@ func (f *fixture) deps() Deps {
 		Sleep: func(d time.Duration) { f.slept = append(f.slept, d); f.now = f.now.Add(d) },
 		Git:   f.git,
 		Send:  f.send,
-		Self:  func() (fileID, bool) { return f.selfID, !f.noSelf },
+		Self:  func() (self.ID, bool) { return f.selfID, !f.noSelf },
 	}
 }
 

@@ -6,11 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/discord"
+	"github.com/timche/mac-mini/hachiko/internal/self"
 )
 
 // Deps is everything a sync learns about the machine or does to it. Each one is a function
@@ -32,15 +32,7 @@ type Deps struct {
 	// What the binary this process is running looks like on disk. The wrapper moves a fresh
 	// build into place in one step, so the file behind the same path is a different one —
 	// which is the whole of how a daemon that never exits picks up an edit.
-	Self func() (fileID, bool)
-}
-
-// Enough of a stat to tell one file from another at the same path, and nothing that moves
-// on its own: a rebuild is a new inode, and a touch is a new modification time.
-type fileID struct {
-	Dev, Inode uint64
-	ModUnix    int64
-	Size       int64
+	Self func() (self.ID, bool)
 }
 
 // A git that hangs is a daemon that stops syncing every repository, not just this one, so
@@ -58,7 +50,7 @@ func realDeps(cfg config.Config) Deps {
 		Sleep: time.Sleep,
 		Git:   runGit,
 		Send:  func(out discord.Outgoing) (string, error) { return discord.SendThroughOP(cfg, out) },
-		Self:  self,
+		Self:  self.Stat,
 	}
 }
 
@@ -88,31 +80,6 @@ func runGit(dir string, args ...string) Output {
 		text = err.Error()
 	}
 	return Output{OK: err == nil, Stdout: stdout.String(), Text: strings.TrimSpace(text)}
-}
-
-// The binary rather than the wrapper: the wrapper's job is to decide which binary runs, and
-// this one is already running.
-func self() (fileID, bool) {
-	path, err := os.Executable()
-	if err != nil {
-		return fileID{}, false
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return fileID{}, false
-	}
-	return idOf(info), true
-}
-
-// The device and inode first, because the wrapper installs a build with a rename and a
-// rename is a new inode at the same path. The size and the time are there for the case the
-// inode is reused, which an inode a build has just freed readily is.
-func idOf(info os.FileInfo) fileID {
-	id := fileID{ModUnix: info.ModTime().Unix(), Size: info.Size()}
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		id.Dev, id.Inode = uint64(st.Dev), st.Ino
-	}
-	return id
 }
 
 func failed(out Output) error { return &gitError{out.Text} }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/discord"
+	"github.com/timche/mac-mini/hachiko/internal/self"
 )
 
 // The one thing the fixture above cannot answer for: whether real git does what the pass
@@ -130,7 +131,7 @@ func (l *live) daemon(repo config.SyncRepo) (*daemon, *loop) {
 				l.sent = append(l.sent, out)
 				return "thread-1", nil
 			},
-			Self: func() (fileID, bool) { return fileID{}, false },
+			Self: func() (self.ID, bool) { return self.ID{}, false },
 		},
 	}
 	d.sync.Repos = []config.SyncRepo{repo}

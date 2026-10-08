@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/self"
 )
 
 // A real sleep rather than the fixture's clock, because this loop is the one that is meant
@@ -38,7 +40,7 @@ func briefly(d *daemon) func() {
 }
 
 func blind(d *daemon) {
-	d.deps.Self = func() (fileID, bool) { return fileID{}, false }
+	d.deps.Self = func() (self.ID, bool) { return self.ID{}, false }
 }
 
 // The daemon has no interval of its own, so nothing would otherwise run a binary the wrapper
@@ -49,11 +51,11 @@ func TestTheDaemonExitsWhenItsBinaryHasBeenReplaced(t *testing.T) {
 	briefly(d)
 
 	looks := 0
-	d.deps.Self = func() (fileID, bool) {
+	d.deps.Self = func() (self.ID, bool) {
 		if looks++; looks > 2 {
-			return fileID{Inode: 2}, true
+			return self.ID{Inode: 2}, true
 		}
-		return fileID{Inode: 1}, true
+		return self.ID{Inode: 1}, true
 	}
 
 	err := d.keep()

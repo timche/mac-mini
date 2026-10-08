@@ -30,7 +30,6 @@
 package sync
 
 import (
-	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -39,6 +38,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
+	"github.com/timche/mac-mini/hachiko/internal/self"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -184,7 +184,7 @@ func (d *daemon) run() error {
 // run it until the Mac restarted. Exiting non-zero is what starts it, because the agent
 // restarts on a failure alone — a daemon that exited cleanly would stay exited.
 func (d *daemon) keep() error {
-	was, known := d.deps.Self()
+	binary := self.Looking(d.deps.Self)
 
 	for {
 		d.deps.Sleep(keepInterval)
@@ -195,8 +195,8 @@ func (d *daemon) keep() error {
 			}
 		}
 
-		if now, ok := d.deps.Self(); known && ok && now != was {
-			return errors.New("the hachiko binary behind this process has been replaced, so this one exits for the new one")
+		if binary.Replaced() {
+			return self.ErrReplaced
 		}
 	}
 }

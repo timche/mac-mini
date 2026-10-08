@@ -46,6 +46,12 @@ type Posted struct {
 	// that said it had not.
 	Thread string `json:"thread,omitempty"`
 
+	// What the command said when it failed. Kept because a failure can outlive the sweep that
+	// measured it: the daily prune is carried by the nine sweeps an hour that do not prune, and
+	// one of those re-sending a message that failed to send would otherwise say a prune failed
+	// without saying what docker said about it.
+	Detail string `json:"detail,omitempty"`
+
 	// Whether the message actually left the machine. A send that failed is recorded all the
 	// same — the next sweep tries it again rather than treating a failure nobody has heard
 	// about as one already reported.

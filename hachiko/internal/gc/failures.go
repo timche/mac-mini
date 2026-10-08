@@ -105,7 +105,7 @@ func (s *sweeper) sayFailure(state *State, f Failure, now time.Time) {
 		return
 	}
 
-	rec := Posted{Kind: f.Kind, Subject: f.Subject, Since: now.Unix()}
+	rec := Posted{Kind: f.Kind, Subject: f.Subject, Since: now.Unix(), Detail: f.Detail}
 	if known {
 		rec.Since, rec.Thread = was.Since, was.Thread
 	}

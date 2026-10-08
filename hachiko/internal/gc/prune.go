@@ -101,8 +101,9 @@ func (s *sweeper) pruneFailed(subject, detail string) {
 // four passes that run every ten minutes — but the next prune is a day away, so the same
 // reading here would be a 🟢 about a command nothing has run since it failed.
 //
-// Silent and recorded as already said, so nothing is sent a second time: what is carried is
-// the failure, not the message.
+// Silent, and carrying what docker said with it: a failure whose message never left the
+// machine is one the next sweep sends again, and a sweep that did not prune has nothing of its
+// own to say about why. The record is what has to hold it.
 func (s *sweeper) keepOpenPrunes(state *State) {
 	for _, key := range sortedKeys(state.Posted) {
 		rec := state.Posted[key]
@@ -112,6 +113,7 @@ func (s *sweeper) keepOpenPrunes(state *State) {
 		s.failures = append(s.failures, Failure{
 			Kind:    rec.Kind,
 			Subject: rec.Subject,
+			Detail:  rec.Detail,
 			Label:   pruneCommand(rec.Subject, s.cfg.GCPruneAge),
 		})
 	}

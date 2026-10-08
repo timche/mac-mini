@@ -135,6 +135,25 @@ func TestTheTimeOfAPruneIsSavedBeforeThePruneRuns(t *testing.T) {
 	harness.Equal(t, written, base.Unix(), "the time the state file held while the prune was running")
 }
 
+// A failure whose message never left the machine is one the next sweep sends again — and the
+// sweeps between two prunes have no prune of their own to say what docker said, so the record
+// is what has to carry it.
+func TestACarriedPruneFailureStillSaysWhatDockerSaid(t *testing.T) {
+	f := newFixture(t)
+	f.dockerPruneErr["builder"] = "Error response from daemon: a prune is already running"
+	f.sendErr = "the webhook would not answer"
+
+	f.sweep()
+	harness.Equal(t, len(f.sent), 0, "the messages that left the machine")
+
+	f.sendErr = ""
+	f.at(600)
+	f.sweep()
+
+	harness.Wants(t, f.lastSent(), "Docker would not prune what nothing is using")
+	harness.Wants(t, f.lastSent(), "a prune is already running")
+}
+
 // `docker image prune` prints "Total reclaimed space:" and buildkit's own prune prints
 // "Total:" and a tab. Which of them a docker version prints is not something to depend on, so
 // both are read — and a prune that printed neither is said to have printed nothing.

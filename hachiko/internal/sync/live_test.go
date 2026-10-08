@@ -65,6 +65,11 @@ func newLive(t *testing.T) *live {
 	l.run(l.repo, "commit", "-m", "First")
 	l.run(l.repo, "push", "--set-upstream", "origin", "main")
 
+	// What a clone of a repository that has commits in it records by itself, and what a
+	// limited repository reads the branch it syncs on out of. This one was cloned while the
+	// remote was still empty, so there was no HEAD to copy.
+	l.run(l.repo, "remote", "set-head", "origin", "main")
+
 	l.clone(l.other)
 	return l
 }
@@ -90,7 +95,12 @@ func (l *live) run(dir string, args ...string) string {
 
 func (l *live) write(name, body string) {
 	l.t.Helper()
-	if err := os.WriteFile(filepath.Join(l.repo, name), []byte(body), 0o644); err != nil {
+
+	path := filepath.Join(l.repo, name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		l.t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		l.t.Fatal(err)
 	}
 }
@@ -135,6 +145,13 @@ func (l *live) daemon(repo config.SyncRepo) (*daemon, *loop) {
 		},
 	}
 	d.sync.Repos = []config.SyncRepo{repo}
+
+	// Through the startup every daemon goes through, so a limited repository's branch is the
+	// one real git resolves out of this clone rather than one a test decided.
+	if err := d.prepare(); err != nil {
+		l.t.Fatal(err)
+	}
+	repo = d.sync.Repos[0]
 
 	loop := d.loopFor(repo, 0)
 	loop.start()

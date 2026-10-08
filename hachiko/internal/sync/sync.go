@@ -71,9 +71,24 @@ func Run(cfg config.Config, once, dryFlag bool) error {
 		beat: !dryFlag,
 	}
 
-	// Canonicalised before anything else looks at it, so the path in a message and the path
-	// in the state are the one git is being run in — a home reached through a symlink is
-	// `/var/folders/x` in the config and `/private/var/folders/x` to git.
+	if err := d.prepare(); err != nil {
+		return err
+	}
+
+	if once {
+		return d.once()
+	}
+	return d.run()
+}
+
+// What every repository is asked about once, before any pass: where it really is, that it is
+// a repository at all, and which branch a limited one is synced on. A config this cannot be
+// answered for is a config to fix, so nothing starts.
+//
+// Canonicalised before anything else looks at it, so the path in a message and the path in
+// the state are the one git is being run in — a home reached through a symlink is
+// `/var/folders/x` in the config and `/private/var/folders/x` to git.
+func (d *daemon) prepare() error {
 	for i := range d.sync.Repos {
 		real, err := filepath.EvalSymlinks(d.sync.Repos[i].Path)
 		if err != nil {
@@ -81,16 +96,34 @@ func Run(cfg config.Config, once, dryFlag bool) error {
 		}
 		d.sync.Repos[i].Path = real
 
-		if !d.git(real).isWorkTree() {
+		repo := d.sync.Repos[i]
+		if !d.git(repo).isWorkTree() {
 			return fmt.Errorf("%s is not a git work tree, so %s was not started",
-				real, cfg.SyncConfig)
+				real, d.cfg.SyncConfig)
 		}
-	}
 
-	if once {
-		return d.once()
+		if !repo.Limited() {
+			continue
+		}
+
+		// A limited repository is one whose other branches are somebody's work in progress,
+		// and with pulling off there is nothing that would ever bring a commit on one of them
+		// back to the branch it was meant for. Read here and not per pass, because a daemon
+		// that refuses to start is a config to fix, where one that decides this a thousand
+		// times a day decides it differently as soon as somebody checks something out.
+		branch, err := d.git(repo).defaultBranch(repo.Remote)
+		if err != nil {
+			return fmt.Errorf("%s is limited to paths and the branch to sync it on could not "+
+				"be read from %s/HEAD, so %s was not started (git remote set-head %s --auto "+
+				"is what records it): %w",
+				real, repo.Remote, d.cfg.SyncConfig, repo.Remote, err)
+		}
+		if d.onBranch == nil {
+			d.onBranch = map[string]string{}
+		}
+		d.onBranch[real] = branch
 	}
-	return d.run()
+	return nil
 }
 
 type daemon struct {
@@ -100,6 +133,11 @@ type daemon struct {
 	store *Store
 	dry   bool
 	beat  bool
+
+	// The branch each limited repository is synced on, by canonical path, as its remote's
+	// HEAD had it at startup. Nothing for a repository that syncs whole, which goes on being
+	// synced on whatever branch it is on.
+	onBranch map[string]string
 
 	// The last tick of each repository's loop, which is what the heartbeat is written from:
 	// a loop wedged on something no timeout caught stops advancing its own, and the
@@ -118,8 +156,13 @@ func (d *daemon) about(repo string) func(string, ...any) {
 	}
 }
 
-func (d *daemon) git(dir string) gitRepo {
-	return gitRepo{dir: dir, run: func(args ...string) Output { return d.deps.Git(dir, args...) }}
+func (d *daemon) git(repo config.SyncRepo) gitRepo {
+	dir := repo.Path
+	return gitRepo{
+		dir:   dir,
+		paths: repo.Paths,
+		run:   func(args ...string) Output { return d.deps.Git(dir, args...) },
+	}
 }
 
 // One pass over every repository, with the delay ignored: this is the explicit "sync now",
@@ -137,7 +180,10 @@ func (d *daemon) once() error {
 		// message the daemon would have posted and a conflict it meets pauses the repository
 		// rather than leaving the daemon to rebase over it again.
 		result := d.passer(repo).run(pushNow)
-		d.record(repo, d.git(repo.Path), result)
+		if result.Left != "" {
+			d.about(repo.Path)("left alone: %s", result.Left)
+		}
+		d.record(repo, d.git(repo), result)
 
 		if result.Outcome.isFailure() {
 			bad++
@@ -213,17 +259,18 @@ func (d *daemon) oldestBeat() time.Time {
 
 func (d *daemon) passer(repo config.SyncRepo) passer {
 	return passer{
-		host:  d.cfg.Host,
-		repo:  repo,
-		git:   d.git(repo.Path),
-		retry: d.sync.Retry,
-		deps:  d.deps,
-		say:   d.about(repo.Path),
+		host:     d.cfg.Host,
+		repo:     repo,
+		onBranch: d.onBranch[repo.Path],
+		git:      d.git(repo),
+		retry:    d.sync.Retry,
+		deps:     d.deps,
+		say:      d.about(repo.Path),
 	}
 }
 
 func (d *daemon) loopFor(repo config.SyncRepo, index int) *loop {
-	l := &loop{d: d, repo: repo, index: index, git: d.git(repo.Path), say: d.about(repo.Path)}
+	l := &loop{d: d, repo: repo, index: index, git: d.git(repo), say: d.about(repo.Path)}
 	l.p = d.passer(repo)
 	return l
 }
@@ -245,6 +292,10 @@ type loop struct {
 
 	outstanding bool
 	paused      bool
+
+	// The reason the last pass left the tree alone, so the next one that leaves it alone for
+	// the same reason says nothing.
+	leftFor string
 
 	lastSync time.Time
 	fetchDue time.Time
@@ -332,6 +383,13 @@ func (l *loop) pass(now time.Time) {
 		l.outstanding = result.Outcome.isFailure()
 		l.d.record(l.repo, l.git, result)
 		l.paused = result.Failure != nil && result.Failure.Kind == failedConflict
+
+		// Once per reason, not once a second: a tree left alone stays dirty, so every tick
+		// from here on is another pass that leaves it alone for the same reason.
+		if result.Left != "" && result.Left != l.leftFor {
+			l.say("left alone: %s", result.Left)
+		}
+		l.leftFor = result.Left
 	}
 
 	l.lastSync = now

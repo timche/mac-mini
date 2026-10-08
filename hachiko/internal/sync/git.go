@@ -1,9 +1,12 @@
 package sync
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 // Shelling out to git rather than reaching for a library, which is the decision this was
@@ -12,6 +15,19 @@ import (
 type gitRepo struct {
 	run func(args ...string) Output
 	dir string
+
+	// The repository's own paths, or none for the whole of it. Held here rather than passed
+	// to each call, so a command that reads or writes the tree cannot be added without the
+	// limit that goes with it.
+	paths []string
+}
+
+// Every command that reads or writes the working tree ends in `-- <paths>`, which for
+// `commit` is git's own `--only`: it commits those paths' working-tree state and leaves
+// whatever a session has staged elsewhere staged and uncommitted. `--only` is also what git
+// refuses during a merge, which is one more reason the pass leaves a busy tree alone.
+func (g gitRepo) limit(args ...string) []string {
+	return append(args, config.Pathspec(g.paths)...)
 }
 
 // Output is one git command's result. Text is both streams together, because what git has
@@ -87,7 +103,7 @@ func (g gitRepo) hasUpstream() bool {
 // changes the default. Without the optional lock, because a read every second that refreshes
 // the index would also hold index.lock against whatever else is running git in the tree.
 func (g gitRepo) status() string {
-	out := g.run("--no-optional-locks", "status", "--porcelain=v1", "-z")
+	out := g.run(g.limit("--no-optional-locks", "status", "--porcelain=v1", "-z")...)
 	if !out.OK {
 		return ""
 	}
@@ -97,8 +113,11 @@ func (g gitRepo) status() string {
 func (g gitRepo) unpushed() []string { return g.lines("log", "--oneline", "@{upstream}..HEAD") }
 func (g gitRepo) behind() []string   { return g.lines("log", "--oneline", "HEAD..@{upstream}") }
 
+// What the commit is about to carry, and so what its subject names. Limited like the rest,
+// which is what keeps a change a session staged outside the paths out of the subject as well
+// as out of the commit.
 func (g gitRepo) stagedFiles() []string {
-	return g.nulLines("diff", "--cached", "--name-only", "-z")
+	return g.nulLines(g.limit("diff", "--cached", "--name-only", "-z")...)
 }
 
 // When the oldest commit that is not on the remote was made, and the zero time when there
@@ -128,10 +147,30 @@ func (g gitRepo) upstreamHead() string {
 	return strings.TrimSpace(g.run("rev-parse", "@{upstream}").Stdout)
 }
 
-func (g gitRepo) addAll() Output             { return g.run("add", "-A") }
+func (g gitRepo) addAll() Output             { return g.run(g.limit("add", "-A")...) }
 func (g gitRepo) fetch(remote string) Output { return g.run("fetch", remote) }
 
-func (g gitRepo) commit(subject string) Output { return g.run("commit", "-m", subject) }
+func (g gitRepo) commit(subject string) Output {
+	return g.run(g.limit("commit", "-m", subject)...)
+}
+
+// The one branch a limited repository is synced on, as this clone's own
+// `refs/remotes/<remote>/HEAD` has it. Local and read once at startup: no network, and an
+// answer that does not change when somebody checks something out here.
+func (g gitRepo) defaultBranch(remote string) (string, error) {
+	out := g.run("symbolic-ref", "--short", "refs/remotes/"+remote+"/HEAD")
+	if !out.OK {
+		return "", failed(out)
+	}
+
+	name := strings.TrimSpace(out.Stdout)
+	short := strings.TrimPrefix(name, remote+"/")
+	if short == name || short == "" {
+		return "", &gitError{text: fmt.Sprintf("%s/HEAD is %q, which names no branch of %s",
+			remote, name, remote)}
+	}
+	return short, nil
+}
 
 func (g gitRepo) push(remote, branch string, setUpstream bool) Output {
 	args := []string{"push"}

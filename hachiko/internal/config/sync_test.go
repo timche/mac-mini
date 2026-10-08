@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -147,6 +148,76 @@ func TestSyncRefusesAConfigItDoesNotUnderstand(t *testing.T) {
 	refuseSync(t, "repo =\n", "repo needs a path")
 	refuseSync(t, "repo = /tmp/x\nnonsense\n", "is not a `key = value` line")
 	refuseSync(t, "repo = /tmp/x\nrepo = /tmp/x\n", "twice")
+}
+
+// A repository with no `paths` is the whole repository, which is every repository synced
+// before this existed.
+func TestARepoWithNoPathsIsTheWholeRepository(t *testing.T) {
+	repo := loadSync(t, "repo = /tmp/x\n").Repos[0]
+
+	if repo.Limited() || repo.Pathspec() != nil {
+		t.Errorf("%+v is limited to %v", repo, repo.Pathspec())
+	}
+}
+
+// Repeated, because one key per line is the whole of this file's syntax and a list would be
+// a second one. The pathspec is what every git command that reads or writes the tree ends in.
+func TestPathsAreRepeatableAndBecomeAPathspec(t *testing.T) {
+	repo := loadSync(t, "repo = /tmp/x\npaths = home/.claude\npaths = home/.config\n").Repos[0]
+
+	if !repo.Limited() {
+		t.Fatalf("%+v is not limited", repo)
+	}
+	want := []string{"--", "home/.claude", "home/.config"}
+	if got := repo.Pathspec(); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// Normalised here rather than left to git, so the path in a message, the path in the config
+// and the path on the command line are one path.
+func TestAPathIsNormalised(t *testing.T) {
+	repo := loadSync(t, "repo = /tmp/x\npaths = ./home/x/../.claude/\n").Repos[0]
+
+	if want := []string{"home/.claude"}; !reflect.DeepEqual(repo.Paths, want) {
+		t.Errorf("got %q, want %q", repo.Paths, want)
+	}
+}
+
+// There is no pull git can limit to a pathspec: `pull --rebase --autostash` stashes and
+// reapplies the whole working tree, which is exactly the work outside those paths that a
+// limited repository exists to leave alone. So pulling is off, and a config that says
+// otherwise is a contradiction rather than a preference.
+func TestALimitedRepoDoesNotPull(t *testing.T) {
+	repo := loadSync(t, "repo = /tmp/x\npaths = home/.claude\n").Repos[0]
+	if repo.Pull {
+		t.Error("a limited repository pulls")
+	}
+
+	// Either order, since a key belongs to the repo above it and `paths` may be written
+	// under `pull` as readily as over it.
+	for _, body := range []string{
+		"repo = /tmp/x\npaths = home/.claude\npull = true\n",
+		"repo = /tmp/x\npull = true\npaths = home/.claude\n",
+	} {
+		refuseSync(t, body, "no pull can leave work outside those paths alone")
+	}
+
+	// And `pull = false` beside paths is the default said out loud, not a contradiction.
+	if loadSync(t, "repo = /tmp/x\npaths = home/.claude\npull = false\n").Repos[0].Pull {
+		t.Error("pull = false pulls")
+	}
+}
+
+// A pathspec that escapes the root is a pass committing somewhere nobody configured, and a
+// `paths = .` is a repository every rule treats as limited while git matches all of it.
+func TestSyncRefusesAPathThatIsNotInsideTheRepository(t *testing.T) {
+	for _, value := range []string{"/etc", "~/elsewhere", "..", "../sibling", "home/../.."} {
+		refuseSync(t, "repo = /tmp/x\npaths = "+value+"\n", "inside the repository")
+	}
+	refuseSync(t, "repo = /tmp/x\npaths = .\n", "a repo with no paths is the whole of it")
+	refuseSync(t, "repo = /tmp/x\npaths =\n", "paths needs a path")
+	refuseSync(t, "repo = /tmp/x\npaths = home/.claude\npaths = home/.claude\n", "twice")
 }
 
 func TestSyncRefusesAConfigThatIsNotThere(t *testing.T) {

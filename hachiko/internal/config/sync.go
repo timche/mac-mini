@@ -44,12 +44,31 @@ type SyncRepo struct {
 	// watch.
 	Path string
 
+	// The paths inside the repository a pass may touch, relative to its root and normalised,
+	// or none at all for the whole repository. What it is for is a repository whose other
+	// files are somebody's to commit: a session's work, in a tree a daemon also writes to.
+	Paths []string
+
 	Debounce      time.Duration
 	Remote        string
 	Pull          bool
 	PushDelay     time.Duration
 	Recheck       time.Duration
 	FetchInterval time.Duration
+}
+
+func (r SyncRepo) Limited() bool { return len(r.Paths) > 0 }
+
+// The `-- <paths>` every git command that reads or writes a limited repository's tree ends
+// in, and nothing where the whole repository is synced. Here rather than in each caller, so
+// the daemon, the watch and the screen cannot read different trees.
+func (r SyncRepo) Pathspec() []string { return Pathspec(r.Paths) }
+
+func Pathspec(paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	return append([]string{"--"}, paths...)
 }
 
 // Five seconds outlasts one agent's burst of writes while being an order of magnitude
@@ -100,6 +119,11 @@ func LoadSync(path, home string) (Sync, error) {
 
 	cfg := Sync{Mode: ModeLive, Retry: defaultSyncRetry()}
 
+	// Which repositories asked for pulling in so many words, since the default is true and
+	// the check below has to tell a repository that says `pull = true` from one that says
+	// nothing: the first is a contradiction to refuse and the second is a default to change.
+	var pulls []bool
+
 	for n, line := range strings.Split(string(file), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -117,6 +141,7 @@ func LoadSync(path, home string) (Sync, error) {
 				return Sync{}, syncError(path, n, "repo needs a path")
 			}
 			cfg.Repos = append(cfg.Repos, defaultSyncRepo(value))
+			pulls = append(pulls, false)
 			continue
 		}
 
@@ -126,8 +151,12 @@ func LoadSync(path, home string) (Sync, error) {
 			}
 			continue
 		}
-		if err := repoKey(&cfg.Repos[len(cfg.Repos)-1], key, value); err != nil {
+		last := len(cfg.Repos) - 1
+		if err := repoKey(&cfg.Repos[last], key, value); err != nil {
 			return Sync{}, syncError(path, n, "%v", err)
+		}
+		if key == "pull" {
+			pulls[last] = cfg.Repos[last].Pull
 		}
 	}
 
@@ -142,6 +171,20 @@ func LoadSync(path, home string) (Sync, error) {
 			return Sync{}, fmt.Errorf("%s names %s twice", path, cfg.Repos[i].Path)
 		}
 		seen[cfg.Repos[i].Path] = true
+
+		// A `paths` line can come before or after `pull`, so the two are reconciled here
+		// rather than as either is read. Pulling is off by default on a limited repository
+		// and may not be turned on: `git pull --rebase --autostash` stashes and reapplies the
+		// whole working tree, so a pull is exactly the thing that would take a session's work
+		// outside those paths through a rebase and hand back a conflict in files sync was told
+		// to leave alone. There is no pull git can limit to a pathspec.
+		if cfg.Repos[i].Limited() {
+			if pulls[i] {
+				return Sync{}, fmt.Errorf("%s: %s is limited to paths and pulls, and no pull "+
+					"can leave work outside those paths alone", path, cfg.Repos[i].Path)
+			}
+			cfg.Repos[i].Pull = false
+		}
 	}
 	return cfg, nil
 }
@@ -189,6 +232,17 @@ func repoKey(repo *SyncRepo, key, value string) error {
 		default:
 			return fmt.Errorf("pull is true or false, not %q", value)
 		}
+	case "paths":
+		one, err := repoRelative(value)
+		if err != nil {
+			return err
+		}
+		for _, already := range repo.Paths {
+			if already == one {
+				return fmt.Errorf("paths names %s twice", one)
+			}
+		}
+		repo.Paths = append(repo.Paths, one)
 	case "debounce":
 		return readDuration(&repo.Debounce, key, value)
 	case "push_delay":
@@ -201,6 +255,36 @@ func repoKey(repo *SyncRepo, key, value string) error {
 		return fmt.Errorf("%q is not a setting of a repo", key)
 	}
 	return nil
+}
+
+// One `paths` value, normalised to the form git is handed. Relative and inside the
+// repository, because a pathspec that escapes the root is a pass committing somewhere nobody
+// configured, and normalised here rather than by git so the path in a message, in the config
+// and on the command line are the one path.
+func repoRelative(value string) (string, error) {
+	inside := func() error {
+		return fmt.Errorf("paths is a path inside the repository, relative to its root, not %q", value)
+	}
+
+	switch {
+	case value == "":
+		return "", fmt.Errorf("paths needs a path inside the repository")
+	case filepath.IsAbs(value), strings.HasPrefix(value, "~"):
+		return "", inside()
+	}
+
+	clean := filepath.Clean(value)
+	switch {
+	case clean == "..", strings.HasPrefix(clean, ".."+string(filepath.Separator)):
+		return "", inside()
+	case clean == ".":
+		// The whole repository is what a repo with no `paths` already is, and a `.` that read
+		// as one would be a limited repository every rule below treats as limited while git
+		// matches everything in it.
+		return "", fmt.Errorf("paths is one path inside the repository; a repo with no paths " +
+			"is the whole of it")
+	}
+	return clean, nil
 }
 
 func readDuration(into *time.Duration, key, value string) error {

@@ -30,6 +30,11 @@ type Result struct {
 	Outcome Outcome
 	Failure *Failure
 	Subject string
+
+	// Why the pass left the tree alone, for the caller to say. Said by the caller rather than
+	// here because the reason outlasts the pass: a tree nobody may commit in stays dirty, so
+	// the next tick a second later finds the same one, and the loop says it once.
+	Left string
 }
 
 // Whether this pass may hold the push back. `hachiko sync --once` is the explicit "sync
@@ -42,8 +47,13 @@ const (
 )
 
 type passer struct {
-	host  string
-	repo  config.SyncRepo
+	host string
+	repo config.SyncRepo
+
+	// The one branch this repository is synced on, or "" for one synced on whatever branch it
+	// is on. Only a limited repository has one; see sync.go.
+	onBranch string
+
 	git   gitRepo
 	retry config.SyncRetry
 	deps  Deps
@@ -84,10 +94,18 @@ func (p passer) try(mode pushMode) Result {
 	}
 
 	// A commit in the middle of somebody's rebase or merge would land in it, and a push of a
-	// detached HEAD names no branch at all.
+	// detached HEAD names no branch at all. A limited repository's commit is a partial one,
+	// which git refuses during a merge outright.
 	if why := p.git.busy(branch); why != "" {
-		p.say("left alone: %s", why)
-		return Result{Outcome: Nothing}
+		return Result{Outcome: Nothing, Left: why}
+	}
+
+	// A commit on a branch somebody checked out here would carry files that are nobody's
+	// work in progress onto it, and the push would publish that branch; with pulling off,
+	// nothing would ever bring them back to the branch they were meant for.
+	if p.onBranch != "" && branch != p.onBranch {
+		return Result{Outcome: Nothing, Left: fmt.Sprintf(
+			"%s is checked out, and this repository is synced on %s alone", branch, p.onBranch)}
 	}
 
 	setUpstream := !p.git.hasUpstream()
@@ -105,14 +123,20 @@ func (p passer) try(mode pushMode) Result {
 
 	// Committing before the retry loop is what makes the rebase below safe: it runs over a
 	// checkpoint rather than over half-written work.
+	//
+	// Only on a dirty tree, because `git add -A` is fatal on a pathspec that matches nothing
+	// at all — and a status that is empty is a repository with nothing staged either, since
+	// the index is half of what the status reads.
 	subject := ""
-	if out := p.git.addAll(); !out.OK {
-		return p.failure(NeedsHuman, failedCommit, "git add -A failed: "+out.Text)
-	}
-	if staged := p.git.stagedFiles(); len(staged) > 0 {
-		subject = commitSubject(staged)
-		if out := p.git.commit(subject); !out.OK {
-			return p.failure(NeedsHuman, failedCommit, "the commit failed: "+out.Text)
+	if dirty {
+		if out := p.git.addAll(); !out.OK {
+			return p.failure(NeedsHuman, failedCommit, "git add -A failed: "+out.Text)
+		}
+		if staged := p.git.stagedFiles(); len(staged) > 0 {
+			subject = commitSubject(staged)
+			if out := p.git.commit(subject); !out.OK {
+				return p.failure(NeedsHuman, failedCommit, "the commit failed: "+out.Text)
+			}
 		}
 	}
 

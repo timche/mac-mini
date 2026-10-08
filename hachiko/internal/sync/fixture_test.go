@@ -23,19 +23,23 @@ var base = time.Unix(1700000000, 0)
 // empty the status and a push really does empty the unpushed list — a stub that answered the
 // same thing before and after would be a test of the reading and not of the pass.
 type fakeRepo struct {
-	status      string
-	staged      []string
-	unpushed    []string
-	oldest      time.Time
-	behind      []string
-	head        string
-	upstream    string
-	noUpstream  bool
-	midRebase   bool
-	detached    bool
-	pseudoRef   string
-	pushRefused int
-	pushText    string
+	status     string
+	staged     []string
+	unpushed   []string
+	oldest     time.Time
+	behind     []string
+	head       string
+	upstream   string
+	noUpstream bool
+	midRebase  bool
+	detached   bool
+	branch     string
+	// The remote's HEAD naming no branch, which is a limited repository the daemon refuses
+	// to start on.
+	noDefaultBranch bool
+	pseudoRef       string
+	pushRefused     int
+	pushText        string
 
 	// Scripted failures, each as the text the command would have printed. A count, because
 	// the whole of the retry ladder is about a command that fails a few times and then does
@@ -53,12 +57,14 @@ type fixture struct {
 	now  time.Time
 	log  bytes.Buffer
 
-	repo   config.SyncRepo
-	retry  config.SyncRetry
-	tree   *fakeRepo
-	dry    bool
-	noSelf bool
-	selfID self.ID
+	repo config.SyncRepo
+	// The branch a limited repository is synced on, as Run resolves it at startup.
+	onBranch string
+	retry    config.SyncRetry
+	tree     *fakeRepo
+	dry      bool
+	noSelf   bool
+	selfID   self.ID
 
 	calls   []string
 	slept   []time.Duration
@@ -99,6 +105,9 @@ func (f *fixture) deps() Deps {
 	}
 }
 
+// The whole call is remembered, pathspec and all, so a test can assert which commands were
+// limited; the switch below matches on the command without it, so one table answers for a
+// repository synced whole and the same one synced by paths.
 func (f *fixture) git(dir string, args ...string) Output {
 	f.calls = append(f.calls, strings.Join(args, " "))
 	t := f.tree
@@ -106,12 +115,22 @@ func (f *fixture) git(dir string, args ...string) Output {
 	ok := func(stdout string) Output { return Output{OK: true, Stdout: stdout} }
 	bad := func(text string) Output { return Output{Text: text} }
 
-	switch strings.Join(args, " ") {
+	command, _ := cutPathspec(args)
+
+	switch strings.Join(command, " ") {
 	case "rev-parse --is-inside-work-tree":
 		return ok("true\n")
+	case "symbolic-ref --short refs/remotes/origin/HEAD":
+		if t.noDefaultBranch {
+			return bad("fatal: ref refs/remotes/origin/HEAD is not a symbolic ref")
+		}
+		return ok("origin/main\n")
 	case "rev-parse --abbrev-ref HEAD":
 		if t.detached {
 			return ok("HEAD\n")
+		}
+		if t.branch != "" {
+			return ok(t.branch + "\n")
 		}
 		return ok("main\n")
 	case "rev-parse -q --verify MERGE_HEAD", "rev-parse -q --verify CHERRY_PICK_HEAD", "rev-parse -q --verify REVERT_HEAD":
@@ -199,6 +218,28 @@ func (f *fixture) git(dir string, args ...string) Output {
 	return Output{}
 }
 
+// A command and the paths it was limited to, split at the `--` git itself reads as the end of
+// the options. A command with no pathspec comes back whole and with no paths.
+func cutPathspec(args []string) ([]string, []string) {
+	for i, arg := range args {
+		if arg == "--" {
+			return args[:i], args[i+1:]
+		}
+	}
+	return args, nil
+}
+
+// Which commands a pass limited, as the fixture saw them: the command without its pathspec
+// against the paths it carried.
+func (f *fixture) limits() map[string]string {
+	seen := map[string]string{}
+	for _, call := range f.calls {
+		command, paths := cutPathspec(strings.Split(call, " "))
+		seen[strings.Join(command, " ")] = strings.Join(paths, " ")
+	}
+	return seen
+}
+
 func (f *fixture) send(out discord.Outgoing) (string, error) {
 	if f.sendErr != "" {
 		return "", fmt.Errorf("%s", f.sendErr)
@@ -213,13 +254,19 @@ func (f *fixture) send(out discord.Outgoing) (string, error) {
 }
 
 func (f *fixture) daemon() *daemon {
+	var onBranch map[string]string
+	if f.onBranch != "" {
+		onBranch = map[string]string{f.repo.Path: f.onBranch}
+	}
+
 	return &daemon{
-		cfg:   config.Config{Home: f.home, Host: "mac-mini", SyncStateDir: filepath.Join(f.home, "state")},
-		sync:  config.Sync{Mode: config.ModeLive, Retry: f.retry, Repos: []config.SyncRepo{f.repo}},
-		deps:  f.deps(),
-		store: &Store{Dir: filepath.Join(f.home, "state")},
-		dry:   f.dry,
-		beat:  !f.dry,
+		onBranch: onBranch,
+		cfg:      config.Config{Home: f.home, Host: "mac-mini", SyncStateDir: filepath.Join(f.home, "state")},
+		sync:     config.Sync{Mode: config.ModeLive, Retry: f.retry, Repos: []config.SyncRepo{f.repo}},
+		deps:     f.deps(),
+		store:    &Store{Dir: filepath.Join(f.home, "state")},
+		dry:      f.dry,
+		beat:     !f.dry,
 	}
 }
 
@@ -230,7 +277,10 @@ func (f *fixture) pass(mode pushMode) (Result, string) {
 
 	d := f.daemon()
 	result := d.passer(f.repo).run(mode)
-	d.record(f.repo, d.git(f.repo.Path), result)
+	if result.Left != "" {
+		d.about(f.repo.Path)("left alone: %s", result.Left)
+	}
+	d.record(f.repo, d.git(f.repo), result)
 
 	return result, f.log.String()
 }

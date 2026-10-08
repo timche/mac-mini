@@ -5,9 +5,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"syscall"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
+	"github.com/timche/mac-mini/hachiko/internal/statedir"
 )
 
 // How one log is capped, which is decided by who holds it open and not by anything about the
@@ -62,19 +64,20 @@ func cappedLogs(cfg config.Config) []cappedLog {
 // One stat per file, which is the whole cost on a Mac with nothing to cap — every sweep but
 // a handful. No Discord either way: a log this bounds is hygiene rather than news, and a
 // message every time herdr's log filled would be a message nobody can act on.
-func (s sweeper) capLogs() {
+func (s sweeper) capLogs(state *statedir.State) {
 	for _, log := range cappedLogs(s.cfg) {
-		s.capLog(log)
+		s.capLog(state, log)
 	}
 }
 
-func (s sweeper) capLog(log cappedLog) {
+func (s sweeper) capLog(state *statedir.State, log cappedLog) {
 	// Lstat and not Stat. These are account-owned paths and hachiko runs as the account, so
 	// there is no privilege to be had through one of them — but a link at either path is
 	// still a write going somewhere nobody asked for, and the cheap refusal is not to look
 	// through it in the first place.
 	info, err := os.Lstat(log.path)
 	if err != nil {
+		s.capFine(state, log.path)
 		return
 	}
 
@@ -83,17 +86,23 @@ func (s sweeper) capLog(log cappedLog) {
 
 	switch {
 	case info.Mode()&os.ModeSymlink != 0:
-		s.say("%s is a symlink, so nothing of it was capped", log.path)
+		s.capTrouble(state, log.path, "%s is a symlink, so nothing of it was capped", log.path)
 		return
 	case !info.Mode().IsRegular():
+		s.capFine(state, log.path)
 		return
 	case kb <= s.cfg.LogCapKB:
+		s.capFine(state, log.path)
 		return
 	}
 
-	if was, err := os.Lstat(kept); err == nil && was.Mode()&os.ModeSymlink != 0 {
-		s.say("%s is a symlink, so %s was not capped", kept, log.path)
-		return
+	// Every path a cap writes, each of which a link could be waiting at: the generation,
+	// which a rename replaces, and the file a copy fills before it becomes one.
+	for _, beside := range log.writes(kept) {
+		if was, err := os.Lstat(beside); err == nil && was.Mode()&os.ModeSymlink != 0 {
+			s.capTrouble(state, log.path, "%s is a symlink, so %s was not capped", beside, log.path)
+			return
+		}
 	}
 
 	if s.dry {
@@ -102,10 +111,46 @@ func (s sweeper) capLog(log cappedLog) {
 	}
 
 	if err := log.cap(kept); err != nil {
-		s.say("%s is %s MB and could not be capped: %v", log.path, mbStr(kb), err)
+		s.capTrouble(state, log.path, "%s is %s MB and could not be capped: %v", log.path, mbStr(kb), err)
 		return
 	}
+	s.capFine(state, log.path)
 	s.say("capped %s at %s MB; what was there is in %s", log.path, mbStr(kb), kept)
+}
+
+// Said once per log and not again until the log is capped or is nothing to complain about.
+// A link somebody left at one of these paths, and a copy that failed because the disk is
+// full, are both still there five minutes later: this runs twelve times an hour for ever,
+// and twelve identical lines would bury the lines that matter.
+//
+// A dry run says it and remembers nothing, being a session asking rather than the agent.
+func (s sweeper) capTrouble(state *statedir.State, path, format string, args ...any) {
+	if s.dry {
+		s.say(format, args...)
+		return
+	}
+	if statedir.Contains(state.CapTrouble, path) {
+		return
+	}
+
+	s.say(format, args...)
+	state.CapTrouble = append(state.CapTrouble, path)
+	sort.Strings(state.CapTrouble)
+}
+
+// The complaint forgotten, so the next thing to go wrong with this log is said again.
+func (s sweeper) capFine(state *statedir.State, path string) {
+	if s.dry || !statedir.Contains(state.CapTrouble, path) {
+		return
+	}
+
+	keep := make([]string, 0, len(state.CapTrouble))
+	for _, was := range state.CapTrouble {
+		if was != path {
+			keep = append(keep, was)
+		}
+	}
+	state.CapTrouble = keep
 }
 
 // One generation kept, replacing whatever was there: two of them bound a log at twice the
@@ -117,9 +162,22 @@ func (l cappedLog) cap(kept string) error {
 	return copyAndTruncate(l.path, kept)
 }
 
-// The single descriptor is the whole of the safety: the file that is read is the file that is
-// emptied, so a link swapped in between the two cannot be what gets emptied, and O_NOFOLLOW
-// is what refuses one swapped in between the Lstat above and this.
+func (l cappedLog) writes(kept string) []string {
+	if l.how == capRename {
+		return []string{kept}
+	}
+	return []string{kept, kept + ".tmp"}
+}
+
+// The single descriptor is the whole of the safety at the source: the file that is read is
+// the file that is emptied, so a link swapped in between the two cannot be what gets emptied,
+// and O_NOFOLLOW is what refuses one swapped in between the Lstat above and this.
+//
+// The copy fills a file of its own and only becomes the generation on the way out, because
+// what makes a log worth capping — a disk with nothing left — is also what makes the copy
+// fail halfway. Writing into the generation directly meant a failed copy had already
+// destroyed the one good copy of the log and left a truncated half of it in its place, which
+// is the worst possible moment to lose it.
 //
 // Between the last byte copied and the truncate the writer may append a line, and the
 // truncate throws it away. Accepted: the window is microseconds, these are logs read only
@@ -142,15 +200,34 @@ func copyAndTruncate(path, kept string) error {
 		return fmt.Errorf("%s is no longer a regular file", path)
 	}
 
-	to, err := os.OpenFile(kept, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0o644)
+	tmp := kept + ".tmp"
+
+	// One left behind by a run that was killed between the copy and the rename. It is
+	// hachiko's own name and nothing else writes it, so a plain file there is this sweep's to
+	// take back; anything that is not — a link, a directory somebody made — is left where it
+	// is and the exclusive create below is what refuses to go round it.
+	if was, err := os.Lstat(tmp); err == nil && was.Mode().IsRegular() {
+		os.Remove(tmp)
+	}
+
+	// The log's own permissions, so a generation is readable by exactly whoever could read
+	// the log it came out of and no wider.
+	to, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, info.Mode().Perm())
 	if err != nil {
 		return err
 	}
+
 	if _, err := io.Copy(to, from); err != nil {
 		to.Close()
+		os.Remove(tmp)
 		return err
 	}
 	if err := to.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, kept); err != nil {
+		os.Remove(tmp)
 		return err
 	}
 

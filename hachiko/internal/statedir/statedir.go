@@ -60,6 +60,12 @@ type State struct {
 	// reporting nothing wrong.
 	SyncBehind map[string]Behind `json:"sync_behind,omitempty"`
 
+	// The logs this machine's own agents write that could not be capped, and so have already
+	// been complained about once. A link somebody left at one of those paths, or a copy that
+	// failed for want of room, is still there five minutes later, and the watch runs twelve
+	// times an hour for ever.
+	CapTrouble []string `json:"cap_trouble,omitempty"`
+
 	// The liveness of the worktree sweep and of sync as it was written down before the three
 	// agents shared one check. Read once by migrate below and never written again: a Mac is
 	// upgraded by the wrapper moving a new binary into place under the running agents, so

@@ -104,7 +104,7 @@ func (s sweeper) run() error {
 	// after being measured would be read as having shrunk on the next check, and the baseline
 	// a growth is measured against would be a size that no longer exists. Inside the lock,
 	// because two sweeps capping the same log would race each other's generation.
-	s.capLogs()
+	s.capLogs(state)
 
 	disk := s.disk(state, now, free)
 	cpu := s.cpu(state, now)

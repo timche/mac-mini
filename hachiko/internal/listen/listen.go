@@ -59,15 +59,22 @@ var (
 // process does. One op call per start rather than one per poll, which is what keeps a
 // five-second loop off the service account's daily limit.
 func Run(cfg config.Config) error {
-	log := logs.Logger{Out: os.Stdout, Now: config.ClockFromEnv()}
+	now := config.ClockFromEnv()
+	log := logs.Logger{Out: os.Stdout, Now: now}
 	store := statedir.Store{Dir: cfg.StateDir}
 
 	if !cfg.Discord.On() {
 		sayOnce(store, log, "unconfigured",
 			"no Discord channel and user are configured, so there is nothing to listen to")
-		goIdle(cfg, switchedOff, time.Sleep)
+		goIdle(cfg, switchedOff, time.Sleep, now)
 		return nil
 	}
+
+	// Somebody means replies to work, so from here every way out that is not the poll is a
+	// listener which has stopped — and the watch has nothing to measure its ten minutes
+	// against until a heartbeat exists. The ones below return before the re-exec, and `op run`
+	// itself failing never comes back here at all.
+	keepBeat(cfg, now)
 
 	op, err := discord.LookOp()
 	if err != nil {
@@ -88,7 +95,8 @@ func Run(cfg config.Config) error {
 // else; it is never written, never an argument, and taken out of every error that leaves
 // here.
 func WithToken(cfg config.Config) error {
-	log := logs.Logger{Out: os.Stdout, Now: config.ClockFromEnv()}
+	now := config.ClockFromEnv()
+	log := logs.Logger{Out: os.Stdout, Now: now}
 
 	store := statedir.Store{Dir: cfg.StateDir}
 
@@ -96,7 +104,7 @@ func WithToken(cfg config.Config) error {
 	if token == "" {
 		sayOnce(store, log, "no-token",
 			"the bot token did not resolve, so replies are off and the webhook is what alerts go to")
-		goIdle(cfg, configuredAndBroken, time.Sleep)
+		goIdle(cfg, configuredAndBroken, time.Sleep, now)
 		return nil
 	}
 
@@ -105,7 +113,7 @@ func WithToken(cfg config.Config) error {
 		store:  store,
 		bot:    discord.NewBot(token),
 		herdr:  oncall.HerdrCLI,
-		now:    config.ClockFromEnv(),
+		now:    now,
 		log:    log,
 		secret: strings.TrimSpace(os.Getenv("HACHIKO_APPROVAL_TOTP")),
 		sleep:  time.Sleep,
@@ -141,10 +149,11 @@ func (l *listener) poll(binary *self.Watch) error {
 // from one which is answering: it polls every five seconds and reports nothing it manages,
 // so what nothing can report about itself is not running at all.
 //
-// Written only while it is actually polling, which is what makes a missing one mean the
-// feature is off rather than the listener dead: a listener with nothing configured says
-// nothing and polls nothing for the life of the Mac, and counting that as a stoppage would
-// alert on every machine here that has never turned replies on.
+// Written while it polls, and once by a configured listener that cannot poll at all — never
+// by one nobody configured, which is what makes a missing heartbeat mean the feature is off
+// rather than the listener dead: a listener with nothing configured says nothing and polls
+// nothing for the life of the Mac, and counting that as a stoppage would alert on every
+// machine here that has never turned replies on.
 func (l *listener) beat() {
 	now := l.now()
 	if !l.lastBeat.IsZero() && now.Sub(l.lastBeat) < beatInterval {
@@ -152,11 +161,31 @@ func (l *listener) beat() {
 	}
 	l.lastBeat = now
 
-	path := l.cfg.ListenStamp()
+	writeBeat(l.cfg, now)
+}
+
+func writeBeat(cfg config.Config, at time.Time) {
+	path := cfg.ListenStamp()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return
 	}
-	os.WriteFile(path, []byte(strconv.FormatInt(now.Unix(), 10)+"\n"), 0o644)
+	os.WriteFile(path, []byte(strconv.FormatInt(at.Unix(), 10)+"\n"), 0o644)
+}
+
+// The heartbeat a configured listener that cannot run leaves for the watch to find too old,
+// and the one case the check could not otherwise catch: a listener configured on a Mac where
+// it has never once polled has nothing to go stale, so it reads as the feature being off for
+// the life of the Mac.
+//
+// Only where there is none. launchd starts this agent again every five minutes for as long as
+// it keeps exiting, and a heartbeat rewritten on each of those starts never reaches the ten
+// minutes the watch gives it — the alert this exists to raise would be the one alert that can
+// never fire.
+func keepBeat(cfg config.Config, now func() time.Time) {
+	if _, err := os.Lstat(cfg.ListenStamp()); err == nil {
+		return
+	}
+	writeBeat(cfg, now())
 }
 
 // The two reasons the listener idles instead of polling, which are not the same thing to
@@ -171,15 +200,17 @@ const (
 
 	// A channel and a user are set, so somebody does mean replies to work, and only the token
 	// did not resolve — revoked, or a vault that would not answer. That is a listener which
-	// has stopped, so the heartbeat is left exactly where it is to go stale and be reported.
-	// The message the check sends points at this log, where the line just written says the
-	// token is what failed.
+	// has stopped, so the heartbeat is left exactly where it is to go stale and be reported,
+	// and written where there is none at all. The message the check sends points at this log,
+	// where the line just written says the token is what failed.
 	configuredAndBroken = false
 )
 
-func goIdle(cfg config.Config, off bool, sleep func(time.Duration)) {
+func goIdle(cfg config.Config, off bool, sleep func(time.Duration), now func() time.Time) {
 	if off {
 		os.Remove(cfg.ListenStamp())
+	} else {
+		keepBeat(cfg, now)
 	}
 	sleep(listenIdle)
 }

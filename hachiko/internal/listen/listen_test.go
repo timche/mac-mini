@@ -605,7 +605,7 @@ func TestAListenerNobodyConfiguredTakesItsHeartbeatWithIt(t *testing.T) {
 	f := newListener(t)
 	f.l.beat()
 
-	goIdle(f.l.cfg, switchedOff, func(time.Duration) {})
+	goIdle(f.l.cfg, switchedOff, func(time.Duration) {}, f.l.now)
 
 	if _, err := os.Stat(f.l.cfg.ListenStamp()); err == nil {
 		t.Error("a listener nobody configured left a heartbeat behind")
@@ -620,12 +620,102 @@ func TestAListenerWhoseTokenDidNotResolveKeepsItsHeartbeatToGoStale(t *testing.T
 	f := newListener(t)
 	f.l.beat()
 
-	goIdle(f.l.cfg, configuredAndBroken, func(time.Duration) {})
+	goIdle(f.l.cfg, configuredAndBroken, func(time.Duration) {}, f.l.now)
 
 	if _, err := os.Stat(f.l.cfg.ListenStamp()); err != nil {
 		t.Errorf("a listener that is configured and broken gave up its heartbeat: %v", err)
 	}
 	harness.Equal(t, beatAt(t, f), "1111111111", "the heartbeat left to go stale")
+}
+
+// The same idle path on a Mac where the listener has never once polled, which is where the
+// check used to go silent for good: a stoppage it cannot measure against anything is a
+// stoppage it never reports.
+func TestAConfiguredListenerThatNeverRanWritesAHeartbeatToGoStale(t *testing.T) {
+	f := newListener(t)
+
+	goIdle(f.l.cfg, configuredAndBroken, func(time.Duration) {}, f.l.now)
+
+	harness.Equal(t, beatAt(t, f), "1111111111", "the heartbeat a listener that never polled left")
+}
+
+// The two ways the outer half gives up before the re-exec that would have resolved the token:
+// no `op` to resolve it with, and no env file naming the reference. Both of them were a
+// listener that wrote nothing at all, and the check reads nothing at all as the feature being
+// off.
+func TestAConfiguredListenerLeavesAHeartbeatWhenItCannotStartAtAll(t *testing.T) {
+	for _, one := range []struct {
+		what   string
+		opOnly bool
+	}{
+		{what: "with no op to resolve the token with"},
+		{what: "with no env file naming the token", opOnly: true},
+	} {
+		t.Run(one.what, func(t *testing.T) {
+			cfg := configuredListener(t, one.opOnly)
+
+			if err := Run(cfg); err == nil {
+				t.Fatal("a listener that cannot start said nothing was wrong")
+			}
+
+			body, err := os.ReadFile(cfg.ListenStamp())
+			if err != nil {
+				t.Fatalf("a configured listener that could not start wrote no heartbeat: %v", err)
+			}
+			harness.Equal(t, strings.TrimSpace(string(body)), "1700000000", "the heartbeat it left")
+		})
+	}
+}
+
+// launchd starts this agent again every five minutes for as long as it keeps exiting. A
+// heartbeat rewritten on each of those starts never reaches the ten minutes the watch gives
+// it, so the one alert this exists to raise would be the one that can never fire.
+func TestARestartedListenerDoesNotRefreshTheHeartbeatItIsWaitingToGoStale(t *testing.T) {
+	cfg := configuredListener(t, false)
+
+	if err := Run(cfg); err == nil {
+		t.Fatal("a listener that cannot start said nothing was wrong")
+	}
+
+	t.Setenv("HACHIKO_NOW", "1700000600")
+	if err := Run(cfg); err == nil {
+		t.Fatal("a listener that cannot start said nothing was wrong")
+	}
+
+	body, err := os.ReadFile(cfg.ListenStamp())
+	if err != nil {
+		t.Fatal(err)
+	}
+	harness.Equal(t, strings.TrimSpace(string(body)), "1700000000", "the heartbeat ten minutes later")
+}
+
+// A channel and a user in the config, which is the whole of what turns replies on, and a PATH
+// with nothing on it — or with an `op` that is never reached, since the env file it would
+// resolve from is missing.
+func configuredListener(t *testing.T, withOp bool) config.Config {
+	t.Helper()
+
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if withOp {
+		harness.WriteFile(t, filepath.Join(bin, "op"), "#!/bin/sh\nexit 0\n")
+		if err := os.Chmod(filepath.Join(bin, "op"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Setenv("PATH", bin)
+	t.Setenv("HACHIKO_NOW", "1700000000")
+
+	return config.Config{
+		Home:           home,
+		StateDir:       filepath.Join(home, "state"),
+		DiscordEnvFile: filepath.Join(home, "missing.env.op"),
+		Discord:        config.DiscordConfig{ChannelID: channelID, UserID: timID},
+	}
 }
 
 func beatAt(t *testing.T, f *listenFixture) string {

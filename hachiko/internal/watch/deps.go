@@ -51,10 +51,11 @@ type Deps struct {
 	SyncRepos     func() []SyncRepo
 	SyncRepoState func(path string) SyncRepoState
 
-	// And the same for `hachiko listen`, which writes a heartbeat only while it is actually
-	// polling: answering from Discord is off unless Tim has configured it, and an unanswered
-	// reply on a Mac where nobody asked for one is not a fault. A listener whose token stopped
-	// resolving keeps its heartbeat and is reported, that being a listener that has stopped.
+	// And the same for `hachiko listen`, which writes a heartbeat only once it is configured:
+	// answering from Discord is off unless Tim has configured it, and an unanswered reply on a
+	// Mac where nobody asked for one is not a fault. A listener that is configured and cannot
+	// run keeps the heartbeat it has, or writes one where it has never had any, that being a
+	// listener that has stopped.
 	ListenLastBeat func() (time.Time, bool)
 
 	// Opens the on-call session and answers with where it is and whether the brief
@@ -188,12 +189,13 @@ func syncLastBeat(cfg config.Config) (time.Time, bool) {
 }
 
 // The listener's heartbeat, and no falling back to the plist's modification time the way
-// the two above do. A listener with no heartbeat has never run its poll loop, which is what
-// an unconfigured one looks like for the life of the Mac: answering from Discord ships off,
+// the two above do. A listener with no heartbeat is one nobody has configured, which is what
+// answering from Discord being off looks like for the life of the Mac: the feature ships off,
 // so counting from the plist would alert on every Mac that has never turned it on. The
 // listener removes its own heartbeat when nothing is configured, so turning the feature off
-// is read as off rather than as a listener that stopped ten minutes ago — and keeps it when
-// only the token failed, since that is a listener which has stopped.
+// is read as off rather than as a listener that stopped ten minutes ago — and writes or keeps
+// one as soon as a channel and a user are set, since from then on a listener that is not
+// polling is one which has stopped.
 //
 // The plist still has to be there, because the message names the one command that starts the
 // agent again and there is no such agent without it.

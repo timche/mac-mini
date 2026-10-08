@@ -233,6 +233,15 @@ func TestSyncRefusesAPathThatIsNotInsideTheRepository(t *testing.T) {
 		refuseSync(t, "repo = /tmp/x\npaths = "+value+"\n", "inside the repository")
 	}
 	refuseSync(t, "repo = /tmp/x\npaths = .\n", "a repo with no paths is the whole of it")
+
+	// git would read each of these as a pathspec rather than a path, and the set of files a
+	// pass may touch would be something other than the folder written here — `:(exclude)home`
+	// most of all, which is every file but it.
+	for _, magic := range []string{
+		":(exclude)home/.claude", ":!home", ":/home", "home/*", "home/.c?aude", "home/[a-z]*",
+	} {
+		refuseSync(t, "repo = /tmp/x\npaths = "+magic+"\n", "not a pathspec or a glob")
+	}
 	refuseSync(t, "repo = /tmp/x\npaths =\n", "paths needs a path")
 	refuseSync(t, "repo = /tmp/x\npaths = home/.claude\npaths = home/.claude\n", "twice")
 }

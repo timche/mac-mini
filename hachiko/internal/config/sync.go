@@ -295,6 +295,14 @@ func repoRelative(value string) (string, error) {
 		return "", fmt.Errorf("paths needs a path inside the repository")
 	case filepath.IsAbs(value), strings.HasPrefix(value, "~"):
 		return "", inside()
+
+	// git reads what follows as a pathspec, where a leading colon is magic — `:(exclude)`,
+	// `:/`, `:!` — and `*?[` are a glob matched against the whole tree. Both would make the
+	// set of files a pass may touch something other than the folder written here, and
+	// `:(exclude)home` would be a pass committing everything but it. A path is a path.
+	case strings.HasPrefix(value, ":"), strings.ContainsAny(value, "*?["):
+		return "", fmt.Errorf("paths is one plain path, not a pathspec or a glob, so %q is "+
+			"refused: a leading `:` is magic to git and `*?[` match the whole tree", value)
 	}
 
 	clean := filepath.Clean(value)

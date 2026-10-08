@@ -102,10 +102,12 @@ func writeSubject(model, instructions, input string) (string, error) {
 	return stdout.String(), nil
 }
 
-// Long enough for a model to read a diff and answer, short enough that a commit is never
-// held up by much: a pass that reaches this has already staged everything, and what waiting
-// buys is a better subject rather than the work landing at all.
-const subjectTimeout = 30 * time.Second
+// Long enough for a model to read a long diff and answer: measured calls take a few seconds
+// and one took twenty, so a deadline near that is a subject lost to a busy minute rather than
+// to anything being wrong. What it costs when it is reached is that one repository's loop
+// waiting, which is a commit landing a minute late and nothing else — the work is staged
+// before this is asked, and the file list is the subject either way.
+const subjectTimeout = time.Minute
 
 func runGit(dir string, args ...string) Output {
 	limit := localTimeout

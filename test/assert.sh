@@ -808,7 +808,23 @@ check "hachiko is a live symlink and runs through its wrapper" \
    hachiko --help | grep -q "notify" &&
    hachiko --help | grep -q "oncall" &&
    hachiko --help | grep -q "gc" &&
-   hachiko --help | grep -q "sync"'
+   hachiko --help | grep -q "sync" &&
+   hachiko --help | grep -q "status"'
+
+# The one command here nothing on a timer runs, and the only one a Go test cannot prove
+# anything about: it reads this Mac's own launchd, volume, repositories and logs, and what
+# matters is that it reads and nothing else. A state directory of its own, empty before and
+# after, is what says so — the real one is rewritten by the watch every five minutes and could
+# not tell a write of this command's from a sweep's.
+check "hachiko status prints one screen of this Mac and writes nothing" \
+  'd="$(mktemp -d)" &&
+   out="$(HACHIKO_STATE_DIR="$d" hachiko status)" &&
+   for section in Agents Disk Incidents Sync Logs; do
+     printf "%s\n" "$out" | grep -qx "$section" || exit 1
+   done &&
+   printf "%s\n" "$out" | grep -q "the watch" &&
+   printf "%s\n" "$out" | grep -q "stale after" &&
+   [ -z "$(ls -A "$d")" ]'
 
 # A binary that compiles is not one that works, and the agents it runs include the one
 # that commits and pushes the project docs — so the whole module's tests run

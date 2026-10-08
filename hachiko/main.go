@@ -11,6 +11,10 @@
 // sync` is the third, and the one that never finishes: it polls the repositories it is given
 // and commits and pushes what gets written in them, so a session's work publishes itself.
 //
+// `hachiko status` is the one command here nothing on a timer runs: it is for a person or a
+// session in a terminal, and it says in one screen what the four of them are doing. It reads
+// and changes nothing at all.
+//
 // Nothing in this file does any of it: it parses the command and hands it to the package
 // that owns it, which is what keeps a new one to one case and one import.
 package main
@@ -26,11 +30,13 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/listen"
 	"github.com/timche/mac-mini/hachiko/internal/oncall"
 	"github.com/timche/mac-mini/hachiko/internal/session"
+	"github.com/timche/mac-mini/hachiko/internal/status"
 	"github.com/timche/mac-mini/hachiko/internal/sync"
 	"github.com/timche/mac-mini/hachiko/internal/watch"
 )
 
 const usage = `usage: hachiko [--dry-run | --test-alert]
+       hachiko status
        hachiko gc [--dry-run]
        hachiko sync [--once | --dry-run]
        hachiko notify [--outcome] <incident-id> <message-file>
@@ -41,6 +47,9 @@ const usage = `usage: hachiko [--dry-run | --test-alert]
   (no option)        check free space and what is burning CPU, and alert when it matters
   --dry-run          report what a check sees, change nothing, alert nothing
   --test-alert       send a short message to the channel, to prove it works
+  status             print one screen of how this Mac's own machinery is doing: the
+                     agents, free space, what the watch has open, every repository
+                     sync keeps upstream, and the logs it caps. Reads and nothing else
   gc                 sweep what a removed worktree and a finished session left behind:
                      their compose projects, volumes, processes and scratch folders;
                      --dry-run says what a sweep would do and changes nothing
@@ -82,6 +91,11 @@ func run(args []string) error {
 
 	if len(args) > 0 {
 		switch args[0] {
+		case "status":
+			if len(args) != 1 {
+				return badUsage("status takes no arguments")
+			}
+			return status.Run(cfg)
 		case "gc":
 			dry := false
 			for _, arg := range args[1:] {

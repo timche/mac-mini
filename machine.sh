@@ -121,7 +121,6 @@ fi
 # tailscaled answers it itself, so nothing in the sshd drop-in applies to those
 # sessions — the policy file is what governs them.
 cat <<'EOF'
-  - In the tailscale admin console: approve this machine's advertised subnet and
-    exit node, and allow Tailscale SSH to it in the policy file. Neither works
-    until the tailnet says so.
+  - In the tailscale admin console: allow Tailscale SSH to this machine in the
+    policy file. It answers nobody until the tailnet says so.
 EOF

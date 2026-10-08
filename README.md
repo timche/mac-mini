@@ -34,7 +34,7 @@ Then, over SSH on the LAN, the command above. It asks, in order, for the sudo pa
 
 Afterwards, over Screen Sharing: the [privacy permissions](#privacy-permissions) below, System Settings > Lock Screen > "Require password after screen saver begins or display is turned off" set to Never, and OrbStack opened once — its welcome screen is where OrbStack's terms are accepted and where Docker is chosen, and no script can click either. `machine.sh` names all three every time it runs, so a Mac that is missing one says so rather than being quietly unable to take a screenshot or start a container.
 
-And in the Tailscale admin console: approve the advertised subnet and exit node, add an `ssh` rule for whoever should reach the Mac, and disable key expiry for it, since a node whose key expires drops off the tailnet after 180 days until somebody logs in at it again.
+And in the Tailscale admin console: add an `ssh` rule for whoever should reach the Mac, and disable key expiry for it, since a node whose key expires drops off the tailnet after 180 days until somebody logs in at it again.
 
 ## The machine
 
@@ -128,7 +128,7 @@ A session shows its own app rather than the display, which carries every other s
 
 ## Tailscale
 
-`tailscale.sh` runs the open-source `tailscaled` the `Brewfile` installed as a root system daemon of this repo's own, `io.github.timche.tailscaled`, and sets the three prefs this Mac is on the tailnet for: Tailscale SSH, its LAN advertised as a subnet, and itself offered as an exit node.
+`tailscale.sh` runs the open-source `tailscaled` the `Brewfile` installed as a root system daemon of this repo's own, `io.github.timche.tailscaled`, and sets the prefs this Mac is on the tailnet with: Tailscale SSH on, and no advertised routes — neither a subnet nor an exit node. Agents run unattended here, so a route through this Mac would put the LAN behind it, and all of a client's traffic while it used the Mac as an exit, within reach of whatever one of them ran. A subnet router or exit node belongs on a machine that runs nothing else.
 
 The daemon rather than the standalone app, even though both can serve Tailscale SSH. A system daemon runs before anybody logs in, so a Mac whose auto-login fails or whose GUI session dies is still on the tailnet and still reachable — where the app is a login item inside a session, which is the dependency that already makes docker and the signing agent wait for one.
 
@@ -138,22 +138,19 @@ The plist is `system/launchd/io.github.timche.tailscaled.plist` in this repo, in
 
 Upgrading is `brew upgrade tailscale` and then `tailscale.sh` again, which copies the new binaries and restarts the daemon. **Run it from the LAN**, `ssh timche@<the Mac's 192.168.x.x address>` rather than over the tailnet, because the restart drops every tailnet connection including an SSH session over one; the script says so and asks first where there is a terminal to answer at. `tailscale.sh` also migrates a Mac still on the `brew services` daemon: it stops `sh.brew.tailscale` and bootstraps this one in the same step, so the gap is seconds.
 
-The subnet comes from the interface the default route leaves by — its address and netmask, turned into a network and a prefix — so a Mac moved to another LAN needs a re-run rather than an edit. `TS_ADVERTISE_ROUTES` overrides it, and set-but-empty advertises no subnet at all. Nothing here touches IP forwarding: on macOS Tailscale enables it itself when routes are advertised. An exit node on macOS routes in userspace and only while the machine is awake, which is what `unattended.sh`'s `pmset sleep 0` is for.
-
-A node that has never logged in needs `tailscale up`, which prints a URL to open on a machine that has a browser and then waits for it — so `tailscale.sh` runs it only where there is a terminal to wait at, and prints the command when there is not. Everything after that is `tailscale set`, which changes prefs without starting a login, and which only runs where the prefs differ from what the script asks for. A node already advertising what this asks for comes out of a run untouched.
+A node that has never logged in needs `tailscale up`, which prints a URL to open on a machine that has a browser and then waits for it — so `tailscale.sh` runs it only where there is a terminal to wait at, and prints the command when there is not. Everything after that is `tailscale set`, which changes prefs without starting a login, and which only runs where the prefs differ from what the script asks for. A node already set the way this asks comes out of a run untouched; one still advertising routes has them withdrawn.
 
 MagicDNS is the daemon's own: tailscaled writes `/etc/resolver/<tailnet>.ts.net` and a file per reverse zone, each marked `# Added by tailscaled`, which send tailnet names to 100.100.100.100 and leave every other lookup with the resolvers the Mac already had. `tailscale.sh` leaves them alone, since tailscaled rewrites and removes the files it recognises as its own.
 
-Two things only the tailnet can do, both in [the admin console](https://login.tailscale.com/admin): approve this machine's advertised subnet and its exit node, unless `autoApprovers` in the policy file already covers them, and allow Tailscale SSH to it with an `ssh` rule saying who may connect and as whom. Until that rule exists nothing reaches the SSH server tailscaled is running.
+One thing only the tailnet can do, in [the admin console](https://login.tailscale.com/admin): allow Tailscale SSH to it with an `ssh` rule saying who may connect and as whom. Until that rule exists nothing reaches the SSH server tailscaled is running.
 
 To see where it is:
 
 ```sh
 tailscale status                       # the node, the tailnet, and who else is on it
-sudo tailscale debug prefs             # RunSSH, and AdvertiseRoutes with the subnet and 0.0.0.0/0, ::/0
+sudo tailscale debug prefs             # RunSSH true, and AdvertiseRoutes empty
 sudo launchctl print system/io.github.timche.tailscaled   # whether the daemon is loaded, and on what
 tail -f /var/log/tailscaled.log        # what it has to say
-sysctl net.inet.ip.forwarding          # 1 once routes are advertised, and Tailscale's doing
 scutil --dns | grep -B2 -A2 100.100.100.100   # tailscaled's resolver files, as macOS reads them
 ```
 
@@ -639,6 +636,6 @@ What CI cannot reach: anything that needs a click. Screen Sharing needs the Shar
 
 ## Environment knobs
 
-`MAC_MINI_REPO`, `MAC_MINI_DIR` (the clone, `~/.mac-mini` by default), `PROJECT_DOCS_DIR`, `SIGNING_KEY_OP_ITEM`, `OP_SERVICE_ACCOUNT_TOKEN_FILE`, `FORCE_HARDEN`, `CLAUDE_ROOT_DRY_RUN`, `TS_ADVERTISE_ROUTES`, `MAC_MINI_TEST_ANYWAY`, `SHIBUYA_TOKEN_FILE` (the ping token the two shibuya scripts read and write), and hachiko's own thresholds, roots and paths: `HACHIKO_LOW_GB`, `HACHIKO_CRITICAL_GB`, `HACHIKO_BIG_KB`, `HACHIKO_GROWTH_KB`, `HACHIKO_CPU_SHARE`, `HACHIKO_CPU_WINDOW`, `HACHIKO_CPU_ALLOW`, `HACHIKO_ONCALL_DEADLINE`, `HACHIKO_REMIND_AFTER`, `HACHIKO_WARN_AFTER`, `HACHIKO_HANDOVER_AFTER`, `HACHIKO_DIR_TIMEOUT`, `HACHIKO_WALK_TIMEOUT`, `HACHIKO_STALL_RETRY`, `HACHIKO_TMP`, `HACHIKO_PROJECTS`, `HACHIKO_STATE_DIR`, `HACHIKO_GC_PROJECTS` (the root the sweep prunes worktree entries under, `HACHIKO_PROJECTS` by default), `HACHIKO_GC_STATE_DIR`, `HACHIKO_GC_LOCK`, `HACHIKO_GC_PLIST`, `HACHIKO_GC_STALE`, `HACHIKO_SYNC_CONFIG`, `HACHIKO_SYNC_STATE_DIR`, `HACHIKO_SYNC_PLIST`, `HACHIKO_SYNC_STALE` (how old sync's heartbeat may get before the watch says it has stopped), `HACHIKO_SYNC_LATE` (how far past its own `push_delay` a repository's oldest unpushed commit may get), `HACHIKO_SYNC_DIRTY` (how long a tree may stay uncommitted with sync alive), `HACHIKO_ENV_FILE`, `HACHIKO_DISCORD_ENV_FILE`, `HACHIKO_DISCORD_CONFIG`, `HACHIKO_SWITCH_CONFIG`, `HACHIKO_SWITCH_TOKEN`, `HACHIKO_DISPLAY` (what to call this Mac in a message, `Mac mini`), `HACHIKO_ROOT_HELPER` (the installed root helper, read for its daemon allowlist), `HACHIKO_CACHE_DIR` (the wrapper's build cache), `HACHIKO_NOW`.
+`MAC_MINI_REPO`, `MAC_MINI_DIR` (the clone, `~/.mac-mini` by default), `PROJECT_DOCS_DIR`, `SIGNING_KEY_OP_ITEM`, `OP_SERVICE_ACCOUNT_TOKEN_FILE`, `FORCE_HARDEN`, `CLAUDE_ROOT_DRY_RUN`, `MAC_MINI_TEST_ANYWAY`, `SHIBUYA_TOKEN_FILE` (the ping token the two shibuya scripts read and write), and hachiko's own thresholds, roots and paths: `HACHIKO_LOW_GB`, `HACHIKO_CRITICAL_GB`, `HACHIKO_BIG_KB`, `HACHIKO_GROWTH_KB`, `HACHIKO_CPU_SHARE`, `HACHIKO_CPU_WINDOW`, `HACHIKO_CPU_ALLOW`, `HACHIKO_ONCALL_DEADLINE`, `HACHIKO_REMIND_AFTER`, `HACHIKO_WARN_AFTER`, `HACHIKO_HANDOVER_AFTER`, `HACHIKO_DIR_TIMEOUT`, `HACHIKO_WALK_TIMEOUT`, `HACHIKO_STALL_RETRY`, `HACHIKO_TMP`, `HACHIKO_PROJECTS`, `HACHIKO_STATE_DIR`, `HACHIKO_GC_PROJECTS` (the root the sweep prunes worktree entries under, `HACHIKO_PROJECTS` by default), `HACHIKO_GC_STATE_DIR`, `HACHIKO_GC_LOCK`, `HACHIKO_GC_PLIST`, `HACHIKO_GC_STALE`, `HACHIKO_SYNC_CONFIG`, `HACHIKO_SYNC_STATE_DIR`, `HACHIKO_SYNC_PLIST`, `HACHIKO_SYNC_STALE` (how old sync's heartbeat may get before the watch says it has stopped), `HACHIKO_SYNC_LATE` (how far past its own `push_delay` a repository's oldest unpushed commit may get), `HACHIKO_SYNC_DIRTY` (how long a tree may stay uncommitted with sync alive), `HACHIKO_ENV_FILE`, `HACHIKO_DISCORD_ENV_FILE`, `HACHIKO_DISCORD_CONFIG`, `HACHIKO_SWITCH_CONFIG`, `HACHIKO_SWITCH_TOKEN`, `HACHIKO_DISPLAY` (what to call this Mac in a message, `Mac mini`), `HACHIKO_ROOT_HELPER` (the installed root helper, read for its daemon allowlist), `HACHIKO_CACHE_DIR` (the wrapper's build cache), `HACHIKO_NOW`.
 
 `CLAUDE.md` has the rest: the order the scripts run in, the constraints that are not obvious from reading them, and how to work in this repo.

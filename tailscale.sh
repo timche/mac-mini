@@ -1,8 +1,10 @@
 #!/bin/bash
 
 # tailscale on the Mac, which is the network this machine is reached over. What it
-# leaves is a node that serves Tailscale SSH, advertises the LAN it is plugged
-# into as a subnet, and offers itself as an exit node.
+# leaves is a node that serves Tailscale SSH and routes for nobody: no subnet, no
+# exit node. Agents run unattended here, so a route through this Mac would put the
+# LAN behind it, and every byte of a client using it as an exit, within reach of
+# whatever one of them ran.
 #
 # The open-source tailscaled from Homebrew rather than the standalone app. Both
 # can serve Tailscale SSH, so that is not the reason: tailscaled is a system
@@ -57,70 +59,7 @@ if ! command -v brew >/dev/null 2>&1 && [ -x /opt/homebrew/bin/brew ]; then
   eval "$(/opt/homebrew/bin/brew shellenv)"
 fi
 
-# What LAN to advertise
-
-# The network behind the interface the default route leaves by, as a CIDR.
-# ifconfig rather than `ipconfig getoption`, which only answers for an address
-# DHCP handed out; the mask comes back as 0xffffff00, and counting its bits is the
-# prefix.
-#
-# The mask is taken from after the `netmask` keyword rather than from a fixed
-# column: a point-to-point interface prints `inet <addr> --> <peer> netmask <mask>`
-# and puts the peer where a broadcast interface puts the mask. Anything that is not
-# a mask advertises nothing, since the arithmetic below would otherwise abort the
-# script — and with it every step machine.sh runs after this one.
-lan_cidr() {
-  local iface inet address mask mask_re prefix value a b c d network
-
-  iface="$(route -n get default 2>/dev/null | awk '/interface:/ { print $2; exit }')"
-  if [ -z "$iface" ]; then
-    return 0
-  fi
-
-  inet="$(ifconfig "$iface" 2>/dev/null | awk '
-    /inet [0-9]/ {
-      for (i = 3; i < NF; i++) {
-        if ($i == "netmask") {
-          print $2, $(i + 1)
-          exit
-        }
-      }
-      exit
-    }')"
-  if [ -z "$inet" ]; then
-    return 0
-  fi
-
-  address="${inet%% *}"
-  mask="${inet##* }"
-
-  mask_re='^0x[0-9a-fA-F]{8}$'
-  if ! [[ "$mask" =~ $mask_re ]]; then
-    return 0
-  fi
-
-  prefix=0
-  value=$((mask))
-  while [ "$value" -ne 0 ]; do
-    prefix=$((prefix + (value & 1)))
-    value=$((value >> 1))
-  done
-
-  # A /32 is one address rather than a network, which is what a point-to-point
-  # interface reports — a VPN's utun holding the default route, say. Advertising it
-  # would offer the tailnet a route to this node's own address.
-  if [ "$prefix" -eq 32 ]; then
-    return 0
-  fi
-
-  IFS=. read -r a b c d <<EOF
-$address
-EOF
-
-  network=$((((a << 24) | (b << 16) | (c << 8) | d) & mask))
-
-  echo "$(((network >> 24) & 255)).$(((network >> 16) & 255)).$(((network >> 8) & 255)).$((network & 255))/$prefix"
-}
+# The LAN
 
 # The address on that same interface, which is the one that still answers sshd
 # when the tailnet is down — including while this script is restarting the daemon
@@ -135,15 +74,6 @@ lan_address() {
 
   ipconfig getifaddr "$iface" 2>/dev/null || true
 }
-
-# TS_ADVERTISE_ROUTES overrides it, and set-but-empty means advertise nothing —
-# the same shape as the VM repo's TS_AUTHKEY, so a machine that should not be a
-# subnet router can say so without this script being edited.
-if [ -n "${TS_ADVERTISE_ROUTES+set}" ]; then
-  routes="$TS_ADVERTISE_ROUTES"
-else
-  routes="$(lan_cidr)"
-fi
 
 # The daemon
 
@@ -297,23 +227,17 @@ if [ -z "$prefs" ]; then
   exit 0
 fi
 
-# An exit node shows up in the prefs as the two default routes alongside whatever
-# subnet is advertised, which is why there is one comparison rather than two.
-want_routes="$(printf '%s\n0.0.0.0/0\n::/0\n' "$routes" | tr ',' '\n' | sed '/^[[:space:]]*$/d' | sort -u)"
-have_routes="$(printf '%s' "$prefs" | jq -r '(.AdvertiseRoutes // [])[]' | sort -u)"
+# An exit node shows up in the prefs as the two default routes, so an empty list
+# is both no subnet and no exit node.
+have_routes="$(printf '%s' "$prefs" | jq -r '(.AdvertiseRoutes // []) | length')"
 have_ssh="$(printf '%s' "$prefs" | jq -r '.RunSSH // false')"
 
-if [ "$have_ssh" = true ] && [ "$have_routes" = "$want_routes" ]; then
-  echo "tailscale already serves ssh and advertises ${routes:-no subnet} and an exit node"
+if [ "$have_ssh" = true ] && [ "$have_routes" = 0 ]; then
+  echo "tailscale already serves ssh and advertises no routes"
 else
   # `set` rather than `up`, which would start a login this node has already done.
-  #
-  # An exit node on macOS routes in userspace and only while the machine is awake:
-  # unattended.sh's `pmset sleep 0` is what keeps it one. IP forwarding needs
-  # nothing here — on macOS Tailscale turns it on itself when routes are
-  # advertised.
-  if sudo "$tailscale_cli" set --ssh --advertise-exit-node --advertise-routes="$routes"; then
-    echo "tailscale now serves ssh and advertises ${routes:-no subnet} and an exit node"
+  if sudo "$tailscale_cli" set --ssh --advertise-exit-node=false --advertise-routes=; then
+    echo "tailscale now serves ssh and advertises no routes"
   else
     echo "warning: 'tailscale set' did not take — this Mac advertises whatever it" >&2
     echo "did before. 'sudo $tailscale_cli debug prefs' says what that is." >&2
@@ -325,7 +249,7 @@ fi
 state="$(tailscale_status .BackendState)"
 
 if [ "$state" != Running ]; then
-  login="sudo $tailscale_cli up --ssh --advertise-exit-node --advertise-routes=$routes"
+  login="sudo $tailscale_cli up --ssh"
 
   # `up` is the one command here that waits: it prints a URL to open on a machine
   # that has a browser and sits there until somebody does. So only where there is
@@ -337,7 +261,7 @@ if [ "$state" != Running ]; then
     echo "on another machine, and waits for it:"
     echo
 
-    if ! sudo "$tailscale_cli" up --ssh --advertise-exit-node --advertise-routes="$routes"; then
+    if ! sudo "$tailscale_cli" up --ssh; then
       echo "warning: the tailnet login did not finish. Run it again with:" >&2
       echo "  $login" >&2
     fi
@@ -351,18 +275,12 @@ fi
 
 # What the tailnet has to say
 
-# Both of these are the tailnet's rather than the machine's, and neither can be
-# done from here: an advertised route is advertised until somebody approves it,
-# and tailscaled's SSH server answers nobody until the policy says who.
+# The tailnet's rather than the machine's: tailscaled's SSH server answers nobody
+# until the policy says who.
 cat <<EOF
 
-Two things only the tailnet's admin console can do:
-
-  - Approve this machine's subnet route${routes:+ ($routes)} and its exit node,
-    unless the policy file's autoApprovers already covers them:
-    $console/machines
-  - Allow Tailscale SSH to it — an ssh rule naming who may connect and as whom.
-    Until there is one, nothing reaches tailscaled's SSH server, and sshd on the
-    LAN is the only way in:
-    $console/acls
+One thing only the tailnet's admin console can do: allow Tailscale SSH to this
+Mac — an ssh rule naming who may connect and as whom. Until there is one, nothing
+reaches tailscaled's SSH server, and sshd on the LAN is the only way in:
+  $console/acls
 EOF

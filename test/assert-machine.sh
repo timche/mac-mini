@@ -156,37 +156,10 @@ prefs() {
 export -f prefs
 
 check "tailscale serves ssh"          '[ "$(prefs | jq -r .RunSSH)" = true ]'
-check "tailscale advertises an exit node" \
-  'prefs | jq -e "(.AdvertiseRoutes // []) | index(\"0.0.0.0/0\") and index(\"::/0\")"'
-
-# The subnet route is derived from the hardware, so what is asserted is that the
-# route this Mac advertises is the one its own address sits in — not a number
-# repeated from the script. python3 because the arithmetic is the thing under test
-# and awk on a Mac has no bitwise operators to redo it with.
-lan_route() {
-  prefs | jq -r '(.AdvertiseRoutes // [])[] | select(. != "0.0.0.0/0" and . != "::/0")'
-}
-export -f lan_route
-
-default_address() {
-  local iface
-  iface="$(route -n get default 2>/dev/null | awk '/interface:/ { print $2; exit }')"
-  [ -n "$iface" ] && ipconfig getifaddr "$iface"
-}
-export -f default_address
-
-if [ -z "$(default_address)" ]; then
-  echo "  --    no default route, so the advertised subnet was not checked"
-elif ! command -v python3 >/dev/null 2>&1; then
-  echo "  --    no python3, so the advertised subnet was not checked"
-else
-  check "the advertised subnet is the LAN this Mac is on" \
-    'python3 -c "
-import ipaddress, sys
-address, route = sys.argv[1], sys.argv[2]
-sys.exit(0 if ipaddress.ip_address(address) in ipaddress.ip_network(route) else 1)
-" "$(default_address)" "$(lan_route)"'
-fi
+# An exit node is the two default routes, so an empty list rules out both it and a
+# subnet.
+check "tailscale advertises no routes" \
+  '[ "$(prefs | jq -r "(.AdvertiseRoutes // []) | length")" = 0 ]'
 
 # docker, which on a Mac is a Linux VM and a CLI pointed into it — here the one
 # OrbStack app, which brings the VM, the docker CLI, compose and buildx together.

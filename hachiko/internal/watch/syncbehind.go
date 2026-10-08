@@ -11,9 +11,8 @@ import (
 )
 
 const (
-	labelLastBeat = "Last heartbeat"
-	labelWaiting  = "Waiting"
-	labelOldest   = "Oldest unpushed commit"
+	labelWaiting = "Waiting"
+	labelOldest  = "Oldest unpushed commit"
 )
 
 // SyncRepo is one repository `hachiko sync` is meant to be keeping upstream, as the watch
@@ -33,85 +32,6 @@ type SyncRepoState struct {
 	Oldest time.Time
 }
 
-// The two things the watch says about sync, on the same reasoning as the worktree sweep's
-// stamp above: what nothing can report about itself is not running at all, and what sync
-// cannot report is a repository it is syncing happily and getting nowhere with.
-//
-// Not an incident and no on-call session, for the same reason again: every incident the
-// watch raises is a question about the machine that an agent can read its way to an answer
-// to, and each of these has one answer already written down and it is Tim's.
-//
-// Nothing is said at all on a Mac with no sync LaunchAgent, which is the only way to tell a
-// Mac that was never meant to be syncing from one that has stopped.
-func (s sweeper) syncStopped(state *statedir.State, now time.Time) {
-	since, installed := s.deps.SyncLastBeat()
-	if !installed {
-		return
-	}
-
-	age := now.Sub(since)
-	alive := age <= s.cfg.SyncStaleAfter
-
-	s.syncHeartbeat(state, now, since, age, alive)
-
-	// Only with sync alive. A sync that is down is already one message, and saying that every
-	// repository it was syncing has fallen behind is the same news four more times.
-	if !alive {
-		return
-	}
-	s.syncRepos(state, now)
-}
-
-func (s sweeper) syncHeartbeat(state *statedir.State, now, since time.Time, age time.Duration, alive bool) {
-	was := state.SyncStale != 0
-
-	switch {
-	case !alive == was:
-		return
-
-	case s.dry && !alive:
-		s.say("would report that sync has not run for %s", hmStr(age))
-		return
-	case s.dry:
-		s.say("would report that sync is running again")
-		return
-
-	case !alive:
-		s.say("sync has not run for %s, so nothing is committing or pushing what gets written", hmStr(age))
-
-		message := wording.Lead(wording.MarkerDegraded,
-			fmt.Sprintf("Auto-sync has not run for %s", wording.DurationPhrase(age))).
-			Field(labelLastBeat, wording.TimePhrase(since, now)).
-			Field(wording.LabelWhy, "Nothing written in the repositories it watches is being "+
-				"committed or pushed, so nothing of this session's work is reaching GitHub "+
-				"and nothing another machine wrote is arriving.").
-			Can(s.loadSync()).
-			About("", s.cfg.Host).
-			String()
-
-		thread, err := s.deps.Send(discord.Outgoing{Text: message, OpenThread: s.cfg.SyncLabel()})
-		if err != nil {
-			s.say("the message about sync did not send and is left to the next check: %v", err)
-			return
-		}
-		state.SyncStale, state.SyncThread = now.Unix(), thread
-
-	default:
-		s.say("sync is running again")
-
-		message := wording.Lead(wording.MarkerRecovered, "Auto-sync is running again").
-			Field(labelLastBeat, wording.TimePhrase(since, now)).
-			About("", s.cfg.Host).
-			String()
-
-		if _, err := s.deps.Send(discord.Outgoing{Text: message, Thread: state.SyncThread}); err != nil {
-			s.say("the message saying sync is back did not send and is left to the next check: %v", err)
-			return
-		}
-		state.SyncStale, state.SyncThread = 0, ""
-	}
-}
-
 // The two ways a repository falls behind with sync alive and reporting nothing: a commit that
 // is well past the delay it was meant to go up after, and a tree that has stayed dirty long
 // enough that the debounce cannot be what is holding it.
@@ -120,6 +40,13 @@ const (
 	behindDirty = "dirty"
 )
 
+// The half of sync the liveness check cannot see: a repository it is syncing happily and
+// getting nowhere with. Run only with sync alive, by the caller — a sync that is down is
+// already one message, and saying that every repository it was syncing has fallen behind is
+// the same news four more times.
+//
+// Not an incident and no on-call session, for the same reason the liveness check is neither:
+// the answer is already written in the message, and it is Tim's.
 func (s sweeper) syncRepos(state *statedir.State, now time.Time) {
 	going := map[string]time.Duration{}
 
@@ -284,16 +211,6 @@ func (s sweeper) remember(state *statedir.State, key string, rec statedir.Behind
 		state.SyncBehind = map[string]statedir.Behind{}
 	}
 	state.SyncBehind[key] = rec
-}
-
-// The one command that starts sync again, with no password behind it: the agent is this
-// account's own. Spelled from the plist's own name, so it cannot name an agent other than the
-// one whose absence decided whether to look at all.
-func (s sweeper) loadSync() string {
-	return "**You can run:** " +
-		wording.CodeSpan(fmt.Sprintf("launchctl kickstart -k gui/%d/%s", s.deps.Getuid(), s.cfg.SyncLabel())) +
-		" — it starts syncing at once, and says why it could not in " +
-		wording.CodeSpan("~/Library/Logs/hachiko-sync.log") + "."
 }
 
 // A `<kind> <path>` key back into its halves. At the first space, because a kind holds none

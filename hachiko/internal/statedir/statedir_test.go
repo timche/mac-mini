@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -178,5 +179,53 @@ func TestACorruptStateFileIsSaidOutLoud(t *testing.T) {
 	}
 	if state.HasDiskSample() {
 		t.Error("a corrupt state file was read as a sample")
+	}
+}
+
+// A new binary's first state file is the last one's, written when the worktree sweep's and
+// sync's liveness each had two fields of their own. An alert open at that moment has to go
+// on being one alert and clear into the thread that raised it.
+func TestTheLivenessFieldsOfAnOlderStateAreReadAndThenDropped(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "hachiko")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	older := `{"gc_stale":1700000000,"gc_thread":"thread-gc","sync_stale":1700000300,"sync_thread":"thread-sync"}`
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), []byte(older), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := Store{Dir: dir}
+	state, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := state.Agent(AgentGC); got.Stale != 1700000000 || got.Thread != "thread-gc" {
+		t.Errorf("the sweep's open alert: %+v", got)
+	}
+	if got := state.Agent(AgentSync); got.Stale != 1700000300 || got.Thread != "thread-sync" {
+		t.Errorf("sync's open alert: %+v", got)
+	}
+
+	// Nothing below the load has two places to look, and the next save drops them.
+	if state.GCStale != 0 || state.GCThread != "" || state.SyncStale != 0 || state.SyncThread != "" {
+		t.Errorf("the older fields survived the load: %+v", state)
+	}
+
+	if err := store.Save(state); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(filepath.Join(dir, "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(saved), "gc_stale") || strings.Contains(string(saved), "sync_stale") {
+		t.Errorf("the older fields were written again: %s", saved)
+	}
+
+	// And a listener, which the older shape never knew about, starts from nothing.
+	if state.Agent(AgentListen).Stale != 0 {
+		t.Error("the listener came out of an older state with an alert open")
 	}
 }

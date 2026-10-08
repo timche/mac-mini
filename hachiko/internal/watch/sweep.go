@@ -125,11 +125,12 @@ func (s sweeper) run() error {
 
 	alert := s.alert(disk, cpu, free, level, lowNow, truncated)
 
-	// Ahead of everything that follows, because it is the one thing here that is about
-	// hachiko rather than about the machine, and because it is the half of the sweep a dry
-	// run reaches too.
-	s.gcStopped(state, now)
-	s.syncStopped(state, now)
+	// Ahead of everything that follows, because this is the one thing here that is about
+	// hachiko's own agents rather than about the machine, and because it is the half of the
+	// sweep a dry run reaches too.
+	if s.liveness(state, now)[statedir.AgentSync] {
+		s.syncRepos(state, now)
+	}
 
 	// disk when anything about the disk fired, since that is the half with a deadline
 	// on it; the kind only decides which session the incident goes to, and one

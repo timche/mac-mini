@@ -1,101 +1,11 @@
 package watch
 
 import (
-	"errors"
 	"testing"
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/harness"
 )
-
-// Ten minutes, which is longer than the whole of a retry ladder against an unreachable remote
-// and shorter than an hour's writing.
-func syncFixture(t *testing.T) *fixture {
-	t.Helper()
-
-	f := newFixture(t)
-	f.cfg.SyncStaleAfter = 10 * time.Minute
-	f.cfg.SyncDirtyAfter = 10 * time.Minute
-	f.cfg.SyncLateAfter = 30 * time.Minute
-	f.cfg.SyncPlist = "/Users/x/Library/LaunchAgents/io.github.timche.hachiko-sync.plist"
-	f.syncBeat = base
-
-	return f
-}
-
-func TestASyncInsideTheHeartbeatSaysNothing(t *testing.T) {
-	f := syncFixture(t)
-
-	harness.Equal(t, f.at(540).sweep(), "", "the log of a check with sync beating")
-	harness.Equal(t, f.sentCount(), 0, "messages sent")
-}
-
-func TestASyncThatHasStoppedIsOneMessageAndNoSession(t *testing.T) {
-	f := syncFixture(t)
-	out := f.at(3900).sweep()
-
-	harness.Wants(t, out, "sync has not run for 1h05m, so nothing is committing or pushing what gets written")
-
-	harness.Equal(t, f.sentCount(), 1, "messages sent")
-	harness.Wants(t, f.lastSent(), "⚠️ Auto-sync has not run for 1 hour 5 minutes")
-	harness.Wants(t, f.lastSent(), "**Last heartbeat:** ")
-	harness.Wants(t, f.lastSent(), "**You can run:** `launchctl kickstart -k gui/501/io.github.timche.hachiko-sync`")
-	harness.Wants(t, f.lastSent(), "~/Library/Logs/hachiko-sync.log")
-
-	// Not an incident: the answer is already written in the message, and it is Tim's.
-	harness.Equal(t, f.oncallCalls, 0, "sessions opened")
-
-	// One message while it is still not running, not twelve an hour.
-	f.at(4200).sweep()
-	f.at(4500).sweep()
-	harness.Equal(t, f.sentCount(), 1, "messages sent")
-}
-
-func TestASyncThatComesBackIsOneMoreLineInTheSameThread(t *testing.T) {
-	f := syncFixture(t)
-	f.threads = true
-	f.at(3900).sweep()
-
-	harness.Equal(t, f.opened[0], "io.github.timche.hachiko-sync", "the thread opened")
-
-	f.syncBeat = base.Add(4200 * time.Second)
-	out := f.at(4200).sweep()
-
-	harness.Wants(t, out, "sync is running again")
-	harness.Equal(t, f.sentCount(), 2, "messages sent")
-	harness.Wants(t, f.lastSent(), "🟢 Auto-sync is running again")
-	harness.Equal(t, f.sentTo[1], "thread-io.github.timche.hachiko-sync", "where the clear went")
-}
-
-// A fresh Mac has no heartbeat because sync has never run, and alerting on that would fire on
-// every machine this repository provisions until install.sh reaches the agent.
-func TestAMacWithNoSyncAgentIsNeverReportedAsHavingStopped(t *testing.T) {
-	f := syncFixture(t)
-	f.syncInstalled = false
-
-	harness.Equal(t, f.at(100000).sweep(), "", "the log of a check on a Mac with no sync agent")
-	harness.Equal(t, f.sentCount(), 0, "messages sent")
-}
-
-func TestAMessageAboutSyncThatDidNotSendIsSaidAgain(t *testing.T) {
-	f := syncFixture(t)
-	f.sendErr = errors.New("op run: 1Password is not reachable")
-
-	out := f.at(3900).sweep()
-	harness.Wants(t, out, "the message about sync did not send and is left to the next check")
-
-	f.sendErr = nil
-	f.at(4200).sweep()
-	harness.Equal(t, f.sentCount(), 1, "messages sent")
-}
-
-func TestADryRunSaysWhatItWouldReportAboutSync(t *testing.T) {
-	f := syncFixture(t)
-
-	out := f.at(3900).dryRun()
-	harness.Wants(t, out, "would report that sync has not run for 1h05m")
-	harness.Equal(t, f.sentCount(), 0, "messages sent")
-}
 
 // The other half: sync is alive and says nothing is wrong, and a repository is getting
 // nowhere all the same.

@@ -51,6 +51,11 @@ type Deps struct {
 	SyncRepos     func() []SyncRepo
 	SyncRepoState func(path string) SyncRepoState
 
+	// And the same for `hachiko listen`, which writes a heartbeat only while it is actually
+	// polling: answering from Discord is off unless Tim has configured it, and an unanswered
+	// reply on a Mac where nothing is listening for one is not a fault.
+	ListenLastBeat func() (time.Time, bool)
+
 	// Opens the on-call session and answers with where it is and whether the brief
 	// reached it, which is what the message about to go out has to say.
 	Oncall func(name, brief string) (oncall.Session, error)
@@ -123,6 +128,8 @@ func realDeps(cfg config.Config) Deps {
 		SyncRepos:     func() []SyncRepo { return syncRepos(cfg) },
 		SyncRepoState: syncRepoState,
 
+		ListenLastBeat: func() (time.Time, bool) { return listenLastBeat(cfg) },
+
 		Oncall: func(name, brief string) (oncall.Session, error) {
 			return oncall.Oncaller{Cfg: cfg, Herdr: oncall.HerdrCLI, Now: now, Log: log}.Open(name, brief)
 		},
@@ -177,6 +184,26 @@ func syncLastBeat(cfg config.Config) (time.Time, bool) {
 		return beat.ModTime(), true
 	}
 	return plist.ModTime(), true
+}
+
+// The listener's heartbeat, and no falling back to the plist's modification time the way
+// the two above do. A listener with no heartbeat has never run its poll loop, which is what
+// an unconfigured one looks like for the life of the Mac: answering from Discord ships off,
+// so counting from the plist would alert on every Mac that has never turned it on. The
+// listener removes its own heartbeat when it goes into that idle state, so turning the
+// feature off is read as off rather than as a listener that stopped ten minutes ago.
+//
+// The plist still has to be there, because the message names the one command that starts the
+// agent again and there is no such agent without it.
+func listenLastBeat(cfg config.Config) (time.Time, bool) {
+	if _, err := os.Stat(cfg.ListenPlist); err != nil {
+		return time.Time{}, false
+	}
+	beat, err := os.Stat(cfg.ListenStamp())
+	if err != nil {
+		return time.Time{}, false
+	}
+	return beat.ModTime(), true
 }
 
 // Sync's own config, and a config that will not parse is no list at all: the daemon refuses

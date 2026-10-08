@@ -694,7 +694,7 @@ check "the sweep that hachiko gc replaced is gone, and install.sh takes it back"
 check "the watch notices a sweep that has stopped, and says nothing on a Mac with no sweep agent" \
   'grep -q "io.github.timche.hachiko-gc.plist" "$repo/hachiko/internal/config/config.go" &&
    grep -q "func (c Config) GCStamp()" "$repo/hachiko/internal/config/config.go" &&
-   grep -q "s.gcStopped(state, now)" "$repo/hachiko/internal/watch/sweep.go"'
+   grep -q "s.liveness(state, now)" "$repo/hachiko/internal/watch/sweep.go"'
 
 # `hachiko sync`, which commits and pushes the repositories its config lists. It is a
 # long-running agent rather than a timer, so the plist is the whole of what assert.sh
@@ -770,7 +770,7 @@ check "install.sh loads the sync agent once the docs are cloned, and reloads a c
 check "the watch notices a sync that has stopped, and says nothing on a Mac with no sync agent" \
   'grep -q "io.github.timche.hachiko-sync.plist" "$repo/hachiko/internal/config/config.go" &&
    grep -q "func (c Config) SyncStamp()" "$repo/hachiko/internal/config/config.go" &&
-   grep -q "s.syncStopped(state, now)" "$repo/hachiko/internal/watch/sweep.go" &&
+   grep -q "statedir.AgentSync" "$repo/hachiko/internal/watch/sweep.go" &&
    grep -q "func syncLastBeat" "$repo/hachiko/internal/watch/deps.go"'
 
 # hachiko, the one compiled tool here. Its behaviour is `go test ./...` in hachiko/,
@@ -1070,6 +1070,17 @@ check "install.sh loads the listener agent and reloads a changed one" \
    grep -q "cmp -s \"\$listen_plist\" \"\$listen_loaded\"" "$repo/install.sh"'
 check "the listener agent is loaded" \
   'launchctl print "gui/$(id -u)/io.github.timche.hachiko-listen" >/dev/null'
+
+# The listener writes a heartbeat while it polls and the watch reads its age, the way it
+# reads the sweep's stamp and sync's. Its own clock and no plist behind it: a listener with
+# no heartbeat has never polled, which is what answering from Discord being off looks like
+# for the life of the Mac, and counting from the plist would alert on every Mac here.
+check "the watch notices a listener that has stopped, and says nothing where the feature is off" \
+  'grep -q "io.github.timche.hachiko-listen.plist" "$repo/hachiko/internal/config/config.go" &&
+   grep -q "func (c Config) ListenStamp()" "$repo/hachiko/internal/config/config.go" &&
+   grep -q "func listenLastBeat" "$repo/hachiko/internal/watch/deps.go" &&
+   grep -q "statedir.AgentListen" "$repo/hachiko/internal/watch/liveness.go" &&
+   grep -q "func stopBeating" "$repo/hachiko/internal/listen/listen.go"'
 
 # The one check that is the agent rather than a description of it. Everything else here
 # runs hachiko as this session, which holds the privacy grants herdr was given — and that

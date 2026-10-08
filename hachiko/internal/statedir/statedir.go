@@ -53,24 +53,70 @@ type State struct {
 	// what `hachiko listen` reads a reply out of.
 	Threads map[string]string `json:"threads,omitempty"`
 
-	// When the watch first found the worktree sweep's last-run stamp too old, and the thread
-	// it said so in. Kept so that a sweep that has stopped is one message rather than twelve
-	// an hour, and so that the line saying it is back lands under the one that said it was
-	// gone.
-	GCStale  int64  `json:"gc_stale,omitempty"`
-	GCThread string `json:"gc_thread,omitempty"`
+	// What the watch has said about each long-running agent's liveness, one entry per agent.
+	Agents map[string]AgentLiveness `json:"agents,omitempty"`
 
-	// The same two for `hachiko sync`, whose heartbeat the watch reads the same way, and
-	// beside them what it has said about each repository that fell behind with sync running
-	// and reporting nothing wrong.
-	SyncStale  int64             `json:"sync_stale,omitempty"`
-	SyncThread string            `json:"sync_thread,omitempty"`
+	// What it has said about each repository that fell behind with sync running and
+	// reporting nothing wrong.
 	SyncBehind map[string]Behind `json:"sync_behind,omitempty"`
+
+	// The liveness of the worktree sweep and of sync as it was written down before the three
+	// agents shared one check. Read once by migrate below and never written again: a Mac is
+	// upgraded by the wrapper moving a new binary into place under the running agents, so
+	// the first state file a new binary reads is the last one's, and an alert open at that
+	// moment has to go on being one alert and clear into the thread that raised it.
+	GCStale    int64  `json:"gc_stale,omitempty"`
+	GCThread   string `json:"gc_thread,omitempty"`
+	SyncStale  int64  `json:"sync_stale,omitempty"`
+	SyncThread string `json:"sync_thread,omitempty"`
 
 	// What the last check-in with shibuya came to. Kept so that a token that is missing, a
 	// file anyone can read or a Worker that will not answer is one line rather than twelve
 	// an hour for the life of the Mac.
 	Switch string `json:"switch,omitempty"`
+}
+
+// The agents the watch checks the liveness of, as the state remembers them. A short name
+// rather than the plist's label, so a label somebody renames does not orphan what is open
+// about the agent behind it.
+const (
+	AgentGC     = "gc"
+	AgentSync   = "sync"
+	AgentListen = "listen"
+)
+
+// AgentLiveness is when the watch first found one agent's stamp too old, and the thread it
+// said so in. Kept so that an agent that has stopped is one message rather than twelve an
+// hour, and so that the line saying it is back lands under the one that said it was gone.
+type AgentLiveness struct {
+	Stale  int64  `json:"stale,omitempty"`
+	Thread string `json:"thread,omitempty"`
+}
+
+func (s *State) Agent(key string) AgentLiveness { return s.Agents[key] }
+
+func (s *State) SetAgent(key string, rec AgentLiveness) {
+	if s.Agents == nil {
+		s.Agents = map[string]AgentLiveness{}
+	}
+	s.Agents[key] = rec
+}
+
+func (s *State) ForgetAgent(key string) { delete(s.Agents, key) }
+
+// A state file written before the agents shared one check carries its liveness in two pairs
+// of fields of their own. Converted on the way in, so nothing below this has two places to
+// look and the next Save drops them.
+func (s *State) migrate() {
+	for key, was := range map[string]AgentLiveness{
+		AgentGC:   {Stale: s.GCStale, Thread: s.GCThread},
+		AgentSync: {Stale: s.SyncStale, Thread: s.SyncThread},
+	} {
+		if was.Stale != 0 && s.Agent(key).Stale == 0 {
+			s.SetAgent(key, was)
+		}
+	}
+	s.GCStale, s.GCThread, s.SyncStale, s.SyncThread = 0, "", 0, ""
 }
 
 // One repository the watch has found behind. Since is when it first found it so, which for a
@@ -261,6 +307,7 @@ func (st Store) Load() (*State, error) {
 	if err := json.Unmarshal(data, state); err != nil {
 		return &State{}, fmt.Errorf("%w: %v", ErrCorrupt, err)
 	}
+	state.migrate()
 	return state, nil
 }
 

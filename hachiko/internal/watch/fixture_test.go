@@ -98,6 +98,12 @@ type fixture struct {
 	syncRepos     []SyncRepo
 	syncState     map[string]SyncRepoState
 
+	// And for the listener, whose heartbeat is its own clock with no plist behind it: an
+	// unconfigured listener never writes one, so a fixture with none is a Mac where
+	// answering from Discord is off.
+	listenBeat    time.Time
+	listenBeating bool
+
 	oncallName    string
 	oncallBrief   string
 	oncallCalls   int
@@ -221,6 +227,13 @@ func (f *fixture) lastBeat() time.Time {
 	return f.syncBeat
 }
 
+func (f *fixture) lastListenBeat() time.Time {
+	if f.listenBeat.IsZero() {
+		return f.now
+	}
+	return f.listenBeat
+}
+
 func (f *fixture) at(seconds int64) *fixture {
 	f.now = base.Add(time.Duration(seconds) * time.Second)
 	return f
@@ -260,6 +273,8 @@ func (f *fixture) deps() Deps {
 		SyncLastBeat:  func() (time.Time, bool) { return f.lastBeat(), f.syncInstalled },
 		SyncRepos:     func() []SyncRepo { return f.syncRepos },
 		SyncRepoState: func(path string) SyncRepoState { return f.syncState[path] },
+
+		ListenLastBeat: func() (time.Time, bool) { return f.lastListenBeat(), f.listenBeating },
 
 		Oncall: func(name, brief string) (oncall.Session, error) {
 			f.oncallCalls++

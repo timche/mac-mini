@@ -83,7 +83,9 @@ func TestAWorktreeOutsideBothRootsIsSaidAndNotTouched(t *testing.T) {
 	out := f.sweep()
 	harness.Wants(t, out, "left alone: 500 sits in ")
 	harness.Wants(t, out, ", outside the worktree roots")
-	harness.Lacks(t, out, "501")
+	// The whole line and not the pid alone: a temp directory's name is digits, and one of them
+	// is sooner or later the pid this is about.
+	harness.Lacks(t, out, "left alone: 501 sits in")
 	harness.Equal(t, len(f.signals), 0, "the signals sent")
 }
 

@@ -1,7 +1,9 @@
 // Package gc sweeps what a finished session leaves behind: a removed worktree's compose
 // project and the volumes that project made, the processes still sitting in its folder, the
 // scratch folder of a session nobody is running any more, and the worktree entries git
-// keeps for folders that are gone. It runs from the io.github.timche.hachiko-gc LaunchAgent.
+// keeps for folders that are gone. Once a day it also prunes docker's build cache and the
+// images nothing refers to, which are the one thing here that grows whether or not anything
+// was left behind. It runs from the io.github.timche.hachiko-gc LaunchAgent.
 //
 // A garbage collector rather than a hook on the removal, because no removal reliably hands
 // us one. herdr removes a worktree, so does Claude Code, so does `git worktree remove` by
@@ -105,6 +107,10 @@ func (s *sweeper) run() error {
 	s.processes()
 	s.scratch(now)
 	s.worktreeEntries()
+
+	// Last, and the one pass that is about nothing having been left behind: a project this
+	// sweep has just taken down leaves layers and cache behind it, and this is where they go.
+	s.prune(state, now)
 
 	if s.dry {
 		s.say("dry run over")

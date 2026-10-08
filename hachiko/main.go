@@ -51,8 +51,9 @@ const usage = `usage: hachiko [--dry-run | --test-alert]
                      agents, free space, what the watch has open, every repository
                      sync keeps upstream, and the logs it caps. Reads and nothing else
   gc                 sweep what a removed worktree and a finished session left behind:
-                     their compose projects, volumes, processes and scratch folders;
-                     --dry-run says what a sweep would do and changes nothing
+                     their compose projects, volumes, processes and scratch folders,
+                     and once a day docker's build cache and the images nothing refers
+                     to; --dry-run says what a sweep would do and changes nothing
   sync               commit and push the repositories ~/.config/hachiko/sync lists, as
                      they change, until stopped; --once is one pass over every one of
                      them with the push delay ignored, and --dry-run says what the

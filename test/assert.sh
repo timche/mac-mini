@@ -618,6 +618,17 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
      printf "%s" "$out" | grep -q "would remove compose project gc-gone" &&
      ! printf "%s" "$out" | grep -q gc-kept &&
      ! printf "%s" "$out" | grep -q gc-elsewhere'
+
+  # The daily prune against a real daemon, which is where the age could be a filter docker
+  # refuses: the dry run names the two commands as they would be run, and a state directory of
+  # its own under the throwaway HOME is what makes the prune due.
+  check "hachiko gc --dry-run says what the daily prune would run, and prunes nothing" \
+    'h="$(mktemp -d)" &&
+     sock="$(docker context inspect -f "{{.Endpoints.docker.Host}}")" &&
+     out="$(HACHIKO_CACHE_DIR="$HOME/Library/Caches/hachiko" HOME="$h" DOCKER_HOST="$sock" hachiko gc --dry-run)" &&
+     printf "%s" "$out" | grep -qF "would run docker builder prune --force --filter until=168h" &&
+     printf "%s" "$out" | grep -qF "would run docker image prune --force --filter until=168h" &&
+     ! find "$h" -name state.json | grep -q .'
 else
   echo "  skip  hachiko gc's compose sweep (no docker daemon on this machine)"
 fi
@@ -686,6 +697,20 @@ check "the sweep that hachiko gc replaced is gone, and install.sh takes it back"
    grep -q "rm \"\$old_gc_plist\"" "$repo/install.sh" &&
    grep -q "rm \"\$old_gc_link\"" "$repo/install.sh" &&
    [ ! -e "$HOME/.local/bin/worktree-gc" ]'
+
+# The one pass of the sweep that is about nothing having been left behind, and the one where a
+# mistake would cost a database rather than disk. The Go tests drive it against the dep they
+# were handed, so what is left for here is the commands themselves: two prunes by age, and
+# none of the three things docker would also take if this were `docker system prune` or if
+# `-a` were on either of them.
+check "the daily prune takes docker's build cache and dangling images and nothing else" \
+  'p="$repo/hachiko/internal/gc/deps.go" &&
+   grep -qF "\"docker\", \"builder\", \"prune\", \"--force\", \"--filter\", \"until=\"+until" "$p" &&
+   grep -qF "\"docker\", \"image\", \"prune\", \"--force\", \"--filter\", \"until=\"+until" "$p" &&
+   ! grep -qF "\"system\", \"prune\"" "$p" &&
+   ! grep -qF "\"network\", \"prune\"" "$p" &&
+   ! grep -qF "\"volume\", \"prune\"" "$p" &&
+   ! grep -qE "\"prune\", \"(-a|--all)\"" "$p"'
 
 # The logs the watch caps are one list of exact paths, and how each is capped depends on
 # whether its writer holds the descriptor or reopens the path. The Go tests run that list

@@ -60,6 +60,27 @@ func TestTheLogCapDefault(t *testing.T) {
 	harness.Equal(t, FromEnv().LogCapKB, int64(64), "the log cap a knob set")
 }
 
+// The two the daily prune runs by: a day apart, because the first prune of a day reclaims
+// what the ones after it would have, and a week of age because a layer from this morning is
+// one today's build is about to want. The age is docker's own `until` filter value and goes
+// to it as written, the format being docker's to decide.
+func TestThePruneDefaults(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	cfg := FromEnv()
+
+	harness.Equal(t, cfg.GCPruneEvery, 24*time.Hour, "how often docker is pruned")
+	harness.Equal(t, cfg.GCPruneAge, "168h", "how old docker has to find a thing to prune it")
+
+	t.Setenv("HACHIKO_GC_PRUNE_EVERY", "60")
+	t.Setenv("HACHIKO_GC_PRUNE_AGE", "1h")
+
+	cfg = FromEnv()
+
+	harness.Equal(t, cfg.GCPruneEvery, time.Minute, "the interval a knob set")
+	harness.Equal(t, cfg.GCPruneAge, "1h", "the age a knob set")
+}
+
 func TestAKnobOverridesItsDefault(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("HACHIKO_LISTEN_STALE", "120")

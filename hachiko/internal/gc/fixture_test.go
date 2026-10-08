@@ -60,6 +60,12 @@ type fixture struct {
 	immortal map[int]bool
 	signals  []string
 
+	// What docker was asked to prune, with the age it was asked for, and what it says back.
+	// Keyed by the half of docker it is: `builder` and `image`.
+	dockerPruned   []string
+	dockerPruneOut map[string]string
+	dockerPruneErr map[string]string
+
 	gitUp    bool
 	pruned   []string
 	pruneOut map[string]string
@@ -91,7 +97,19 @@ func newFixture(t *testing.T) *fixture {
 		pruneOut:  map[string]string{},
 		pruneErr:  map[string]string{},
 
+		// Nothing old enough to prune, which is what the daily prune finds on all but the
+		// first run of a day — and what keeps a sweep with nothing else to do a quiet one.
+		// The two spellings are docker's own: `docker image prune` prints "Total reclaimed
+		// space:" and buildkit's prune prints "Total:" and a tab.
+		dockerPruneOut: map[string]string{
+			"builder": "ID\tRECLAIMABLE\tSIZE\nTotal:\t0B\n",
+			"image":   "Total reclaimed space: 0B\n",
+		},
+		dockerPruneErr: map[string]string{},
+
 		cfg: config.Config{
+			GCPruneEvery:   24 * time.Hour,
+			GCPruneAge:     "168h",
 			Home:           home,
 			HerdrRoot:      filepath.Join(home, ".herdr", "worktrees"),
 			ScratchRoot:    filepath.Join(home, ".cache", "claude-tmp"),
@@ -127,7 +145,9 @@ func (f *fixture) deps() Deps {
 			}
 			return []byte("Container " + project + "-db  Removed\n"), nil
 		},
-		Volumes: func() ([]Volume, error) { return f.volumes, f.volumesErr },
+		Volumes:      func() ([]Volume, error) { return f.volumes, f.volumesErr },
+		PruneBuilder: func(until string) ([]byte, error) { return f.dockerPrune("builder", until) },
+		PruneImages:  func(until string) ([]byte, error) { return f.dockerPrune("image", until) },
 		RemoveVolume: func(name string) ([]byte, error) {
 			if said, bad := f.volumeErr[name]; bad {
 				return []byte(said), fmt.Errorf("exit status 1")
@@ -160,6 +180,22 @@ func (f *fixture) deps() Deps {
 
 		Send: f.send,
 	}
+}
+
+func (f *fixture) dockerPrune(what, until string) ([]byte, error) {
+	f.dockerPruned = append(f.dockerPruned, what+" until="+until)
+
+	if said, bad := f.dockerPruneErr[what]; bad {
+		return []byte(said), fmt.Errorf("exit status 1")
+	}
+	return []byte(f.dockerPruneOut[what]), nil
+}
+
+// What docker says the two halves of a prune got back, each in the spelling that half
+// really prints.
+func (f *fixture) reclaims(cache, images string) {
+	f.dockerPruneOut["builder"] = "ID\tRECLAIMABLE\tSIZE\nabc\ttrue\t" + cache + "\nTotal:\t" + cache + "\n"
+	f.dockerPruneOut["image"] = "Deleted Images:\ndeleted: sha256:abc\n\nTotal reclaimed space: " + images + "\n"
 }
 
 func errOf(text string) error {

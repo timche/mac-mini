@@ -47,6 +47,12 @@ type Deps struct {
 	Volumes      func() ([]Volume, error)
 	RemoveVolume func(name string) ([]byte, error)
 
+	// Docker's build cache and the images nothing refers to, by age. Two commands of their
+	// own rather than one `docker system prune`, which takes volumes and networks with it —
+	// and a volume here is somebody's database, swept only by the rule above.
+	PruneBuilder func(until string) ([]byte, error)
+	PruneImages  func(until string) ([]byte, error)
+
 	IsDir   func(path string) bool
 	Exists  func(path string) bool
 	ReadDir func(path string) ([]string, error)
@@ -108,6 +114,11 @@ const (
 	downTimeout   = 180 * time.Second
 	volumeTimeout = 60 * time.Second
 	pruneTimeout  = 30 * time.Second
+
+	// A prune walks every layer and every cache record the daemon has, so it is the one here
+	// whose honest worst case is minutes rather than seconds — and it runs once a day, where
+	// the others run six times an hour.
+	cachePruneTimeout = 180 * time.Second
 )
 
 func realDeps(cfg config.Config) Deps {
@@ -131,6 +142,16 @@ func realDeps(cfg config.Config) Deps {
 		Volumes: volumes,
 		RemoveVolume: func(name string) ([]byte, error) {
 			return run(volumeTimeout, "docker", "volume", "rm", name)
+		},
+
+		PruneBuilder: func(until string) ([]byte, error) {
+			return run(cachePruneTimeout, "docker", "builder", "prune", "--force", "--filter", "until="+until)
+		},
+		// No `-a`, so this is the images nothing refers to by tag and nothing else: a base
+		// image a project still names is one the next build would only pull again, however
+		// long it has been since anybody built with it.
+		PruneImages: func(until string) ([]byte, error) {
+			return run(cachePruneTimeout, "docker", "image", "prune", "--force", "--filter", "until="+until)
 		},
 
 		IsDir: func(path string) bool {

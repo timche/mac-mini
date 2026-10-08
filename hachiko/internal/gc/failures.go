@@ -9,15 +9,16 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
-// The five things a sweep can fail at. Routine cleanup is a log and nothing else — this is
+// The six things a sweep can fail at. Routine cleanup is a log and nothing else — this is
 // what Tim hears about, because every one of them is work left undone that the next sweep
 // will fail at in exactly the same way.
 const (
-	failedDown   = "compose-down"
-	failedVolume = "volume-rm"
-	failedKill   = "kill"
-	failedRemove = "remove"
-	failedPrune  = "git-prune"
+	failedDown        = "compose-down"
+	failedVolume      = "volume-rm"
+	failedKill        = "kill"
+	failedRemove      = "remove"
+	failedPrune       = "git-prune"
+	failedDockerPrune = "prune"
 )
 
 // The labels these messages go under. Here rather than in wording because they are gc's own
@@ -31,6 +32,7 @@ const (
 	labelRepo     = "Repository"
 	labelProcess  = "Process"
 	labelCommand  = "Command"
+	labelPrune    = "Prune"
 	labelSaid     = "What it said"
 	labelSince    = "Failing since"
 )
@@ -66,6 +68,8 @@ func (f Failure) line() string {
 		return fmt.Sprintf("volume %s would not go: %s", safe(f.Subject), f.Detail)
 	case failedKill:
 		return fmt.Sprintf("%s is still there after SIGKILL", safe(f.Subject))
+	case failedDockerPrune:
+		return fmt.Sprintf("docker would not prune its %s: %s", safe(f.Subject), f.Detail)
 	case failedRemove:
 		return fmt.Sprintf("%s could not be removed: %s", safe(f.Subject), f.Detail)
 	default:
@@ -140,7 +144,7 @@ func (s *sweeper) sayCleared(state *State, key string, now time.Time) {
 	}
 
 	message := wording.Lead(wording.MarkerRecovered, clearSentence(rec.Kind)).
-		Field(subjectLabel(rec.Kind), wording.CodeSpan(short(rec.Subject))).
+		Field(subjectLabel(rec.Kind), subjectValue(rec.Kind, rec.Subject)).
 		Field(labelSince, wording.DurationPhrase(now.Sub(time.Unix(rec.Since, 0)))).
 		About("", s.cfg.Host).
 		String()
@@ -167,6 +171,8 @@ func (f Failure) message(host string, since, now time.Time) string {
 		m.Field(labelFolder, wording.CodeSpan(short(f.Subject)))
 	case failedPrune:
 		m.Field(labelRepo, wording.CodeSpan(short(f.Subject)))
+	case failedDockerPrune:
+		m.Field(labelPrune, subjectValue(f.Kind, f.Subject))
 	}
 
 	if f.Worktree != "" {
@@ -201,6 +207,9 @@ func (f Failure) action() string {
 	case f.Kind == failedPrune:
 		return "**Needs you:** run " + wording.CodeSpan("git worktree prune -v") +
 			" in the repository named above and see what it says."
+	case f.Kind == failedDockerPrune:
+		return "**You can run:** " + wording.CodeSpan(f.Label) +
+			" — the sweep tries it again at its next daily prune, and nothing but disk is at stake."
 	default:
 		return "**Needs you:** the folder above is a finished session's scratch and nothing " +
 			"is using it. The sweep tries again every ten minutes."
@@ -221,6 +230,8 @@ func failSentence(kind string) string {
 		return "A process in a removed worktree survived SIGKILL"
 	case failedRemove:
 		return "A finished session's scratch folder would not go"
+	case failedDockerPrune:
+		return "Docker would not prune what nothing is using"
 	default:
 		return "A repository's worktree entries would not prune"
 	}
@@ -236,9 +247,21 @@ func clearSentence(kind string) string {
 		return "The process in a removed worktree is gone now"
 	case failedRemove:
 		return "The scratch folder that would not go is gone now"
+	case failedDockerPrune:
+		return "Docker prunes what nothing is using again"
 	default:
 		return "A repository's worktree entries prune cleanly again"
 	}
+}
+
+// A subject that is a name docker or git chose reads as code, because it is one. The prune's
+// is two words of this file's own, and code-spanning prose is how a message stops reading
+// like a message.
+func subjectValue(kind, subject string) string {
+	if kind == failedDockerPrune {
+		return wording.PlainWords(short(subject))
+	}
+	return wording.CodeSpan(short(subject))
 }
 
 func subjectLabel(kind string) string {
@@ -251,6 +274,8 @@ func subjectLabel(kind string) string {
 		return labelProcess
 	case failedRemove:
 		return labelFolder
+	case failedDockerPrune:
+		return labelPrune
 	default:
 		return labelRepo
 	}

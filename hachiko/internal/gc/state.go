@@ -25,6 +25,11 @@ type State struct {
 	// What has already been said about a failure, so one that persists is one message
 	// rather than six an hour, and one that clears is a line saying so.
 	Posted map[string]Posted `json:"posted,omitempty"`
+
+	// When docker's build cache and dangling images were last pruned, which is the one thing
+	// here measured in days rather than in whether a folder is gone. Remembered because the
+	// sweep runs six times an hour and the prune is worth once a day.
+	Pruned int64 `json:"pruned,omitempty"`
 }
 
 type Project struct {

@@ -102,6 +102,16 @@ type Config struct {
 	// sweeping. Six intervals of the sweep's own ten minutes.
 	GCStaleAfter time.Duration
 
+	// How often the sweep prunes docker's build cache and the images nothing references, and
+	// how old docker's own `until` filter has to find one of them — passed to docker as
+	// written, since the format is its to decide. The one thing the sweep takes that no
+	// removed worktree left behind: a week of builds is layers nothing refers to and buildkit
+	// cache nothing will reuse, and neither goes when a worktree does. A day apart because
+	// the first prune of a day reclaims what the ones after it would have, and a week of age
+	// because a layer from this morning is one today's build is about to want.
+	GCPruneEvery time.Duration
+	GCPruneAge   string
+
 	// The repositories `hachiko sync` keeps upstream, and the plist of the agent that does
 	// it. Its own state directory for the reason gc's is its own: what sync remembers about
 	// a paused repository and a failure it has posted is nothing the five-minute check reads
@@ -254,6 +264,8 @@ func FromEnv() Config {
 			filepath.Join(home, "Library", "LaunchAgents", "io.github.timche.hachiko-gc.plist")),
 		GCProjectsRoot: envString("HACHIKO_GC_PROJECTS", projects),
 		GCStaleAfter:   time.Duration(envInt64("HACHIKO_GC_STALE", 3600)) * time.Second,
+		GCPruneEvery:   time.Duration(envInt64("HACHIKO_GC_PRUNE_EVERY", 86400)) * time.Second,
+		GCPruneAge:     envString("HACHIKO_GC_PRUNE_AGE", "168h"),
 
 		SyncConfig: envString("HACHIKO_SYNC_CONFIG",
 			filepath.Join(home, ".config", "hachiko", "sync")),

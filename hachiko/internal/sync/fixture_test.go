@@ -128,7 +128,7 @@ func (f *fixture) git(dir string, args ...string) Output {
 		return ok(t.head + "\n")
 	case "rev-parse @{upstream}":
 		return ok(t.upstream + "\n")
-	case "status --porcelain=v1 -z":
+	case "--no-optional-locks status --porcelain=v1 -z":
 		return ok(t.status)
 	case "log --oneline @{upstream}..HEAD":
 		if t.noUpstream {

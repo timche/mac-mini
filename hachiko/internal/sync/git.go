@@ -84,9 +84,10 @@ func (g gitRepo) hasUpstream() bool {
 
 // What the poll reads, and the whole of what says a tree has changed: the porcelain format
 // is the one git promises not to move, and `v1` says which of them even when a later git
-// changes the default.
+// changes the default. Without the optional lock, because a read every second that refreshes
+// the index would also hold index.lock against whatever else is running git in the tree.
 func (g gitRepo) status() string {
-	out := g.run("status", "--porcelain=v1", "-z")
+	out := g.run("--no-optional-locks", "status", "--porcelain=v1", "-z")
 	if !out.OK {
 		return ""
 	}

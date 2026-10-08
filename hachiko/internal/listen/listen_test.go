@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base32"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/discord"
 	"github.com/timche/mac-mini/hachiko/internal/harness"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
+	"github.com/timche/mac-mini/hachiko/internal/self"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/totp"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
@@ -114,6 +116,9 @@ func newListener(t *testing.T) *listenFixture {
 		now:    now,
 		log:    logs.Logger{Out: f.log, Now: now},
 		secret: approvalSecret,
+		// Taken out, the way the bot's own is: a test of the poll is about what it does
+		// between passes rather than about five real seconds of waiting.
+		sleep: func(time.Duration) {},
 	}
 
 	// The thread the sweep recorded for the incident, which is the only thing the listener
@@ -531,4 +536,32 @@ func botAgainst(t *testing.T, handler http.HandlerFunc) discord.Bot {
 		Now:    time.Now,
 		Sleep:  func(time.Duration) {},
 	}
+}
+
+// The listener has no interval of its own, so without this nothing would run an edit to it
+// until the Mac restarted. Its agent restarts on any exit, so what matters is where the
+// exit falls: a pass that has taken a reply off Discord has already marked it seen, and one
+// abandoned halfway through would drop the reply it was in the middle of handing over.
+func TestAListenerExitsBetweenPassesForABinaryTheWrapperHasReplaced(t *testing.T) {
+	f := newListener(t)
+	f.says("300000000000000001", "2")
+
+	passes, looks := 0, 0
+	f.l.sleep = func(time.Duration) { passes++ }
+
+	// The build lands while the listener is in a pass, which is where a real one always
+	// lands: the wrapper moves it in as soon as its sources have changed.
+	err := f.l.poll(self.Looking(func() (self.ID, bool) {
+		if looks++; looks > 2 {
+			return self.ID{Inode: 2}, true
+		}
+		return self.ID{Inode: 1}, true
+	}))
+
+	harness.Equal(t, errors.Is(err, self.ErrReplaced), true, "why the listener exited")
+
+	// One wait, so two passes: the one that handed the reply over and the one after it that
+	// found the binary moved. The reply had already reached the agent when it exited.
+	harness.Equal(t, passes, 1, "passes the listener waited between")
+	harness.Wants(t, f.log.String(), "was handed to the on-call session")
 }

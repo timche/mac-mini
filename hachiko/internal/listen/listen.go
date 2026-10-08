@@ -26,6 +26,7 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/discord"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
 	"github.com/timche/mac-mini/hachiko/internal/oncall"
+	"github.com/timche/mac-mini/hachiko/internal/self"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/totp"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
@@ -101,13 +102,31 @@ func WithToken(cfg config.Config) error {
 		now:    config.ClockFromEnv(),
 		log:    log,
 		secret: strings.TrimSpace(os.Getenv("HACHIKO_APPROVAL_TOTP")),
+		sleep:  time.Sleep,
 	}
 
 	sayOnce(store, log, "listening-"+cfg.Discord.UserID,
 		"listening to the incident threads in Discord for a reply from "+cfg.Discord.UserID)
+	return l.poll(self.Looking(self.Stat))
+}
+
+// The poll, which is the job. It returns only when the wrapper has built a new binary
+// behind this process: the agent has no interval of its own, so nothing would otherwise run
+// an edit to the listener until the Mac restarted, and a reply read by code from this
+// morning is a reply handed to the session by rules that have since changed.
+//
+// The question is asked between passes and never inside one. A pass that has taken a reply
+// off Discord has already marked it seen, so a process that stopped halfway through one
+// would drop the reply it was in the middle of handing over and nothing would read it again.
+// At five seconds a pass, that costs the new binary one pass of latency.
+func (l *listener) poll(binary *self.Watch) error {
 	for {
 		l.once()
-		time.Sleep(listenPoll)
+
+		if binary.Replaced() {
+			return self.ErrReplaced
+		}
+		l.sleep(listenPoll)
 	}
 }
 
@@ -135,6 +154,7 @@ type listener struct {
 	herdr oncall.Runner
 	now   func() time.Time
 	log   interface{ Say(string, ...any) }
+	sleep func(d time.Duration)
 
 	// The otpauth URI or base32 as 1Password handed it over, decoded only when a code
 	// actually arrives. Never given to the agent, never logged, and never in an argument.

@@ -27,15 +27,22 @@
     <string>export PATH="$HOME/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"; exec "$HOME/.local/bin/hachiko" listen &gt;&gt;"$HOME/Library/Logs/hachiko-listen.log" 2&gt;&amp;1</string>
   </array>
   <!-- Unconditional, because the poll is the job: a listener that exited and stayed
-       exited is a reply nobody ever reads. It also exits on purpose when nothing is
-       configured, and the throttle below is what makes that cost nothing. -->
+       exited is a reply nobody ever reads. It exits on purpose twice over — when nothing
+       is configured, and when the wrapper has built a new binary behind it — and neither
+       of those is a failure, so SuccessfulExit would leave the agent stopped on both.
+       The exit status is only there to say in the log which of them it was. -->
   <key>KeepAlive</key>
   <true/>
   <key>RunAtLoad</key>
   <true/>
   <!-- Five minutes, which is how often an unconfigured listener re-checks whether it
        has a channel and a token yet. launchd's own default is ten seconds, which
-       would be six starts a minute for as long as the feature is off. -->
+       would be six starts a minute for as long as the feature is off.
+
+       It is measured from one start to the next, not from the exit, so a listener that
+       has been up longer than this — which a configured one always has — is restarted at
+       once when it exits for a new binary. Only a replacement inside the first five
+       minutes waits, for the remainder, which is why the watch gives the heartbeat ten. -->
   <key>ThrottleInterval</key>
   <integer>300</integer>
 </dict>

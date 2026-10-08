@@ -120,6 +120,28 @@ func TestAMessageAboutTheSweepThatDidNotSendIsSaidAgain(t *testing.T) {
 	harness.Equal(t, f.sentCount(), 1, "messages sent")
 }
 
+// An agent removed while the watch had an alert open on it. Silence under a ⚠️ is the one
+// thing this watch never leaves: without this the last word in the thread is a warning about
+// an agent that has since ceased to exist.
+func TestASweepAgentRemovedWhileAlertedGetsOneLastLine(t *testing.T) {
+	f := gcFixture(t)
+	f.threads = true
+	f.at(7800).sweep()
+	harness.Equal(t, f.sentCount(), 1, "messages sent")
+
+	f.gcInstalled = false
+	out := f.at(8100).sweep()
+
+	harness.Wants(t, out, "the worktree sweep is no longer installed, so nothing further is said about it")
+	harness.Equal(t, f.sentCount(), 2, "messages sent")
+	harness.Wants(t, f.lastSent(), "ℹ️ The worktree sweep is no longer installed")
+	harness.Equal(t, f.sentTo[1], "thread-io.github.timche.hachiko-gc", "where the last line went")
+
+	// And nothing further, as it says.
+	harness.Equal(t, f.at(8400).sweep(), "", "the log of the check after that")
+	harness.Equal(t, len(f.state().Agents), 0, "what is left open about any agent")
+}
+
 func TestADryRunSaysWhatItWouldReportAboutTheSweep(t *testing.T) {
 	f := gcFixture(t)
 

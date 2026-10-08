@@ -61,6 +61,17 @@ func cappedLogs(cfg config.Config) []cappedLog {
 	}
 }
 
+// The same list for anything that only wants to know which paths are bounded: `hachiko
+// status` prints each one's size against the cap, and a second list there would be a screen
+// that leaves out the log the drift is in.
+func CappedLogPaths(cfg config.Config) []string {
+	paths := make([]string, 0, len(cappedLogs(cfg)))
+	for _, log := range cappedLogs(cfg) {
+		paths = append(paths, log.path)
+	}
+	return paths
+}
+
 // One stat per file, which is the whole cost on a Mac with nothing to cap — every sweep but
 // a handful. No Discord either way: a log this bounds is hygiene rather than news, and a
 // message every time herdr's log filled would be a message nobody can act on.

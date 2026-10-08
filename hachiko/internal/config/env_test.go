@@ -31,6 +31,24 @@ func TestTheListenerDefaults(t *testing.T) {
 		"where the listener's heartbeat goes")
 }
 
+// The watch's own agent, which nothing on this Mac checks the liveness of: these two are
+// what `hachiko status` says is loaded, so a label spelled by hand rather than from the plist
+// would be a screen reporting on an agent that does not exist.
+func TestTheWatchsOwnAgent(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	cfg := FromEnv()
+
+	harness.Equal(t, cfg.WatchPlist,
+		filepath.Join(home, "Library", "LaunchAgents", "io.github.timche.hachiko.plist"),
+		"the watch's own plist")
+	harness.Equal(t, cfg.WatchLabel(), "io.github.timche.hachiko", "the watch's own label")
+
+	t.Setenv("HACHIKO_PLIST", "/somewhere/else.plist")
+	harness.Equal(t, FromEnv().WatchLabel(), "else", "the label a knob set")
+}
+
 // Ten megabytes, which is weeks of a quiet agent's lines and, two generations of every log
 // on the list over, a rounding error against the volume the same check counts free space on.
 func TestTheLogCapDefault(t *testing.T) {

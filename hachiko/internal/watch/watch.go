@@ -32,7 +32,7 @@ func Run(cfg config.Config, dry bool) error {
 }
 
 func TestAlert(cfg config.Config) error {
-	free, err := freeKB(cfg.Home)
+	free, err := FreeKB(cfg.Home)
 	if err != nil {
 		return err
 	}

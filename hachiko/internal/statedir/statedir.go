@@ -291,7 +291,10 @@ func SortedKeys[V any](m map[string]V) []string {
 
 type Store struct{ Dir string }
 
-func (st Store) path() string { return filepath.Join(st.Dir, "state.json") }
+// Path is the state file itself. Exported because the end of every sweep is a write to it,
+// which makes its modification time the one record of when the watch last finished a check —
+// there being nothing on this Mac that checks the watch's own liveness.
+func (st Store) Path() string { return filepath.Join(st.Dir, "state.json") }
 
 // A state file that cannot be read is a sweep that starts over rather than one that
 // stops: a corrupt sample costs one interval of history, a refusal costs every
@@ -302,7 +305,7 @@ var ErrCorrupt = errors.New("the state file could not be read, so this check mea
 func (st Store) Load() (*State, error) {
 	state := &State{}
 
-	data, err := os.ReadFile(st.path())
+	data, err := os.ReadFile(st.Path())
 	if errors.Is(err, os.ErrNotExist) {
 		return state, nil
 	}
@@ -342,7 +345,7 @@ func (st Store) Save(state *State) error {
 		os.Remove(name)
 		return err
 	}
-	return os.Rename(name, st.path())
+	return os.Rename(name, st.Path())
 }
 
 // mkdir rather than flock, which macOS does not have. A lock older than the interval

@@ -79,6 +79,12 @@ type Config struct {
 
 	StateDir string
 
+	// The plist of the agent that runs the five-minute check itself. Nothing on this Mac reads
+	// its liveness — a watch cannot notice itself not running, which is what shibuya is for —
+	// so this is here for `hachiko status`, which says whether the agent is loaded and when
+	// its last check finished.
+	WatchPlist string
+
 	// The sweep that follows a removed worktree, which keeps all of its own: a state
 	// directory, a lock beside it rather than the watch's, and the plist of the agent that
 	// runs it. Each of the two holds its lock across minutes of work, so a gc waiting on the
@@ -138,6 +144,13 @@ type Config struct {
 // so a check with the thresholds turned down reads as the numbers it was given.
 func (c Config) LowGB() int64      { return c.LowKB / GiB }
 func (c Config) CriticalGB() int64 { return c.CriticalKB / GiB }
+
+// The label of the agent that runs the check itself, spelled from its own plist's name for
+// the reason the three below are: a status screen may not name an agent other than the one
+// whose plist it looked for.
+func (c Config) WatchLabel() string {
+	return strings.TrimSuffix(filepath.Base(c.WatchPlist), ".plist")
+}
 
 // Where the sweep writes the time it last finished, and the label of the agent that runs
 // it. Both derived rather than configured, so the stamp the sweep writes and the stamp the
@@ -232,6 +245,8 @@ func FromEnv() Config {
 			filepath.Join(home, ".config", "hachiko", "shibuya-token")),
 
 		StateDir: envString("HACHIKO_STATE_DIR", filepath.Join(cache, "hachiko")),
+		WatchPlist: envString("HACHIKO_PLIST",
+			filepath.Join(home, "Library", "LaunchAgents", "io.github.timche.hachiko.plist")),
 
 		GCStateDir: envString("HACHIKO_GC_STATE_DIR", filepath.Join(cache, "hachiko-gc")),
 		GCLock:     envString("HACHIKO_GC_LOCK", filepath.Join(cache, "hachiko-gc.lock")),

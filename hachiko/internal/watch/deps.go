@@ -15,6 +15,7 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/oncall"
 	"github.com/timche/mac-mini/hachiko/internal/process"
 	"github.com/timche/mac-mini/hachiko/internal/shibuya"
+	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -105,7 +106,7 @@ func realDeps(cfg config.Config) Deps {
 		Getpid: os.Getpid,
 		Getuid: os.Getuid,
 
-		FreeKB: func() (int64, error) { return freeKB(cfg.Home) },
+		FreeKB: func() (int64, error) { return FreeKB(cfg.Home) },
 		BigFiles: func(skip []string) WalkResult {
 			return Walk{
 				Roots:  cfg.Roots(),
@@ -152,12 +153,27 @@ func realDeps(cfg config.Config) Deps {
 // What df reads, without a df: statfs answers for the volume a path is on, in the
 // blocks available to somebody who is not root, which is the number that decides
 // whether a build has room.
-func freeKB(path string) (int64, error) {
+func FreeKB(path string) (int64, error) {
 	var fs syscall.Statfs_t
 	if err := syscall.Statfs(path, &fs); err != nil {
 		return 0, fmt.Errorf("statfs %s: %w", path, err)
 	}
 	return int64(fs.Bavail) * int64(fs.Bsize) / 1024, nil
+}
+
+// The nearest thing the watch has to a stamp of its own: the state file it writes at the end
+// of every check. Nothing here reads it — a watch cannot tell whether it is running, which is
+// shibuya's half of this — and `hachiko status` is what it is for, so there is no falling back
+// to the plist's modification time: a time that is not a check's would read as one.
+func watchLastRun(cfg config.Config) (time.Time, bool) {
+	if _, err := os.Stat(cfg.WatchPlist); err != nil {
+		return time.Time{}, false
+	}
+	state, err := os.Stat(statedir.Store{Dir: cfg.StateDir}.Path())
+	if err != nil {
+		return time.Time{}, false
+	}
+	return state.ModTime(), true
 }
 
 // The stamp's modification time, or the plist's where there is no stamp yet. The plist is

@@ -277,7 +277,7 @@ func (f *fixture) deps() Deps {
 
 		SyncLastBeat:  func() (time.Time, bool) { return f.lastBeat(), f.syncInstalled },
 		SyncRepos:     func() []SyncRepo { return f.syncRepos },
-		SyncRepoState: func(path string) SyncRepoState { return f.syncState[path] },
+		SyncRepoState: func(repo SyncRepo) SyncRepoState { return f.syncState[repo.Path] },
 
 		ListenLastBeat: func() (time.Time, bool) { return f.lastListenBeat(), f.listenBeating },
 

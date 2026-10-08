@@ -155,6 +155,11 @@ func (f *fixture) repo(path string, state RepoState) {
 	f.trees[filepath.Join(f.cfg.Home, path)] = state
 }
 
+func (f *fixture) limited(path string, state RepoState, paths ...string) {
+	f.repo(path, state)
+	f.repos[len(f.repos)-1].Paths = paths
+}
+
 func (f *fixture) log(name string, kb int64) {
 	f.logs = append(f.logs, Log{
 		Path: filepath.Join(f.cfg.Home, "Library", "Logs", name),

@@ -50,7 +50,7 @@ type Deps struct {
 	// about each one.
 	SyncLastBeat  func() (time.Time, bool)
 	SyncRepos     func() []SyncRepo
-	SyncRepoState func(path string) SyncRepoState
+	SyncRepoState func(repo SyncRepo) SyncRepoState
 
 	// And the same for `hachiko listen`, which writes a heartbeat only once it is configured:
 	// answering from Discord is off unless Tim has configured it, and an unanswered reply on a
@@ -237,7 +237,7 @@ func syncRepos(cfg config.Config) []SyncRepo {
 
 	repos := make([]SyncRepo, 0, len(loaded.Repos))
 	for _, repo := range loaded.Repos {
-		repos = append(repos, SyncRepo{Path: repo.Path, PushDelay: repo.PushDelay})
+		repos = append(repos, SyncRepo{Path: repo.Path, PushDelay: repo.PushDelay, Paths: repo.Paths})
 	}
 	return repos
 }
@@ -250,9 +250,17 @@ func syncRepos(cfg config.Config) []SyncRepo {
 // index and takes `index.lock` to do it, and these are the repositories `hachiko sync` is
 // committing in while this runs. The check that asks whether sync is falling behind may not be
 // what makes it fail.
-func syncRepoState(path string) SyncRepoState {
-	status, err := process.Run(gitTimeout, "git", "--no-optional-locks", "-C", path,
-		"status", "--porcelain=v1")
+// Both commands carry the repository's pathspec, so what is read is the tree sync writes and
+// nothing else: a limited repository's other files are a session's, and neither a change left
+// uncommitted in one nor a commit of one left unpushed is sync falling behind.
+func syncRepoState(repo SyncRepo) SyncRepoState {
+	limit := config.Pathspec(repo.Paths)
+	git := func(args ...string) ([]byte, error) {
+		args = append([]string{"--no-optional-locks", "-C", repo.Path}, args...)
+		return process.Run(gitTimeout, "git", append(args, limit...)...)
+	}
+
+	status, err := git("status", "--porcelain=v1")
 	if err != nil {
 		return SyncRepoState{}
 	}
@@ -260,8 +268,7 @@ func syncRepoState(path string) SyncRepoState {
 	state := SyncRepoState{Read: true, Dirty: len(strings.TrimSpace(string(status))) > 0}
 
 	// A branch with no upstream has nothing to be late against, and git says so by failing.
-	stamps, err := process.Run(gitTimeout, "git", "--no-optional-locks", "-C", path,
-		"log", "--format=%ct", "@{upstream}..HEAD")
+	stamps, err := git("log", "--format=%ct", "@{upstream}..HEAD")
 	if err != nil {
 		return state
 	}

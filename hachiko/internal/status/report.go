@@ -214,16 +214,26 @@ func (s screen) repos(now time.Time) *table {
 	for _, repo := range repos {
 		state := s.deps.RepoState(repo)
 		if !state.Read {
-			rows.add(plain(s.tilde(repo.Path)), wrong(state.Trouble))
+			rows.add(plain(repoName(s, repo)), wrong(state.Trouble))
 			continue
 		}
-		rows.add(plain(s.tilde(repo.Path)), tree(state), s.unpushed(repo, state, now), paused(state, now))
+		rows.add(plain(repoName(s, repo)), tree(state), s.unpushed(repo, state, now), paused(state, now))
 	}
 
 	if rows.empty() {
 		rows.add(plain("no repository is configured"))
 	}
 	return rows
+}
+
+// The repository, and the paths inside it sync is limited to where it is limited to any: the
+// word every other cell in the row is to be read under, since each of them is measured within
+// those paths and nowhere else in the checkout.
+func repoName(s screen, repo Repo) string {
+	if len(repo.Paths) == 0 {
+		return s.tilde(repo.Path)
+	}
+	return fmt.Sprintf("%s (%s only)", s.tilde(repo.Path), strings.Join(repo.Paths, ", "))
 }
 
 // A dirty tree is what every repository here looks like for the seconds between a write and

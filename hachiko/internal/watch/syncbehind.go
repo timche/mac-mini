@@ -21,6 +21,12 @@ const (
 type SyncRepo struct {
 	Path      string
 	PushDelay time.Duration
+
+	// The paths sync is limited to in this repository, or none for the whole of it. Read
+	// along with the rest, because what is not sync's to commit is not sync's to be behind
+	// on either: a session's own work left uncommitted for a day in the same tree is not a
+	// sync that has stopped.
+	Paths []string
 }
 
 // What git says about one of them. Read says whether git answered at all — a repository
@@ -51,7 +57,7 @@ func (s sweeper) syncRepos(state *statedir.State, now time.Time) {
 	going := map[string]time.Duration{}
 
 	for _, repo := range s.deps.SyncRepos() {
-		read := s.deps.SyncRepoState(repo.Path)
+		read := s.deps.SyncRepoState(repo)
 		if !read.Read {
 			continue
 		}

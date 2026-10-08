@@ -40,6 +40,11 @@ type Job struct {
 type Repo struct {
 	Path      string
 	PushDelay time.Duration
+
+	// The paths sync is limited to, or none for the whole repository. The row says which
+	// they are, since every reading beside it is taken within them: a tree called clean is
+	// clean inside those paths, with a session's work in the same checkout left out of it.
+	Paths []string
 }
 
 // What git and sync's own state say about one of them. Read says whether git answered at
@@ -164,7 +169,7 @@ func repos(cfg config.Config) ([]Repo, error) {
 
 	out := make([]Repo, 0, len(loaded.Repos))
 	for _, repo := range loaded.Repos {
-		out = append(out, Repo{Path: repo.Path, PushDelay: repo.PushDelay})
+		out = append(out, Repo{Path: repo.Path, PushDelay: repo.PushDelay, Paths: repo.Paths})
 	}
 	return out, nil
 }
@@ -177,9 +182,17 @@ func repos(cfg config.Config) ([]Repo, error) {
 // refreshes the index and takes `index.lock` to do it, and the repositories this reads are the
 // ones `hachiko sync` is committing in. A screen somebody opened to see whether sync is
 // working may not be the reason a sync fails.
+// Both commands carry the repository's pathspec, the same one sync's own and the watch's
+// carry: a reading taken over the whole of a limited repository would be a screen reporting
+// a session's work in progress as sync falling behind.
 func repoState(cfg config.Config, repo Repo) RepoState {
-	status, err := process.Run(gitTimeout, "git", "--no-optional-locks", "-C", repo.Path,
-		"status", "--porcelain=v1")
+	limit := config.Pathspec(repo.Paths)
+	git := func(args ...string) ([]byte, error) {
+		args = append([]string{"--no-optional-locks", "-C", repo.Path}, args...)
+		return process.Run(gitTimeout, "git", append(args, limit...)...)
+	}
+
+	status, err := git("status", "--porcelain=v1")
 	if err != nil {
 		return RepoState{Trouble: "git would not say what is in it"}
 	}
@@ -191,8 +204,7 @@ func repoState(cfg config.Config, repo Repo) RepoState {
 	}
 
 	// A branch with no upstream has nothing to be behind, and git says so by failing.
-	stamps, err := process.Run(gitTimeout, "git", "--no-optional-locks", "-C", repo.Path,
-		"log", "--format=%ct", "@{upstream}..HEAD")
+	stamps, err := git("log", "--format=%ct", "@{upstream}..HEAD")
 	if err != nil {
 		return state
 	}

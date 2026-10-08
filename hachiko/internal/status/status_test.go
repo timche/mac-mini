@@ -218,6 +218,18 @@ func TestARepositorySyncIsKeepingUpstreamReadsAsGitHasItNow(t *testing.T) {
 	harness.Wants(t, f.row("Sync", "~/projects/other"), "dirty  2 commits unpushed, oldest 12 minutes old")
 }
 
+// A limited repository says which paths it is limited to, since that is the word every other
+// cell in the row has to be read under: the tree is clean inside those paths, and a session's
+// own work in the same checkout is none of this screen's business.
+func TestARepositorySyncedByPathsSaysWhichOnes(t *testing.T) {
+	f := newFixture(t)
+	f.repo("projects/docs", RepoState{Read: true})
+	f.limited(".mac-mini", RepoState{Read: true}, "home/.claude")
+
+	harness.Wants(t, f.row("Sync", "~/.mac-mini"), "~/.mac-mini (home/.claude only)  clean")
+	harness.Lacks(t, f.row("Sync", "~/projects/docs"), "only")
+}
+
 // Late by the watch's own rule — the delay the repository was given plus the slack the watch
 // allows on top of it — so one commit cannot be late on the screen and waiting in the alert.
 func TestACommitPastThePushDelayAndTheWatchsSlackIsColoured(t *testing.T) {

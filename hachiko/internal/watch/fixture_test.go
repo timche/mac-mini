@@ -26,10 +26,14 @@ import (
 // or does is a function on the fixture, so nothing here reads the real disk, samples
 // the real processes, asks 1Password for anything or reaches the network.
 const (
-	mb      = int64(1024)
-	bigKB   = 1024
-	growKB  = 2048
-	oneCore = 300.0
+	mb     = int64(1024)
+	bigKB  = 1024
+	growKB = 2048
+
+	// A megabyte, so a log a test caps is one it can write in a moment and the message about
+	// it still reads in the unit a real one is measured in.
+	logCapKB = 1024
+	oneCore  = 300.0
 
 	// The account hachiko runs as, and one that is nobody's but macOS's.
 	accountUID = 501
@@ -166,6 +170,7 @@ func newFixture(t *testing.T) *fixture {
 		DirTimeout:  3 * time.Second,
 		WalkTimeout: time.Minute,
 		StallRetry:  time.Hour,
+		LogCapKB:    logCapKB,
 
 		Home:         home,
 		MachineDir:   filepath.Join(home, ".mac-mini"),

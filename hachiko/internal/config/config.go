@@ -43,6 +43,12 @@ type Config struct {
 	// How long a directory that would not answer stays skipped before it is tried again.
 	StallRetry time.Duration
 
+	// How big one of this machine's own logs may get before the watch caps it, keeping one
+	// previous generation. Ten megabytes: weeks of a quiet agent's lines, and two
+	// generations of every log on the list together are a rounding error against the volume
+	// the same check is counting free space on.
+	LogCapKB int64
+
 	Home         string
 	MachineDir   string
 	TmpRoot      string
@@ -205,6 +211,7 @@ func FromEnv() Config {
 		DirTimeout:  time.Duration(envInt64("HACHIKO_DIR_TIMEOUT", 3)) * time.Second,
 		WalkTimeout: time.Duration(envInt64("HACHIKO_WALK_TIMEOUT", 60)) * time.Second,
 		StallRetry:  time.Duration(envInt64("HACHIKO_STALL_RETRY", 3600)) * time.Second,
+		LogCapKB:    envInt64("HACHIKO_LOG_CAP_KB", 10*1024),
 
 		Home:         home,
 		MachineDir:   machineDir,

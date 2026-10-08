@@ -31,6 +31,17 @@ func TestTheListenerDefaults(t *testing.T) {
 		"where the listener's heartbeat goes")
 }
 
+// Ten megabytes, which is weeks of a quiet agent's lines and, two generations of every log
+// on the list over, a rounding error against the volume the same check counts free space on.
+func TestTheLogCapDefault(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	harness.Equal(t, FromEnv().LogCapKB, int64(10*1024), "how big one of the machine's logs may get")
+
+	t.Setenv("HACHIKO_LOG_CAP_KB", "64")
+	harness.Equal(t, FromEnv().LogCapKB, int64(64), "the log cap a knob set")
+}
+
 func TestAKnobOverridesItsDefault(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("HACHIKO_LISTEN_STALE", "120")

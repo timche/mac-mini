@@ -687,6 +687,31 @@ check "the sweep that hachiko gc replaced is gone, and install.sh takes it back"
    grep -q "rm \"\$old_gc_link\"" "$repo/install.sh" &&
    [ ! -e "$HOME/.local/bin/worktree-gc" ]'
 
+# The logs the watch caps are one list of exact paths, and how each is capped depends on
+# whether its writer holds the descriptor or reopens the path. The Go tests run that list
+# against a temp folder, so what is left for here is that the names are the ones the plists
+# and wrappers in this checkout actually write: a cap aimed at a log nothing writes is a cap
+# that never fires, and a log nothing caps is the drift this exists to stop.
+check "every log the watch caps is one this machine's own agents write" \
+  'cap="$repo/hachiko/internal/watch/logcap.go" &&
+   for name in herdr.log hachiko.log hachiko-gc.log hachiko-sync.log hachiko-listen.log; do
+     grep -qF "under(\"$name\")" "$cap" || exit 1
+     grep -rqF "Library/Logs/$name" "$repo/home/Library/LaunchAgents/" || exit 1
+   done &&
+   grep -qF "under(\"ssh-agent.log\")" "$cap" &&
+   grep -qF "Library/Logs/ssh-agent.log" "$repo/launchd/agent.sh"'
+
+# The one that is renamed rather than copied, because launchd opens it itself once per run
+# of a job that exits between them. Everything else on the list is held open for the life of
+# the Mac — or is the capping sweep's own stdout — where a rename leaves the writer appending
+# to the archive and the empty file at the path never grows enough to be capped again.
+check "only the log launchd reopens every run is capped by a rename" \
+  'cap="$repo/hachiko/internal/watch/logcap.go" &&
+   [ "$(grep -c "how: capRename" "$cap")" = 1 ] &&
+   grep -qF "{path: under(\"hachiko-gc.log\"), how: capRename}" "$cap" &&
+   plutil -extract StandardOutPath raw -o - "$gc_plist" |
+     grep -qF "Library/Logs/hachiko-gc.log"'
+
 # The sweep writes a stamp at the end of every run it finishes, and the watch reads
 # its age: a sweep that has stopped is the one thing about gc nothing on this Mac
 # could otherwise notice. The plist being there is what makes the watch look at all,

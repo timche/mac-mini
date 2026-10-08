@@ -49,11 +49,18 @@ func (s *sweeper) prune(state *State, now time.Time) {
 		return
 	}
 
-	// Written down before either command runs, so a prune that is killed halfway or that takes
-	// its timeout twice is still a prune that was tried today. A docker that fails every one of
-	// them would otherwise be two subprocesses every ten minutes for as long as it keeps
+	// Written to the state file before either command runs, and not left to the save at the end
+	// of the sweep: these two are the longest-running thing here, and a sweep killed or timed
+	// out between them is exactly the sweep that never reaches that save. A docker that fails
+	// every prune would otherwise be two subprocesses every ten minutes for as long as it keeps
 	// failing, which is the thing the day between them exists to stop.
+	//
+	// A save that fails is said and the prune goes ahead: the cost of that is pruning again in
+	// ten minutes, and not pruning at all because a file could not be written is worse.
 	state.Pruned = now.Unix()
+	if err := s.store.Save(state); err != nil {
+		s.say("the time of this prune could not be written, so the next sweep may prune again: %v", err)
+	}
 
 	cache, cacheErr := s.deps.PruneBuilder(s.cfg.GCPruneAge)
 	if cacheErr != nil {

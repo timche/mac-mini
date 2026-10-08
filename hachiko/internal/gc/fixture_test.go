@@ -66,6 +66,10 @@ type fixture struct {
 	dockerPruneOut map[string]string
 	dockerPruneErr map[string]string
 
+	// Run from inside the prune, which is the only moment a test can see what the sweep had
+	// written down before the long-running half of it started.
+	whilePruning func()
+
 	gitUp    bool
 	pruned   []string
 	pruneOut map[string]string
@@ -184,6 +188,10 @@ func (f *fixture) deps() Deps {
 
 func (f *fixture) dockerPrune(what, until string) ([]byte, error) {
 	f.dockerPruned = append(f.dockerPruned, what+" until="+until)
+
+	if f.whilePruning != nil {
+		f.whilePruning()
+	}
 
 	if said, bad := f.dockerPruneErr[what]; bad {
 		return []byte(said), fmt.Errorf("exit status 1")

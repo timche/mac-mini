@@ -121,6 +121,20 @@ func TestAPruneThatFailsIsOneMessageUntilAPruneWorks(t *testing.T) {
 	harness.Equal(t, len(f.state().Posted), 0, "the failures still open after a prune worked")
 }
 
+// In the state file before the commands run rather than at the end of the sweep: the two
+// prunes are the longest-running thing here, and a sweep killed or timed out between them is
+// exactly the sweep that never reaches that save — and would prune again ten minutes later.
+func TestTheTimeOfAPruneIsSavedBeforeThePruneRuns(t *testing.T) {
+	f := newFixture(t)
+
+	written := int64(-1)
+	f.whilePruning = func() { written = f.state().Pruned }
+
+	f.sweep()
+
+	harness.Equal(t, written, base.Unix(), "the time the state file held while the prune was running")
+}
+
 // `docker image prune` prints "Total reclaimed space:" and buildkit's own prune prints
 // "Total:" and a tab. Which of them a docker version prints is not something to depend on, so
 // both are read — and a prune that printed neither is said to have printed nothing.

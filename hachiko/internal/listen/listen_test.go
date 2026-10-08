@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -564,4 +565,59 @@ func TestAListenerExitsBetweenPassesForABinaryTheWrapperHasReplaced(t *testing.T
 	// found the binary moved. The reply had already reached the agent when it exited.
 	harness.Equal(t, passes, 1, "passes the listener waited between")
 	harness.Wants(t, f.log.String(), "was handed to the on-call session")
+}
+
+// What the five-minute check reads to tell a listener that has stopped from one that is
+// answering, since the listener reports nothing it manages itself.
+func TestAPollingListenerWritesAHeartbeatWhereTheCheckReadsIt(t *testing.T) {
+	f := newListener(t)
+
+	f.l.beat()
+
+	body, err := os.ReadFile(f.l.cfg.ListenStamp())
+	if err != nil {
+		t.Fatalf("a polling listener wrote no heartbeat: %v", err)
+	}
+	harness.Equal(t, strings.TrimSpace(string(body)), "1111111111", "the heartbeat")
+}
+
+// The poll is five seconds, and a heartbeat per pass would be seventeen thousand writes a
+// day for a reading nothing takes oftener than twice an interval.
+func TestTheHeartbeatIsWrittenTwiceAMinuteAndNotTwiceAPass(t *testing.T) {
+	f := newListener(t)
+
+	f.l.beat()
+	first := beatAt(t, f)
+
+	f.tick(10 * time.Second)
+	f.l.beat()
+	harness.Equal(t, beatAt(t, f), first, "the heartbeat ten seconds later")
+
+	f.tick(25 * time.Second)
+	f.l.beat()
+	harness.Equal(t, beatAt(t, f) != first, true, "whether the heartbeat moved after half a minute")
+}
+
+// An unconfigured listener idles and exits, which from outside looks exactly like one that
+// has hung — so the check reads a missing heartbeat as the feature being off, and a listener
+// going off has to take its own with it.
+func TestAListenerThatGoesOffTakesItsHeartbeatWithIt(t *testing.T) {
+	f := newListener(t)
+	f.l.beat()
+
+	stopBeating(f.l.cfg)
+
+	if _, err := os.Stat(f.l.cfg.ListenStamp()); err == nil {
+		t.Error("a listener that is off left a heartbeat behind")
+	}
+}
+
+func beatAt(t *testing.T, f *listenFixture) string {
+	t.Helper()
+
+	body, err := os.ReadFile(f.l.cfg.ListenStamp())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(body))
 }

@@ -38,6 +38,12 @@ const (
 	// What the agent costs when the feature is off: one start, one line, and an exit that
 	// launchd throttles. Nothing polls and no token is asked for.
 	listenIdle = 5 * time.Minute
+
+	// How often the heartbeat the five-minute check reads is written. Not every pass: the
+	// poll is five seconds, which would be seventeen thousand writes a day for a reading
+	// nothing takes oftener than twice an interval. Half a minute is sync's own number and
+	// well inside the ten minutes the check gives it.
+	beatInterval = 30 * time.Second
 )
 
 // The two shapes a reply can have. A bare number is the option he picked, which is what
@@ -59,6 +65,7 @@ func Run(cfg config.Config) error {
 	if !cfg.Discord.On() {
 		sayOnce(store, log, "unconfigured",
 			"no Discord channel and user are configured, so there is nothing to listen to")
+		stopBeating(cfg)
 		time.Sleep(listenIdle)
 		return nil
 	}
@@ -90,6 +97,7 @@ func WithToken(cfg config.Config) error {
 	if token == "" {
 		sayOnce(store, log, "no-token",
 			"the bot token did not resolve, so replies are off and the webhook is what alerts go to")
+		stopBeating(cfg)
 		time.Sleep(listenIdle)
 		return nil
 	}
@@ -121,6 +129,7 @@ func WithToken(cfg config.Config) error {
 // At five seconds a pass, that costs the new binary one pass of latency.
 func (l *listener) poll(binary *self.Watch) error {
 	for {
+		l.beat()
 		l.once()
 
 		if binary.Replaced() {
@@ -129,6 +138,33 @@ func (l *listener) poll(binary *self.Watch) error {
 		l.sleep(listenPoll)
 	}
 }
+
+// The heartbeat, and the only thing on this Mac that could tell a listener which has stopped
+// from one which is answering: it polls every five seconds and reports nothing it manages,
+// so what nothing can report about itself is not running at all.
+//
+// Written only while it is actually polling, which is what makes a missing one mean the
+// feature is off rather than the listener dead — the two idle paths below say nothing, poll
+// nothing and would otherwise look exactly like a listener that had hung.
+func (l *listener) beat() {
+	now := l.now()
+	if !l.lastBeat.IsZero() && now.Sub(l.lastBeat) < beatInterval {
+		return
+	}
+	l.lastBeat = now
+
+	path := l.cfg.ListenStamp()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	os.WriteFile(path, []byte(strconv.FormatInt(now.Unix(), 10)+"\n"), 0o644)
+}
+
+// A listener that is off takes its heartbeat with it, so a feature Tim turned off is read as
+// off rather than as a listener that stopped ten minutes ago — and so an alert the check
+// already had open on it has something that clears it, instead of standing for the life of
+// the Mac with nothing left to answer it.
+func stopBeating(cfg config.Config) { os.Remove(cfg.ListenStamp()) }
 
 // launchd restarts this agent every five minutes for as long as nothing is configured, and a
 // line on every start is a line every five minutes for the life of the Mac about something
@@ -159,6 +195,8 @@ type listener struct {
 	// The otpauth URI or base32 as 1Password handed it over, decoded only when a code
 	// actually arrives. Never given to the agent, never logged, and never in an argument.
 	secret string
+
+	lastBeat time.Time
 
 	// A thread that will not answer — a bot without permission on it, a thread Tim deleted —
 	// asked again every five seconds was twelve identical lines a minute in the log, for as

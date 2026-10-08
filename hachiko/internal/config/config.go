@@ -108,6 +108,13 @@ type Config struct {
 	SyncDirtyAfter time.Duration
 	SyncLateAfter  time.Duration
 
+	// The plist of the agent that polls Discord for a reply, and how old its heartbeat may
+	// get before the watch says nothing is listening. Its state lives beside the rest of
+	// what the listener keeps for itself, in the watch's state directory but in no file the
+	// watch owns.
+	ListenPlist      string
+	ListenStaleAfter time.Duration
+
 	// The channel and the one account replies are taken from, both empty unless Tim has
 	// filled them in, which is what turns the bot and `hachiko listen` on.
 	Discord DiscordConfig
@@ -141,6 +148,15 @@ func (c Config) GCLabel() string {
 func (c Config) SyncStamp() string { return filepath.Join(c.SyncStateDir, "heartbeat") }
 func (c Config) SyncLabel() string {
 	return strings.TrimSuffix(filepath.Base(c.SyncPlist), ".plist")
+}
+
+// And the same two for the listener, whose heartbeat goes in the directory it already keeps
+// what it has seen and said in — beside state.json rather than inside it, since a
+// five-second loop may not take the lock the sweep holds across a herdr call and an
+// `op run`.
+func (c Config) ListenStamp() string { return filepath.Join(c.StateDir, "listen", "heartbeat") }
+func (c Config) ListenLabel() string {
+	return strings.TrimSuffix(filepath.Base(c.ListenPlist), ".plist")
 }
 
 // WorkspaceLabel is the herdr workspace the on-call session goes in: the one for
@@ -225,6 +241,14 @@ func FromEnv() Config {
 		SyncStaleAfter: time.Duration(envInt64("HACHIKO_SYNC_STALE", 600)) * time.Second,
 		SyncDirtyAfter: time.Duration(envInt64("HACHIKO_SYNC_DIRTY", 600)) * time.Second,
 		SyncLateAfter:  time.Duration(envInt64("HACHIKO_SYNC_LATE", 1800)) * time.Second,
+
+		ListenPlist: envString("HACHIKO_LISTEN_PLIST",
+			filepath.Join(home, "Library", "LaunchAgents", "io.github.timche.hachiko-listen.plist")),
+		// Sync's ten minutes, and for one reason of its own on top of sync's: the listener's
+		// agent throttles one start to every five, so a listener that exited for a new binary
+		// inside its first five minutes is away for the remainder of them, and anything
+		// shorter would report that as a listener that had stopped.
+		ListenStaleAfter: time.Duration(envInt64("HACHIKO_LISTEN_STALE", 600)) * time.Second,
 
 		Discord: readDiscordConfig(envString("HACHIKO_DISCORD_CONFIG",
 			filepath.Join(home, ".config", "hachiko", "discord"))),

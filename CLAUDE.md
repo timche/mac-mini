@@ -16,11 +16,11 @@ Public, which is what makes CI free, and it holds no secret: the signing key and
 
 ## Edits here land on main
 
-Nothing commits this repo on its own. The session that changes it commits and pushes to main itself, once the change is whole: no branch and no PR, and one commit per logical change. Standing permission, and an exception to the global rules on branching and asking before a push.
+Nothing commits this repo on its own, bar the one folder below. The session that changes it commits and pushes to main itself, once the change is whole: no branch and no PR, and one commit per logical change. Standing permission, and an exception to the global rules on branching and asking before a push.
 
 An edit is live on this Mac before it is committed, which is what makes a half-written one dangerous rather than merely unfinished: the hachiko wrapper builds from this checkout's working tree, so a broken edit to `hachiko/` is what the next agent run tries to build, within minutes; and `$HOME` and `~/.claude` are symlinks into the checkout, so an edit to one of those files is what the next session reads. Make an edit whole in one write where it matters.
 
-`hachiko sync` commits and pushes the project docs rather than this repository, and it is not yours to trigger. A failure of its own goes to the incident channel in Discord, one post while it persists and cleared when it clears, so there is nothing to close; see README.
+`hachiko sync` commits and pushes the project docs, and in this repository `home/.claude/` and nothing else: the global CLAUDE.md, the settings, the skills, the agents and the hooks, which Tim, his tools and Claude Code itself write through the `~/.claude` symlink rather than as a change anybody set out to make. Two minutes after the last write to one of them they are one commit, pushed a minute later. So they are not a session's to commit in this checkout and not Tim's to be asked to — an edit there is already published, and `git status` finding it uncommitted means it was written in the last couple of minutes. Everything else here is the session's, and everything in a worktree is, since sync reads this checkout's own tree and nothing else. Sync is not yours to trigger either, and a failure of its own goes to the incident channel in Discord, one post while it persists and cleared when it clears, so there is nothing to close; see README.
 
 ## Rules
 

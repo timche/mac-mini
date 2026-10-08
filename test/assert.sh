@@ -382,9 +382,9 @@ check "an install that fails leaves the worktree added and says what to run" \
    [ -d "$d/wt" ] &&
    printf "%s" "$out" | grep -q "cd \"$d/wt\" && bun install --frozen-lockfile"'
 
-# Auto-sync is one `hachiko sync` daemon watching every repository its config lists,
-# and the project docs are the whole of that list. Its own wiring is checked with the
-# sync agent further down; what belongs here is the clone it watches, and that
+# Auto-sync is one `hachiko sync` daemon watching every repository its config lists:
+# the project docs, and this repository's `home/.claude` alone. Its own wiring is checked
+# with the sync agent further down; what belongs here is the clone it watches, and that
 # boswell, the daemon it took over from, is gone.
 #
 # A token that reaches this repo does not necessarily reach the docs one, and
@@ -787,14 +787,20 @@ check "a sync that exits is restarted, after a wait" \
    plutil -extract KeepAlive.SuccessfulExit xml1 -o - "$sync_plist" | grep -q "<false/>" &&
    [ "$(plutil -extract ThrottleInterval raw -o - "$sync_plist")" = 10 ]'
 
-# The project docs and nothing else. This repository is committed by the session that
-# changes it, so a daemon listed on it would commit behind one mid-edit; and the docs
-# clone is the one install.sh makes rather than the one it runs from, which is why the
-# load is gated on it.
-check "the sync config names the project docs, not this repository, and is live" \
+# The project docs whole, and this repository limited to `home/.claude` — the files Tim,
+# his tools and Claude Code write through the `~/.claude` symlink, which no session sets
+# out to change and so nothing would commit. The rest of this repository is a session's,
+# so the `paths =` line is the whole of what makes a daemon on it safe: without it one
+# would commit a half-written script behind a session mid-edit. The docs clone is the one
+# install.sh makes rather than the one it runs from, which is why the load is gated on it.
+check "the sync config names the docs whole and this repository's home/.claude alone, and is live" \
   'grep -qx "mode = live" "$HOME/.config/hachiko/sync" &&
    grep -qx "repo = ~/projects/docs" "$HOME/.config/hachiko/sync" &&
-   ! grep -qE "^repo = .*mac-mini" "$HOME/.config/hachiko/sync" &&
+   grep -qx "repo = ~/.mac-mini" "$HOME/.config/hachiko/sync" &&
+   grep -qx "paths = home/.claude" "$HOME/.config/hachiko/sync" &&
+   grep -qx "debounce = 2m" "$HOME/.config/hachiko/sync" &&
+   [ "$(grep -c "^repo = " "$HOME/.config/hachiko/sync")" = 2 ] &&
+   [ "$(grep -c "^paths = " "$HOME/.config/hachiko/sync")" = 1 ] &&
    ! grep -q "/Users/" "$HOME/.config/hachiko/sync"'
 
 # launchd reads a plist when it loads the job and never again, so one that changed —

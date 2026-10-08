@@ -240,7 +240,7 @@ func TestSyncNamesTheLineItRefused(t *testing.T) {
 }
 
 // The file this repository ships, read as the Mac reads it.
-func TestTheShippedSyncConfigNamesTheProjectDocsAndIsLive(t *testing.T) {
+func TestTheShippedSyncConfigNamesTheDocsAndThisRepositorysClaudeFiles(t *testing.T) {
 	home := t.TempDir()
 
 	cfg, err := LoadSync(filepath.Join("..", "..", "..", "home", ".config", "hachiko", "sync"), home)
@@ -251,22 +251,43 @@ func TestTheShippedSyncConfigNamesTheProjectDocsAndIsLive(t *testing.T) {
 		t.Error("the shipped config is a dry run, so the Mac commits and pushes nothing")
 	}
 
-	// The docs and nothing else: this repository is committed by the session that
-	// changes it, and a path here is a path the daemon would commit behind one.
-	want := map[string]time.Duration{
-		filepath.Join(home, "projects", "docs"): time.Minute,
+	// Two repositories, and the Mac's own one is limited to the files nothing else commits:
+	// the rest of it is a session's, and a daemon on the whole of it would commit a
+	// half-written script behind one.
+	want := []SyncRepo{
+		{
+			Path:      filepath.Join(home, "projects", "docs"),
+			PushDelay: time.Minute,
+			Debounce:  5 * time.Second,
+			Pull:      true,
+		},
+		{
+			Path:      filepath.Join(home, ".mac-mini"),
+			Paths:     []string{filepath.Join("home", ".claude")},
+			PushDelay: time.Minute,
+			Debounce:  2 * time.Minute,
+		},
 	}
 	if len(cfg.Repos) != len(want) {
 		t.Fatalf("got %d repos", len(cfg.Repos))
 	}
-	for _, repo := range cfg.Repos {
-		delay, listed := want[repo.Path]
-		if !listed {
-			t.Errorf("%s is not a repository this config names", repo.Path)
+
+	for i, repo := range cfg.Repos {
+		if repo.Path != want[i].Path {
+			t.Errorf("repo %d is %s, want %s", i, repo.Path, want[i].Path)
 			continue
 		}
-		if repo.PushDelay != delay {
-			t.Errorf("%s pushes after %s, want %s", repo.Path, repo.PushDelay, delay)
+		if !reflect.DeepEqual(repo.Paths, want[i].Paths) {
+			t.Errorf("%s is limited to %q, want %q", repo.Path, repo.Paths, want[i].Paths)
+		}
+		if repo.PushDelay != want[i].PushDelay || repo.Debounce != want[i].Debounce {
+			t.Errorf("%s commits after %s and pushes after %s, want %s and %s",
+				repo.Path, repo.Debounce, repo.PushDelay, want[i].Debounce, want[i].PushDelay)
+		}
+		// A limited repository may not pull, since a rebase and its autostash are what would
+		// take a session's work outside those paths with them.
+		if repo.Pull != want[i].Pull {
+			t.Errorf("%s pulls: %v", repo.Path, repo.Pull)
 		}
 	}
 }

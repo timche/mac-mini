@@ -9,15 +9,32 @@ mode = live
 # backs off along, doubling from base and capped at max. Left out here because the defaults
 # below are the ones in use: attempts = 6, base = 5s, max = 5m.
 
-# The project docs and nothing else: the Mac's own repository is committed by the
-# session that changes it, where a daemon would commit a half-written edit behind one.
+# The project docs, whole. Commits land on the default five-second debounce; only the push
+# waits. They are read from other devices, so a minute: long enough to take a burst of notes
+# as one push, short enough that nobody reads a stale page for long.
 #
-# Commits land on the default five-second debounce; only the push waits. The docs are
-# read from other devices, so a minute: long enough to take a burst of notes as one
-# push, short enough that nobody reads a stale page for long.
-#
-# What else a repo takes, each shown at its default: debounce = 5s, remote = origin,
-# pull = true, push_delay = 0s, recheck = 10m, fetch_interval = 1m.
+# What else a repo takes, each shown at its default: paths = (the whole repository),
+# debounce = 5s, remote = origin, pull = true, push_delay = 0s, recheck = 10m,
+# fetch_interval = 1m.
 
 repo = ~/projects/docs
+push_delay = 1m
+
+# The Mac's own repository, limited to `home/.claude` — the global CLAUDE.md, the settings,
+# the skills, the agents and the hooks. Tim, his tools and Claude Code itself write those
+# through the `~/.claude` symlink rather than as a change anybody set out to make, so nothing
+# would commit them. Everything else here is committed by the session that changes it, with a
+# subject saying what it did, which is why this is a `paths =` line and not a second repo:
+# every command a pass runs carries those paths, so a session's work elsewhere in the
+# checkout is neither committed nor staged nor stashed by one. Pulling is off because no pull
+# could leave that work alone, and this checkout is the only thing that pushes here anyway.
+#
+# Two minutes of quiet rather than five seconds: the Mac reads these files through the
+# symlink the moment they are written, so what goes to GitHub is the history rather than the
+# live copy. A session's run of edits across CLAUDE.md and settings.json lands as one commit,
+# and a settings.json caught half-written is that much less likely.
+
+repo = ~/.mac-mini
+paths = home/.claude
+debounce = 2m
 push_delay = 1m

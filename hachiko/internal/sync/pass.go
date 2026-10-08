@@ -35,6 +35,10 @@ type Result struct {
 	// here because the reason outlasts the pass: a tree nobody may commit in stays dirty, so
 	// the next tick a second later finds the same one, and the loop says it once.
 	Left string
+
+	// Whether what stopped it was git's own index.lock, which is the one reason the caller
+	// has to time: a lock is a race until it has lasted long enough to be a fault.
+	Locked bool
 }
 
 // Whether this pass may hold the push back. `hachiko sync --once` is the explicit "sync
@@ -57,6 +61,10 @@ type passer struct {
 	// Which model writes the commit subject, or "" for the file list. Off in a dry run
 	// whatever the config says, since a dry run reaches nothing.
 	subjectModel string
+
+	// Whether the index has already been locked for longer than a race could last, which is
+	// the caller's to measure: a pass knows only what this one git call said.
+	lockedLong bool
 
 	git   gitRepo
 	retry config.SyncRetry
@@ -134,11 +142,17 @@ func (p passer) try(mode pushMode) Result {
 	subject := ""
 	if dirty {
 		if out := p.git.addAll(); !out.OK {
+			if isLocked(out.Text) {
+				return p.locked(out.Text)
+			}
 			return p.failure(NeedsHuman, failedCommit, "git add -A failed: "+out.Text)
 		}
 		if staged := p.git.stagedFiles(); len(staged) > 0 {
 			subject = p.subject(staged)
 			if out := p.git.commit(subject); !out.OK {
+				if isLocked(out.Text) {
+					return p.locked(out.Text)
+				}
 				return p.failure(NeedsHuman, failedCommit, "the commit failed: "+out.Text)
 			}
 		}
@@ -305,6 +319,33 @@ func (p passer) abort() {
 	if out := p.git.rebaseAbort(); !out.OK {
 		p.say("the rebase could not be aborted, so the tree is left mid-rebase: %s", out.Text)
 	}
+}
+
+// git's `index.lock`, which is one git refusing to work in a tree another one is already
+// writing to. In a repository a session shares with sync that is the ordinary case rather
+// than a fault: a session runs git a few times a second, each lock is held for a fraction of
+// one, and the next pass a second later finds it gone. So a locked index is a pass that does
+// nothing and tries again, and only a lock that has outlasted the grace below is reported —
+// which is the shape of a real one, left behind by a git somebody killed.
+func (p passer) locked(text string) Result {
+	if p.lockedLong {
+		return p.failure(NeedsHuman, failedCommit,
+			"git's index has stayed locked by something else in the tree: "+text)
+	}
+	return Result{
+		Outcome: Nothing,
+		Locked:  true,
+		Left:    "git's index is locked by something else in the tree, so the next pass tries again",
+	}
+}
+
+// How long a lock has to last before it is somebody's to remove rather than a race to wait
+// out. A minute is far longer than any git a session runs holds the index, and far shorter
+// than it would take for a tree that is not being committed to matter.
+const lockedGrace = time.Minute
+
+func isLocked(text string) bool {
+	return strings.Contains(strings.ToLower(text), "index.lock")
 }
 
 func (p passer) failure(outcome Outcome, kind, text string) Result {

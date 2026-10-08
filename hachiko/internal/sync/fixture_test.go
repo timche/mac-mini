@@ -50,9 +50,13 @@ type fakeRepo struct {
 	// Scripted failures, each as the text the command would have printed. A count, because
 	// the whole of the retry ladder is about a command that fails a few times and then does
 	// not.
-	fetchFails  int
-	fetchText   string
+	fetchFails int
+	fetchText  string
+	// What a failed commit printed. The signing key the agent has lost by default, which is a
+	// commit that will not be made however many times it is tried; a locked index is the
+	// other shape and is nobody's news until it lasts.
 	commitFails int
+	commitText  string
 	rebaseText  string
 	abortFails  bool
 }
@@ -95,7 +99,11 @@ func newFixture(t *testing.T) *fixture {
 		now:   base,
 		repo:  config.SyncRepo{Path: filepath.Join(home, "repo"), Debounce: 5 * time.Second, Remote: "origin", Pull: true, Recheck: 10 * time.Minute, FetchInterval: time.Minute},
 		retry: config.SyncRetry{Attempts: 3, Base: time.Second, Max: 4 * time.Second},
-		tree:  &fakeRepo{head: "aaa", upstream: "bbb"},
+		tree: &fakeRepo{
+			head:       "aaa",
+			upstream:   "bbb",
+			commitText: "error: gpg failed to sign the data\nfatal: failed to write commit object",
+		},
 	}
 	return f
 }
@@ -207,7 +215,7 @@ func (f *fixture) git(dir string, args ...string) Output {
 	case args[0] == "commit":
 		if t.commitFails > 0 {
 			t.commitFails--
-			return bad("error: cannot lock ref 'HEAD': Unable to create '.git/index.lock': File exists.")
+			return bad(t.commitText)
 		}
 		t.unpushed = append([]string{"deadbee " + args[2]}, t.unpushed...)
 		if t.oldest.IsZero() {

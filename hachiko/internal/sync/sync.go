@@ -179,6 +179,10 @@ func (d *daemon) once() error {
 		// Through the same record as a pass of the daemon's, so a `--once` run posts the
 		// message the daemon would have posted and a conflict it meets pauses the repository
 		// rather than leaving the daemon to rebase over it again.
+		//
+		// One pass has no clock to time a lock against, so one it meets is a line saying to
+		// try again rather than a message: a session's git holding the index for a moment is
+		// not news, and the daemon is what notices one that stays.
 		result := d.passer(repo).run(pushNow)
 		if result.Left != "" {
 			d.about(repo.Path)("left alone: %s", result.Left)
@@ -307,6 +311,11 @@ type loop struct {
 	// the same reason says nothing.
 	leftFor string
 
+	// When the index was first found locked, and the zero time whenever a pass found it free.
+	// A lock held across the grace is one somebody has to remove rather than a git that is
+	// still working.
+	lockedSince time.Time
+
 	lastSync time.Time
 	fetchDue time.Time
 	pushDue  time.Time
@@ -389,8 +398,20 @@ func (l *loop) pass(now time.Time) {
 	if l.d.dry {
 		l.dryReport(now)
 	} else {
+		// A lock is a race until it has lasted longer than one could, and the loop is what
+		// holds the clock: the pass itself sees one git call's output and nothing before it.
+		l.p.lockedLong = !l.lockedSince.IsZero() && !now.Before(l.lockedSince.Add(lockedGrace))
+
 		result := l.p.run(pushWhenDue)
 		l.outstanding = result.Outcome.isFailure()
+
+		switch {
+		case !result.Locked:
+			l.lockedSince = time.Time{}
+		case l.lockedSince.IsZero():
+			l.lockedSince = now
+		}
+
 		l.d.record(l.repo, l.git, result)
 		l.paused = result.Failure != nil && result.Failure.Kind == failedConflict
 

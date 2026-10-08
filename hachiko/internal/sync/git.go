@@ -120,6 +120,21 @@ func (g gitRepo) stagedFiles() []string {
 	return g.nulLines(g.limit("diff", "--cached", "--name-only", "-z")...)
 }
 
+// What the commit is about to carry, for the model that writes its subject. Limited like the
+// rest, so what it reads is the commit rather than the checkout.
+func (g gitRepo) stagedDiff() string { return g.run(g.limit("diff", "--cached")...).Stdout }
+
+func (g gitRepo) stagedStat() string {
+	return g.run(g.limit("diff", "--cached", "--stat")...).Stdout
+}
+
+// The repository's own recent subjects, as the style a written one is meant to read like.
+// Not limited: the subjects worth imitating are the ones sessions wrote by hand, and a
+// limited repository's own would be this feature reading itself back.
+func (g gitRepo) recentSubjects(n int) []string {
+	return g.lines("log", "--format=%s", fmt.Sprintf("-n%d", n))
+}
+
 // When the oldest commit that is not on the remote was made, and the zero time when there
 // is nothing unpushed or no upstream to compare against. Read from git on every pass rather
 // than remembered, so a restart does not reset the wait and a commit that was already due

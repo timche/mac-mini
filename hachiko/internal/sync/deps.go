@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -29,6 +30,11 @@ type Deps struct {
 	// sender: a failure here goes out the same way an alert does.
 	Send func(out discord.Outgoing) (string, error)
 
+	// One commit subject, written by a model from the instructions and the diff on its
+	// stdin. Another process on this Mac, so a test may not start one — and the one thing a
+	// pass goes on without when it fails.
+	Subject func(model, instructions, input string) (string, error)
+
 	// What the binary this process is running looks like on disk. The wrapper moves a fresh
 	// build into place in one step, so the file behind the same path is a different one —
 	// which is the whole of how a daemon that never exits picks up an edit.
@@ -45,14 +51,61 @@ const (
 
 func realDeps(cfg config.Config) Deps {
 	return Deps{
-		Now:   config.ClockFromEnv(),
-		Log:   os.Stdout,
-		Sleep: time.Sleep,
-		Git:   runGit,
-		Send:  func(out discord.Outgoing) (string, error) { return discord.SendThroughOP(cfg, out) },
-		Self:  self.Stat,
+		Now:     config.ClockFromEnv(),
+		Log:     os.Stdout,
+		Sleep:   time.Sleep,
+		Git:     runGit,
+		Send:    func(out discord.Outgoing) (string, error) { return discord.SendThroughOP(cfg, out) },
+		Subject: writeSubject,
+		Self:    self.Stat,
 	}
 }
+
+// A subject is worth no secret of its own, so this is the Claude Code already logged in on
+// this Mac — no API key, nothing out of 1Password, and the model named by an alias the PATH's
+// own `claude` resolves.
+//
+// Isolated on purpose, because what it reads is a diff and a diff is somebody's text: no
+// tools and no MCP, so the answer is the only thing it can produce; none of the account's own
+// customisations, hooks or skills, which would otherwise make a commit subject depend on
+// whatever a session last configured; a working directory that is nobody's project; and no
+// session left on disk. Its own deadline, because a pass may not wait on it: a model that
+// never answers is a commit that names its files.
+func writeSubject(model, instructions, input string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), subjectTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "claude", "--print",
+		"--model", model,
+		"--no-session-persistence",
+		"--safe-mode",
+		"--tools", "",
+		"--strict-mcp-config",
+		"--disable-slash-commands",
+		"--permission-prompts", "none",
+		"--system-prompt", subjectSystemPrompt,
+		instructions)
+
+	cmd.Dir = os.TempDir()
+	cmd.Stdin = strings.NewReader(input)
+
+	var stdout, stderr strings.Builder
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+
+	if err := cmd.Run(); err != nil {
+		text := strings.TrimSpace(stderr.String())
+		if text == "" {
+			return "", err
+		}
+		return "", fmt.Errorf("%s", text)
+	}
+	return stdout.String(), nil
+}
+
+// Long enough for a model to read a diff and answer, short enough that a commit is never
+// held up by much: a pass that reaches this has already staged everything, and what waiting
+// buys is a better subject rather than the work landing at all.
+const subjectTimeout = 30 * time.Second
 
 func runGit(dir string, args ...string) Output {
 	limit := localTimeout

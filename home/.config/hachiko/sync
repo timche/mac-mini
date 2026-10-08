@@ -5,6 +5,13 @@
 # mode: live, or dry-run to report what it would do and change nothing.
 mode = live
 
+# Which model writes a commit subject from the diff a pass is about to commit, through the
+# Claude Code already logged in on this Mac. An alias and never a pinned model id, since an
+# id is a model that one day stops answering. Left out, or empty, and a commit is called
+# `Update <the files>` as it was before; a failure, a timeout or an answer that is not a
+# subject is that same fallback and one line in the log.
+subject_model = haiku
+
 # How many times a push is tried against a remote that will not answer, and the ladder it
 # backs off along, doubling from base and capped at max. Left out here because the defaults
 # below are the ones in use: attempts = 6, base = 5s, max = 5m.

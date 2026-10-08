@@ -259,14 +259,24 @@ func (d *daemon) oldestBeat() time.Time {
 
 func (d *daemon) passer(repo config.SyncRepo) passer {
 	return passer{
-		host:     d.cfg.Host,
-		repo:     repo,
-		onBranch: d.onBranch[repo.Path],
-		git:      d.git(repo),
-		retry:    d.sync.Retry,
-		deps:     d.deps,
-		say:      d.about(repo.Path),
+		host:         d.cfg.Host,
+		repo:         repo,
+		onBranch:     d.onBranch[repo.Path],
+		subjectModel: d.subjectModel(),
+		git:          d.git(repo),
+		retry:        d.sync.Retry,
+		deps:         d.deps,
+		say:          d.about(repo.Path),
 	}
+}
+
+// Nothing is asked of a model in a dry run, which commits nothing and so has no subject to
+// write — and starting a process is not something a run that changes nothing does.
+func (d *daemon) subjectModel() string {
+	if d.dry {
+		return ""
+	}
+	return d.sync.SubjectModel
 }
 
 func (d *daemon) loopFor(repo config.SyncRepo, index int) *loop {
@@ -482,6 +492,9 @@ func (l *loop) dryReport(now time.Time) {
 	left := l.p.pushWait()
 
 	switch {
+	case len(paths) > 0 && l.d.sync.SubjectModel != "":
+		l.say("would commit `%s`, or the subject %s writes in its place",
+			commitSubject(paths), l.d.sync.SubjectModel)
 	case len(paths) > 0:
 		l.say("would commit `%s`", commitSubject(paths))
 	case !l.saidAny:

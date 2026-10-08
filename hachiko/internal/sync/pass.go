@@ -54,6 +54,10 @@ type passer struct {
 	// is on. Only a limited repository has one; see sync.go.
 	onBranch string
 
+	// Which model writes the commit subject, or "" for the file list. Off in a dry run
+	// whatever the config says, since a dry run reaches nothing.
+	subjectModel string
+
 	git   gitRepo
 	retry config.SyncRetry
 	deps  Deps
@@ -133,7 +137,7 @@ func (p passer) try(mode pushMode) Result {
 			return p.failure(NeedsHuman, failedCommit, "git add -A failed: "+out.Text)
 		}
 		if staged := p.git.stagedFiles(); len(staged) > 0 {
-			subject = commitSubject(staged)
+			subject = p.subject(staged)
 			if out := p.git.commit(subject); !out.OK {
 				return p.failure(NeedsHuman, failedCommit, "the commit failed: "+out.Text)
 			}

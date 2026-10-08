@@ -23,8 +23,14 @@ var base = time.Unix(1700000000, 0)
 // empty the status and a push really does empty the unpushed list — a stub that answered the
 // same thing before and after would be a test of the reading and not of the pass.
 type fakeRepo struct {
-	status     string
-	staged     []string
+	status string
+	staged []string
+	// What a written subject is read from: the staged diff, its stat, and the repository's
+	// own recent subjects as the house style.
+	diff     string
+	stat     string
+	subjects []string
+
 	unpushed   []string
 	oldest     time.Time
 	behind     []string
@@ -66,6 +72,13 @@ type fixture struct {
 	noSelf   bool
 	selfID   self.ID
 
+	// The model the config names, what it answers with and the failure it answers with
+	// instead, and every prompt it was handed.
+	subjectModel string
+	subjectSays  string
+	subjectErr   string
+	asked        []string
+
 	calls   []string
 	slept   []time.Duration
 	sent    []discord.Outgoing
@@ -96,12 +109,13 @@ func (f *fixture) at(seconds int64) *fixture {
 // test and a push delay runs out without anything waiting for it.
 func (f *fixture) deps() Deps {
 	return Deps{
-		Now:   func() time.Time { return f.now },
-		Log:   &f.log,
-		Sleep: func(d time.Duration) { f.slept = append(f.slept, d); f.now = f.now.Add(d) },
-		Git:   f.git,
-		Send:  f.send,
-		Self:  func() (self.ID, bool) { return f.selfID, !f.noSelf },
+		Now:     func() time.Time { return f.now },
+		Log:     &f.log,
+		Sleep:   func(d time.Duration) { f.slept = append(f.slept, d); f.now = f.now.Add(d) },
+		Git:     f.git,
+		Send:    f.send,
+		Subject: f.subject,
+		Self:    func() (self.ID, bool) { return f.selfID, !f.noSelf },
 	}
 }
 
@@ -167,6 +181,12 @@ func (f *fixture) git(dir string, args ...string) Output {
 		return ok(strings.Join(stamps, "\n"))
 	case "diff --cached --name-only -z":
 		return ok(strings.Join(t.staged, "\x00"))
+	case "diff --cached":
+		return ok(t.diff)
+	case "diff --cached --stat":
+		return ok(t.stat)
+	case "log --format=%s -n10":
+		return ok(strings.Join(t.subjects, "\n"))
 	case "add -A":
 		return ok("")
 	case "rebase --abort":
@@ -240,6 +260,24 @@ func (f *fixture) limits() map[string]string {
 	return seen
 }
 
+// The subject writer, as the fixture answers for one: what it was asked is kept so a test can
+// read the prompt, and either an answer or a failure is scripted.
+func (f *fixture) subject(model, instructions, input string) (string, error) {
+	f.asked = append(f.asked, model+"\n"+instructions+"\n"+input)
+	if f.subjectErr != "" {
+		return "", fmt.Errorf("%s", f.subjectErr)
+	}
+	return f.subjectSays, nil
+}
+
+func (f *fixture) lastAsked() string {
+	f.t.Helper()
+	if len(f.asked) == 0 {
+		f.t.Fatal("no subject was asked for")
+	}
+	return f.asked[len(f.asked)-1]
+}
+
 func (f *fixture) send(out discord.Outgoing) (string, error) {
 	if f.sendErr != "" {
 		return "", fmt.Errorf("%s", f.sendErr)
@@ -262,11 +300,16 @@ func (f *fixture) daemon() *daemon {
 	return &daemon{
 		onBranch: onBranch,
 		cfg:      config.Config{Home: f.home, Host: "mac-mini", SyncStateDir: filepath.Join(f.home, "state")},
-		sync:     config.Sync{Mode: config.ModeLive, Retry: f.retry, Repos: []config.SyncRepo{f.repo}},
-		deps:     f.deps(),
-		store:    &Store{Dir: filepath.Join(f.home, "state")},
-		dry:      f.dry,
-		beat:     !f.dry,
+		sync: config.Sync{
+			Mode:         config.ModeLive,
+			Retry:        f.retry,
+			Repos:        []config.SyncRepo{f.repo},
+			SubjectModel: f.subjectModel,
+		},
+		deps:  f.deps(),
+		store: &Store{Dir: filepath.Join(f.home, "state")},
+		dry:   f.dry,
+		beat:  !f.dry,
 	}
 }
 

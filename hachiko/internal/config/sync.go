@@ -20,6 +20,11 @@ type Sync struct {
 	Mode  string
 	Retry SyncRetry
 	Repos []SyncRepo
+
+	// Which model writes a commit subject, as an alias, or "" for the file list sync wrote
+	// before this. Global, because what it answers is "what changed here", which is the same
+	// question in every repository.
+	SubjectModel string
 }
 
 func (s Sync) DryRun() bool { return s.Mode == ModeDryRun }
@@ -200,6 +205,14 @@ func globalKey(cfg *Sync, key, value string) error {
 			return fmt.Errorf("mode is %s or %s, not %q", ModeLive, ModeDryRun, value)
 		}
 		cfg.Mode = value
+	case "subject_model":
+		// An alias and never a pinned model id: an alias is the latest of its kind for ever,
+		// where an id is a model that one day stops answering and a daemon nobody is watching
+		// would fall back to the file list from then on with one line in a log to say so.
+		if value != "" && !isModelAlias(value) {
+			return fmt.Errorf("subject_model is a model alias such as haiku, not %q", value)
+		}
+		cfg.SubjectModel = value
 	case "attempts":
 		n, err := strconv.Atoi(value)
 		if err != nil || n < 1 {
@@ -255,6 +268,17 @@ func repoKey(repo *SyncRepo, key, value string) error {
 		return fmt.Errorf("%q is not a setting of a repo", key)
 	}
 	return nil
+}
+
+// Letters alone, which is every alias there is and no id: an id carries its version and its
+// date, so a digit or a dash is what tells the two apart.
+func isModelAlias(value string) bool {
+	for _, r := range value {
+		if r < 'a' || r > 'z' {
+			return false
+		}
+	}
+	return true
 }
 
 // One `paths` value, normalised to the form git is handed. Relative and inside the

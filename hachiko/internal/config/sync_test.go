@@ -150,6 +150,23 @@ func TestSyncRefusesAConfigItDoesNotUnderstand(t *testing.T) {
 	refuseSync(t, "repo = /tmp/x\nrepo = /tmp/x\n", "twice")
 }
 
+// An alias is the latest model of its kind for ever; an id is one that one day stops
+// answering, leaving a daemon nobody is watching to fall back to the file list from then on.
+func TestTheSubjectModelIsAnAliasOrNothing(t *testing.T) {
+	if got := loadSync(t, "subject_model = haiku\nrepo = /tmp/x\n").SubjectModel; got != "haiku" {
+		t.Errorf("got %q", got)
+	}
+	if got := loadSync(t, "repo = /tmp/x\n").SubjectModel; got != "" {
+		t.Errorf("a config that names no model got %q", got)
+	}
+	if got := loadSync(t, "subject_model =\nrepo = /tmp/x\n").SubjectModel; got != "" {
+		t.Errorf("an empty model got %q", got)
+	}
+
+	refuseSync(t, "subject_model = claude-haiku-4-5-20251001\nrepo = /tmp/x\n", "model alias")
+	refuseSync(t, "subject_model = Haiku 4.5\nrepo = /tmp/x\n", "model alias")
+}
+
 // A repository with no `paths` is the whole repository, which is every repository synced
 // before this existed.
 func TestARepoWithNoPathsIsTheWholeRepository(t *testing.T) {
@@ -249,6 +266,9 @@ func TestTheShippedSyncConfigNamesTheDocsAndThisRepositorysClaudeFiles(t *testin
 	}
 	if cfg.DryRun() {
 		t.Error("the shipped config is a dry run, so the Mac commits and pushes nothing")
+	}
+	if cfg.SubjectModel != "haiku" {
+		t.Errorf("subjects are written by %q", cfg.SubjectModel)
 	}
 
 	// Two repositories, and the Mac's own one is limited to the files nothing else commits:

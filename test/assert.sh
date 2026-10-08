@@ -771,8 +771,9 @@ check "the sync agent runs hachiko sync through a shell, with no key launchd lea
 
 # Its own commits are signed, and it reads no rc file: the socket has to come from the
 # agent or every push it makes fails on a key it cannot find. The PATH because launchd
-# hands a job almost none, and this one shells out to git on every pass.
-check "the sync agent reaches the ssh-agent holding the signing key, and git" \
+# hands a job almost none, and this one shells out to git on every pass and to the
+# `claude` in ~/.local/bin for the subject of each commit.
+check "the sync agent reaches the ssh-agent holding the signing key, git and claude" \
   'c="$(plutil -extract ProgramArguments.2 raw -o - "$sync_plist")" &&
    printf "%s\n" "$c" | grep -qF "export SSH_AUTH_SOCK=\"\$HOME/.ssh/agent.sock\"" &&
    printf "%s\n" "$c" | grep -qF "export PATH=\"\$HOME/.local/bin:" &&
@@ -799,6 +800,7 @@ check "the sync config names the docs whole and this repository's home/.claude a
    grep -qx "repo = ~/.mac-mini" "$HOME/.config/hachiko/sync" &&
    grep -qx "paths = home/.claude" "$HOME/.config/hachiko/sync" &&
    grep -qx "debounce = 2m" "$HOME/.config/hachiko/sync" &&
+   grep -qx "subject_model = haiku" "$HOME/.config/hachiko/sync" &&
    [ "$(grep -c "^repo = " "$HOME/.config/hachiko/sync")" = 2 ] &&
    [ "$(grep -c "^paths = " "$HOME/.config/hachiko/sync")" = 1 ] &&
    ! grep -q "/Users/" "$HOME/.config/hachiko/sync"'

@@ -113,6 +113,23 @@ func (g gitRepo) status() string {
 func (g gitRepo) unpushed() []string { return g.lines("log", "--oneline", "@{upstream}..HEAD") }
 func (g gitRepo) behind() []string   { return g.lines("log", "--oneline", "HEAD..@{upstream}") }
 
+// The unpushed commits that are sync's own, by the trailer it puts on them: in a limited
+// repository the branch also carries a session's commits, and those are not what a push is
+// for. Every unpushed commit where the whole repository is synced.
+func (g gitRepo) ownUnpushed() []string {
+	return g.lines(g.own("log", "--oneline", "@{upstream}..HEAD")...)
+}
+
+// When the oldest of those was made, which is what the push delay is counted from: a
+// session's commit may go up underneath sync's, but it is never what starts the clock.
+func (g gitRepo) oldestOwnUnpushedAt() time.Time {
+	return oldestOf(g.lines(g.own("log", "--format=%ct", "@{upstream}..HEAD")...))
+}
+
+func (g gitRepo) own(args ...string) []string {
+	return append(args, config.OwnCommits(g.paths)...)
+}
+
 // What the commit is about to carry, and so what its subject names. Limited like the rest,
 // which is what keeps a change a session staged outside the paths out of the subject as well
 // as out of the commit.
@@ -140,7 +157,11 @@ func (g gitRepo) recentSubjects(n int) []string {
 // than remembered, so a restart does not reset the wait and a commit that was already due
 // when the daemon came up goes out at once.
 func (g gitRepo) oldestUnpushedAt() time.Time {
-	stamps := g.lines("log", "--format=%ct", "@{upstream}..HEAD")
+	return oldestOf(g.lines("log", "--format=%ct", "@{upstream}..HEAD"))
+}
+
+// The last of a `%ct` listing, git's log being newest first.
+func oldestOf(stamps []string) time.Time {
 	if len(stamps) == 0 {
 		return time.Time{}
 	}
@@ -165,8 +186,15 @@ func (g gitRepo) upstreamHead() string {
 func (g gitRepo) addAll() Output             { return g.run(g.limit("add", "-A")...) }
 func (g gitRepo) fetch(remote string) Output { return g.run("fetch", remote) }
 
+// A limited repository's commits carry the trailer that marks them sync's; a repository
+// synced whole takes none, since every commit in it is already sync's and a trailer there
+// would only be a line in the log of a repository nothing else commits.
 func (g gitRepo) commit(subject string) Output {
-	return g.run(g.limit("commit", "-m", subject)...)
+	args := []string{"commit", "-m", subject}
+	if len(g.paths) > 0 {
+		args = append(args, "--trailer", config.SyncedTrailer)
+	}
+	return g.run(g.limit(args...)...)
 }
 
 // The one branch a limited repository is synced on, as this clone's own

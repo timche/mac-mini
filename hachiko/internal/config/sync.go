@@ -69,6 +69,21 @@ func (r SyncRepo) Limited() bool { return len(r.Paths) > 0 }
 // the daemon, the watch and the screen cannot read different trees.
 func (r SyncRepo) Pathspec() []string { return Pathspec(r.Paths) }
 
+// The trailer sync puts on the commits it makes in a limited repository, and nowhere else.
+// What it is for is the push: a commit of a session's in the same branch carries none, which
+// is how sync — and the watch reading the same branch — tell a commit that is sync's to
+// publish from one that is a session's to finish.
+const SyncedTrailer = "Synced-by: hachiko sync"
+
+// The `git log` arguments that pick sync's own commits out of a range, and none for a
+// repository synced whole, where every commit in it is sync's to push.
+func OwnCommits(paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	return []string{"--fixed-strings", "--grep=" + SyncedTrailer}
+}
+
 func Pathspec(paths []string) []string {
 	if len(paths) == 0 {
 		return nil

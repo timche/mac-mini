@@ -182,9 +182,9 @@ func repos(cfg config.Config) ([]Repo, error) {
 // refreshes the index and takes `index.lock` to do it, and the repositories this reads are the
 // ones `hachiko sync` is committing in. A screen somebody opened to see whether sync is
 // working may not be the reason a sync fails.
-// Both commands carry the repository's pathspec, the same one sync's own and the watch's
-// carry: a reading taken over the whole of a limited repository would be a screen reporting
-// a session's work in progress as sync falling behind.
+// Both commands are narrowed the way sync's own and the watch's are — the pathspec for the
+// tree, the trailer for the commits — because a reading taken over the whole of a limited
+// repository would be a screen reporting a session's work in progress as sync falling behind.
 func repoState(cfg config.Config, repo Repo) RepoState {
 	limit := config.Pathspec(repo.Paths)
 	git := func(args ...string) ([]byte, error) {
@@ -203,8 +203,11 @@ func repoState(cfg config.Config, repo Repo) RepoState {
 		state.Paused = time.Unix(at.Since, 0)
 	}
 
-	// A branch with no upstream has nothing to be behind, and git says so by failing.
-	stamps, err := git("log", "--format=%ct", "@{upstream}..HEAD")
+	// A branch with no upstream has nothing to be behind, and git says so by failing. The
+	// commits counted in a limited repository are sync's own, by the trailer it marks them
+	// with, since a commit of a session's is not one sync would push by itself.
+	stamps, err := git(append([]string{"log", "--format=%ct", "@{upstream}..HEAD"},
+		config.OwnCommits(repo.Paths)...)...)
 	if err != nil {
 		return state
 	}

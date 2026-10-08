@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 // The one thing the fixture cannot answer for: whether what the watch reads about a
@@ -57,13 +59,33 @@ func liveRepo(t *testing.T) string {
 	run(repo, "commit", "-m", "Both")
 	run(repo, "push", "--set-upstream", "origin", "main")
 
-	// A session's own work in the same checkout: uncommitted, and committed but not pushed.
+	// A session's own work in the same checkout: uncommitted, and committed but not pushed —
+	// the commit touching the paths sync syncs, which is the case a pathspec alone cannot
+	// tell from one of sync's.
 	write("other/b.md", "a session's\n")
-	write("other/c.md", "a session's\n")
-	run(repo, "add", "other/c.md")
+	write("keep/c.md", "a session's\n")
+	run(repo, "add", "keep/c.md")
 	run(repo, "commit", "-m", "A session's own commit")
 
 	return repo
+}
+
+// A commit sync made, as sync makes one: the trailer is the whole of what marks it.
+func syncCommit(t *testing.T, repo, name string) {
+	t.Helper()
+
+	if err := os.WriteFile(filepath.Join(repo, name), []byte("sync's\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"add", "-A", "--", "keep"},
+		{"commit", "-m", "Say something about the change", "--trailer", config.SyncedTrailer, "--", "keep"},
+	} {
+		out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
 }
 
 // What is not sync's to commit is not sync's to be behind on: a session's uncommitted work
@@ -88,6 +110,24 @@ func TestALimitedRepositoryIsReadInsideItsPathsAlone(t *testing.T) {
 	whole := syncRepoState(SyncRepo{Path: repo})
 	if !whole.Dirty || whole.Oldest.IsZero() {
 		t.Errorf("read whole: %+v", whole)
+	}
+}
+
+// Sync's own commit is the one it would push by itself, and the one the watch holds it to:
+// a session's commit inside the very paths sync syncs carries no trailer, so a pathspec alone
+// could not have told the two apart.
+func TestOnlySyncsOwnUnpushedCommitCountsAsLate(t *testing.T) {
+	repo := liveRepo(t)
+
+	if state := syncRepoState(SyncRepo{Path: repo, Paths: []string{"keep"}}); !state.Oldest.IsZero() {
+		t.Fatalf("a session's commit inside the paths read as sync's: %s", state.Oldest)
+	}
+
+	syncCommit(t, repo, "keep/d.md")
+
+	state := syncRepoState(SyncRepo{Path: repo, Paths: []string{"keep"}})
+	if state.Oldest.IsZero() {
+		t.Error("sync's own unpushed commit was not counted")
 	}
 }
 

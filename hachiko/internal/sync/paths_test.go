@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/timche/mac-mini/hachiko/internal/config"
 )
 
 // A repository limited to paths: every command a pass runs against its tree carries them, and
@@ -22,10 +24,13 @@ func TestEveryCommandThatTouchesALimitedTreeCarriesItsPaths(t *testing.T) {
 		"--no-optional-locks status --porcelain=v1 -z": "home/.claude",
 		"add -A":                       "home/.claude",
 		"diff --cached --name-only -z": "home/.claude",
-		"commit -m Update home/.claude/CLAUDE.md": "home/.claude",
-		"log --oneline @{upstream}..HEAD":         "",
-		"rev-parse --abbrev-ref HEAD":             "",
-		"push origin main":                        "",
+		"commit -m Update home/.claude/CLAUDE.md --trailer " + config.SyncedTrailer: "home/.claude",
+
+		// The commits and the remote are not the tree: a push publishes the branch, and which
+		// commits on it are sync's is the trailer's question rather than a path's.
+		"log --oneline @{upstream}..HEAD --fixed-strings --grep=" + config.SyncedTrailer: "",
+		"rev-parse --abbrev-ref HEAD": "",
+		"push origin main":            "",
 	}
 	seen := f.limits()
 

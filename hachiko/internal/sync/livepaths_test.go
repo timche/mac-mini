@@ -34,6 +34,23 @@ func (l *live) twoFolders() {
 	l.run(l.other, "pull", "origin", "main")
 }
 
+// A commit of a session's, timed: real git writes the committer time a push delay is
+// measured against, so a commit meant to be two hours old has to be made as one.
+func (l *live) sessionCommit(name, body, subject string, at time.Time) {
+	l.t.Helper()
+
+	l.write(name, body)
+	l.run(l.repo, "add", "-A")
+
+	stamp := at.Format(time.RFC3339)
+	l.t.Setenv("GIT_AUTHOR_DATE", stamp)
+	l.t.Setenv("GIT_COMMITTER_DATE", stamp)
+	l.run(l.repo, "commit", "-m", subject)
+
+	os.Unsetenv("GIT_AUTHOR_DATE")
+	os.Unsetenv("GIT_COMMITTER_DATE")
+}
+
 func (l *live) read(name string) string {
 	l.t.Helper()
 
@@ -84,6 +101,80 @@ func TestLiveALimitedPassCommitsItsPathsAndLeavesTheRestOfTheTree(t *testing.T) 
 	}
 	if got := l.read("other/b.md"); got != "a session's, unstaged\n" {
 		t.Errorf("the unstaged change was touched: %q", got)
+	}
+}
+
+// A session's own commit is not sync's to publish: it may be one the session is still
+// shaping, and one it amends or squashes after sync has pushed it is one it can no longer
+// push without forcing. So nothing of a session's starts a push, however long it sits.
+func TestLiveASessionsOwnCommitIsNeverWhatStartsAPush(t *testing.T) {
+	l := newLive(t)
+	l.twoFolders()
+	repo := l.limited()
+	repo.PushDelay = time.Minute
+	_, loop := l.daemon(repo)
+
+	l.write("keep/a.md", "a session's, inside the paths\n")
+	l.run(l.repo, "add", "-A")
+	l.run(l.repo, "commit", "-m", "A session's own commit")
+
+	// Well past the delay, and with the recheck and every other reason for a pass gone by.
+	for i := 0; i < 3; i++ {
+		l.tick(loop, 30*time.Minute)
+	}
+
+	if got := l.onTheRemote(); len(got) != 2 {
+		t.Fatalf("a session's commit was pushed: %q", got)
+	}
+	if len(l.sent) != 0 {
+		t.Fatalf("sent: %v", l.sent)
+	}
+
+	// Sync's own commit is what publishes the branch, and the session's goes up underneath
+	// it — a push publishes the branch rather than a commit, and that is the point: the
+	// session's work is on the remote as soon as sync has anything of its own to send.
+	l.write("keep/b.md", "sync's\n")
+	l.settle(loop)
+	l.tick(loop, time.Minute+time.Second)
+
+	got := l.onTheRemote()
+	if len(got) != 4 || got[1] != "A session's own commit" {
+		t.Fatalf("on the remote: %q", got)
+	}
+
+	// And the one it made says so, which is how the two were told apart.
+	if trailer := l.run(l.repo, "log", "--format=%(trailers:key=Synced-by,valueonly)", "-1"); trailer != "hachiko sync" {
+		t.Errorf("the trailer on sync's own commit is %q", trailer)
+	}
+}
+
+// The delay is counted from the oldest commit of sync's own, not from a session's: a session
+// that committed an hour ago does not make sync's fresh commit due at once.
+func TestLiveThePushDelayIsCountedFromSyncsOwnOldestCommit(t *testing.T) {
+	l := newLive(t)
+	l.twoFolders()
+	repo := l.limited()
+	repo.PushDelay = time.Hour
+	_, loop := l.daemon(repo)
+
+	// Two hours old as git itself records it, since a push delay is measured against the
+	// committer time real git wrote rather than against anything a test decided.
+	l.sessionCommit("keep/a.md", "a session's\n", "A session's own commit", l.now.Add(-2*time.Hour))
+
+	l.write("keep/b.md", "sync's\n")
+	l.settle(loop)
+
+	if got := l.onTheRemote(); len(got) != 2 {
+		t.Fatalf("it pushed on the session's commit being old: %q", got)
+	}
+	if !strings.Contains(l.log.String(), "pushing in") {
+		t.Errorf("log:\n%s", l.log.String())
+	}
+
+	l.tick(loop, time.Hour+time.Second)
+
+	if got := l.onTheRemote(); len(got) != 4 {
+		t.Fatalf("on the remote: %q", got)
 	}
 }
 

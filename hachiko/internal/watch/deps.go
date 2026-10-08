@@ -250,9 +250,11 @@ func syncRepos(cfg config.Config) []SyncRepo {
 // index and takes `index.lock` to do it, and these are the repositories `hachiko sync` is
 // committing in while this runs. The check that asks whether sync is falling behind may not be
 // what makes it fail.
-// Both commands carry the repository's pathspec, so what is read is the tree sync writes and
-// nothing else: a limited repository's other files are a session's, and neither a change left
-// uncommitted in one nor a commit of one left unpushed is sync falling behind.
+//
+// Both commands are narrowed to what sync is answerable for, by the same rules sync itself
+// works to: the pathspec for the tree, and the trailer for the commits. A limited
+// repository's other files are a session's, and neither a change left uncommitted in one nor
+// a commit of a session's left unpushed is sync falling behind.
 func syncRepoState(repo SyncRepo) SyncRepoState {
 	limit := config.Pathspec(repo.Paths)
 	git := func(args ...string) ([]byte, error) {
@@ -268,7 +270,11 @@ func syncRepoState(repo SyncRepo) SyncRepoState {
 	state := SyncRepoState{Read: true, Dirty: len(strings.TrimSpace(string(status))) > 0}
 
 	// A branch with no upstream has nothing to be late against, and git says so by failing.
-	stamps, err := git("log", "--format=%ct", "@{upstream}..HEAD")
+	// In a limited repository the commits counted are sync's own, by the trailer it marks
+	// them with: a commit of a session's is not one sync would push on its own, so one left
+	// sitting there is not sync running late.
+	stamps, err := git(append([]string{"log", "--format=%ct", "@{upstream}..HEAD"},
+		config.OwnCommits(repo.Paths)...)...)
 	if err != nil {
 		return state
 	}

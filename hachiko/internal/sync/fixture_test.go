@@ -31,8 +31,13 @@ type fakeRepo struct {
 	stat     string
 	subjects []string
 
+	// Every commit on this branch that is not on the remote, newest first, and when the
+	// oldest of them was made. A commit sync made in a limited repository carries the trailer
+	// in its line, which is what `--grep` finds again — so a `unpushed` a test sets by hand
+	// is a session's, which is what a session's commits are.
 	unpushed   []string
 	oldest     time.Time
+	oldestOwn  time.Time
 	behind     []string
 	head       string
 	upstream   string
@@ -138,6 +143,7 @@ func (f *fixture) git(dir string, args ...string) Output {
 	bad := func(text string) Output { return Output{Text: text} }
 
 	command, _ := cutPathspec(args)
+	command, own := cutOwn(command)
 
 	switch strings.Join(command, " ") {
 	case "rev-parse --is-inside-work-tree":
@@ -175,16 +181,20 @@ func (f *fixture) git(dir string, args ...string) Output {
 		if t.noUpstream {
 			return bad("fatal: no upstream")
 		}
-		return ok(strings.Join(t.unpushed, "\n"))
+		return ok(strings.Join(t.unpushedCommits(own), "\n"))
 	case "log --oneline HEAD..@{upstream}":
 		return ok(strings.Join(t.behind, "\n"))
 	case "log --format=%ct @{upstream}..HEAD":
-		if len(t.unpushed) == 0 || t.oldest.IsZero() {
+		kept, at := t.unpushedCommits(own), t.oldest
+		if own {
+			at = t.oldestOwn
+		}
+		if len(kept) == 0 || at.IsZero() {
 			return ok("")
 		}
 		var stamps []string
-		for range t.unpushed {
-			stamps = append(stamps, fmt.Sprint(t.oldest.Unix()))
+		for range kept {
+			stamps = append(stamps, fmt.Sprint(at.Unix()))
 		}
 		return ok(strings.Join(stamps, "\n"))
 	case "diff --cached --name-only -z":
@@ -217,7 +227,15 @@ func (f *fixture) git(dir string, args ...string) Output {
 			t.commitFails--
 			return bad(t.commitText)
 		}
-		t.unpushed = append([]string{"deadbee " + args[2]}, t.unpushed...)
+
+		line := "deadbee " + args[2]
+		if trailed(args) {
+			line += " (" + config.SyncedTrailer + ")"
+			if t.oldestOwn.IsZero() {
+				t.oldestOwn = f.now
+			}
+		}
+		t.unpushed = append([]string{line}, t.unpushed...)
 		if t.oldest.IsZero() {
 			t.oldest = f.now
 		}
@@ -230,7 +248,7 @@ func (f *fixture) git(dir string, args ...string) Output {
 			t.pushRefused--
 			return bad(t.pushText)
 		}
-		t.unpushed, t.oldest, t.noUpstream = nil, time.Time{}, false
+		t.unpushed, t.oldest, t.oldestOwn, t.noUpstream = nil, time.Time{}, time.Time{}, false
 		return ok("")
 
 	case args[0] == "pull":
@@ -244,6 +262,42 @@ func (f *fixture) git(dir string, args ...string) Output {
 
 	f.t.Fatalf("the fixture was asked for `git %s`, which it does not answer", strings.Join(args, " "))
 	return Output{}
+}
+
+// Whether a `git log` was asked for sync's own commits alone. The two arguments that say so
+// are always the last of them, so the command is what comes before the first of the two.
+// The unpushed commits a `git log` was asking for: all of them, or the ones sync made.
+func (t *fakeRepo) unpushedCommits(own bool) []string {
+	if !own {
+		return t.unpushed
+	}
+
+	var mine []string
+	for _, line := range t.unpushed {
+		if strings.Contains(line, config.SyncedTrailer) {
+			mine = append(mine, line)
+		}
+	}
+	return mine
+}
+
+// Whether a commit was made with the trailer that marks it sync's own.
+func trailed(args []string) bool {
+	for _, arg := range args {
+		if arg == config.SyncedTrailer {
+			return true
+		}
+	}
+	return false
+}
+
+func cutOwn(args []string) ([]string, bool) {
+	for i, arg := range args {
+		if arg == "--fixed-strings" {
+			return args[:i], true
+		}
+	}
+	return args, false
 }
 
 // A command and the paths it was limited to, split at the `--` git itself reads as the end of

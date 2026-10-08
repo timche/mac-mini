@@ -78,7 +78,7 @@ func (p passer) pushWait() time.Duration {
 	if p.repo.PushDelay == 0 {
 		return 0
 	}
-	at := p.git.oldestUnpushedAt()
+	at := p.oldestMineAt()
 	if at.IsZero() {
 		return 0
 	}
@@ -88,6 +88,37 @@ func (p passer) pushWait() time.Duration {
 		return 0
 	}
 	return left
+}
+
+// The unpushed commits this pass is for: every one of them where the whole repository is
+// synced, and sync's own where it is limited to paths. The difference is a branch a session
+// commits to as well — pushing what it has committed but not pushed would publish work it is
+// still shaping, and a commit it then amends or squashes is one it can no longer push without
+// forcing. So nothing of a session's starts a push; what it does do is go up underneath
+// sync's when there is one, since a push publishes the branch rather than a commit.
+func (p passer) mine() []string {
+	if p.repo.Limited() {
+		return p.git.ownUnpushed()
+	}
+	return p.git.unpushed()
+}
+
+func (p passer) oldestMineAt() time.Time {
+	if p.repo.Limited() {
+		return p.git.oldestOwnUnpushedAt()
+	}
+	return p.git.oldestUnpushedAt()
+}
+
+// Whether this pass has anything to push: a commit of sync's own, or — only where the whole
+// repository is synced — a branch that has never been published at all. Publishing a branch
+// nobody published is not something a limited repository does, there being nothing of sync's
+// on it to publish.
+func (p passer) somethingToPush(setUpstream bool) bool {
+	if len(p.mine()) > 0 {
+		return true
+	}
+	return setUpstream && !p.repo.Limited()
 }
 
 func (p passer) run(mode pushMode) Result {
@@ -123,13 +154,9 @@ func (p passer) try(mode pushMode) Result {
 	setUpstream := !p.git.hasUpstream()
 	dirty := p.git.status() != ""
 
-	// Without an upstream the branch has never been published, so there is always something
-	// to push even when `@{upstream}..HEAD` cannot be asked.
-	unpushed := setUpstream || len(p.git.unpushed()) > 0
-
 	// With pulling on, an idle repository is still worth a pass: the remote may have moved
 	// even though nothing here did.
-	if !p.repo.Pull && !dirty && !unpushed {
+	if !p.repo.Pull && !dirty && !p.somethingToPush(setUpstream) {
 		return Result{Outcome: Nothing}
 	}
 
@@ -208,7 +235,7 @@ func (p passer) pushLoop(branch, subject string, setUpstream bool) Result {
 				// An offline machine with nothing of its own to send is not a failure at all:
 				// retrying the ladder and posting about it every minute would make ordinary
 				// idleness look broken. The same rule as a docker that is down.
-				if len(p.git.unpushed()) == 0 {
+				if !p.somethingToPush(setUpstream) {
 					p.say("the remote could not be fetched, and there is nothing to push: %s", rebased.text)
 					return Result{Outcome: Nothing}
 				}
@@ -221,7 +248,7 @@ func (p passer) pushLoop(branch, subject string, setUpstream bool) Result {
 			}
 		}
 
-		if !setUpstream && len(p.git.unpushed()) == 0 {
+		if !p.somethingToPush(setUpstream) {
 			if pulled > 0 {
 				p.say("%s came down from %s", commits(pulled), p.repo.Remote)
 				return Result{Outcome: Pulled}

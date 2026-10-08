@@ -172,8 +172,14 @@ func repos(cfg config.Config) ([]Repo, error) {
 // Two git commands and a read of sync's own state, all of them read-only and bounded: a git
 // that hangs on a mount which has gone away may not be what a person is left looking at.
 // Nothing is read from a remote, so neither command goes near the network.
+//
+// `--no-optional-locks` because read-only is not the same as lock-free: a plain `git status`
+// refreshes the index and takes `index.lock` to do it, and the repositories this reads are the
+// ones `hachiko sync` is committing in. A screen somebody opened to see whether sync is
+// working may not be the reason a sync fails.
 func repoState(cfg config.Config, repo Repo) RepoState {
-	status, err := process.Run(gitTimeout, "git", "-C", repo.Path, "status", "--porcelain=v1")
+	status, err := process.Run(gitTimeout, "git", "--no-optional-locks", "-C", repo.Path,
+		"status", "--porcelain=v1")
 	if err != nil {
 		return RepoState{Trouble: "git would not say what is in it"}
 	}
@@ -185,7 +191,8 @@ func repoState(cfg config.Config, repo Repo) RepoState {
 	}
 
 	// A branch with no upstream has nothing to be behind, and git says so by failing.
-	stamps, err := process.Run(gitTimeout, "git", "-C", repo.Path, "log", "--format=%ct", "@{upstream}..HEAD")
+	stamps, err := process.Run(gitTimeout, "git", "--no-optional-locks", "-C", repo.Path,
+		"log", "--format=%ct", "@{upstream}..HEAD")
 	if err != nil {
 		return state
 	}

@@ -245,8 +245,14 @@ func syncRepos(cfg config.Config) []SyncRepo {
 // Two git commands in a repository the watch does not otherwise touch, both read-only and
 // both bounded: a git that hangs on a mount that has gone away may not cost the Mac its
 // monitor. Nothing is read from a remote, so neither of them goes near the network.
+//
+// `--no-optional-locks` because read-only is not lock-free: a plain `git status` refreshes the
+// index and takes `index.lock` to do it, and these are the repositories `hachiko sync` is
+// committing in while this runs. The check that asks whether sync is falling behind may not be
+// what makes it fail.
 func syncRepoState(path string) SyncRepoState {
-	status, err := process.Run(gitTimeout, "git", "-C", path, "status", "--porcelain=v1")
+	status, err := process.Run(gitTimeout, "git", "--no-optional-locks", "-C", path,
+		"status", "--porcelain=v1")
 	if err != nil {
 		return SyncRepoState{}
 	}
@@ -254,7 +260,8 @@ func syncRepoState(path string) SyncRepoState {
 	state := SyncRepoState{Read: true, Dirty: len(strings.TrimSpace(string(status))) > 0}
 
 	// A branch with no upstream has nothing to be late against, and git says so by failing.
-	stamps, err := process.Run(gitTimeout, "git", "-C", path, "log", "--format=%ct", "@{upstream}..HEAD")
+	stamps, err := process.Run(gitTimeout, "git", "--no-optional-locks", "-C", path,
+		"log", "--format=%ct", "@{upstream}..HEAD")
 	if err != nil {
 		return state
 	}

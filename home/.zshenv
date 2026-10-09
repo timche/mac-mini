@@ -35,8 +35,8 @@ export PROJECT_DOCS_DIR="$HOME/projects/docs"
 # so the daemon install.sh names is installed from this same list.
 export PORTLESS_TLD=localhost,timche.dev
 
-# The cross-tool opt-out from usage analytics (donottrack.sh). varlock is why it
-# is here: without it, every project would need a .varlock/config.json of its own.
+# The cross-tool opt-out from usage analytics (donottrack.sh), so no CLI a
+# session runs reports home or writes an install id without a per-tool setting.
 export DO_NOT_TRACK=1
 
 # Compose names a project after the directory it was started from, which for a

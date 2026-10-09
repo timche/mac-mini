@@ -200,7 +200,7 @@ xcodebuild -version
 xcodes installed       # every Xcode on the Mac, and which one is selected
 ```
 
-Nothing here installs the Developer ID certificate, and nothing should: electron-builder takes it from `CSC_LINK` and `CSC_KEY_PASSWORD` and imports it into a keychain of its own for the length of a build. A project resolves both from 1Password through varlock at that point, as below, so the login keychain never holds it and a Mac reprovisioned from here has nothing to re-import.
+Nothing here installs the Developer ID certificate, and nothing should: electron-builder takes it from `CSC_LINK` and `CSC_KEY_PASSWORD` and imports it into a keychain of its own for the length of a build. A project resolves both from 1Password with `op run` at that point, as below, so the login keychain never holds it and a Mac reprovisioned from here has nothing to re-import.
 
 ## The account
 
@@ -398,13 +398,13 @@ Every Claude Code session is a pane of one herdr server, and that server is star
 
 What stays unsolved either way is approval: computer use asks for each app once per session, in the session's own terminal, and nothing pre-approves apps for a session nobody is watching ([anthropics/claude-code#47796](https://github.com/anthropics/claude-code/issues/47796), closed without it).
 
-## varlock
+## Projects and 1Password
 
 A project that resolves its secrets with `op run --env-file .env.op -- <cmd>` gets the same token from `~/.local/bin/op`, a wrapper ahead of Homebrew's `op` on PATH, so the project never learns how `op` signs in and the same command works on a Mac where the 1Password app does it. When `OP_SERVICE_ACCOUNT_TOKEN` is unset and the token file is readable, it sets the variable for that one `op` process and nothing else, where exporting it from `.zshenv` would put it in every process and so in transcripts and logs. `op run` hands its own environment to the command it starts, so for `op run` the wrapper puts `env -u OP_SERVICE_ACCOUNT_TOKEN` right after the first `--`; a command that calls `op` by name comes back through the wrapper and is signed in again. This keeps the token out of projects and build tools' environments rather than away from the account, which can read the file anyway. The scripts here and `launchd/agent.sh` read the file themselves and do not depend on it.
 
-A project that loads its environment through varlock is handed no token from here: where it resolves a reference through the `op` CLI, that `op` is the wrapper above and is signed in already, and anything else is the project's own schema to declare. `.zshenv` and `.bashrc` set `DO_NOT_TRACK=1`, the cross-tool opt-out at donottrack.sh that varlock honours, since varlock otherwise sends anonymous usage analytics and writes an id to `~/.config/varlock/config.json` for any project without an opt-out of its own.
+`.zshenv` and `.bashrc` set `DO_NOT_TRACK=1`, the cross-tool opt-out at donottrack.sh, so no CLI a session runs sends usage analytics or writes an install id.
 
-Signing and notarising a macOS build is the project's own configuration, in its `.env.schema`, rather than a wrapper here: meru resolves its Developer ID certificate, its notarisation credentials and its provisioning profile that way.
+Signing and notarising a macOS build is the project's own configuration, in a `.env.signing.op` it runs the build under, rather than a wrapper here: meru resolves its Developer ID certificate, its notarisation credentials and its provisioning profile that way.
 
 ## hachiko
 

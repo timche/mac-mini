@@ -15,7 +15,8 @@
 
 # Installing and privileged commands
 
-- Never install software or change the machine outside the project without being asked, even into a user path. Recommend, then wait.
+- A tool a task needs and this machine lacks gets installed, not worked around or reported as missing: a CLI into a user path with mise, brew or a global bun install, or a one-off run through `bunx`/`npx`. Say what was installed. Anything else that changes the machine outside the project, such as its configuration or a launchd job, waits until Tim asks; recommend it instead.
+- A subagent that cannot reach a tool the task needs is the wrong agent type or has a definition missing that tool; pick another type or add the tool to its definition, rather than accept an unverified result.
 - sudo on this Mac asks for Tim's password, and a session has no terminal to type it at. When a step needs it, print the exact command in a code block and ask Tim to run it; he reviews it first and can run it himself. A change to the system trust store or to a privacy permission also puts a dialog on the Mac's own screen, which only Screen Sharing reaches, so say that as well.
 - The one exception is `sudo /usr/local/libexec/claude-root <action>`, which runs without a password and without him. `--list` prints the actions it takes and refuses everything else, so run that rather than guessing one. Anything it does not cover is still a command printed for Tim, and a new action is an edit to `system/libexec/claude-root` in `~/.mac-mini` plus a `root-helper.sh` run, which costs his password — and may never touch a path the account can write, since the account aims that path wherever it likes and the helper is running as root.
 

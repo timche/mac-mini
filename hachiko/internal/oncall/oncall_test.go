@@ -292,8 +292,14 @@ func TestTheOpeningPromptCarriesTheAutonomyLimits(t *testing.T) {
 		"`hachiko notify --outcome <incident> <file>`",
 		"Use --outcome on that message and on no other",
 		"a database or a docker volume",
-		"anything under sudo",
-		"restarting herdr, a launchd service or the Mac",
+		"anything else under sudo, a `sudo kill` included",
+		// The dasd loop spun through two nights because the orders forbade the one command
+		// the helper was installed to run for it.
+		"run the root helper's restart-daemon command for the busy daemon",
+		"never one you spelled yourself",
+		"other than through that one root-helper command",
+		"you may only recommend stopping, handover or not",
+		"restarting herdr, the Mac or a launchd service",
 		"unless that process is itself the one causing the incident",
 		"least destructive option that actually resolves it",
 		// The cpu session read hachiko's own esc as Tim declining and told him so, which was

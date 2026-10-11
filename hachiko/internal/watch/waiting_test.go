@@ -588,7 +588,7 @@ func TestACPUTriggerThatHasClearedReachesTheAgent(t *testing.T) {
 	harness.Wants(t, f.lastInterrupt(), "Nothing is using much CPU any more")
 }
 
-// A system process is one the session may only recommend stopping, handover or not, so the
+// A system process off the root helper's list is one the session may only recommend stopping, handover or not, so the
 // handover is still worth making — it is what lets it say so and stop asking — but it is
 // worth making once. Tim gets the warning, the handover's own message from the session, and
 // nothing of hachiko's every five minutes after it.

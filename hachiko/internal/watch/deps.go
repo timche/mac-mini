@@ -28,7 +28,7 @@ type Deps struct {
 	Getpid func() int
 
 	// The account hachiko is running as, which is Tim's. A hot process with another uid is
-	// one he alone can stop, since sudo is on the on-call session's never list.
+	// one the on-call session can stop only through the root helper, and otherwise only he can.
 	Getuid func() int
 
 	FreeKB func() (int64, error)

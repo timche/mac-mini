@@ -361,8 +361,8 @@ func TestAHotSystemProcessIsNotCalledLeftBehind(t *testing.T) {
 	harness.Lacks(t, out, "orphaned")
 }
 
-// A hot process the session cannot touch is a message about Tim, not about the session: sudo
-// is on its never list, so what he needs in the first line is what stopping it would take.
+// A hot process the session cannot touch is a message about Tim, not about the session: a
+// sudo kill is on its never list, so what he needs in the first line is what stopping it would take.
 func TestASystemProcessSaysWhatStoppingItWouldTakeUpFront(t *testing.T) {
 	f := newFixture(t)
 

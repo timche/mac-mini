@@ -599,9 +599,9 @@ func (s sweeper) cpu(state *statedir.State, now time.Time) cpuFindings {
 		bullet += "\n  " + wording.CodeSpan(wording.Safe(p.Command, wording.ArgsLimit))
 		bullets = append(bullets, bullet)
 
-		// What the session cannot do about it, said once and up front. sudo is on its never
-		// list, so a system process is one it may only recommend stopping — and the whole of
-		// the dasd night turned on a fix that needed Tim and a message that never said so.
+		// What stopping it takes, said once and up front: the root helper's command, which the
+		// session may run after a handover, or a sudo kill, which only Tim may. The whole of
+		// the first dasd night turned on a fix that needed Tim and a message that never said so.
 		if system && out.sudo == "" {
 			out.sudo = s.stoppingIt(p)
 		}

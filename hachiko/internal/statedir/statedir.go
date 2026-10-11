@@ -53,6 +53,11 @@ type State struct {
 	// what `hachiko listen` reads a reply out of.
 	Threads map[string]string `json:"threads,omitempty"`
 
+	// The thread of an incident nothing waits on any more, kept for a while so that an
+	// outcome the session reports after the wait has ended still goes under the alert it is
+	// about rather than opening a second post. Out of Threads so the listener stops polling it.
+	ClosedThreads map[string]ClosedThread `json:"closed_threads,omitempty"`
+
 	// What the watch has said about each long-running agent's liveness, one entry per agent.
 	Agents map[string]AgentLiveness `json:"agents,omitempty"`
 
@@ -97,6 +102,39 @@ const (
 type AgentLiveness struct {
 	Stale  int64  `json:"stale,omitempty"`
 	Thread string `json:"thread,omitempty"`
+}
+
+type ClosedThread struct {
+	Thread string `json:"thread"`
+	Closed int64  `json:"closed"`
+}
+
+// Where a message about an incident goes: its open thread, or the one it had until lately.
+func (s *State) ThreadFor(incident string) string {
+	if thread, ok := s.Threads[incident]; ok {
+		return thread
+	}
+	return s.ClosedThreads[incident].Thread
+}
+
+// An incident's thread moves to the closed ones when nothing waits on it any more, and a
+// closed one is forgotten once it is older than keep.
+func (s *State) CloseThreads(open map[string]bool, now time.Time, keep time.Duration) {
+	for incident, thread := range s.Threads {
+		if open[incident] {
+			continue
+		}
+		if s.ClosedThreads == nil {
+			s.ClosedThreads = map[string]ClosedThread{}
+		}
+		s.ClosedThreads[incident] = ClosedThread{Thread: thread, Closed: now.Unix()}
+		delete(s.Threads, incident)
+	}
+	for incident, closed := range s.ClosedThreads {
+		if now.Sub(time.Unix(closed.Closed, 0)) > keep {
+			delete(s.ClosedThreads, incident)
+		}
+	}
 }
 
 func (s *State) Agent(key string) AgentLiveness { return s.Agents[key] }

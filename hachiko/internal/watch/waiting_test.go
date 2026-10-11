@@ -1650,11 +1650,19 @@ func TestOneIncidentGetsOneThreadAndEveryLaterMessageGoesIntoIt(t *testing.T) {
 	harness.Equal(t, len(f.opened), 1, "threads opened by the reminder")
 	harness.Equal(t, f.sentTo[len(f.sentTo)-1], "thread-"+incident, "where the reminder went")
 
-	// And the thread goes once nothing is open on it, so the listener stops polling it and
-	// the state does not keep one per incident for the life of the Mac.
+	// And the thread closes once nothing is open on it, so the listener stops polling it,
+	// but an outcome reported late still finds it.
 	f.notifyOutcome(incident)
-	f.at(600 + remindAt + 300).sweep()
-	harness.Equal(t, len(f.state().Threads), 0, "threads still recorded")
+	closedAt := int64(600 + remindAt + 300)
+	f.at(closedAt).sweep()
+	harness.Equal(t, len(f.state().Threads), 0, "threads still open")
+	harness.Equal(t, f.state().ThreadFor(incident), "thread-"+incident, "the thread a late outcome goes into")
+
+	// A week later it is forgotten, so the state does not keep one per incident for the
+	// life of the Mac.
+	f.at(closedAt + int64(7*24*time.Hour/time.Second) + 300).sweep()
+	harness.Equal(t, f.state().ThreadFor(incident), "", "the thread a week after it closed")
+	harness.Equal(t, len(f.state().ClosedThreads), 0, "closed threads still recorded")
 }
 
 // Without a bot there is no thread, and every message goes to the channel exactly as it

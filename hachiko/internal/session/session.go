@@ -38,7 +38,7 @@ func Notify(cfg config.Config, incident, messageFile string, outcome bool) error
 	// this is one field of a map the sweep alone writes.
 	out := discord.Outgoing{Text: string(message)}
 	if state, err := store.Load(); err == nil {
-		out.Thread = state.Threads[incident]
+		out.Thread = state.ThreadFor(incident)
 	}
 
 	if _, err := discord.SendThroughOP(cfg, out); err != nil {

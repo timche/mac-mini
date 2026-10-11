@@ -259,14 +259,9 @@ func (s sweeper) run() error {
 	s.sayDroppedOutcomes(expected)
 	s.store.ForgetReportedExcept(expected)
 
-	// A thread for an incident nobody is waiting on any more. Dropped here rather than when
-	// the wait ends, because the session's outcome message goes into it after that and the
-	// listener has no reason to poll it afterwards.
-	for incident := range state.Threads {
-		if !expected[incident] {
-			delete(state.Threads, incident)
-		}
-	}
+	// A wait can end before the session reports, when its question went away with the
+	// session, and the outcome it sends hours later belongs in the same thread.
+	state.CloseThreads(expected, now, closedThreadKeep)
 
 	// Last, so that what shibuya is told about this Mac is what the check decided rather
 	// than what it had got to — and so that a Worker that will not answer costs the sweep
@@ -887,6 +882,8 @@ func newestPending(pending map[string]statedir.Pending, kind string) string {
 
 // Every incident a report could still arrive under: one that owes its first, and one
 // whose session is on its question and owes the outcome.
+const closedThreadKeep = 7 * 24 * time.Hour
+
 func stillExpected(state *statedir.State) map[string]bool {
 	keep := map[string]bool{}
 	for id := range state.Pending {

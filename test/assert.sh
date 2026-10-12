@@ -1400,11 +1400,20 @@ check "the project-docs hook is wired to SessionStart" \
 
 # A repository with no docs folder has to stay silent, or every session on
 # every other project starts with an apology. A bare repository of its own,
-# since this one carries docs/ now and ~/projects/docs may hold a folder for anything.
+# since this one carries docs/ now and ~/projects/docs may hold a folder for
+# anything, and an empty docs root, since the real one has shared/.
 check "the project-docs hook says nothing without a docs folder" \
-  'bare="$(mktemp -d)" && git -C "$bare" init -q &&
+  'bare="$(mktemp -d)" && root="$(mktemp -d)" && git -C "$bare" init -q &&
    git -C "$bare" remote add origin https://example.com/nobody/no-docs-here.git &&
-   [ -z "$(cd "$bare" && bash "$HOME/.claude/hooks/project-docs.sh")" ]'
+   [ -z "$(cd "$bare" && PROJECT_DOCS_DIR="$root" bash "$HOME/.claude/hooks/project-docs.sh")" ]'
+
+# shared/ is what applies across projects, so it is listed even where the
+# project has no docs of its own, and outside a repository altogether.
+check "the project-docs hook lists the shared docs in any directory" \
+  'root="$(mktemp -d)" && out="$(mktemp -d)" &&
+   mkdir "$root/shared" && : > "$root/shared/cloudflare.md" &&
+   [ "$(cd "$out" && PROJECT_DOCS_DIR="$root" bash "$HOME/.claude/hooks/project-docs.sh" | head -1)" = \
+     "Shared docs for every project: $root/shared" ]'
 
 # ~/projects/docs/<repo> and nothing else: a checkout's own docs/ is the project's
 # published documentation rather than its working docs. Run against a throwaway
@@ -1436,9 +1445,9 @@ check "the project-docs hook asserts nothing about the docs themselves" \
 # already in the global CLAUDE.md and would be rent on a restatement. Counted
 # in the script rather than by running it: a runner has neither a checkout with
 # docs nor the docs themselves, so a runtime check would pass by printing nothing
-# and prove nothing.
-check "the project-docs hook prints one line of prose, not a paragraph" \
-  'test "$(grep -c "^echo \"[A-Z]" "$HOME/.claude/hooks/project-docs.sh")" -eq 1'
+# and prove nothing. One line for the shared folder, one for the project's.
+check "the project-docs hook prints a line of prose per folder, not a paragraph" \
+  'test "$(grep -c "^ *echo \"[A-Z]" "$HOME/.claude/hooks/project-docs.sh")" -eq 2'
 
 if [ "$failures" -gt 0 ]; then
   echo "  $failures check(s) failed"

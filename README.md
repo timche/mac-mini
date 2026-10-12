@@ -340,7 +340,7 @@ What watches it is the five-minute check, through the one liveness check that al
 
 ## Finding the project docs
 
-A `SessionStart` hook, `project-docs.sh`, prints the project's docs folder and its shape — stdout from `SessionStart` goes into the session context, so Claude starts already knowing the docs are there. It looks only at `~/projects/docs/<repo>`, the project's folder in the separate docs repository; a checkout's own `docs/` is the project's published documentation, not its working docs, so it is never read. A project with no folder there produces no output at all.
+A `SessionStart` hook, `project-docs.sh`, prints the project's docs folder and its shape — stdout from `SessionStart` goes into the session context, so Claude starts already knowing the docs are there. It looks only at `~/projects/docs/<repo>`, the project's folder in the separate docs repository; a checkout's own `docs/` is the project's published documentation, not its working docs, so it is never read. A project with no folder there produces no project output. Before the project's folder it lists `~/projects/docs/shared`, which holds what applies to every project, such as the Cloudflare account's conventions; that listing comes in every session, in a repository or not.
 
 The repository name comes from the `origin` remote rather than the directory, because a worktree under `~/.herdr/worktrees/<repo>/<branch>` is named for the branch while every branch shares one docs folder. Subdirectories collapse to a name and a count: listing every file put fifty lines into every session on the largest project, and the shape is the part worth injecting.
 

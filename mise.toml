@@ -63,7 +63,7 @@ go = "1.27"
 # the whole of what it needs installed.
 "~/Library/LaunchAgents/io.github.timche.hachiko-gc.plist" = { source = "home/Library/LaunchAgents/io.github.timche.hachiko-gc.plist", mode = "template" }
 
-# The watch over free space and the CPU, with the webhook reference beside it: the
+# The watch over free space and the CPU, with its secrets' references beside it: the
 # wrapper resolves its .env.op from its own directory, so the two are linked together
 # or the alert has nowhere to go. The wrapper is all that is linked — the binary it
 # builds from hachiko/ lives in ~/Library/Caches/hachiko and is nobody's dotfile.
@@ -71,11 +71,8 @@ go = "1.27"
 "~/.local/bin/hachiko.env.op" = { source = "home/.local/bin/hachiko.env.op", mode = "symlink" }
 "~/.config/hachiko/cpu-allow" = { source = "home/.config/hachiko/cpu-allow", mode = "symlink" }
 
-# Answering the on-call session from Discord, off until the config file names a channel and
-# a user. The two secrets it needs are in a second .env.op rather than beside the webhook,
-# because `op run` refuses a reference it cannot resolve and a bot token named before the
-# field exists would take every alert down with it.
-"~/.local/bin/hachiko.discord.env.op" = { source = "home/.local/bin/hachiko.discord.env.op", mode = "symlink" }
+# The channel alerts go to and the account replies are taken from, which `hachiko listen`
+# needs both of before it reads anything back.
 "~/.config/hachiko/discord" = { source = "home/.config/hachiko/discord", mode = "symlink" }
 
 # Where hachiko checks in, which is the half of the watch that is not on this Mac. The URL

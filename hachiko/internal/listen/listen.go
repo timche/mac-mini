@@ -84,8 +84,8 @@ func Run(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(cfg.DiscordEnvFile); err != nil {
-		return fmt.Errorf("%s is missing, so there is no token to listen with", cfg.DiscordEnvFile)
+	if _, err := os.Stat(cfg.EnvFile); err != nil {
+		return fmt.Errorf("%s is missing, so there is no token to listen with", cfg.EnvFile)
 	}
 
 	return discord.ExecOP(op, append(append([]string{"op", "run"}, discord.EnvFiles(cfg)...), "--", self, "--listen-mode"))

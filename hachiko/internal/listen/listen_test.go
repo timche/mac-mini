@@ -783,10 +783,10 @@ func configuredListener(t *testing.T, withOp bool) config.Config {
 	t.Setenv("HACHIKO_NOW", "1700000000")
 
 	return config.Config{
-		Home:           home,
-		StateDir:       filepath.Join(home, "state"),
-		DiscordEnvFile: filepath.Join(home, "missing.env.op"),
-		Discord:        config.DiscordConfig{ChannelID: channelID, UserID: timID},
+		Home:     home,
+		StateDir: filepath.Join(home, "state"),
+		EnvFile:  filepath.Join(home, "missing.env.op"),
+		Discord:  config.DiscordConfig{ChannelID: channelID, UserID: timID},
 	}
 }
 

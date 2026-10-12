@@ -74,18 +74,8 @@ const (
 // header. Nothing puts it in an argument, where ps would show it to every process on the
 // machine, and nothing writes it anywhere. The thread the child opened comes back on its
 // stdout, which is the one thing it prints.
-// One --env-file per file, and the second only when the feature that needs it is on: `op
-// run` refuses a reference it cannot resolve, and a bot token named before the field exists
-// would take every alert down with it.
 func EnvFiles(cfg config.Config) []string {
-	files := []string{"--env-file", cfg.EnvFile}
-
-	if cfg.Discord.On() {
-		if _, err := os.Stat(cfg.DiscordEnvFile); err == nil {
-			files = append(files, "--env-file", cfg.DiscordEnvFile)
-		}
-	}
-	return files
+	return []string{"--env-file", cfg.EnvFile}
 }
 
 func LookOp() (string, error) {

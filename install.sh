@@ -475,6 +475,25 @@ else
   fi
 fi
 
+# The second .env.op the bot's secrets were in, now lines in hachiko.env.op beside it.
+# mise removes no link it no longer declares, so this one is this repository's to take
+# back — and only when it points into this checkout or nowhere at all, the rule every
+# reclaim here follows.
+old_discord_env="$HOME/.local/bin/hachiko.discord.env.op"
+old_discord_env_is_ours=false
+
+if [ -L "$old_discord_env" ]; then
+  case "$(readlink "$old_discord_env")" in
+    "$repo"/*) old_discord_env_is_ours=true ;;
+    *) [ -e "$old_discord_env" ] || old_discord_env_is_ours=true ;;
+  esac
+fi
+
+if [ "$old_discord_env_is_ours" = true ]; then
+  rm "$old_discord_env"
+  echo "removed $old_discord_env, a link this repo no longer makes"
+fi
+
 # The watch over free space and the CPU, every five minutes. The plist is a link, so
 # what it points at says nothing about the file launchd read at load, and a copy of
 # that is what a reload is decided against.

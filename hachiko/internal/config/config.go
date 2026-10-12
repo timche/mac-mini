@@ -65,12 +65,6 @@ type Config struct {
 	// command Tim runs instead of the sudo kill he has to think about.
 	RootHelper string
 
-	// The bot token and the approval secret, in a file of their own: `op run` fails outright
-	// on a reference it cannot resolve, so naming a field that does not exist yet beside the
-	// webhook would stop every alert rather than leaving one feature off. Passed only when
-	// the channel and the user are configured, which is the same moment those fields exist.
-	DiscordEnvFile string
-
 	// Where shibuya is and the token it takes. The URL is in the checkout, being no secret;
 	// the token is not, being one — and it is generated on this Mac rather than resolved from
 	// 1Password, so a sweep that happens twice an hour costs no `op run` at all.
@@ -247,8 +241,6 @@ func FromEnv() Config {
 		CPUAllowPath: envString("HACHIKO_CPU_ALLOW", filepath.Join(home, ".config", "hachiko", "cpu-allow")),
 		EnvFile:      envFile,
 		RootHelper:   envString("HACHIKO_ROOT_HELPER", "/usr/local/libexec/claude-root"),
-		DiscordEnvFile: envString("HACHIKO_DISCORD_ENV_FILE",
-			filepath.Join(home, ".local", "bin", "hachiko.discord.env.op")),
 		SwitchConfig: envString("HACHIKO_SWITCH_CONFIG",
 			filepath.Join(home, ".config", "hachiko", "shibuya")),
 		SwitchToken: envString("HACHIKO_SWITCH_TOKEN",

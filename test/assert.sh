@@ -920,32 +920,30 @@ check "a build whose tests fail leaves the binary that was already there" \
 # Beside the wrapper because that is where the wrapper looks: `op run --env-file` is
 # given the path next to the script's own resolved location, so a missing link is an
 # alert with nowhere to go rather than a wrong URL.
-check "the webhook is an op:// reference beside hachiko, and no resolved URL" \
+check "hachiko's secrets are op:// references beside it, and nothing resolved" \
   '[ -L "$HOME/.local/bin/hachiko.env.op" ] &&
    [ -e "$HOME/.local/bin/hachiko.env.op" ] &&
    grep -qx "HACHIKO_DISCORD_URL=op://dev/shibuya-discord/webhook url" \
      "$HOME/.local/bin/hachiko.env.op" &&
-   ! grep -q "discord.com" "$HOME/.local/bin/hachiko.env.op"'
+   grep -qx "HACHIKO_DISCORD_BOT_TOKEN=op://dev/hachiko-discord/bot token" \
+     "$HOME/.local/bin/hachiko.env.op" &&
+   grep -qx "HACHIKO_APPROVAL_TOTP=op://dev/hachiko-discord/approval" \
+     "$HOME/.local/bin/hachiko.env.op" &&
+   ! grep -q "discord.com" "$HOME/.local/bin/hachiko.env.op" &&
+   ! grep -qE "^[A-Z_]+=[^o]" "$HOME/.local/bin/hachiko.env.op"'
 
-# Answering from Discord, which is off until the config file names a channel and a user. The
-# two secrets it needs are in a second .env.op deliberately: `op run` refuses a reference it
-# cannot resolve, so a bot token named beside the webhook before the field exists would stop
-# every alert rather than leaving one feature off.
+# Answering from Discord, which is off until the config file names a channel and a user.
 check "the Discord reply config is a live symlink and empty until Tim fills it in" \
   '[ -L "$HOME/.config/hachiko/discord" ] && [ -e "$HOME/.config/hachiko/discord" ] &&
    grep -qE "^channel *=" "$HOME/.config/hachiko/discord" &&
    grep -qE "^user *=" "$HOME/.config/hachiko/discord" &&
    ! grep -qE "^(channel|user) *= *[0-9]" "$HOME/.config/hachiko/discord"'
 
-check "the bot token and the approval secret are op:// references in a file of their own" \
-  '[ -L "$HOME/.local/bin/hachiko.discord.env.op" ] &&
-   [ -e "$HOME/.local/bin/hachiko.discord.env.op" ] &&
-   grep -qx "HACHIKO_DISCORD_BOT_TOKEN=op://dev/hachiko-discord/bot token" \
-     "$HOME/.local/bin/hachiko.discord.env.op" &&
-   grep -qx "HACHIKO_APPROVAL_TOTP=op://dev/hachiko-discord/approval" \
-     "$HOME/.local/bin/hachiko.discord.env.op" &&
-   ! grep -q "bot token" "$HOME/.local/bin/hachiko.env.op" &&
-   ! grep -qE "^[A-Z_]+=[^o]" "$HOME/.local/bin/hachiko.discord.env.op"'
+# mise removes no link it no longer declares, so a second .env.op in ~/.local/bin is one an
+# older install left and install.sh takes back.
+check "there is no second .env.op beside the wrapper" \
+  '[ ! -e "$HOME/.local/bin/hachiko.discord.env.op" ] &&
+   [ ! -L "$HOME/.local/bin/hachiko.discord.env.op" ]'
 
 # shibuya, the half of the watch that is not on this Mac. Its own behaviour is `npm test` in
 # shibuya/, against the same wrangler config the deploy reads; what is left for this script
@@ -967,8 +965,7 @@ check "the ping token, if it is there, is readable by nobody but the account" \
    [ ! -e "$t" ] || [ "$(stat -f %Lp "$t")" = 600 ]'
 
 check "the ping token is in no .env.op and in no op:// reference" \
-  '! grep -rq "shibuya-token" "$HOME/.local/bin/hachiko.env.op" \
-     "$HOME/.local/bin/hachiko.discord.env.op" &&
+  '! grep -q "shibuya-token" "$HOME/.local/bin/hachiko.env.op" &&
    ! grep -q "PING_TOKEN" "$repo/shibuya/.env.op"'
 
 check "shibuya's .env.op is op:// references and nothing resolved" \

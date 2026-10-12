@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -23,7 +22,7 @@ const fakeBotToken = "MTIzNDU2.NOT-A-REAL-BOT-TOKEN"
 // webhook path is exactly what it was, nothing asks for a token, and nothing opens a
 // thread.
 func TestWithNoChannelAndUserTheBotIsOffAndTheWebhookPathIsUntouched(t *testing.T) {
-	cfg := config.Config{EnvFile: "/somewhere/hachiko.env.op", DiscordEnvFile: "/somewhere/hachiko.discord.env.op"}
+	cfg := config.Config{EnvFile: "/somewhere/hachiko.env.op"}
 
 	harness.Equal(t, cfg.Discord.On(), false, "whether the bot is on with nothing configured")
 	harness.Equal(t, strings.Join(opArgs(cfg, "/cache/hachiko", Outgoing{}), " "),
@@ -36,27 +35,6 @@ func TestWithNoChannelAndUserTheBotIsOffAndTheWebhookPathIsUntouched(t *testing.
 		cfg.Discord = half
 		harness.Equal(t, cfg.Discord.On(), false, "whether half a configuration turns the bot on")
 	}
-}
-
-// The second env file is the one that carries the token, and it is passed only when the
-// feature is on: `op run` refuses a reference it cannot resolve, so a bot token named
-// before the field exists would stop every alert rather than leaving one feature off.
-func TestTheTokensEnvFileIsPassedOnlyWhenTheBotIsConfigured(t *testing.T) {
-	dir := t.TempDir()
-	discordEnv := filepath.Join(dir, "hachiko.discord.env.op")
-	harness.WriteFile(t, discordEnv, "HACHIKO_DISCORD_BOT_TOKEN=op://dev/hachiko-discord/bot token\n")
-
-	cfg := config.Config{EnvFile: "/somewhere/hachiko.env.op", DiscordEnvFile: discordEnv}
-	harness.Equal(t, len(EnvFiles(cfg)), 2, "env files with the bot off")
-
-	cfg.Discord = config.DiscordConfig{ChannelID: "123", UserID: "456"}
-	harness.Equal(t, strings.Join(EnvFiles(cfg), " "),
-		"--env-file /somewhere/hachiko.env.op --env-file "+discordEnv,
-		"env files with the bot on")
-
-	// And a Mac where the link is not there yet keeps alerting rather than failing on it.
-	cfg.DiscordEnvFile = filepath.Join(dir, "missing.env.op")
-	harness.Equal(t, len(EnvFiles(cfg)), 2, "env files when the second one is not there")
 }
 
 // One incident, one thread: the first message opens it and everything after goes inside, so
@@ -255,9 +233,8 @@ func TestAPostThatWillNotCloseDoesNotFailTheOutcome(t *testing.T) {
 // argument with the thread and the channel, being one word and nothing of the incident's.
 func TestTheOutcomeFlagReachesTheSendChild(t *testing.T) {
 	cfg := config.Config{
-		EnvFile:        "/somewhere/hachiko.env.op",
-		DiscordEnvFile: "/somewhere/hachiko.discord.env.op",
-		Discord:        config.DiscordConfig{ChannelID: "123", UserID: "456"},
+		EnvFile: "/somewhere/hachiko.env.op",
+		Discord: config.DiscordConfig{ChannelID: "123", UserID: "456"},
 	}
 
 	args := opArgs(cfg, "/cache/hachiko", Outgoing{Thread: "post-1", Outcome: true})
@@ -353,9 +330,8 @@ func TestAFailedBotCallDoesNotPutTheTokenInTheError(t *testing.T) {
 
 func TestTheTokenIsNeverInACommandLine(t *testing.T) {
 	cfg := config.Config{
-		EnvFile:        "/somewhere/hachiko.env.op",
-		DiscordEnvFile: "/somewhere/hachiko.discord.env.op",
-		Discord:        config.DiscordConfig{ChannelID: "123", UserID: "456"},
+		EnvFile: "/somewhere/hachiko.env.op",
+		Discord: config.DiscordConfig{ChannelID: "123", UserID: "456"},
 	}
 
 	for _, arg := range opArgs(cfg, "/cache/hachiko", Outgoing{Thread: "thread-1"}) {

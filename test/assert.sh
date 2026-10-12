@@ -930,11 +930,11 @@ check "hachiko's secrets are op:// references beside it, and nothing resolved" \
    ! grep -qE "^[A-Z_]+=[^o]" "$HOME/.local/bin/hachiko.env.op"'
 
 # Answering from Discord, which is off until the config file names a channel and a user.
-check "the Discord reply config is a live symlink and empty until Tim fills it in" \
+# The channel is where every alert goes, so a config without one is a Mac that cannot alert.
+check "the Discord config is a live symlink naming a channel and a user" \
   '[ -L "$HOME/.config/hachiko/discord" ] && [ -e "$HOME/.config/hachiko/discord" ] &&
-   grep -qE "^channel *=" "$HOME/.config/hachiko/discord" &&
-   grep -qE "^user *=" "$HOME/.config/hachiko/discord" &&
-   ! grep -qE "^(channel|user) *= *[0-9]" "$HOME/.config/hachiko/discord"'
+   grep -qE "^channel *= *[0-9]{17,20}$" "$HOME/.config/hachiko/discord" &&
+   grep -qE "^user *= *[0-9]{17,20}$" "$HOME/.config/hachiko/discord"'
 
 # mise removes no link it no longer declares, so a second .env.op in ~/.local/bin is one an
 # older install left and install.sh takes back.

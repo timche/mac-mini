@@ -10,7 +10,7 @@
 # is generated here, on the Mac, kept at 0600, and handed to Cloudflare once; nothing ever
 # resolves it from anywhere.
 #
-# The webhook is the other way round: it is Discord's, hachiko already references it, and
+# The webhook is the other way round: it is Discord's, a reference in shibuya/.env.op, and
 # it reaches this script only through `op run`'s environment. Neither value is ever an
 # argument — `ps` shows every process on this Mac the command line of every other — and
 # neither is echoed. What this prints is the names it set.

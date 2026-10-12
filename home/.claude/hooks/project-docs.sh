@@ -8,12 +8,13 @@
 # between an instruction and a mechanism: stdout from a SessionStart hook is
 # injected into the session context whether or not anything reads the rule.
 #
-# Only $PROJECT_DOCS_DIR/<project>, one folder per project in the separate docs
+# Only $PROJECT_DOCS_DIR/shared, for what applies to every project, and
+# $PROJECT_DOCS_DIR/<project>, one folder per project in the separate docs
 # repository. A checkout's own docs/ is the project's published documentation,
 # not its working docs, so it is never looked at.
 #
-# Says nothing at all when there are no docs for the project, so the cost on a
-# project without them is one exit.
+# Says nothing about the project when it has no docs, so the cost on a project
+# without them is the shared listing and one exit.
 #
 # The path and the file list, and nothing beyond them. What a project's docs
 # are, how they are structured and what they are good for differ per project
@@ -28,6 +29,41 @@
 set -uo pipefail
 
 DOCS_ROOT="${PROJECT_DOCS_DIR:-$HOME/projects/docs}"
+
+# Top-level files by name, subdirectories as a name and a count. Listing every
+# file put fifty lines into the context of every session on the largest
+# project, most of them a folder of numbered plans that no session reads all
+# of. The shape is what is worth injecting; the contents are one ls away.
+#
+# Paths rather than find's -printf, which is GNU's alone: on the Mac it is BSD
+# find, which fails on the flag — behind the 2>/dev/null, so the listing would
+# just be empty. wc -l is padded there too, hence the tr.
+list_docs() {
+  find "$1" -maxdepth 1 -type f -name '*.md' 2>/dev/null |
+    sort |
+    while IFS= read -r file; do
+      printf '  %s\n' "${file##*/}"
+    done
+
+  find "$1" -mindepth 1 -maxdepth 1 -type d -not -name '.git' -print 2>/dev/null |
+    sort |
+    while IFS= read -r dir; do
+      files="$(find "$dir" -type f -name '*.md' 2>/dev/null | wc -l | tr -d '[:space:]')"
+      printf '  %s/ (%s)\n' "${dir##*/}" "$files"
+    done
+}
+
+# shared/ holds what applies across projects, such as how the one Cloudflare
+# account is set up, so it is listed in every session, in a repository or not.
+# A session that never sees it would redo a convention another project already
+# settled.
+shared="$DOCS_ROOT/shared"
+if [ -d "$shared" ]; then
+  echo "Shared docs for every project: $shared"
+  echo
+  list_docs "$shared"
+  echo
+fi
 
 cwd="${CLAUDE_PROJECT_DIR:-$PWD}"
 
@@ -51,24 +87,4 @@ docs="$DOCS_ROOT/$project"
 
 echo "Working docs for $project: $docs"
 echo
-
-# Top-level files by name, subdirectories as a name and a count. Listing every
-# file put fifty lines into the context of every session on the largest
-# project, most of them a folder of numbered plans that no session reads all
-# of. The shape is what is worth injecting; the contents are one ls away.
-#
-# Paths rather than find's -printf, which is GNU's alone: on the Mac it is BSD
-# find, which fails on the flag — behind the 2>/dev/null, so the listing would
-# just be empty. wc -l is padded there too, hence the tr.
-find "$docs" -maxdepth 1 -type f -name '*.md' 2>/dev/null |
-  sort |
-  while IFS= read -r file; do
-    printf '  %s\n' "${file##*/}"
-  done
-
-find "$docs" -mindepth 1 -maxdepth 1 -type d -not -name '.git' -print 2>/dev/null |
-  sort |
-  while IFS= read -r dir; do
-    files="$(find "$dir" -type f -name '*.md' 2>/dev/null | wc -l | tr -d '[:space:]')"
-    printf '  %s/ (%s)\n' "${dir##*/}" "$files"
-  done
+list_docs "$docs"

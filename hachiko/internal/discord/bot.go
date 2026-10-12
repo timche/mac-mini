@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/wording"
@@ -180,6 +181,84 @@ func (b Bot) OpenThread(channel, message, name string) (string, error) {
 // Discord caps a thread name at a hundred characters, and an incident id and a headline
 // are longer than that together.
 const discordThreadName = 90
+
+// What Discord answers as a forum channel's type, the one kind that takes a post rather
+// than a message.
+const channelForum = 15
+
+// A channel as Discord describes it, which is the only thing that knows whether a post or a
+// plain message is the one it takes. A thread is a channel too, which is why one object
+// carries both halves: `parent_id` and `applied_tags` are a post's, `available_tags` the
+// forum's it hangs under.
+type Channel struct {
+	ID       string `json:"id"`
+	Type     int    `json:"type"`
+	ParentID string `json:"parent_id"`
+
+	AvailableTags []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"available_tags"`
+	AppliedTags []string `json:"applied_tags"`
+}
+
+func (c Channel) Forum() bool { return c.Type == channelForum }
+
+// By name and never by id: the ids are the forum's own, so one written down here would tag
+// whatever a forum Tim rebuilt happens to have in that slot. A tag the forum does not have
+// is nothing rather than an error — the forum is Tim's to set up, and an alert may not fail
+// on a label.
+func (c Channel) Tag(name string) string {
+	for _, tag := range c.AvailableTags {
+		if strings.EqualFold(tag.Name, name) {
+			return tag.ID
+		}
+	}
+	return ""
+}
+
+func (b Bot) Channel(id string) (Channel, error) {
+	answer, err := b.call(http.MethodGet, "/channels/"+id, nil)
+	if err != nil {
+		return Channel{}, err
+	}
+
+	var channel Channel
+	if err := json.Unmarshal(answer, &channel); err != nil {
+		return Channel{}, errors.New("Discord answered something that is not a channel")
+	}
+	return channel, nil
+}
+
+// A forum takes a post and refuses a plain message, so this is both at once: the post and
+// the message that opens it. What comes back is the post's own channel object, whose id is
+// the post and the starter message both.
+func (b Bot) OpenPost(forum, name, content string, tags []string) (string, error) {
+	body := map[string]any{
+		"name":                  wording.Safe(name, discordThreadName),
+		"auto_archive_duration": 1440,
+		"message": map[string]any{
+			"content":          capMessage(content),
+			"allowed_mentions": noMentions(),
+		},
+	}
+	if len(tags) > 0 {
+		body["applied_tags"] = tags
+	}
+
+	answer, err := b.call(http.MethodPost, "/channels/"+forum+"/threads", body)
+	if err != nil {
+		return "", err
+	}
+
+	var post struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(answer, &post); err != nil || post.ID == "" {
+		return "", errors.New("Discord made a post it did not name")
+	}
+	return post.ID, nil
+}
 
 // Oldest first, which is the order a conversation has to be read in and the opposite of
 // the order Discord returns by default. `after` is a message id and not a time, so a

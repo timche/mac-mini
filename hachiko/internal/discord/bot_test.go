@@ -63,6 +63,7 @@ func TestTheTokensEnvFileIsPassedOnlyWhenTheBotIsConfigured(t *testing.T) {
 // a reminder three hours later is under the alert it is about.
 func TestTheFirstMessageOpensAThreadAndTheRestGoIntoIt(t *testing.T) {
 	bot, calls := fakeBot(t, map[string]string{
+		"GET /channels/chan":                         `{"id":"chan","type":0}`,
 		"POST /channels/chan/messages":               `{"id":"msg-1"}`,
 		"POST /channels/chan/messages/msg-1/threads": `{"id":"thread-1"}`,
 		"POST /channels/thread-1/messages":           `{"id":"msg-2"}`,
@@ -80,8 +81,56 @@ func TestTheFirstMessageOpensAThreadAndTheRestGoIntoIt(t *testing.T) {
 	}
 	harness.Equal(t, again, "", "a thread opened by a later message")
 	harness.Equal(t, strings.Join(*calls, " | "),
-		"POST /channels/chan/messages | POST /channels/chan/messages/msg-1/threads | POST /channels/thread-1/messages",
+		"GET /channels/chan | POST /channels/chan/messages | POST /channels/chan/messages/msg-1/threads | POST /channels/thread-1/messages",
 		"what the bot was asked to do")
+}
+
+// A forum refuses a plain message, so on one the first message of an incident is what opens
+// the post rather than something a post is started from afterwards. Which kind of channel it
+// is comes from Discord, that being the one thing it will answer for and the one thing a
+// config file could have wrong.
+func TestOnAForumTheFirstMessageOpensThePostItself(t *testing.T) {
+	var opened string
+	bot, _ := fakeBotWith(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.Write([]byte(`{"id":"chan","type":15}`))
+			return
+		}
+		raw, _ := io.ReadAll(r.Body)
+		opened = string(raw)
+		w.Write([]byte(`{"id":"post-1","parent_id":"chan","type":11}`))
+	})
+
+	post, err := sendThroughBot(bot, "chan", Outgoing{
+		Text:       "💾 Disk filling: devbackend.log is growing fast\n**Free space:** 1 GB",
+		OpenThread: "disk-42",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	harness.Equal(t, post, "post-1", "the post the first message opened")
+
+	var body struct {
+		Name    string `json:"name"`
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal([]byte(opened), &body); err != nil {
+		t.Fatal(err)
+	}
+	harness.Equal(t, body.Name, "💾 Disk filling: devbackend.log is growing fast", "the post's name")
+	harness.Wants(t, body.Message.Content, "**Free space:** 1 GB")
+	harness.Wants(t, opened, `"allowed_mentions":{"parse":[]}`)
+
+	// And every message after it goes into the post, with nothing asked about the channel a
+	// second time: there is no post left to open.
+	later, seen := fakeBot(t, map[string]string{"POST /channels/post-1/messages": `{"id":"msg-2"}`})
+	if _, err := sendThroughBot(later, "chan", Outgoing{Text: "still filling", Thread: "post-1"}); err != nil {
+		t.Fatal(err)
+	}
+	harness.Equal(t, strings.Join(*seen, " | "), "POST /channels/post-1/messages",
+		"what a later message asked for")
 }
 
 // The thread is named by the message's lead, the same line the forum webhook names a post
@@ -305,7 +354,7 @@ func TestABrokenBotFallsBackToTheWebhookForThatMessage(t *testing.T) {
 			t.Fatalf("a %d from the bot lost the message: %v", status, err)
 		}
 		harness.Equal(t, thread, "", "the thread a broken bot opened")
-		harness.Equal(t, len(reached), 2, "requests made")
+		harness.Equal(t, len(reached), 3, "requests made")
 		harness.Wants(t, reached[len(reached)-1], "/api/webhooks/1/x")
 		harness.Wants(t, note, "the bot would not post, so this message went to the webhook instead")
 		harness.Lacks(t, note, "NOT-A-REAL-BOT-TOKEN")
@@ -339,7 +388,7 @@ func TestAMessageWhoseThreadCouldNotBeOpenedIsNotSentTwice(t *testing.T) {
 		t.Fatalf("a thread that could not be opened was reported as a failed message: %v", err)
 	}
 	harness.Equal(t, thread, "", "the thread recorded when none could be opened")
-	harness.Equal(t, len(reached), 2, "requests made")
+	harness.Equal(t, len(reached), 3, "requests made")
 	for _, path := range reached {
 		harness.Lacks(t, path, "/api/webhooks/")
 	}

@@ -196,15 +196,29 @@ func SendMode(stdin io.Reader, out Outgoing, channel string) (string, error) {
 
 // One incident, one thread: the first message opens it and every message after it goes
 // inside, so a reminder three hours later is under the alert it is about rather than
-// somewhere further down a channel. A thread that could not be opened is not a message
-// that failed — the message is already posted, and the next one goes to the channel.
+// somewhere further down a channel. On a forum that thread is a post and the message that
+// opens it is the post's own, which is one call rather than two; on a text channel the
+// message is posted and the thread is started from it. A thread that could not be opened is
+// not a message that failed — the message is already posted, and the next one goes to the
+// channel.
 func sendThroughBot(bot Bot, channel string, out Outgoing) (string, error) {
-	where := channel
 	if out.Thread != "" {
-		where = out.Thread
+		if _, err := bot.Post(out.Thread, out.Text); err != nil {
+			return "", err
+		}
+		return "", nil
 	}
 
-	posted, err := bot.Post(where, out.Text)
+	// Which kind of channel this is, asked of Discord rather than taken from the config,
+	// because a forum refuses a plain message and a text channel has no posts to open: the
+	// one thing Tim would have to get right in a file is the one thing Discord will answer
+	// for. A type that could not be read is treated as a text channel, since the message
+	// that then fails is the message the webhook takes instead.
+	if forum, err := bot.Channel(channel); err == nil && forum.Forum() {
+		return bot.OpenPost(channel, ThreadName(out.Text), out.Text, nil)
+	}
+
+	posted, err := bot.Post(channel, out.Text)
 	if err != nil {
 		return "", err
 	}

@@ -41,7 +41,7 @@ func TestAMessageThatDidNotSendIsLeftToTheNextPass(t *testing.T) {
 	f.tree.pushRefused = 9
 	f.tree.pushText = "fatal: Could not read from remote repository"
 
-	f.sendErr = "the webhook answered 500"
+	f.sendErr = "Discord answered 500"
 	_, log := f.pass(pushWhenDue)
 
 	if !strings.Contains(log, "left to the next pass") {
@@ -103,7 +103,7 @@ func TestAFailureNobodyHeardAboutClearsSilently(t *testing.T) {
 	f.tree.oldest = base
 	f.tree.pushRefused = 1
 	f.tree.pushText = "fatal: Could not read from remote repository"
-	f.sendErr = "the webhook answered 500"
+	f.sendErr = "Discord answered 500"
 
 	f.pass(pushWhenDue)
 

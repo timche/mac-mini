@@ -25,8 +25,8 @@ var Base = discordAPI
 
 // The token reaches one process's environment and one request header. Nothing puts it in
 // an argument, where ps would show it to every process on the machine, and nothing writes
-// it anywhere — and every error text that leaves here has it taken out first, for the
-// same reason the webhook URL does.
+// it anywhere — and every error text that leaves here has it taken out first, since it is
+// logged where everything else is.
 type Bot struct {
 	Token string
 	// Where the API is, and the clock and the sleep the rate limit is waited out on, so a

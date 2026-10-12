@@ -1,24 +1,19 @@
 // Package discord is the only way anything hachiko has to say reaches Tim, and the only
-// thing that ever holds the webhook URL or the bot token. Both halves are here because
-// both post into one channel: the webhook, which can only post, and the bot, which can
-// also read a thread back — and which of them a message goes by is decided by whether Tim
-// has configured the bot, so neither half may know about the other's absence.
+// thing that ever holds the bot token. Everything goes through the bot, which posts and
+// reads a thread back both — the second half being what makes answering an alert from
+// Discord possible.
 //
 // The secret is resolved by re-entering this binary under `op run`, which is the whole of
-// why that happens at all: it arrives in one child's environment and leaves it in a
-// request body or one header, never in an argument ps would show to the machine and never
-// written anywhere.
+// why that happens at all: it arrives in one child's environment and leaves it in one
+// header, never in an argument ps would show to the machine and never written anywhere.
 package discord
 
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -43,6 +38,10 @@ const (
 	messageKeep  = 1860
 )
 
+// There is nowhere else for a message to go, so a channel nobody has configured is a send
+// that failed rather than one that quietly did nothing.
+const noChannel = "no Discord channel is configured in ~/.config/hachiko/discord, so there is nowhere to send this"
+
 // Where a message goes beyond the channel: into the thread an incident already has, or
 // into one this message is about to open. Both are ids and names rather than secrets, so
 // they travel as arguments; the message itself does not, since it carries paths and
@@ -66,14 +65,6 @@ const (
 	tagResolved = "Resolved"
 )
 
-// The one step that sees the webhook URL or the bot token, and the only reason `op run`
-// is ever called: every run counts against the service account's daily limit, so it
-// happens when there is something to send and not before.
-//
-// The secret arrives in this process's environment and leaves it in a request body or one
-// header. Nothing puts it in an argument, where ps would show it to every process on the
-// machine, and nothing writes it anywhere. The thread the child opened comes back on its
-// stdout, which is the one thing it prints.
 func EnvFiles(cfg config.Config) []string {
 	return []string{"--env-file", cfg.EnvFile}
 }
@@ -93,7 +84,15 @@ func ExecOP(op string, args []string) error {
 	return syscall.Exec(op, args, os.Environ())
 }
 
+// The one step that reaches the bot token, and the only reason `op run` is ever called:
+// every run counts against the service account's daily limit, so it happens when there is
+// something to send and not before. The thread the child opened comes back on its stdout,
+// which is the one thing it prints.
 func SendThroughOP(cfg config.Config, out Outgoing) (string, error) {
+	if cfg.Discord.ChannelID == "" {
+		return "", errors.New(noChannel)
+	}
+
 	op, err := LookOp()
 	if err != nil {
 		return "", err
@@ -128,9 +127,9 @@ func SendThroughOP(cfg config.Config, out Outgoing) (string, error) {
 		return "", errors.New(detail)
 	}
 
-	// A send that worked but had something to say — the bot refused and the webhook took it —
-	// is a line the child wrote and the log would otherwise never see, since only a failure
-	// reads this buffer.
+	// A send that worked but had something to say — a thread it could not open — is a line
+	// the child wrote and the log would otherwise never see, since only a failure reads this
+	// buffer.
 	if note := strings.TrimSpace(stderr.String()); note != "" {
 		fmt.Fprintln(os.Stderr, note)
 	}
@@ -138,15 +137,12 @@ func SendThroughOP(cfg config.Config, out Outgoing) (string, error) {
 }
 
 // The reference and never the value: what op resolves arrives in the child's
-// environment, and nothing about the webhook or the token is in a command line ps shows
-// to every process on the machine.
+// environment, and nothing about the token is in a command line ps shows to every process
+// on the machine.
 func opArgs(cfg config.Config, self string, out Outgoing) []string {
 	args := append([]string{"op", "run"}, EnvFiles(cfg)...)
-	args = append(args, "--", self, "--send")
+	args = append(args, "--", self, "--send", "--channel", cfg.Discord.ChannelID)
 
-	if cfg.Discord.On() {
-		args = append(args, "--channel", cfg.Discord.ChannelID)
-	}
 	if out.Thread != "" {
 		args = append(args, "--thread", out.Thread)
 	}
@@ -159,10 +155,7 @@ func opArgs(cfg config.Config, self string, out Outgoing) []string {
 	return args
 }
 
-// The far end of that re-exec, reached only under `op run`. The bot when there is a token
-// and a channel to use it on, and the webhook otherwise — which is the whole of how this
-// stays off until Tim has configured it, and how it keeps working on a Mac whose Discord
-// application somebody deleted.
+// The far end of that re-exec, reached only under `op run`.
 func SendMode(stdin io.Reader, out Outgoing, channel string) (string, error) {
 	message, err := io.ReadAll(stdin)
 	if err != nil {
@@ -173,32 +166,18 @@ func SendMode(stdin io.Reader, out Outgoing, channel string) (string, error) {
 	}
 	out.Text = string(message)
 
-	// Trimmed, because a 1Password field holding a trailing newline is a URL net/http
-	// refuses, a header value it rejects outright, and an error message carrying a form of
-	// it this would not recognise.
+	if channel == "" {
+		return "", errors.New(noChannel)
+	}
+
+	// Trimmed, because a 1Password field holding a trailing newline is a header value
+	// net/http rejects outright, and an error message carrying a form of it this would not
+	// recognise.
 	token := strings.TrimSpace(os.Getenv("HACHIKO_DISCORD_BOT_TOKEN"))
-	if token != "" && channel != "" {
-		thread, err := sendThroughBot(NewBot(token), channel, out)
-		if err == nil {
-			return thread, nil
-		}
-
-		// A bot that is configured and will not post — a token Tim revoked, an application
-		// somebody deleted, a channel it was removed from — is an alert nobody receives, and
-		// the webhook is still there. So this message goes that way instead and says so in the
-		// log, rather than the watch going quiet about a disk filling because of a permission.
-		// Not a thread, because there is no thread: the next check tries the bot again.
-		//
-		// stderr, because stdout is where the thread id goes.
-		logs.Logger{Out: os.Stderr, Now: config.ClockFromEnv()}.Say(
-			"the bot would not post, so this message went to the webhook instead: %v", err)
+	if token == "" {
+		return "", errors.New("HACHIKO_DISCORD_BOT_TOKEN is empty, so the op:// reference did not resolve")
 	}
-
-	webhook := strings.TrimSpace(os.Getenv("HACHIKO_DISCORD_URL"))
-	if webhook == "" {
-		return "", errors.New("HACHIKO_DISCORD_URL is empty, so the op:// reference did not resolve")
-	}
-	return postDiscord(&http.Client{Timeout: 20 * time.Second}, webhook, out)
+	return sendThroughBot(NewBot(token), channel, out)
 }
 
 // One incident, one thread: the first message opens it and every message after it goes
@@ -222,8 +201,8 @@ func sendThroughBot(bot Bot, channel string, out Outgoing) (string, error) {
 	// Which kind of channel this is, asked of Discord rather than taken from the config,
 	// because a forum refuses a plain message and a text channel has no posts to open: the
 	// one thing Tim would have to get right in a file is the one thing Discord will answer
-	// for. A type that could not be read is treated as a text channel, since the message
-	// that then fails is the message the webhook takes instead.
+	// for. A type that could not be read is treated as a text channel, and a forum that then
+	// refuses the message is a send that failed, which the next check tries again.
 	if forum, err := bot.Channel(channel); err == nil && forum.Forum() {
 		return bot.OpenPost(channel, ThreadName(out.Text), out.Text, openTags(forum))
 	}
@@ -237,13 +216,13 @@ func sendThroughBot(bot Bot, channel string, out Outgoing) (string, error) {
 	}
 
 	// A thread that could not be opened is not a message that failed: the message is posted,
-	// and saying otherwise sent it a second time down the webhook. The next message of this
+	// and saying otherwise would send it a second time on the next check. The rest of this
 	// incident goes to the channel instead, which is a thread missing rather than an alert
 	// missing.
-	// Named by the message's lead, the same line the forum webhook names a post by, so a
-	// thread in the sidebar says what fired rather than giving an id back to the one person
-	// who was never going to type it. The id is in the message's own subtext line, and the
-	// thread is found by the id Discord answers with rather than by its name.
+	// Named by the message's lead, so a thread in the sidebar says what fired rather than
+	// giving an id back to the one person who was never going to type it. The id is in the
+	// message's own subtext line, and the thread is found by the id Discord answers with
+	// rather than by its name.
 	thread, err := bot.OpenThread(channel, posted, ThreadName(out.Text))
 	if err != nil {
 		logs.Logger{Out: os.Stderr, Now: config.ClockFromEnv()}.Say(
@@ -303,112 +282,9 @@ func closePost(bot Bot, post string) {
 	}
 }
 
-// One incident, one post, over the webhook as well as over the bot — and the same field of
-// the state remembers which, so both halves have one notion of where an incident is being
-// talked about.
-//
-// A webhook on a forum channel refuses a message that names no thread and one on a text
-// channel refuses a message that does, and nothing tells hachiko which it has: so the first
-// message of an incident opens a post, asks Discord for the message back and reads the post's
-// id off it, every message after it goes into that post by id, and the 400 a text channel
-// answers is what sends a plain message instead. A post Tim deleted answers 404, and the
-// message that found it gone opens a new one.
-func postDiscord(client *http.Client, webhook string, out Outgoing) (string, error) {
-	if out.Thread != "" {
-		// Never into a request path unchecked, and the checked form is the one that goes:
-		// a post id is a Snowflake, and anything else in that field is a state file somebody
-		// edited or a bug rather than a post to look for.
-		thread := config.DiscordID(out.Thread)
-		if thread == "" {
-			say("the post recorded for this incident is not a Discord id, so this message goes to the channel instead")
-			return "", postPlain(client, webhook, out.Text)
-		}
-
-		_, err := postDiscordBody(client, webhook, "thread_id="+url.QueryEscape(thread),
-			map[string]any{"content": capMessage(out.Text)})
-		switch {
-		case err == nil:
-			return thread, nil
-
-		// The post is gone — Tim deleted it, or it was archived away. There is somewhere for
-		// the incident to go on being talked about, so a new post is opened for it below.
-		case webhookAnswered(err, http.StatusNotFound):
-			say("the post this incident was in is not there any more, so this message opens a new one: %v", err)
-
-		// A 400 is the webhook refusing the id rather than the post being missing — a text
-		// channel, which has no posts to address, or an id it will not take. Opening a new post
-		// on that would be a new post every five minutes for the life of the incident, so the
-		// message goes to the channel and the recorded post is left alone for the next check.
-		case webhookAnswered(err, http.StatusBadRequest):
-			say("the webhook would not take the post recorded for this incident, so this message goes to the channel: %v", err)
-			return "", postPlain(client, webhook, out.Text)
-
-		default:
-			return "", err
-		}
-	}
-
-	// `wait=true` so Discord answers with the message it made rather than an empty 204: the
-	// channel that message landed in is the post, and its id is the only way back into it.
-	answer, err := postDiscordBody(client, webhook, "wait=true", map[string]any{
-		"content":     capMessage(out.Text),
-		"thread_name": ThreadName(out.Text),
-	})
-	if err == nil {
-		return postedThread(answer), nil
-	}
-	if !webhookAnswered(err, http.StatusBadRequest) {
-		return "", err
-	}
-
-	// A text channel, where a post is not a thing and a plain message is. Nothing comes back
-	// to remember, so the next message tries to open a post again — two requests rather than
-	// one, on a channel where there is nothing to find out once and for all.
-	return "", postPlain(client, webhook, out.Text)
-}
-
-// The message and nothing else, which is what a webhook on a text channel takes and what
-// anything that could not find its post falls back to.
-func postPlain(client *http.Client, webhook, text string) error {
-	_, err := postDiscordBody(client, webhook, "", map[string]any{"content": capMessage(text)})
-	return err
-}
-
 // stderr, because stdout is where the id of the post goes.
 func say(format string, args ...any) {
 	logs.Logger{Out: os.Stderr, Now: config.ClockFromEnv()}.Say(format, args...)
-}
-
-// Which post a message landed in. A forum webhook answers with the message, whose
-// `channel_id` is the post it opened rather than the channel the webhook is on.
-func postedThread(answer []byte) string {
-	var message struct {
-		ChannelID string `json:"channel_id"`
-	}
-	if json.Unmarshal(answer, &message) != nil {
-		return ""
-	}
-	return message.ChannelID
-}
-
-// The status a webhook answered with, because the difference between two of them is the whole
-// of what this has to work out for itself: a 400 is a channel that is not a forum, and a 404
-// is a post that is not there any more.
-type webhookStatus struct{ code int }
-
-func (e *webhookStatus) Error() string { return fmt.Sprintf("the webhook answered %d", e.code) }
-
-func webhookAnswered(err error, codes ...int) bool {
-	var status *webhookStatus
-	if !errors.As(err, &status) {
-		return false
-	}
-	for _, code := range codes {
-		if status.code == code {
-			return true
-		}
-	}
-	return false
 }
 
 // Discord caps a thread's name at 100 characters.
@@ -434,46 +310,6 @@ func ThreadName(message string) string {
 //
 // Set here rather than at each call site, so nothing that posts can forget it.
 func noMentions() map[string]any { return map[string]any{"parse": []string{}} }
-
-func postDiscordBody(client *http.Client, webhook, query string, fields map[string]any) ([]byte, error) {
-	fields["allowed_mentions"] = noMentions()
-
-	body, err := json.Marshal(fields)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, withQuery(webhook, query), bytes.NewReader(body))
-	if err != nil {
-		return nil, errors.New(redact(err.Error(), webhook))
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, errors.New(redact(err.Error(), webhook))
-	}
-	defer resp.Body.Close()
-	answer, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, &webhookStatus{code: resp.StatusCode}
-	}
-	return answer, nil
-}
-
-// A webhook URL of Tim's carries no query of its own, but one that did would otherwise have
-// `?wait=true` appended to a URL that already has a `?` in it.
-func withQuery(webhook, query string) string {
-	switch {
-	case query == "":
-		return webhook
-	case strings.Contains(webhook, "?"):
-		return webhook + "&" + query
-	default:
-		return webhook + "?" + query
-	}
-}
 
 const truncatedTail = "[truncated — the rest is in the on-call tab in herdr]"
 
@@ -512,4 +348,4 @@ func capMessage(message string) string {
 	return strings.TrimRight(strings.Join(kept, "\n"), "\n") + "\n" + truncatedTail
 }
 
-func redact(text, webhook string) string { return logs.Redact(text, webhook, "the webhook") }
+func redact(text, token string) string { return logs.Redact(text, token, "the bot token") }

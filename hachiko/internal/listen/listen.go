@@ -103,7 +103,7 @@ func WithToken(cfg config.Config) error {
 	token := strings.TrimSpace(os.Getenv("HACHIKO_DISCORD_BOT_TOKEN"))
 	if token == "" {
 		sayOnce(store, log, "no-token",
-			"the bot token did not resolve, so replies are off and the webhook is what alerts go to")
+			"the bot token did not resolve, so no reply can be read and no alert can be sent")
 		goIdle(cfg, configuredAndBroken, time.Sleep, now)
 		return nil
 	}

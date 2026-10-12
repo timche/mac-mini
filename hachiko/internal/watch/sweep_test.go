@@ -693,7 +693,7 @@ func TestAFileNobodyHasHeardAboutKeepsTheSizeItWasMeasuredAgainst(t *testing.T) 
 	f.at(0).sweep()
 	f.grow("tmp/worker.log", 4*mb)
 	f.at(300).sweep()
-	harness.Equal(t, f.sentCount(), 0, "messages sent while the webhook was down")
+	harness.Equal(t, f.sentCount(), 0, "messages sent while Discord was down")
 
 	// Under the growth threshold for this interval alone, but far over it since the sample
 	// the failed alert was about.
@@ -701,7 +701,7 @@ func TestAFileNobodyHasHeardAboutKeepsTheSizeItWasMeasuredAgainst(t *testing.T) 
 	f.grow("tmp/worker.log", 1*mb)
 
 	harness.Wants(t, f.at(600).sweep(), "growing fast")
-	harness.Equal(t, f.sentCount(), 1, "messages sent once the webhook was back")
+	harness.Equal(t, f.sentCount(), 1, "messages sent once Discord was back")
 }
 
 // A path is chosen by whatever filled the disk, and Discord caps a message at 2,000

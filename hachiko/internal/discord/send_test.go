@@ -2,10 +2,8 @@ package discord
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -16,247 +14,95 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
-const fakeWebhook = "https://discord.invalid/api/webhooks/123/NOT-A-REAL-TOKEN"
-
 // ps shows every process's arguments to everybody on the machine, so what op is asked
 // to run names the reference and never the value.
-func TestTheWebhookIsNeverInACommandLine(t *testing.T) {
-	cfg := config.Config{EnvFile: "/somewhere/hachiko.env.op"}
+func TestWhatOpIsAskedToRunNamesNoSecret(t *testing.T) {
+	cfg := config.Config{
+		EnvFile: "/somewhere/hachiko.env.op",
+		Discord: config.DiscordConfig{ChannelID: "123", UserID: "456"},
+	}
 	args := opArgs(cfg, "/cache/hachiko", Outgoing{})
 
 	for _, arg := range args {
-		if strings.Contains(arg, "discord") || strings.Contains(arg, "HACHIKO_DISCORD_URL") {
-			t.Errorf("the webhook reached a command line: %v", args)
+		if strings.Contains(arg, "HACHIKO_DISCORD_BOT_TOKEN") && !strings.HasSuffix(arg, ".env.op") {
+			t.Errorf("the token reached a command line: %v", args)
 		}
 	}
 	harness.Equal(t, strings.Join(args, " "),
-		"op run --env-file /somewhere/hachiko.env.op -- /cache/hachiko --send",
+		"op run --env-file /somewhere/hachiko.env.op -- /cache/hachiko --send --channel 123",
 		"what op is asked to run")
 }
 
-func TestPostDiscordSendsTheMessageAsContent(t *testing.T) {
-	var body string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw, _ := io.ReadAll(r.Body)
-		body = string(raw)
-		harness.Equal(t, r.Header.Get("Content-Type"), "application/json", "the content type")
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer server.Close()
-
-	if _, err := postDiscord(server.Client(), server.URL, Outgoing{Text: "the disk is filling"}); err != nil {
-		t.Fatal(err)
-	}
-	harness.Equal(t, body, `{"allowed_mentions":{"parse":[]},"content":"the disk is filling","thread_name":"the disk is filling"}`,
-		"the request body")
-}
-
-func TestPostDiscordOpensAForumPostNamedForTheFirstLine(t *testing.T) {
-	var body string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw, _ := io.ReadAll(r.Body)
-		body = string(raw)
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer server.Close()
-
-	message := "\u2139\ufe0f Test alert from hachiko \u2014 nothing is wrong\n**Free space:** 790 GB"
-	if _, err := postDiscord(server.Client(), server.URL, Outgoing{Text: message}); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(body, `"thread_name":"ℹ️ Test alert from hachiko — nothing is wrong"`) {
-		t.Fatalf("the post is not named for the first line: %s", body)
-	}
-}
-
-func TestPostDiscordFallsBackToAPlainMessageWhereThreadsAreRefused(t *testing.T) {
-	var bodies []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw, _ := io.ReadAll(r.Body)
-		bodies = append(bodies, string(raw))
-		if strings.Contains(string(raw), "thread_name") {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer server.Close()
-
-	thread, err := postDiscord(server.Client(), server.URL, Outgoing{Text: "the disk is filling"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	harness.Equal(t, thread, "", "the post recorded for a text channel")
-	harness.Equal(t, len(bodies), 2, "the tries")
-	harness.Equal(t, bodies[1], `{"allowed_mentions":{"parse":[]},"content":"the disk is filling"}`, "the second try")
-}
-
-// One incident, one forum post. The first message of it opens the post and asks for the
-// message back, whose channel is the post: that id is the only way into it again, so a
-// reminder three hours later is under the alert it is about rather than further down a feed.
-func TestTheFirstMessageOfAnIncidentOpensAPostAndNamesIt(t *testing.T) {
-	var query, body string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		query = r.URL.RawQuery
-		raw, _ := io.ReadAll(r.Body)
-		body = string(raw)
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"id":"900","channel_id":"800","content":"x"}`))
-	}))
-	defer server.Close()
-
-	thread, err := postDiscord(server.Client(), server.URL,
-		Outgoing{Text: "Disk: /private/tmp/x.log growing fast", OpenThread: "disk-1"})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	harness.Equal(t, thread, "800", "the post the message landed in")
-	harness.Equal(t, query, "wait=true", "the query the opening message carried")
-	harness.Wants(t, body, `"thread_name":"Disk: /private/tmp/x.log growing fast"`)
-}
-
-// And every message after it goes into that post by id, with no name: a name is what opens a
-// post, and this one is already open.
-func TestALaterMessageGoesIntoThePostTheIncidentAlreadyHas(t *testing.T) {
-	var query, body string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		query = r.URL.RawQuery
-		raw, _ := io.ReadAll(r.Body)
-		body = string(raw)
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer server.Close()
-
-	thread, err := postDiscord(server.Client(), server.URL,
-		Outgoing{Text: "still waiting after 1h00m", Thread: "800"})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	harness.Equal(t, thread, "800", "the post it stays in")
-	harness.Equal(t, query, "thread_id=800", "the query a later message carried")
-	harness.Equal(t, body, `{"allowed_mentions":{"parse":[]},"content":"still waiting after 1h00m"}`, "the request body")
-	harness.Lacks(t, body, "thread_name")
-}
-
-// A post Tim deleted answers 404, which is not a message that cannot be sent: it is a post
-// that has to be opened again, and the id of the new one is what the next message uses.
-func TestAPostThatIsGoneIsOpenedAgain(t *testing.T) {
-	var queries []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		queries = append(queries, r.URL.RawQuery)
-		if strings.HasPrefix(r.URL.RawQuery, "thread_id=") {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"id":"901","channel_id":"801"}`))
-	}))
-	defer server.Close()
-
-	thread, err := postDiscord(server.Client(), server.URL,
-		Outgoing{Text: "handed the decision over", Thread: "800"})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	harness.Equal(t, thread, "801", "the post opened in place of the one that went")
-	harness.Equal(t, strings.Join(queries, " "), "thread_id=800 wait=true", "the two tries")
-}
-
-// A 400 to a thread_id is the webhook refusing the id rather than the post being missing: a
-// text channel, which has no posts to address at all. Opening a new one on that would be a
-// new post every five minutes for the life of the incident, so the message goes to the
-// channel and the recorded post is left where it is for the next check to try.
-func TestAWebhookThatRefusesThePostDoesNotOpenANewOne(t *testing.T) {
-	var queries, bodies []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		queries = append(queries, r.URL.RawQuery)
-		raw, _ := io.ReadAll(r.Body)
-		bodies = append(bodies, string(raw))
-		if strings.HasPrefix(r.URL.RawQuery, "thread_id=") {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer server.Close()
-
-	thread, err := postDiscord(server.Client(), server.URL,
-		Outgoing{Text: "still waiting after 1h00m", Thread: "800"})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	harness.Equal(t, thread, "", "the post recorded after a refusal")
-	harness.Equal(t, strings.Join(queries, " "), "thread_id=800 ", "the two tries")
-	harness.Equal(t, bodies[1], `{"allowed_mentions":{"parse":[]},"content":"still waiting after 1h00m"}`, "the message that reached the channel")
-	for _, body := range bodies {
-		harness.Lacks(t, body, "thread_name")
-	}
-}
-
-// A thread id is a Snowflake, and anything else in that field is a state file somebody
-// edited or a bug rather than a post to look for. It may not reach a request path.
-func TestAPostIdThatIsNotASnowflakeNeverReachesTheURL(t *testing.T) {
-	var queries []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		queries = append(queries, r.URL.RawQuery)
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer server.Close()
-
-	for _, bad := range []string{"../../channels/999", "800x", "abc", "-1", "8 0 0"} {
-		queries = nil
-		thread, err := postDiscord(server.Client(), server.URL,
-			Outgoing{Text: "the disk is filling", Thread: bad})
-		if err != nil {
-			t.Fatalf("a message with %q recorded against it was not sent: %v", bad, err)
-		}
-
-		harness.Equal(t, thread, "", "the post recorded for "+bad)
-		harness.Equal(t, strings.Join(queries, " "), "", "the queries sent for "+bad)
-	}
-
-	// And the form that goes into the URL is the checked one, so a field with whitespace
-	// around it addresses the post rather than a percent-escaped space.
-	queries = nil
-	thread, err := postDiscord(server.Client(), server.URL,
-		Outgoing{Text: "the disk is filling", Thread: " 800\n"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	harness.Equal(t, thread, "800", "the post recorded")
-	harness.Equal(t, strings.Join(queries, " "), "thread_id=800", "the query sent")
-}
-
-// A webhook URL with a query of its own, which Tim's has none of: the one it is handed may
-// not be appended behind a second question mark.
-func TestAQueryIsAppendedToAWebhookThatAlreadyHasOne(t *testing.T) {
-	harness.Equal(t, withQuery("https://discord.invalid/api/webhooks/1/t", "wait=true"),
-		"https://discord.invalid/api/webhooks/1/t?wait=true", "a webhook with no query")
-	harness.Equal(t, withQuery("https://discord.invalid/api/webhooks/1/t?x=1", "wait=true"),
-		"https://discord.invalid/api/webhooks/1/t?x=1&wait=true", "a webhook with one")
-	harness.Equal(t, withQuery("https://discord.invalid/api/webhooks/1/t", ""),
-		"https://discord.invalid/api/webhooks/1/t", "no query at all")
-}
-
-// What `op run --send` prints, which is what the sweep records against the incident: the two
-// halves of the Discord side keep one notion of where an incident is being talked about.
+// What `op run --send` prints, which is what the sweep records against the incident, so
+// every message after the first goes into the post the first one opened.
 func TestSendModeAnswersWithThePostItOpened(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"id":"900","channel_id":"800"}`))
-	}))
-	defer server.Close()
+	bot, _ := fakeBot(t, map[string]string{
+		"GET /channels/chan":          `{"id":"chan","type":15}`,
+		"POST /channels/chan/threads": `{"id":"800"}`,
+	})
+	botPointedAt(t, bot.API)
+	t.Setenv("HACHIKO_DISCORD_BOT_TOKEN", fakeBotToken)
 
-	t.Setenv("HACHIKO_DISCORD_URL", server.URL)
-	thread, err := SendMode(strings.NewReader("Disk: filling"), Outgoing{OpenThread: "disk-1"}, "")
+	thread, err := SendMode(strings.NewReader("Disk: filling"), Outgoing{OpenThread: "disk-1"}, "chan")
 	if err != nil {
 		t.Fatal(err)
 	}
 	harness.Equal(t, thread, "800", "the post the sweep records")
+}
+
+// A field whose value ends in a newline is a header net/http refuses outright, which would
+// turn a configured bot into an alert nobody receives.
+func TestSendModeTrimsTheResolvedReference(t *testing.T) {
+	var auth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+		w.Write([]byte(`{"id":"msg-1"}`))
+	}))
+	defer server.Close()
+
+	botPointedAt(t, server.URL)
+	t.Setenv("HACHIKO_DISCORD_BOT_TOKEN", fakeBotToken+"\n")
+
+	if _, err := SendMode(strings.NewReader("the disk is filling"), Outgoing{}, "chan"); err != nil {
+		t.Fatalf("a reference with a trailing newline was not sent: %v", err)
+	}
+	harness.Equal(t, auth, "Bot "+fakeBotToken, "the header the message carried")
+}
+
+// There is nowhere else for a message to go, so each of these is a send that failed and an
+// incident the next check raises again rather than one quietly dropped.
+func TestSendModeRefusesWithNothingToSendAndWithNoChannelOrToken(t *testing.T) {
+	t.Setenv("HACHIKO_DISCORD_BOT_TOKEN", fakeBotToken)
+	_, err := SendMode(strings.NewReader("   \n"), Outgoing{}, "chan")
+	if err == nil {
+		t.Fatal("an empty message was not reported")
+	}
+	harness.Wants(t, err.Error(), "nothing to send")
+
+	_, err = SendMode(strings.NewReader("something"), Outgoing{}, "")
+	if err == nil {
+		t.Fatal("a message with no channel to send it to was not reported")
+	}
+	harness.Wants(t, err.Error(), "no Discord channel is configured")
+
+	t.Setenv("HACHIKO_DISCORD_BOT_TOKEN", "")
+	_, err = SendMode(strings.NewReader("something"), Outgoing{}, "chan")
+	if err == nil {
+		t.Fatal("an unresolved reference was not reported")
+	}
+	harness.Wants(t, err.Error(), "did not resolve")
+}
+
+// And the same before `op run` is spent at all: a check against the service account's day
+// for a message with nowhere to go.
+func TestSendingWithNoChannelConfiguredFailsBeforeOpIsCalled(t *testing.T) {
+	cfg := config.Config{EnvFile: "/somewhere/hachiko.env.op"}
+
+	_, err := SendThroughOP(cfg, Outgoing{Text: "the disk is filling"})
+	if err == nil {
+		t.Fatal("a send with no channel configured was not reported")
+	}
+	harness.Wants(t, err.Error(), "no Discord channel is configured")
 }
 
 func TestAThreadNameIsOneLineAndFitsDiscordsLimit(t *testing.T) {
@@ -278,81 +124,23 @@ func TestAThreadNameIsOneLineAndFitsDiscordsLimit(t *testing.T) {
 		"💾 Disk filling: **x**.log is growing fast", "the post's name")
 }
 
-func TestPostDiscordReportsTheStatusWithoutTheWebhook(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer server.Close()
-
-	_, err := postDiscord(server.Client(), server.URL, Outgoing{Text: "the disk is filling"})
-	if err == nil {
-		t.Fatal("a 500 was not reported")
-	}
-	harness.Equal(t, err.Error(), "the webhook answered 500", "the error")
-}
-
-// net/http names the URL it failed on, and that message goes into a log the next
-// session reads.
-func TestAFailedRequestDoesNotPutTheWebhookInTheError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	url := server.URL + "/api/webhooks/123/NOT-A-REAL-TOKEN"
-	server.Close()
-
-	_, err := postDiscord(server.Client(), url, Outgoing{Text: "the disk is filling"})
-	if err == nil {
-		t.Fatal("a request to a closed server did not fail")
-	}
-	harness.Lacks(t, err.Error(), "NOT-A-REAL-TOKEN")
-	harness.Wants(t, err.Error(), "the webhook")
-}
-
-func TestRedactTakesTheWebhookOutOfAnyText(t *testing.T) {
-	text := `Post "` + fakeWebhook + `": dial tcp: connection refused`
-	got := redact(text, fakeWebhook)
-
-	harness.Lacks(t, got, "NOT-A-REAL-TOKEN")
-	harness.Lacks(t, got, "discord.invalid")
-	harness.Wants(t, got, "connection refused")
-}
-
-// A *url.Error prints its target through %q, which escapes a newline and any byte
-// outside ASCII — so the URL in the message is spelled differently from the one in the
-// environment, and a 1Password field with a trailing newline is enough to cause it.
-func TestRedactTakesEverySpellingOfTheWebhookOut(t *testing.T) {
-	const token = "NOT-A-REAL-TOKEN"
-	stored := "https://discord.invalid/api/webhooks/123/" + token + "-ü\n"
-	webhook := strings.TrimSpace(stored)
+// An error text that carried the token would be in the log every session reads, and a value
+// resolved from 1Password is spelled differently in a message from how it is in the
+// environment: %q escapes a newline and any byte outside ASCII.
+func TestRedactTakesEverySpellingOfTheTokenOut(t *testing.T) {
+	const secret = "NOT-A-REAL-BOT-TOKEN"
+	stored := "MTIzNDU2." + secret + "-ü\n"
+	token := strings.TrimSpace(stored)
 
 	for _, text := range []string{
-		`Post ` + strconv.Quote(webhook) + `: dial tcp: connection refused`,
-		`Post ` + strconv.Quote(stored) + `: net/url: invalid control character in URL`,
-		"requested " + url.QueryEscape(webhook) + " and got nothing",
-		"requested " + url.PathEscape(webhook) + " and got nothing",
-		"plain " + webhook + " and nothing else",
+		`Post "https://discord.com/api/v10/channels/1/messages": dial tcp: connection refused, Bot ` + token,
+		"authorization Bot " + strconv.Quote(stored) + " was refused",
+		"plain " + token + " and nothing else",
 	} {
 		got := redact(text, stored)
-		harness.Lacks(t, got, token)
-		harness.Lacks(t, got, "discord.invalid")
-		harness.Wants(t, got, "the webhook")
+		harness.Lacks(t, got, secret)
+		harness.Wants(t, got, "the bot token")
 	}
-}
-
-// A field whose value ends in a newline is a URL net/http refuses outright, which would
-// turn a working webhook into an alert nobody receives.
-func TestSendModeTrimsTheResolvedReference(t *testing.T) {
-	var got string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw, _ := io.ReadAll(r.Body)
-		got = string(raw)
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer server.Close()
-
-	t.Setenv("HACHIKO_DISCORD_URL", server.URL+"\n")
-	if _, err := SendMode(strings.NewReader("the disk is filling"), Outgoing{}, ""); err != nil {
-		t.Fatalf("a reference with a trailing newline was not sent: %v", err)
-	}
-	harness.Equal(t, got, `{"allowed_mentions":{"parse":[]},"content":"the disk is filling","thread_name":"the disk is filling"}`, "the request body")
 }
 
 // Discord takes 2,000 characters. What is over that is detail, and the on-call tab has
@@ -455,57 +243,4 @@ func TestASingleOverlongLineIsCutWithItsBackticksTakenOut(t *testing.T) {
 	// And a cut that lands inside a multi-byte character leaves no half of one behind.
 	wide := capMessage(strings.Repeat("é", 5000))
 	harness.Equal(t, utf8.ValidString(wide), true, "whether the capped message is valid UTF-8")
-}
-
-func TestSendModeRefusesWithNothingToSendAndWithNoReferenceResolved(t *testing.T) {
-	t.Setenv("HACHIKO_DISCORD_URL", "")
-	_, err := SendMode(strings.NewReader("something"), Outgoing{}, "")
-	if err == nil {
-		t.Fatal("an unresolved reference was not reported")
-	}
-	harness.Wants(t, err.Error(), "did not resolve")
-
-	t.Setenv("HACHIKO_DISCORD_URL", fakeWebhook)
-	_, err = SendMode(strings.NewReader("   \n"), Outgoing{}, "")
-	if err == nil {
-		t.Fatal("an empty message was not reported")
-	}
-	harness.Wants(t, err.Error(), "nothing to send")
-}
-
-// Every alert here quotes a path, a command line or a log line chosen by whatever filled the
-// disk, so a worker writing "@everyone" into the log it is flooding would otherwise page the
-// whole server from inside hachiko's own alert. Asserted on all three of the webhook's
-// shapes, because the one that forgot it is the one that would be reached.
-func TestNoMessageTheWebhookSendsCanMentionAnybody(t *testing.T) {
-	var bodies []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw, _ := io.ReadAll(r.Body)
-		bodies = append(bodies, string(raw))
-
-		// A text channel refuses a post id and refuses a post name both, which is what drives
-		// the plain-message shape out of the other two.
-		if r.URL.Query().Get("thread_id") != "" || strings.Contains(string(raw), "thread_name") {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer server.Close()
-
-	for _, out := range []Outgoing{
-		{Text: "@everyone the disk is filling"},
-		{Text: "@everyone still waiting", Thread: "800"},
-	} {
-		if _, err := postDiscord(server.Client(), server.URL, out); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	if len(bodies) < 3 {
-		t.Fatalf("the three shapes the webhook has were not all exercised: %v", bodies)
-	}
-	for _, body := range bodies {
-		harness.Wants(t, body, `"allowed_mentions":{"parse":[]}`)
-	}
 }

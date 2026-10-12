@@ -1,7 +1,9 @@
-# Answering the on-call session from Discord, which is off until both lines below have a
-# value. Neither is a secret — a channel id is in the URL of every message in it and a user
-# id is on Tim's own profile — so they are here rather than in 1Password, and the bot token
-# that is a secret is a reference in hachiko.env.op beside the wrapper.
+# Where hachiko alerts and whose reply it takes, both required: the bot is how everything
+# it has to say goes out, so a channel missing here is an alert with nowhere to go, and
+# answering the on-call session from Discord needs the account as well. Neither is a secret
+# — a channel id is in the URL of every message in it and a user id is on Tim's own profile
+# — so they are here rather than in 1Password, and the bot token that is a secret is a
+# reference in hachiko.env.op beside the wrapper.
 #
 # channel: the private forum channel hachiko alerts to. Each incident gets a post in it,
 #          tagged Open while it runs and Resolved and closed when it is over.

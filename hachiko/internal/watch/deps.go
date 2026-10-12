@@ -81,9 +81,8 @@ type Deps struct {
 	// whatever the session has asked or started since.
 	Prompt func(kind, lead, data string) error
 
-	// Reaches the channel Tim watches. The only thing that ever sees the webhook or the bot
-	// token, and it answers with the thread it opened when the message was the first of an
-	// incident and the bot is configured.
+	// Reaches the channel Tim watches. The only thing that ever sees the bot token, and it
+	// answers with the thread it opened when the message was the first of an incident.
 	Send func(out discord.Outgoing) (string, error)
 
 	// Tells shibuya this sweep happened, which is the half of the watch that is not on this

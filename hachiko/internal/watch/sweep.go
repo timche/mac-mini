@@ -29,11 +29,10 @@ func (s sweeper) say(format string, args ...any) {
 	logs.Logger{Out: s.deps.Log, Now: s.deps.Now}.Say(format, args...)
 }
 
-// Every message about an incident in one place. With the bot configured, the first message
-// of an incident opens a thread and everything after it goes inside, so a reminder three
-// hours later is under the alert it is about rather than further down a channel — and the
-// thread is what `hachiko listen` reads a reply out of. With only the webhook, the thread
-// is nothing and the message goes to the channel exactly as it always did.
+// Every message about an incident in one place: the first message of an incident opens a
+// thread and everything after it goes inside, so a reminder three hours later is under the
+// alert it is about rather than further down a channel — and the thread is what `hachiko
+// listen` reads a reply out of.
 func (s sweeper) send(state *statedir.State, incident, message string) error {
 	out := discord.Outgoing{Text: message}
 
@@ -713,7 +712,7 @@ func joinBlocks(blocks ...string) string { return strings.Join(nonEmpty(blocks..
 // The order the alert goes out in: the session first, so the message can name the
 // tab it is waiting in, then one line from hachiko. The brief carries the incident
 // id and the one command that reaches the channel, because the session is never
-// handed the webhook itself.
+// handed the bot token itself.
 func (s sweeper) raise(state *statedir.State, now time.Time, kind string, alert alertText, free int64, truncated bool) bool {
 	incident := fmt.Sprintf("%s-%d", kind, now.Unix())
 

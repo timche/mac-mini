@@ -159,8 +159,8 @@ func run(args []string) error {
 			dry = true
 		case "--test-alert":
 			return watch.TestAlert(cfg)
-		// Left out of the usage: these two are how the steps that hold the webhook URL and
-		// the bot token are re-entered under `op run`, and nothing else should call them.
+		// Left out of the usage: these two are how the steps that hold the bot token are
+		// re-entered under `op run`, and nothing else should call them.
 		case "--send":
 			return sendFromStdin(args[i+1:])
 		case "--listen-mode":

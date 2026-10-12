@@ -1074,18 +1074,18 @@ func TestSlowGrowthDoesNotHandOverEarly(t *testing.T) {
 	harness.Equal(t, len(f.interrupts), 0, "questions cancelled")
 }
 
-// A step is done only once its message has left the machine: a webhook that was down for
+// A step is done only once its message has left the machine: a Discord that was down for
 // the one check the hour came up on would otherwise lose the reminder for good.
 func TestAStepThatCouldNotSendIsTriedAgainOnTheNextCheck(t *testing.T) {
 	f := waiting(t)
 
 	f.sendErr = errSendFailed
 	harness.Wants(t, f.at(600+remindAt).sweep(), "the remind step on disk-")
-	harness.Equal(t, len(f.state().Waiting["disk"].Steps), 0, "steps recorded while the webhook was down")
+	harness.Equal(t, len(f.state().Waiting["disk"].Steps), 0, "steps recorded while Discord was down")
 
 	f.sendErr = nil
 	harness.Wants(t, f.at(600+remindAt+300).sweep(), "reminded about disk-")
-	harness.Equal(t, f.sentCount(), 2, "messages sent once the webhook was back")
+	harness.Equal(t, f.sentCount(), 2, "messages sent once Discord was back")
 
 	// And having sent, it is not sent again.
 	harness.Lacks(t, f.at(600+remindAt+600).sweep(), "reminded about")

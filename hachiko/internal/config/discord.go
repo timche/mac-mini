@@ -6,29 +6,24 @@ import (
 	"strings"
 )
 
-// A webhook can post and nothing else, which is all an alert needs and not what Tim
-// asked for: answering the on-call agent from his phone, where attaching to herdr is
-// three minutes of work and reading a message is none. A bot can read a channel, so with
-// one configured every message hachiko sends goes through it instead, each incident gets
-// a thread of its own, and `hachiko listen` watches those threads for a reply.
-//
-// Off unless configured, and then nothing here runs: the webhook stays exactly as it was,
-// which is the path that has to keep working on a Mac whose Discord application somebody
-// deleted.
+// Where hachiko posts and whose reply it takes. The channel is what every message goes
+// to, so a Mac with none configured has nowhere to send an alert; the account is what
+// makes answering the on-call agent from Discord possible, where attaching to herdr is
+// three minutes of work and reading a message is none.
 type DiscordConfig struct {
 	ChannelID string
 	UserID    string
 }
 
-// On only when both are set. A channel with no user to take replies from would be a
-// listener that reads a channel and obeys anybody in it, and a user with no channel has
-// nowhere to be read from.
+// Whether a reply can be taken, which needs both: a channel with no account behind it
+// would be a listener that obeys anybody in it, and an account with no channel has nowhere
+// to be read from. Sending needs the channel alone.
 func (d DiscordConfig) On() bool { return d.ChannelID != "" && d.UserID != "" }
 
 // Neither is a secret — a channel id is in the URL of every message in it and a user id
 // is on Tim's own profile — so they are a file in the checkout rather than a 1Password
 // reference, and the file is empty until he fills it in. Only the bot token is a secret,
-// and that is in the env file beside the webhook.
+// and that is an op:// reference in the env file beside the wrapper.
 func readDiscordConfig(path string) DiscordConfig {
 	file, err := os.ReadFile(path)
 	if err != nil {

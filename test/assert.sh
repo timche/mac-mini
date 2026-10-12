@@ -919,17 +919,14 @@ check "a build whose tests fail leaves the binary that was already there" \
 
 # Beside the wrapper because that is where the wrapper looks: `op run --env-file` is
 # given the path next to the script's own resolved location, so a missing link is an
-# alert with nowhere to go rather than a wrong URL.
+# alert that was not sent rather than one sent somewhere else.
 check "hachiko's secrets are op:// references beside it, and nothing resolved" \
   '[ -L "$HOME/.local/bin/hachiko.env.op" ] &&
    [ -e "$HOME/.local/bin/hachiko.env.op" ] &&
-   grep -qx "HACHIKO_DISCORD_URL=op://dev/shibuya-discord/webhook url" \
-     "$HOME/.local/bin/hachiko.env.op" &&
    grep -qx "HACHIKO_DISCORD_BOT_TOKEN=op://dev/hachiko-discord/bot token" \
      "$HOME/.local/bin/hachiko.env.op" &&
    grep -qx "HACHIKO_APPROVAL_TOTP=op://dev/hachiko-discord/approval" \
      "$HOME/.local/bin/hachiko.env.op" &&
-   ! grep -q "discord.com" "$HOME/.local/bin/hachiko.env.op" &&
    ! grep -qE "^[A-Z_]+=[^o]" "$HOME/.local/bin/hachiko.env.op"'
 
 # Answering from Discord, which is off until the config file names a channel and a user.

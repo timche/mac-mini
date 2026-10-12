@@ -18,23 +18,23 @@ var base = time.Unix(1700000000, 0)
 
 const fakeBotToken = "MTIzNDU2.NOT-A-REAL-BOT-TOKEN"
 
-// Off is the default and the thing that must not break: with no channel and no user, the
-// webhook path is exactly what it was, nothing asks for a token, and nothing opens a
-// thread.
-func TestWithNoChannelAndUserTheBotIsOffAndTheWebhookPathIsUntouched(t *testing.T) {
-	cfg := config.Config{EnvFile: "/somewhere/hachiko.env.op"}
-
-	harness.Equal(t, cfg.Discord.On(), false, "whether the bot is on with nothing configured")
-	harness.Equal(t, strings.Join(opArgs(cfg, "/cache/hachiko", Outgoing{}), " "),
-		"op run --env-file /somewhere/hachiko.env.op -- /cache/hachiko --send",
-		"what op is asked to run with the bot off")
-
-	// Half-configured is off: a channel with no account to take replies from would be a
-	// listener that obeys anybody in it, and an account with no channel has nowhere to read.
-	for _, half := range []config.DiscordConfig{{ChannelID: "123"}, {UserID: "456"}} {
-		cfg.Discord = half
-		harness.Equal(t, cfg.Discord.On(), false, "whether half a configuration turns the bot on")
+// Sending needs the channel and reading a reply needs the account as well: a channel with
+// nobody behind it would be a listener that obeys anybody in it, and an account with no
+// channel has nowhere to be read from — while an alert still has somewhere to go.
+func TestAChannelAloneSendsAndRepliesNeedTheAccountToo(t *testing.T) {
+	cfg := config.Config{
+		EnvFile: "/somewhere/hachiko.env.op",
+		Discord: config.DiscordConfig{ChannelID: "123"},
 	}
+
+	harness.Equal(t, cfg.Discord.On(), false, "whether a channel alone takes replies")
+	harness.Wants(t, strings.Join(opArgs(cfg, "/cache/hachiko", Outgoing{}), " "), "--send --channel 123")
+
+	cfg.Discord = config.DiscordConfig{UserID: "456"}
+	harness.Equal(t, cfg.Discord.On(), false, "whether an account alone takes replies")
+
+	cfg.Discord = config.DiscordConfig{ChannelID: "123", UserID: "456"}
+	harness.Equal(t, cfg.Discord.On(), true, "whether both together take replies")
 }
 
 // One incident, one thread: the first message opens it and everything after goes inside, so
@@ -242,8 +242,8 @@ func TestTheOutcomeFlagReachesTheSendChild(t *testing.T) {
 	harness.Lacks(t, strings.Join(opArgs(cfg, "/cache/hachiko", Outgoing{Thread: "post-1"}), " "), "--outcome")
 }
 
-// The thread is named by the message's lead, the same line the forum webhook names a post
-// by: what Tim sees in the sidebar is what fired, not the id of the incident it fired for.
+// The thread is named by the message's lead: what Tim sees in the sidebar is what fired, not
+// the id of the incident it fired for.
 func TestTheThreadIsNamedByTheMessagesLead(t *testing.T) {
 	var name string
 	bot, _ := fakeBotWith(t, func(w http.ResponseWriter, r *http.Request) {
@@ -324,7 +324,7 @@ func TestAFailedBotCallDoesNotPutTheTokenInTheError(t *testing.T) {
 	}
 	harness.Lacks(t, err.Error(), "NOT-A-REAL-BOT-TOKEN")
 
-	// And the redaction is the webhook's, so every spelling of it goes the same way.
+	// And every spelling of it goes the same way.
 	harness.Lacks(t, redact("dial failed for Bot "+fakeBotToken, fakeBotToken), "NOT-A-REAL-BOT-TOKEN")
 }
 
@@ -405,72 +405,32 @@ func TestAThreadNameIsClippedToWhatDiscordTakes(t *testing.T) {
 	}
 }
 
-// The bot and the webhook, chosen by whether there is a token and a channel for it: that is
-// the whole of how this stays off until Tim has configured it, and how it keeps working on
-// a Mac whose Discord application somebody deleted.
-func TestSendModeUsesTheBotOnlyWithATokenAndAChannel(t *testing.T) {
-	var reached string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		reached = r.URL.Path
-		w.Write([]byte(`{"id":"msg-1"}`))
-	}))
-	defer server.Close()
-
-	t.Setenv("HACHIKO_DISCORD_URL", server.URL+"/api/webhooks/1/x")
-	t.Setenv("HACHIKO_DISCORD_BOT_TOKEN", "")
-	botPointedAt(t, server.URL)
-
-	if _, err := SendMode(strings.NewReader("the disk is filling"), Outgoing{}, "chan"); err != nil {
-		t.Fatal(err)
-	}
-	harness.Equal(t, reached, "/api/webhooks/1/x", "where a message went with no token")
-
-	// With a token but no channel there is nothing to post into, so the webhook again.
-	t.Setenv("HACHIKO_DISCORD_BOT_TOKEN", fakeBotToken)
-	if _, err := SendMode(strings.NewReader("the disk is filling"), Outgoing{}, ""); err != nil {
-		t.Fatal(err)
-	}
-	harness.Equal(t, reached, "/api/webhooks/1/x", "where a message went with no channel")
-}
-
-// A bot that is configured and will not post — a token Tim revoked, an application somebody
-// deleted, a channel it was removed from — is an alert nobody receives while the webhook is
-// sitting right there. The watch may not go quiet about a disk filling because of a permission.
-func TestABrokenBotFallsBackToTheWebhookForThatMessage(t *testing.T) {
+// A bot that will not post — a token Tim revoked, an application somebody deleted, a channel
+// it was removed from — is a send that failed, which leaves the incident unraised so that
+// the next check tries again. There is nowhere else for the message to go.
+func TestABotThatWillNotPostIsASendThatFailed(t *testing.T) {
 	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound} {
-		var reached []string
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			reached = append(reached, r.URL.Path)
-			if strings.HasPrefix(r.URL.Path, "/channels/") {
-				w.WriteHeader(status)
-				return
-			}
-			w.WriteHeader(http.StatusNoContent)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(status)
 		}))
 
-		t.Setenv("HACHIKO_DISCORD_URL", server.URL+"/api/webhooks/1/x")
 		t.Setenv("HACHIKO_DISCORD_BOT_TOKEN", fakeBotToken)
 		botPointedAt(t, server.URL)
 
-		stderr := captureStderr(t)
 		thread, err := SendMode(strings.NewReader("the disk is filling"),
 			Outgoing{OpenThread: "disk-42"}, "chan")
-		note := stderr()
 		server.Close()
 
-		if err != nil {
-			t.Fatalf("a %d from the bot lost the message: %v", status, err)
+		if err == nil {
+			t.Fatalf("a %d from the bot was reported as a message that went out", status)
 		}
 		harness.Equal(t, thread, "", "the thread a broken bot opened")
-		harness.Equal(t, len(reached), 3, "requests made")
-		harness.Wants(t, reached[len(reached)-1], "/api/webhooks/1/x")
-		harness.Wants(t, note, "the bot would not post, so this message went to the webhook instead")
-		harness.Lacks(t, note, "NOT-A-REAL-BOT-TOKEN")
+		harness.Lacks(t, err.Error(), "NOT-A-REAL-BOT-TOKEN")
 	}
 }
 
 // A thread that could not be opened is not a message that failed: the message is posted, and
-// saying otherwise sent it a second time down the webhook.
+// saying otherwise would send it a second time on the next check.
 func TestAMessageWhoseThreadCouldNotBeOpenedIsNotSentTwice(t *testing.T) {
 	var reached []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -483,7 +443,6 @@ func TestAMessageWhoseThreadCouldNotBeOpenedIsNotSentTwice(t *testing.T) {
 	}))
 	defer server.Close()
 
-	t.Setenv("HACHIKO_DISCORD_URL", server.URL+"/api/webhooks/1/x")
 	t.Setenv("HACHIKO_DISCORD_BOT_TOKEN", fakeBotToken)
 	botPointedAt(t, server.URL)
 
@@ -497,9 +456,6 @@ func TestAMessageWhoseThreadCouldNotBeOpenedIsNotSentTwice(t *testing.T) {
 	}
 	harness.Equal(t, thread, "", "the thread recorded when none could be opened")
 	harness.Equal(t, len(reached), 3, "requests made")
-	for _, path := range reached {
-		harness.Lacks(t, path, "/api/webhooks/")
-	}
 	harness.Wants(t, note, "the rest of this incident goes to the channel")
 }
 
@@ -577,8 +533,8 @@ func botAt(bot Bot, api string) Bot {
 	return bot
 }
 
-// The bot half of the same rule the webhook obeys: a message carrying a log line somebody
-// wrote "@everyone" into may not page the server it is posted in.
+// A message carrying a log line somebody wrote "@everyone" into may not page the server it
+// is posted in.
 func TestNoMessageTheBotSendsCanMentionAnybody(t *testing.T) {
 	var body string
 	bot, _ := fakeBotWith(t, func(w http.ResponseWriter, r *http.Request) {

@@ -74,8 +74,8 @@ type Deps struct {
 	Prune func(repo string, dry bool) ([]byte, error)
 
 	// Reaches the channel Tim watches, and answers with the thread it opened. The only
-	// thing that ever sees the webhook or the bot token, and it is the watch's own sender:
-	// a failure here goes out the same way an alert does.
+	// thing that ever sees the bot token, and it is the watch's own sender: a failure here
+	// goes out the same way an alert does.
 	Send func(out discord.Outgoing) (string, error)
 }
 

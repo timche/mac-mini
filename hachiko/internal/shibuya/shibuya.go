@@ -85,7 +85,7 @@ func (s Client) Send(in Checkin) (string, string) {
 	}
 
 	if err := s.post(target, token, in); err != nil {
-		// The token is redacted the way the webhook is: net/http names the URL it failed on,
+		// The token is redacted the way the bot token is: net/http names the URL it failed on,
 		// and a header value has no business in a log either way.
 		return Failed, fmt.Sprintf("shibuya did not take this check-in, so it may say this Mac is offline: %v",
 			logs.Redact(err.Error(), token, "the ping token"))

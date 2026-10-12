@@ -141,7 +141,7 @@ func TestTheTimeOfAPruneIsSavedBeforeThePruneRuns(t *testing.T) {
 func TestACarriedPruneFailureStillSaysWhatDockerSaid(t *testing.T) {
 	f := newFixture(t)
 	f.dockerPruneErr["builder"] = "Error response from daemon: a prune is already running"
-	f.sendErr = "the webhook would not answer"
+	f.sendErr = "the bot would not post"
 
 	f.sweep()
 	harness.Equal(t, len(f.sent), 0, "the messages that left the machine")

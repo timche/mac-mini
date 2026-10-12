@@ -16,7 +16,7 @@
   <key>Label</key>
   <string>io.github.timche.hachiko-sync</string>
   <!-- The PATH is for the wrapper itself, for the mise that rebuilds the binary when
-       the sources have changed, for the op that resolves the webhook when there is a
+       the sources have changed, for the op that resolves the bot token when there is a
        failure to report, for the git every pass shells out to, and for the claude in
        ~/.local/bin that writes a commit subject from the diff. The socket is the
        ssh-agent claude/ssh-agent.sh keeps the signing key in — these commits are

@@ -498,7 +498,7 @@ fi
 # what it points at says nothing about the file launchd read at load, and a copy of
 # that is what a reload is decided against.
 #
-# Nothing gates it, and nothing here builds it. A webhook it cannot resolve and a
+# Nothing gates it, and nothing here builds it. A bot token it cannot resolve and a
 # herdr it cannot reach are lines in its log rather than reasons not to watch, and
 # the binary is the wrapper's to build on the first run after a change.
 hachiko_label=io.github.timche.hachiko

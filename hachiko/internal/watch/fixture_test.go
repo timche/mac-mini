@@ -641,4 +641,4 @@ func (f *fixture) onlyPendingID() string {
 	return ids[0]
 }
 
-var errSendFailed = errors.New("the webhook answered 500")
+var errSendFailed = errors.New("Discord answered 500")

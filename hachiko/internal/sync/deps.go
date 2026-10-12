@@ -26,8 +26,8 @@ type Deps struct {
 	Git func(dir string, args ...string) Output
 
 	// Reaches the channel Tim watches, and answers with the thread it opened. The only
-	// thing here that ever sees the webhook or the bot token, and it is the watch's own
-	// sender: a failure here goes out the same way an alert does.
+	// thing here that ever sees the bot token, and it is the watch's own sender: a failure
+	// here goes out the same way an alert does.
 	Send func(out discord.Outgoing) (string, error)
 
 	// One commit subject, written by a model from the instructions and the diff on its

@@ -36,7 +36,7 @@ func Notify(cfg config.Config, incident, messageFile string, outcome bool) error
 	// it is about and Tim's reply to it is somewhere the listener is already watching. Read
 	// without the lock: a sweep holds that lock across a herdr call and an `op run`, and
 	// this is one field of a map the sweep alone writes.
-	out := discord.Outgoing{Text: string(message)}
+	out := discord.Outgoing{Text: string(message), Outcome: outcome}
 	if state, err := store.Load(); err == nil {
 		out.Thread = state.ThreadFor(incident)
 	}

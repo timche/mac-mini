@@ -133,6 +133,138 @@ func TestOnAForumTheFirstMessageOpensThePostItself(t *testing.T) {
 		"what a later message asked for")
 }
 
+// The tag is found by name on the forum Discord describes, never by an id written down
+// here: the ids are the forum's own, and one of those in the source would tag whatever a
+// forum Tim rebuilt happens to have in that slot.
+func TestAPostIsOpenedWithTheForumsOpenTag(t *testing.T) {
+	var opened string
+	bot, _ := fakeBotWith(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.Write([]byte(`{"id":"chan","type":15,"available_tags":[` +
+				`{"id":"tag-resolved","name":"resolved"},{"id":"tag-open","name":"OPEN"}]}`))
+			return
+		}
+		raw, _ := io.ReadAll(r.Body)
+		opened = string(raw)
+		w.Write([]byte(`{"id":"post-1"}`))
+	})
+
+	if _, err := sendThroughBot(bot, "chan", Outgoing{Text: "the disk is filling", OpenThread: "disk-42"}); err != nil {
+		t.Fatal(err)
+	}
+	harness.Wants(t, opened, `"applied_tags":["tag-open"]`)
+
+	// A forum without that tag is a forum that does not get the label. The alert is the point,
+	// and the forum is Tim's to set up.
+	bare, _ := fakeBotWith(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.Write([]byte(`{"id":"chan","type":15}`))
+			return
+		}
+		raw, _ := io.ReadAll(r.Body)
+		opened = string(raw)
+		w.Write([]byte(`{"id":"post-1"}`))
+	})
+
+	if _, err := sendThroughBot(bare, "chan", Outgoing{Text: "the disk is filling", OpenThread: "disk-42"}); err != nil {
+		t.Fatal(err)
+	}
+	harness.Lacks(t, opened, "applied_tags")
+}
+
+// The message first and the close after it, because Discord unarchives a thread anything is
+// posted into: the other order would be undone by the message it is about.
+func TestTheOutcomeRetagsThePostAndClosesIt(t *testing.T) {
+	var calls []string
+	var patched string
+	bot, _ := fakeBotWith(t, func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.Path)
+
+		switch {
+		case r.URL.Path == "/channels/post-1" && r.Method == http.MethodGet:
+			w.Write([]byte(`{"id":"post-1","type":11,"parent_id":"chan","applied_tags":["tag-open","tag-disk"]}`))
+		case r.URL.Path == "/channels/chan":
+			w.Write([]byte(`{"id":"chan","type":15,"available_tags":[` +
+				`{"id":"tag-open","name":"Open"},{"id":"tag-resolved","name":"Resolved"},{"id":"tag-disk","name":"Disk"}]}`))
+		case r.Method == http.MethodPatch:
+			raw, _ := io.ReadAll(r.Body)
+			patched = string(raw)
+			w.Write([]byte(`{"id":"post-1"}`))
+		default:
+			w.Write([]byte(`{"id":"msg-9"}`))
+		}
+	})
+
+	if _, err := sendThroughBot(bot, "chan", Outgoing{
+		Text: "🟢 Clear again", Thread: "post-1", Outcome: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	harness.Equal(t, strings.Join(calls, " | "),
+		"POST /channels/post-1/messages | GET /channels/post-1 | GET /channels/chan | PATCH /channels/post-1",
+		"what the bot was asked to do, in the order it matters in")
+	harness.Equal(t, patched, `{"applied_tags":["tag-disk","tag-resolved"],"archived":true}`,
+		"what the post was closed with")
+}
+
+// A thread in a text channel has no forum above it to read tag names off, and an outcome
+// there is a message and nothing else.
+func TestAnOutcomeInATextChannelsThreadClosesNothing(t *testing.T) {
+	bot, calls := fakeBot(t, map[string]string{
+		"POST /channels/thread-1/messages": `{"id":"msg-9"}`,
+		"GET /channels/thread-1":           `{"id":"thread-1","type":11,"parent_id":"chan","applied_tags":[]}`,
+		"GET /channels/chan":               `{"id":"chan","type":0}`,
+	})
+
+	if _, err := sendThroughBot(bot, "chan", Outgoing{
+		Text: "🟢 Clear again", Thread: "thread-1", Outcome: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	harness.Lacks(t, strings.Join(*calls, " | "), "PATCH")
+}
+
+// The message is already posted, so a label that would not go on may not come back as a
+// report that did not go out.
+func TestAPostThatWillNotCloseDoesNotFailTheOutcome(t *testing.T) {
+	bot, _ := fakeBotWith(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPatch:
+			w.WriteHeader(http.StatusForbidden)
+		case r.URL.Path == "/channels/post-1" && r.Method == http.MethodGet:
+			w.Write([]byte(`{"id":"post-1","type":11,"parent_id":"chan","applied_tags":["tag-open"]}`))
+		case r.URL.Path == "/channels/chan":
+			w.Write([]byte(`{"id":"chan","type":15,"available_tags":[{"id":"tag-open","name":"Open"}]}`))
+		default:
+			w.Write([]byte(`{"id":"msg-9"}`))
+		}
+	})
+
+	stderr := captureStderr(t)
+	_, err := sendThroughBot(bot, "chan", Outgoing{Text: "🟢 Clear again", Thread: "post-1", Outcome: true})
+	note := stderr()
+
+	if err != nil {
+		t.Fatalf("a post that would not close was reported as a failed message: %v", err)
+	}
+	harness.Wants(t, note, "the post could not be closed")
+}
+
+// The flag has to reach the `--send` child, which is where the post is: it travels as an
+// argument with the thread and the channel, being one word and nothing of the incident's.
+func TestTheOutcomeFlagReachesTheSendChild(t *testing.T) {
+	cfg := config.Config{
+		EnvFile:        "/somewhere/hachiko.env.op",
+		DiscordEnvFile: "/somewhere/hachiko.discord.env.op",
+		Discord:        config.DiscordConfig{ChannelID: "123", UserID: "456"},
+	}
+
+	args := opArgs(cfg, "/cache/hachiko", Outgoing{Thread: "post-1", Outcome: true})
+	harness.Wants(t, strings.Join(args, " "), "--thread post-1 --outcome")
+	harness.Lacks(t, strings.Join(opArgs(cfg, "/cache/hachiko", Outgoing{Thread: "post-1"}), " "), "--outcome")
+}
+
 // The thread is named by the message's lead, the same line the forum webhook names a post
 // by: what Tim sees in the sidebar is what fired, not the id of the incident it fired for.
 func TestTheThreadIsNamedByTheMessagesLead(t *testing.T) {

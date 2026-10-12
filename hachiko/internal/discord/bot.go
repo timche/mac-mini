@@ -260,6 +260,18 @@ func (b Bot) OpenPost(forum, name, content string, tags []string) (string, error
 	return post.ID, nil
 }
 
+// The tags a post ends with and the archive in one call, because Discord unarchives a thread
+// anything is posted into: a close that came before the message would be undone by it. Not
+// locked — an archived post is closed and still Tim's to reopen by writing in it.
+func (b Bot) ClosePost(post string, tags []string) error {
+	if tags == nil {
+		tags = []string{}
+	}
+	_, err := b.call(http.MethodPatch, "/channels/"+post,
+		map[string]any{"applied_tags": tags, "archived": true})
+	return err
+}
+
 // Oldest first, which is the order a conversation has to be read in and the opposite of
 // the order Discord returns by default. `after` is a message id and not a time, so a
 // listener that was down for an hour reads what it missed rather than guessing at it.

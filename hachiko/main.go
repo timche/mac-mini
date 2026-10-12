@@ -177,11 +177,17 @@ func run(args []string) error {
 }
 
 // The flags the `op run` child is handed: a channel and a thread, which are ids in a URL
-// rather than secrets. The thread it opened is the one thing it prints.
+// rather than secrets, and whether this is the message that ends the incident. The thread
+// it opened is the one thing it prints.
 func sendFromStdin(args []string) error {
 	out, channel := discord.Outgoing{}, ""
 
 	for i := 0; i < len(args); i++ {
+		// The one flag of the three that is a word on its own rather than a name and a value.
+		if args[i] == "--outcome" {
+			out.Outcome = true
+			continue
+		}
 		if i+1 >= len(args) {
 			return badUsage("%s takes a value", args[i])
 		}

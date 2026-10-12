@@ -27,6 +27,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/logs"
+	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -50,7 +51,20 @@ type Outgoing struct {
 	Text       string
 	Thread     string
 	OpenThread string
+
+	// Whether this is the message that says the incident is over, which on a forum is the
+	// one that retags the post and closes it. A word rather than anything of the incident's,
+	// so it travels as an argument with the rest.
+	Outcome bool
 }
+
+// The two tags a forum of Tim's is set up with, matched by name on the channel Discord
+// describes rather than by an id written down here. A forum missing one of them is a forum
+// that simply does not get that label: the alert is the point, and Tim owns the forum.
+const (
+	tagOpen     = "Open"
+	tagResolved = "Resolved"
+)
 
 // The one step that sees the webhook URL or the bot token, and the only reason `op run`
 // is ever called: every run counts against the service account's daily limit, so it
@@ -149,6 +163,9 @@ func opArgs(cfg config.Config, self string, out Outgoing) []string {
 	if out.OpenThread != "" {
 		args = append(args, "--open-thread", out.OpenThread)
 	}
+	if out.Outcome {
+		args = append(args, "--outcome")
+	}
 	return args
 }
 
@@ -206,6 +223,9 @@ func sendThroughBot(bot Bot, channel string, out Outgoing) (string, error) {
 		if _, err := bot.Post(out.Thread, out.Text); err != nil {
 			return "", err
 		}
+		if out.Outcome {
+			closePost(bot, out.Thread)
+		}
 		return "", nil
 	}
 
@@ -215,7 +235,7 @@ func sendThroughBot(bot Bot, channel string, out Outgoing) (string, error) {
 	// for. A type that could not be read is treated as a text channel, since the message
 	// that then fails is the message the webhook takes instead.
 	if forum, err := bot.Channel(channel); err == nil && forum.Forum() {
-		return bot.OpenPost(channel, ThreadName(out.Text), out.Text, nil)
+		return bot.OpenPost(channel, ThreadName(out.Text), out.Text, openTags(forum))
 	}
 
 	posted, err := bot.Post(channel, out.Text)
@@ -241,6 +261,56 @@ func sendThroughBot(bot Bot, channel string, out Outgoing) (string, error) {
 		return "", nil
 	}
 	return thread, nil
+}
+
+func openTags(forum Channel) []string {
+	if open := forum.Tag(tagOpen); open != "" {
+		return []string{open}
+	}
+	return nil
+}
+
+// The post retagged and archived once the outcome is in it, so the forum reads as a list of
+// what is still running rather than everything that ever did. A forum post's own channel
+// object is where its tags are, and the forum it hangs under is where the names they mean
+// are, which is why both are asked for.
+//
+// Reported and never returned: the message is already posted, and an outcome that failed on
+// its label would be `hachiko notify` telling the session its report did not go out. A text
+// channel's thread falls out here on its own, having no forum above it.
+func closePost(bot Bot, post string) {
+	thread, err := bot.Channel(post)
+	if err != nil {
+		say("the outcome was posted but the post's tags could not be read, so it stays open: %v", err)
+		return
+	}
+
+	if thread.ParentID == "" {
+		return
+	}
+
+	forum, err := bot.Channel(thread.ParentID)
+	if err != nil {
+		say("the outcome was posted but the forum's tags could not be read, so the post stays open: %v", err)
+		return
+	}
+	if !forum.Forum() {
+		return
+	}
+
+	tags := []string{}
+	for _, tag := range thread.AppliedTags {
+		if tag != forum.Tag(tagOpen) {
+			tags = append(tags, tag)
+		}
+	}
+	if resolved := forum.Tag(tagResolved); resolved != "" && !statedir.Contains(tags, resolved) {
+		tags = append(tags, resolved)
+	}
+
+	if err := bot.ClosePost(post, tags); err != nil {
+		say("the outcome was posted but the post could not be closed: %v", err)
+	}
 }
 
 // One incident, one post, over the webhook as well as over the bot — and the same field of

@@ -923,7 +923,7 @@ check "a build whose tests fail leaves the binary that was already there" \
 check "the webhook is an op:// reference beside hachiko, and no resolved URL" \
   '[ -L "$HOME/.local/bin/hachiko.env.op" ] &&
    [ -e "$HOME/.local/bin/hachiko.env.op" ] &&
-   grep -qx "HACHIKO_DISCORD_URL=op://dev/hachiko-discord/webhook url" \
+   grep -qx "HACHIKO_DISCORD_URL=op://dev/shibuya-discord/webhook url" \
      "$HOME/.local/bin/hachiko.env.op" &&
    ! grep -q "discord.com" "$HOME/.local/bin/hachiko.env.op"'
 
@@ -973,7 +973,7 @@ check "the ping token is in no .env.op and in no op:// reference" \
 
 check "shibuya's .env.op is op:// references and nothing resolved" \
   'grep -qx "CLOUDFLARE_API_TOKEN=op://dev/shibuya/api token" "$repo/shibuya/.env.op" &&
-   grep -qx "DISCORD_WEBHOOK_URL=op://dev/hachiko-discord/webhook url" "$repo/shibuya/.env.op" &&
+   grep -qx "DISCORD_WEBHOOK_URL=op://dev/shibuya-discord/webhook url" "$repo/shibuya/.env.op" &&
    ! grep -qE "^[A-Z_]+=[^o]" "$repo/shibuya/.env.op"'
 
 check "the two shibuya scripts are executable and parse" \

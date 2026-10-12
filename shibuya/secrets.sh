@@ -33,7 +33,7 @@ if [ "${1:-}" = "--under-op" ]; then
   fi
   if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
     echo "DISCORD_WEBHOOK_URL did not resolve, so no secret was set — ask Tim about" \
-         "op://dev/hachiko-discord/webhook url" >&2
+         "op://dev/shibuya-discord/webhook url" >&2
     exit 1
   fi
 

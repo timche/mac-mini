@@ -24,6 +24,7 @@
 # Secrets
 
 - A repository that commits `.env.op` files keeps its secrets in 1Password as `op://` references. A command that needs them runs as `op run --env-file <path> -- <cmd>`, with the `.env.op` beside the code it runs, and one `--env-file` per file when it needs several; a command that needs none runs without it, since every run counts against the service account's daily limit. Never `op read` a value into the shell, a file or an argument, and never write a resolved value anywhere. A reference that does not resolve is a question for Tim, not a `.env` to fill in.
+- A credential Tim creates for any service, such as an API token, a key or a client secret, goes into 1Password first, before it is used anywhere. Every later step then reads it from there, never from the clipboard or a paste: `op read "op://<vault>/<item>/<field>" | gh secret set <NAME> …` puts it in a GitHub secret, `op run` hands it to a command, and an `op://` reference in `.env.op` covers the rest. A guide for creating one ends with the exact `op item create` command, taking the value from `pbpaste` and clearing the clipboard afterwards, followed by the commands that read it back out. The vault, title, type, field and tag conventions are in `$PROJECT_DOCS_DIR/mac-mini/secrets-handoff.md`; a write credential goes in the project's prod vault, which only Tim reads, and those commands run on his side.
 
 # Blockers
 

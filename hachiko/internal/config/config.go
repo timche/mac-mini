@@ -21,6 +21,12 @@ type Config struct {
 	BigKB      int64
 	GrowthKB   int64
 
+	// How soon the volume has to run out, at the rate the files found growing are gaining
+	// between two samples, before that growth is worth an alert of its own: a large download
+	// on a mostly empty disk is growth and not a disk filling. Zero leaves growth alone
+	// deciding, which is how a check written in megabytes and minutes trips the arithmetic.
+	FillHorizon time.Duration
+
 	// Per cent of one core, and the unbroken span a process has to hold it for.
 	CPUShare  float64
 	CPUWindow time.Duration
@@ -215,6 +221,8 @@ func FromEnv() Config {
 		CriticalKB: envInt64("HACHIKO_CRITICAL_GB", 20) * GiB,
 		BigKB:      envInt64("HACHIKO_BIG_KB", GiB),
 		GrowthKB:   envInt64("HACHIKO_GROWTH_KB", 2*GiB),
+
+		FillHorizon: time.Duration(envInt64("HACHIKO_FILL_HOURS", 6)) * time.Hour,
 
 		CPUShare:  float64(envInt64("HACHIKO_CPU_SHARE", 50)),
 		CPUWindow: time.Duration(envInt64("HACHIKO_CPU_WINDOW", 3600)) * time.Second,

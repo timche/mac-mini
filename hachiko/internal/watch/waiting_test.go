@@ -515,6 +515,27 @@ func TestATriggerThatHasClearedReachesTheAgentOnce(t *testing.T) {
 	harness.Equal(t, len(f.prompts), 0, "prompts sent about the trigger clearing")
 }
 
+// A writer that keeps going but has stopped mattering, which is the other way the disk half
+// stops firing: it is still gaining, and no longer fast enough to reach the end of the
+// volume. The agent is told that once, with the file named as still growing, and no second
+// incident opens while it carries on.
+func TestGrowthThatNoLongerThreatensTheVolumeClearsTheIncidentOnce(t *testing.T) {
+	f := waiting(t)
+	f.cfg.FillHorizon = 6 * time.Hour
+
+	out := f.at(900).sweep()
+	harness.Wants(t, out, "growing but not filling the disk")
+	harness.Wants(t, out, "one more check saying so tells the disk on-call agent")
+
+	out = f.at(1200).sweep()
+	harness.Wants(t, out, "what fired this incident is no longer firing")
+
+	harness.Wants(t, f.lastInterrupt(), "Nothing is growing fast enough to fill the disk, and free space is back over every mark at 500 GB: at the rate the 1 file still growing is gaining, the free space lasts longer than 6 hours.")
+
+	harness.Equal(t, f.sentCount(), 1, "messages sent")
+	harness.Equal(t, f.oncallCalls, 1, "sessions opened")
+}
+
 // It outlives the handover, which every other change does not: a session that was handed the
 // decision and asked again is still the only thing that can verify this and close. dasd
 // cleared four hours after its handover.

@@ -1058,12 +1058,13 @@ check "the partner's limits are the same words as the standing orders'" \
 # The numbers the README and the plist comment both name. Every one of them is an
 # environment variable so that a test can trip the same arithmetic with megabytes and
 # minutes, which is exactly why the defaults need asserting.
-check "hachiko watches for 100 GB free, 20 GB critical, 1 GB files, 2 GB of growth, half a core for an hour" \
+check "hachiko watches for 100 GB free, 20 GB critical, 1 GB files, 2 GB of growth six hours from full, half a core for an hour" \
   'c="$repo/hachiko/internal/config/config.go" &&
    grep -qF "envInt64(\"HACHIKO_LOW_GB\", 100)" "$c" &&
    grep -qF "envInt64(\"HACHIKO_CRITICAL_GB\", 20)" "$c" &&
    grep -qF "envInt64(\"HACHIKO_BIG_KB\", GiB)" "$c" &&
    grep -qF "envInt64(\"HACHIKO_GROWTH_KB\", 2*GiB)" "$c" &&
+   grep -qF "envInt64(\"HACHIKO_FILL_HOURS\", 6)" "$c" &&
    grep -qF "envInt64(\"HACHIKO_CPU_SHARE\", 50)" "$c" &&
    grep -qF "envInt64(\"HACHIKO_CPU_WINDOW\", 3600)" "$c" &&
    grep -qF "envInt64(\"HACHIKO_ONCALL_DEADLINE\", 600)" "$c"'

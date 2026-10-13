@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/discord"
 	"github.com/timche/mac-mini/hachiko/internal/harness"
 	"github.com/timche/mac-mini/hachiko/internal/process"
@@ -721,6 +722,72 @@ func TestALongPathIsClippedOutOfTheMessage(t *testing.T) {
 	}
 	harness.Lacks(t, f.lastSent(), path)
 	harness.Wants(t, f.lastSent(), wording.Clip(path, wording.PathLimit))
+}
+
+// The download that paged Tim at three in the morning: 26 GB arriving at about 38 GB an
+// hour, with 782 GB free. The disk would have taken most of a day to feel it, so the log
+// says what it saw and nobody is woken.
+func TestGrowthTheVolumeIsADayFromFeelingIsLoggedAndNotAlerted(t *testing.T) {
+	f := newFixture(t)
+	f.cfg.FillHorizon = 6 * time.Hour
+	f.freeGB = 782
+
+	path := f.claim("tmp/model.safetensors", 23*config.GiB)
+	f.at(0).sweep()
+
+	f.claim("tmp/model.safetensors", 23*config.GiB+3200*1024)
+	out := f.at(300).sweep()
+
+	harness.Wants(t, out, "growing but not filling the disk: "+path)
+	harness.Wants(t, out, "the free space lasts 20h")
+	harness.Lacks(t, out, "growing fast: ")
+
+	harness.Equal(t, f.sentCount(), 0, "messages sent")
+	harness.Equal(t, f.oncallCalls, 0, "sessions opened")
+	harness.Equal(t, len(f.state().AlertedFiles), 0, "files recorded as alerted")
+}
+
+// The same shape against a volume that cannot take it: about 48 GB an hour with 100 GB
+// free is two hours from full, which is inside the horizon and somebody's night.
+func TestGrowthThatFillsTheVolumeInsideTheHorizonAlerts(t *testing.T) {
+	f := newFixture(t)
+	f.cfg.FillHorizon = 6 * time.Hour
+	f.freeGB = 100
+
+	path := f.claim("tmp/runaway.log", 10*config.GiB)
+	f.at(0).sweep()
+
+	f.claim("tmp/runaway.log", 14*config.GiB)
+	out := f.at(300).sweep()
+
+	harness.Wants(t, out, "growing fast: "+path)
+	harness.Lacks(t, out, "growing but not filling the disk")
+
+	harness.Equal(t, f.sentCount(), 1, "messages sent")
+	harness.Equal(t, f.oncallCalls, 1, "sessions opened")
+	harness.Wants(t, f.lastSent(), "Disk filling: runaway.log is growing fast")
+}
+
+// Under the critical mark the growth is the emergency rather than the evidence for one:
+// megabytes an hour against 15 GB free is weeks away by the projection, and every path
+// there behaves as it did before there was one.
+func TestUnderTheCriticalMarkGrowthAlertsHoweverFarOffTheProjectionIs(t *testing.T) {
+	f := newFixture(t)
+	f.cfg.FillHorizon = 6 * time.Hour
+
+	log := f.grow("tmp/worker.log", 2*mb)
+	f.at(0).sweep()
+
+	f.freeGB = 15
+	f.grow("tmp/worker.log", 3*mb)
+	out := f.at(300).sweep()
+
+	harness.Wants(t, out, "growing fast: "+log)
+	harness.Wants(t, out, "truncated "+log)
+	harness.Lacks(t, out, "growing but not filling the disk")
+
+	harness.Equal(t, f.sentCount(), 1, "messages sent")
+	harness.Wants(t, f.lastSent(), "Disk critical: 15 GB free, and worker.log was emptied")
 }
 
 func size(t *testing.T, path string) int64 {

@@ -163,6 +163,11 @@ func newFixture(t *testing.T) *fixture {
 		BigKB:      bigKB,
 		GrowthKB:   growKB,
 
+		// No fill horizon unless a test sets one: a check written in megabytes and minutes
+		// grows against a volume of hundreds of real gigabytes, which no projection would ever
+		// find close to full, and what those checks are about is the growth itself.
+		FillHorizon: 0,
+
 		CPUShare:       50,
 		CPUWindow:      time.Hour,
 		OncallDeadline: 10 * time.Minute,

@@ -2,6 +2,7 @@ package watch
 
 import (
 	"testing"
+	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/harness"
@@ -84,6 +85,47 @@ func TestGrowingFilesComeFastestFirst(t *testing.T) {
 	harness.Equal(t, len(growing), 3, "files growing")
 	harness.Equal(t, growing[0].Path, "/tmp/b.log", "the fastest growing file")
 	harness.Equal(t, growing[2].Path, "/tmp/a.log", "the slowest growing file")
+}
+
+// The download that paged Tim: 3.2 GB in five minutes, which is a volume still twenty
+// hours from full.
+func TestFillTimeIsMostOfADayWithTheVolumeMostlyEmpty(t *testing.T) {
+	growing := []Growing{{Path: "/tmp/model.safetensors", KB: 26 * config.GiB, GrewKB: 3200 * 1024}}
+
+	until, ok := fillTime(growing, 782*config.GiB, 5*time.Minute)
+
+	harness.Equal(t, ok, true, "whether the fill time was projected")
+	harness.Equal(t, int64(until.Hours()), int64(20), "hours of free space left")
+}
+
+// Every grower counts, because they are filling one volume between them.
+func TestFillTimeAddsUpTheRateOfEveryGrowingFile(t *testing.T) {
+	growing := []Growing{
+		{Path: "/tmp/a.log", KB: 30 * config.GiB, GrewKB: 2 * config.GiB},
+		{Path: "/tmp/b.log", KB: 30 * config.GiB, GrewKB: 2 * config.GiB},
+	}
+
+	until, ok := fillTime(growing, 100*config.GiB, time.Hour)
+
+	harness.Equal(t, ok, true, "whether the fill time was projected")
+	harness.Equal(t, int64(until.Hours()), int64(25), "hours of free space left")
+}
+
+func TestFillTimeIsNotProjectedWithNothingGrowing(t *testing.T) {
+	_, ok := fillTime(nil, 100*config.GiB, 5*time.Minute)
+	harness.Equal(t, ok, false, "whether the fill time was projected")
+}
+
+// A kilobyte an interval against hundreds of gigabytes is centuries, and a century of
+// nanoseconds is a Duration that has gone round into a negative — which would read here as
+// a disk about to fill.
+func TestFillTimeIsCappedRatherThanOverflowing(t *testing.T) {
+	growing := []Growing{{Path: "/tmp/a.log", KB: 3 * config.GiB, GrewKB: 1}}
+
+	until, ok := fillTime(growing, 782*config.GiB, 5*time.Minute)
+
+	harness.Equal(t, ok, true, "whether the fill time was projected")
+	harness.Equal(t, until, longestFill, "the capped fill time")
 }
 
 func TestAFileThatShrankIsNotGrowing(t *testing.T) {

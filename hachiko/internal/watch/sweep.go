@@ -191,8 +191,7 @@ func (s sweeper) run() error {
 	// measured against is the files the question was asked about.
 	cleared := map[string]string{}
 	if level == 0 && !disk.cutShort && disk.report == "" && disk.truncated == "" {
-		cleared["disk"] = fmt.Sprintf("Nothing is growing fast any more, and free space is back over every mark at %s.",
-			wording.GBUnit(free))
+		cleared["disk"] = s.diskCleared(disk, free)
 	}
 	if cpu.read && cpu.report == "" {
 		cleared["cpu"] = fmt.Sprintf("Nothing is using much CPU any more, out of the %s this check looked at.",
@@ -364,6 +363,10 @@ type diskFindings struct {
 	grewKB      int64
 	writers     []string
 
+	// Whether the free space would last past the horizon at the rate everything growing is
+	// gaining, which leaves the growth to the log rather than to an alert.
+	quiet bool
+
 	// The `Growing fast` section, one bullet per file, and the `Emptied` line: built once
 	// here and read by the first alert, by every reminder and by the prompt that hands the
 	// decision over.
@@ -429,6 +432,17 @@ func (s sweeper) disk(state *statedir.State, now time.Time, free int64) diskFind
 	sizes, growing := growth(state.Disk.Files, walk.Files, s.cfg.GrowthKB, had)
 	out.sizes, out.growing = sizes, growing
 
+	// Growth on its own is not a disk filling up: gigabytes an interval against hundreds of
+	// gigabytes free is a download, and the volume would take a day to notice it. So the
+	// projection decides whether anybody is woken, and the log carries the rest.
+	//
+	// Not when free space is already critical, where every path below behaves as it did: at
+	// that end of the volume the growth is the emergency rather than the evidence for one.
+	// Nor off a span the check had to invent, which is a clock that moved and not a rate.
+	fillIn, projected := fillTime(growing, free, span)
+	out.quiet = projected && !out.spanClamped && free >= s.cfg.CriticalKB &&
+		s.cfg.FillHorizon > 0 && fillIn >= s.cfg.FillHorizon
+
 	var bullets []string
 	for _, g := range growing {
 		// A path and an lsof command name are both chosen by whatever filled the disk,
@@ -442,7 +456,6 @@ func (s sweeper) disk(state *statedir.State, now time.Time, free int64) diskFind
 		bullet := fmt.Sprintf("%s — %s, up %s in %s (%s), written by %s",
 			wording.CodeSpan(path), wording.GBUnit(g.KB), wording.GBUnit(g.GrewKB), wording.DurationPhrase(span),
 			wording.RatePhrase(g.GrewKB, span), writer)
-		bullets = append(bullets, bullet)
 
 		// Everything a projection and a stale question are read from: what the files
 		// hachiko can see are gaining between two samples, and who is holding them.
@@ -450,6 +463,17 @@ func (s sweeper) disk(state *statedir.State, now time.Time, free int64) diskFind
 		if !statedir.Contains(out.writers, writer) {
 			out.writers = append(out.writers, writer)
 		}
+
+		// The log says what was seen and what the arithmetic made of it, so a file that
+		// filled the disk overnight is not something the log was silent about. Left unflagged
+		// as well: a writer whose rate climbs into the horizon has to be able to fire, and a
+		// flag is the one thing that would stop it.
+		if out.quiet {
+			s.say("growing but not filling the disk: %s; the free space lasts %s at that rate", line, hmStr(fillIn))
+			continue
+		}
+
+		bullets = append(bullets, bullet)
 
 		if !s.dry && state.AlertedFile(g.Path) {
 			out.stillGoing = append(out.stillGoing, g.Path)
@@ -501,6 +525,19 @@ func (s sweeper) disk(state *statedir.State, now time.Time, free int64) diskFind
 	}
 
 	return out
+}
+
+// What the session is told when the disk half has stopped firing. A file still growing
+// under the horizon is not nothing, so it is named: a message saying nothing is growing
+// would be read beside a log line saying something is.
+func (s sweeper) diskCleared(disk diskFindings, free int64) string {
+	if disk.quiet {
+		return fmt.Sprintf("Nothing is growing fast enough to fill the disk, and free space is back over every mark at %s: at the rate the %s still growing is gaining, the free space lasts longer than %s.",
+			wording.GBUnit(free), wording.CountOf(int64(len(disk.growing)), "file", "files"),
+			wording.DurationPhrase(s.cfg.FillHorizon))
+	}
+	return fmt.Sprintf("Nothing is growing fast any more, and free space is back over every mark at %s.",
+		wording.GBUnit(free))
 }
 
 type cpuFindings struct {

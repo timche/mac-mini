@@ -47,8 +47,9 @@ fi
 "$repo/docker.sh"
 
 # Last of the steps that decide how this Mac is reached, because it is the one
-# that turns password logins off. It skips itself when there is no authorized_keys
-# yet, rather than locking you out of a machine that is nowhere near you.
+# that turns password logins off. With no authorized_keys yet it asks for a key to
+# paste, and skips itself when none is given rather than locking you out of a
+# machine that is nowhere near you.
 "$repo/harden-ssh.sh"
 
 # After the steps that decide how this Mac is reached, because none of them
@@ -88,8 +89,8 @@ fi
 # Read rather than sudoed: the file is root-owned but world-readable, and the
 # directory above it is too.
 if [ ! -f /etc/ssh/sshd_config.d/10-hardening.conf ]; then
-  echo "  - $repo/harden-ssh.sh — ssh still takes a password. Add the key you"
-  echo "    connect with to ~/.ssh/authorized_keys and run it again."
+  echo "  - $repo/harden-ssh.sh — ssh still takes a password. Run it again in a"
+  echo "    terminal and paste the public key you connect with when it asks."
 fi
 
 # root-helper.sh skips itself where sudo would have prompted with nobody there to

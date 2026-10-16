@@ -79,6 +79,49 @@ has_usable_key() {
     ssh-keygen -l -f "$home/.ssh/authorized_keys" >/dev/null 2>&1
 }
 
+# A fresh Mac has no key, and the MacBook may keep none on disk for ssh-copy-id to
+# find (an agent such as 1Password's holds it), so the key is asked for here
+# where there is a terminal to paste into. Only one that ssh-keygen reads as a
+# public key goes in; anything else, an empty line included, skips as before.
+ask_for_key() {
+  local pasted staged_key
+
+  [ -t 0 ] && [ "$(id -un)" = "$user" ] || return 0
+
+  echo
+  echo "$user has no key sshd could let you in with. Paste the public key you"
+  echo "connect with (one line, 'ssh-ed25519 AAAA…'; 'ssh-add -L' on the machine"
+  echo "you connect from prints it), or press Enter to skip:"
+  read -r pasted || pasted=""
+
+  case "$pasted" in
+    "" ) return 0 ;;
+    *PRIVATE*)
+      echo "That is a private key; nothing was saved. Paste the public half." >&2
+      return 0
+      ;;
+  esac
+
+  staged_key="$(mktemp)"
+  printf '%s\n' "$pasted" >"$staged_key"
+  if ! ssh-keygen -l -f "$staged_key" >/dev/null 2>&1; then
+    rm -f "$staged_key"
+    echo "That is not a public key ssh-keygen can read; nothing was saved." >&2
+    return 0
+  fi
+  rm -f "$staged_key"
+
+  mkdir -p -m 0700 "$home/.ssh"
+  touch "$home/.ssh/authorized_keys"
+  chmod 0600 "$home/.ssh/authorized_keys"
+  printf '%s\n' "$pasted" >>"$home/.ssh/authorized_keys"
+  echo "Added it to $home/.ssh/authorized_keys."
+}
+
+if [ -z "$offender" ] && ! has_usable_key; then
+  ask_for_key
+fi
+
 if ! has_usable_key && [ "${FORCE_HARDEN:-false}" != true ]; then
   echo
   if [ -n "$offender" ]; then

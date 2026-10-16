@@ -225,10 +225,12 @@ mcp_server() {
     echo "MCP server $name is already registered"
     return
   fi
+  # From /dev/null because claude is a Bun binary, and Bun fails with "EINVAL,
+  # kqueue" on a stdin of /dev/tty, which is what bootstrap.sh hands each phase.
   if [ -n "$current" ]; then
-    "$HOME/.local/bin/claude" mcp remove -s user "$name" >/dev/null || true
+    "$HOME/.local/bin/claude" mcp remove -s user "$name" </dev/null >/dev/null || true
   fi
-  if "$HOME/.local/bin/claude" mcp add-json -s user "$name" "$want" >/dev/null; then
+  if "$HOME/.local/bin/claude" mcp add-json -s user "$name" "$want" </dev/null >/dev/null; then
     echo "registered MCP server $name"
   else
     echo "could not register MCP server $name" >&2

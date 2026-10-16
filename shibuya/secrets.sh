@@ -87,7 +87,10 @@ if [ -z "$node" ]; then
   exit 1
 fi
 
-PATH="$(dirname "$node"):$PATH"
+# ~/.local/bin for the op wrapper, which signs op in with the stored service-account
+# token: a provision's own PATH does not have it yet, and Homebrew's op on its own would
+# offer to add a personal account instead.
+PATH="$(dirname "$node"):$HOME/.local/bin:$PATH"
 export PATH
 
 exec op run --env-file "$dir/.env.op" -- "$dir/secrets.sh" --under-op

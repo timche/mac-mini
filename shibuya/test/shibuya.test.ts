@@ -252,6 +252,56 @@ it("does not post a second time on the next alarm of the same outage", async () 
   expect((await stored()).live.queue).toEqual([]);
 });
 
+// What a Durable Objects storage incident did: the alarm posted, its write failed, Cloudflare
+// retried the alarm within seconds, and every retry found the host still up and posted again.
+it("opens one post when the alarm's write fails and the alarm is retried", async () => {
+  const sent = discord({ status: 200, body: { channel_id: "4242" } });
+  await seed({ host: HOST, lastPing: Date.now() - 20 * 60_000, summary: SUMMARY });
+
+  await runInDurableObject(switchFor(), async (_instance, state) => {
+    vi.spyOn(state.storage, "put").mockRejectedValueOnce(new Error("Durable Object storage is unavailable"));
+  });
+  await expect(runDurableObjectAlarm(switchFor())).rejects.toThrow("storage is unavailable");
+  vi.restoreAllMocks();
+  expect(sent).toHaveLength(0);
+
+  // Cloudflare retries an alarm that threw; the test pool runs it once and clears it.
+  await seed({ ...(await stored()).live });
+  expect(await runDurableObjectAlarm(switchFor())).toBe(true);
+
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.fields.thread_name).toMatch(/^🔴 mac-mini offline · /);
+  const { live } = await stored();
+  expect(live.outageThread).toBe("4242");
+  expect(live.queue).toEqual([]);
+});
+
+// The alert is held back by Discord, the Mac comes back meanwhile, and the recovery has to
+// wait for the post the alert opens rather than go out ahead of it into none.
+it("sends a recovery after the alert it answers, into that alert's post", async () => {
+  const sent = discord({ status: 500 }, { status: 200, body: { channel_id: "4242" } }, { status: 200, body: {} });
+  await seed({ host: HOST, lastPing: Date.now() - 20 * 60_000, summary: SUMMARY });
+
+  await runDurableObjectAlarm(switchFor());
+  expect(sent).toHaveLength(1);
+
+  await ping(checkin);
+  expect(sent).toHaveLength(1);
+  expect((await stored()).live.queue).toHaveLength(2);
+
+  const held = (await stored()).live;
+  const queue = (held.queue as { at: number }[]).map((message) => ({ ...message, at: Date.now() - 1 }));
+  await seed({ ...held, queue });
+  await runDurableObjectAlarm(switchFor());
+
+  expect(sent).toHaveLength(3);
+  expect(sent[1]!.url).toBe(`${WEBHOOK}?wait=true`);
+  expect(sent[1]!.fields.content).toContain("has gone quiet");
+  expect(sent[2]!.url).toBe(`${WEBHOOK}?thread_id=4242`);
+  expect(sent[2]!.fields.content).toContain("is back");
+  expect((await stored()).live.queue).toEqual([]);
+});
+
 it("posts the recovery into the outage's own post", async () => {
   const sent = discord({ status: 200, body: { channel_id: "4242" } }, { status: 200, body: { id: "5" } });
   await seed({ host: HOST, lastPing: Date.now() - 20 * 60_000, summary: SUMMARY });

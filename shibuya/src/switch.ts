@@ -7,8 +7,7 @@ import { code, duration, machine, markers, plain, plural, render, size, title, w
 // One object per host, so the alarm that decides a Mac has gone quiet is the same object
 // that holds its last check-in, with no coordination between the two.
 //
-// Everything the object remembers is one record under one key: every entry point reads it
-// once and writes it once, and a Durable Object runs one of them at a time.
+// Everything the object remembers is one record under one key, read and written whole.
 
 const REMIND_DOWN_AFTER = 6 * 60 * 60 * 1000;
 const REMIND_FAILING_AFTER = 60 * 60 * 1000;
@@ -16,6 +15,12 @@ const REMIND_FAILING_AFTER = 60 * 60 * 1000;
 // A Discord that answered 500 while a Mac is offline is the one failure that may not be
 // swallowed: the alert is the whole point of the alarm. So it is retried on an alarm of
 // its own, backing off to half an hour, and given up on after a day of them.
+//
+// Every message is queued and written before it is sent, never sent and then written. A
+// handler that posts and then fails to write is retried — an alarm by Cloudflare itself,
+// within seconds — and the retry, finding nothing written, posts the same alert again, once
+// a retry for as long as storage stays down. A write the object could not make holds back
+// every fetch behind it, so a message nothing recorded never leaves.
 const RETRY_FIRST = 60_000;
 const RETRY_MAX = 30 * 60_000;
 const RETRY_ATTEMPTS = 12;
@@ -105,6 +110,10 @@ export class Switch extends DurableObject<Env> {
   // a host just forgotten and a host checking in for the first time are the same empty store.
   private forgets = 0;
 
+  // The input gate opens while a message is out to Discord, so a second entry point can reach
+  // the queue then and find the same message still due.
+  private flushing = false;
+
   // A check-in is liveness and nothing else: it rearms the deadline, and it is what says an
   // outage or a failing streak is over.
   async ping(checkin: Checkin): Promise<void> {
@@ -120,10 +129,10 @@ export class Switch extends DurableObject<Env> {
     live.version = checkin.version ?? live.version;
     live.lastPing = now;
 
-    await this.recover(live, silence, now);
-    await this.clean(live, now);
+    this.recover(live, silence, now);
+    this.clean(live, now);
 
-    await this.settle(live, forgets);
+    await this.commit(live, forgets);
   }
 
   // A sweep that ran and went wrong is alive, so this counts for the deadline exactly as a
@@ -142,7 +151,7 @@ export class Switch extends DurableObject<Env> {
     live.version = checkin.version ?? live.version;
     live.lastPing = now;
 
-    await this.recover(live, silence, now);
+    this.recover(live, silence, now);
 
     const reason = checkin.reason === undefined || checkin.reason === "" ? "hachiko did not say" : checkin.reason;
     live.failingReason = reason;
@@ -152,7 +161,7 @@ export class Switch extends DurableObject<Env> {
 
       const named = name(live);
       const shown = plain(named);
-      await this.post(live, {
+      this.post(live, {
         where: "failing",
         open: true,
         title: title(markers.warn, `${named}: hachiko's checks are failing`, now),
@@ -169,7 +178,7 @@ export class Switch extends DurableObject<Env> {
       });
     }
 
-    await this.settle(live, forgets);
+    await this.commit(live, forgets);
   }
 
   // An object outlives its reason to exist: a hostname typed wrong once has one of its own
@@ -208,8 +217,6 @@ export class Switch extends DurableObject<Env> {
     const live = await this.load();
     const now = Date.now();
 
-    await this.drain(live, now);
-
     // A ping that arrived after this alarm was set has already rearmed the deadline, so the
     // alarm that fired is about an interval that is no longer the newest one.
     if (live.downSince === 0 && live.lastPing !== 0 && now - live.lastPing >= graceMs(this.env)) {
@@ -217,7 +224,7 @@ export class Switch extends DurableObject<Env> {
 
       const named = name(live);
       const shown = plain(named);
-      await this.post(live, {
+      this.post(live, {
         where: "outage",
         open: true,
         title: title(markers.down, `${named} offline`, now),
@@ -237,7 +244,7 @@ export class Switch extends DurableObject<Env> {
 
       const named = name(live);
       const shown = plain(named);
-      await this.post(live, {
+      this.post(live, {
         where: "outage",
         open: false,
         title: title(markers.down, `${named} still offline`, now),
@@ -255,7 +262,7 @@ export class Switch extends DurableObject<Env> {
 
       const named = name(live);
       const shown = plain(named);
-      await this.post(live, {
+      this.post(live, {
         where: "failing",
         open: false,
         title: title(markers.warn, `${named}: hachiko's checks still failing`, now),
@@ -268,12 +275,12 @@ export class Switch extends DurableObject<Env> {
       });
     }
 
-    await this.settle(live, forgets);
+    await this.commit(live, forgets);
   }
 
   // The whole silence rather than the time since the alert, because what Tim wants from a
   // recovery is how long the Mac was gone, and the alert went out a grace into that.
-  private async recover(live: Live, silence: number, now: number): Promise<void> {
+  private recover(live: Live, silence: number, now: number): void {
     if (live.downSince === 0) {
       return;
     }
@@ -283,7 +290,7 @@ export class Switch extends DurableObject<Env> {
 
     const named = name(live);
     const shown = plain(named);
-    await this.post(live, {
+    this.post(live, {
       where: "outage",
       open: false,
       title: title(markers.clear, `${named} back online`, now),
@@ -296,7 +303,7 @@ export class Switch extends DurableObject<Env> {
     });
   }
 
-  private async clean(live: Live, now: number): Promise<void> {
+  private clean(live: Live, now: number): void {
     if (live.failingSince === 0) {
       return;
     }
@@ -308,7 +315,7 @@ export class Switch extends DurableObject<Env> {
 
     const named = name(live);
     const shown = plain(named);
-    await this.post(live, {
+    this.post(live, {
       where: "failing",
       open: false,
       title: title(markers.clear, `${named}: hachiko's checks are clean`, now),
@@ -321,14 +328,51 @@ export class Switch extends DurableObject<Env> {
     });
   }
 
-  private async post(live: Live, message: Omit<Queued, "attempt" | "at">): Promise<void> {
-    if (await this.deliver(live, message)) {
-      return;
-    }
-    live.queue.push({ ...message, attempt: 1, at: Date.now() + RETRY_FIRST });
+  private post(live: Live, message: Omit<Queued, "attempt" | "at">): void {
+    live.queue.push({ ...message, attempt: 0, at: Date.now() });
   }
 
-  private async deliver(live: Live, message: Omit<Queued, "attempt" | "at">): Promise<boolean> {
+  private async commit(live: Live, forgets: number): Promise<void> {
+    if (await this.settle(live, forgets)) {
+      await this.flush(forgets);
+    }
+  }
+
+  // One message at a time, each settled against the record as it stands once Discord has
+  // answered rather than as it stood before: another entry point may have written meanwhile.
+  private async flush(forgets: number): Promise<void> {
+    if (this.flushing) {
+      return;
+    }
+    this.flushing = true;
+
+    try {
+      for (;;) {
+        if (forgets !== this.forgets) {
+          return;
+        }
+
+        const before = await this.load();
+        const message = due(before.queue, Date.now());
+        if (message === undefined) {
+          return;
+        }
+
+        const landed = await this.deliver(before, message);
+
+        const live = await this.load();
+        this.delivered(live, message, landed, Date.now());
+        if (!(await this.settle(live, forgets))) {
+          return;
+        }
+      }
+    } finally {
+      this.flushing = false;
+    }
+  }
+
+  // The post the message landed in, "" for none, or undefined when it did not land.
+  private async deliver(live: Live, message: Queued): Promise<string | undefined> {
     const thread = message.where === "outage" ? live.outageThread : live.failingThread;
 
     try {
@@ -336,64 +380,62 @@ export class Switch extends DurableObject<Env> {
       // outage a new post under a thread id this object is still holding. The title rides
       // along either way: a post Tim deleted answers 404, and the message that found it gone
       // opens one of its own under a name of its own rather than its first line.
-      const landed = await postToForum(this.env.DISCORD_WEBHOOK_URL, {
+      return await postToForum(this.env.DISCORD_WEBHOOK_URL, {
         content: message.text,
         threadId: message.open ? "" : thread,
         threadName: message.title,
       });
+    } catch (err) {
+      console.log(`shibuya: the message about ${live.host} did not reach Discord: ${this.say(err)}`);
+      return undefined;
+    }
+  }
 
+  private delivered(live: Live, message: Queued, landed: string | undefined, now: number): void {
+    const index = live.queue.findIndex((queued) => same(queued, message));
+
+    if (landed !== undefined) {
       if (message.where === "outage") {
         live.outageThread = landed;
       } else {
         live.failingThread = landed;
       }
-      return true;
-    } catch (err) {
-      console.log(`shibuya: the message about ${live.host} did not reach Discord: ${this.say(err)}`);
-      return false;
-    }
-  }
-
-  private async drain(live: Live, now: number): Promise<void> {
-    const keep: Queued[] = [];
-
-    for (const message of live.queue) {
-      if (message.at > now) {
-        keep.push(message);
-        continue;
+      if (index !== -1) {
+        live.queue.splice(index, 1);
       }
-      if (await this.deliver(live, message)) {
-        continue;
-      }
-
-      message.attempt += 1;
-      if (message.attempt > RETRY_ATTEMPTS) {
-        console.log(`shibuya: giving up on a message about ${live.host} after ${RETRY_ATTEMPTS} attempts`);
-        continue;
-      }
-
-      message.at = now + Math.min(RETRY_FIRST * 2 ** (message.attempt - 1), RETRY_MAX);
-      keep.push(message);
+      return;
     }
 
-    live.queue = keep;
+    const queued = live.queue[index];
+    if (queued === undefined) {
+      return;
+    }
+
+    queued.attempt += 1;
+    if (queued.attempt > RETRY_ATTEMPTS) {
+      console.log(`shibuya: giving up on a message about ${live.host} after ${RETRY_ATTEMPTS} attempts`);
+      live.queue.splice(index, 1);
+      return;
+    }
+    queued.at = now + Math.min(RETRY_FIRST * 2 ** (queued.attempt - 1), RETRY_MAX);
   }
 
   // The one place this object writes, which is what makes it the one place to check that
   // what it is about to write still belongs to a host that exists.
-  private async settle(live: Live, forgets: number): Promise<void> {
+  private async settle(live: Live, forgets: number): Promise<boolean> {
     if (forgets !== this.forgets) {
-      return;
+      return false;
     }
 
     await this.ctx.storage.put("live", live);
     await this.arm(live);
+    return true;
   }
 
   // One alarm, so the deadline, the two reminders and whatever is waiting to be retried are
   // one time: the soonest of them, recomputed on every write.
   private async arm(live: Live): Promise<void> {
-    const times: number[] = live.queue.map((message) => message.at);
+    const times: number[] = heads(live.queue).map((message) => message.at);
 
     if (live.downSince === 0 && live.lastPing !== 0) {
       times.push(live.lastPing + graceMs(this.env));
@@ -414,7 +456,8 @@ export class Switch extends DurableObject<Env> {
 
   private async load(): Promise<Live> {
     const stored = await this.ctx.storage.get<Live>("live");
-    return { ...empty, ...stored };
+    // A fresh queue, or a push onto a host with none would land in `empty` itself.
+    return { ...empty, queue: [], ...stored };
   }
 
   private say(err: unknown): string {
@@ -451,6 +494,28 @@ export function summarize(checkin: Checkin): string {
   }
 
   return parts.join(", ");
+}
+
+// The first message waiting for each post, since a recovery sent ahead of the alert it
+// answers would land in no post or in the last outage's.
+function heads(queue: Queued[]): Queued[] {
+  const seen = new Set<Where>();
+  const first: Queued[] = [];
+  for (const message of queue) {
+    if (!seen.has(message.where)) {
+      seen.add(message.where);
+      first.push(message);
+    }
+  }
+  return first;
+}
+
+function due(queue: Queued[], now: number): Queued | undefined {
+  return heads(queue).find((message) => message.at <= now);
+}
+
+function same(a: Queued, b: Queued): boolean {
+  return a.where === b.where && a.open === b.open && a.title === b.title && a.text === b.text;
 }
 
 function iso(at: number): string | null {

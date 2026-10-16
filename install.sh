@@ -696,6 +696,54 @@ fi
 
 rm -f "$state/$portless_label.plist.loaded"
 
+# The launcher the herdr agent starts, and the process macOS holds responsible for
+# the privacy grants every session depends on: launchd makes a job's own process
+# responsible for itself, and a child inherits that unless it disclaims, so grants
+# given to the launcher cover the herdr it runs as its child.
+#
+# Built here and only when launchd/herdr-launcher.c has changed, rather than by a
+# build-in-place wrapper like hachiko's. A grant is pinned to the exact contents of
+# an ad-hoc signed binary, and the whole point of the launcher is that those
+# contents do not move: a rebuild because mise or Xcode shipped a new compiler
+# would drop the grants it exists to keep, and only Tim can give them back, on the
+# Mac's own screen.
+launcher_src="$repo/launchd/herdr-launcher.c"
+launcher="$HOME/.local/libexec/herdr-launcher"
+launcher_stamp="$state/herdr-launcher.sha256"
+launcher_hash="$(shasum -a 256 "$launcher_src" | cut -d' ' -f1)"
+
+if [ -x "$launcher" ] && [ "$(cat "$launcher_stamp" 2>/dev/null)" = "$launcher_hash" ]; then
+  echo "herdr-launcher is already built from the current source"
+elif ! command -v clang >/dev/null 2>&1; then
+  echo "clang is missing, so herdr-launcher cannot be built and the herdr agent" \
+       "cannot start; the Xcode command line tools are what bring it" >&2
+else
+  mkdir -p "$HOME/.local/libexec" "$state"
+  # Built under its final name in a directory of its own, then moved into place in
+  # one step. Two reasons, and they pull in opposite directions: the ad-hoc
+  # signature the linker writes takes its identifier from the output's basename, so
+  # a build as herdr-launcher.new is what tccd would then name in its log and in
+  # these bytes; and the file being replaced is one launchd may be running, where a
+  # rename swaps the directory entry and leaves the running process on the inode it
+  # started from, while writing over it fails outright.
+  launcher_build="$HOME/.local/libexec/.herdr-launcher.build"
+  rm -rf "$launcher_build"
+  mkdir -p "$launcher_build"
+
+  if clang -O2 -o "$launcher_build/herdr-launcher" "$launcher_src"; then
+    mv -f "$launcher_build/herdr-launcher" "$launcher"
+    rm -rf "$launcher_build"
+    printf '%s\n' "$launcher_hash" >"$launcher_stamp"
+    echo "built herdr-launcher — these are new bytes, so Tim has to grant Screen" \
+         "Recording, Full Disk Access and Device Control and Data Access to" \
+         "$launcher in System Settings > Privacy & Security once the agent below" \
+         "is running from it"
+  else
+    rm -rf "$launcher_build"
+    echo "herdr-launcher did not compile from $launcher_src" >&2
+  fi
+fi
+
 # The herdr server, from launchd in the GUI session so its panes are local
 # sessions rather than SSH ones. Never booted out or restarted from here: this
 # script usually runs in one of that server's panes, and restarting the server
@@ -731,6 +779,14 @@ elif launchctl print "gui/$uid/$herdr_label" >/dev/null 2>&1; then
 elif herdr status server 2>/dev/null | grep -q '^status: running'; then
   echo "a herdr server is running outside launchd, so its panes are SSH sessions;" \
        "when no session is needed, run: $herdr_switch" >&2
+elif [ ! -x "$launcher" ]; then
+  # Not loaded at all, so nothing is running to disturb — and a job bootstrapped
+  # onto a launcher that is not there is one launchd retries every ten seconds for
+  # the life of the Mac, while a remote client quietly starts an SSH server of its
+  # own instead. Left unloaded and said out loud, so the step above is what gets
+  # fixed.
+  echo "$launcher is not built, so $herdr_label was not loaded — it is the" \
+       "launcher, not herdr, that the agent starts" >&2
 elif launchctl bootstrap "gui/$uid" "$herdr_plist"; then
   mkdir -p "$state" && cp "$herdr_plist" "$herdr_loaded"
   echo "loaded $herdr_label"

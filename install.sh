@@ -720,11 +720,11 @@ elif launchctl print "gui/$uid/$herdr_label" >/dev/null 2>&1; then
   if [ ! -f "$herdr_loaded" ]; then
     echo "no record of which $herdr_label plist launchd loaded — restart herdr" \
          "when convenient, from a shell outside herdr (a plain ssh" \
-         "claude@mac-mini), with: $herdr_switch" >&2
+         "timche@mac-mini), with: $herdr_switch" >&2
   elif ! cmp -s "$herdr_plist" "$herdr_loaded"; then
     echo "$herdr_label changed since launchd loaded it, and reloading ends every" \
          "herdr session; when none is needed, from a shell outside herdr" \
-         "(a plain ssh claude@mac-mini), run: $herdr_switch" >&2
+         "(a plain ssh timche@mac-mini), run: $herdr_switch" >&2
   else
     echo "$herdr_label is already loaded"
   fi

@@ -26,7 +26,7 @@ check() {
   fi
 }
 
-# Nothing may be written for one account: the Mac's is claude and a runner's is
+# Nothing may be written for one account: the Mac's is timche and a runner's is
 # runner, and a path hardcoded for either is a script that silently does nothing
 # on the other. The dscl and launchctl reads that build a path from a variable are
 # what this has to leave alone, which is why the pattern needs a literal name.

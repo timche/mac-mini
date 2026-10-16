@@ -52,6 +52,16 @@ if [ "$force" = false ] && [ "$hash" = "$(cat "$stamp" 2>/dev/null)" ]; then
   exit 0
 fi
 
+# install.sh runs before op-token.sh on a fresh Mac, and op with no token and a terminal
+# offers to add a personal account instead of failing. claude.sh deploys again once the
+# token is stored.
+token_file="${OP_SERVICE_ACCOUNT_TOKEN_FILE:-$HOME/.config/op/service-account-token}"
+if [ -z "${OP_SERVICE_ACCOUNT_TOKEN:-}" ] && [ ! -f "$token_file" ]; then
+  echo "no 1Password service-account token yet, so shibuya was not deployed —" \
+       "claude.sh deploys it once one is stored"
+  exit 0
+fi
+
 # mise's node, which is every project's here, asked about this checkout rather than about
 # the working directory: mise decides what is active from the directory it is asked about,
 # and from anywhere else nothing this repo declares is.

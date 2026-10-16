@@ -28,6 +28,7 @@
 # Blockers
 
 - When a verification or a step cannot be done from this machine (a site behind a login or bot protection, a device, a display, a credential), do not report it as unverified and move on. Say what is missing, propose the concrete ways to get it with a recommendation, and ask Tim for the one thing only he can supply, such as a login, a port forward or a cookie export. Once it works, write the procedure into the project's docs so the next session starts unblocked.
+- When the work is done and nothing is left open (no uncommitted change, open pull request, running process or question for Tim), the last reply says the session can be closed; otherwise it names what is open. A reply naming a pull request gives its URL.
 
 # Where things live
 

@@ -152,6 +152,13 @@ if [ "$restarts" = true ]; then
   fi
 fi
 
+# A clean macOS ships no /usr/local/bin, and install(1) creates no parent.
+if [ ! -d "$root_bin" ] && ! sudo install -d -m 0755 -o root -g wheel "$root_bin"; then
+  echo "warning: could not make a root-owned $root_bin, so the daemon was left" >&2
+  echo "as it is. $repo/tailscale.sh will try again." >&2
+  exit 0
+fi
+
 for name in $stale; do
   if ! sudo install -m 0755 -o root -g wheel \
        "$brew_prefix/bin/$name" "$root_bin/$name"; then

@@ -105,9 +105,16 @@ fi
 
 # Under the documented curl install stdin is the pipe feeding this script, so
 # every prompt in either half would be one nobody can answer. The terminal
-# itself is the one to hand them, when there is one.
+# itself is the one to hand them, when there is one, by its own device name rather
+# than as /dev/tty: claude is a Bun binary, and Bun fails with "EINVAL, kqueue" on a
+# stdin of /dev/tty, which kqueue cannot watch, while /dev/ttys001 is fine.
 run() {
-  if (exec </dev/tty) 2>/dev/null; then
+  local terminal
+  terminal="/dev/$(ps -o tty= -p $$ 2>/dev/null | tr -d ' ')"
+
+  if [ -c "$terminal" ] && (exec <"$terminal") 2>/dev/null; then
+    "$1" <"$terminal"
+  elif (exec </dev/tty) 2>/dev/null; then
     "$1" </dev/tty
   else
     "$1"

@@ -6,12 +6,197 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 // throw the way a rollout does.
 import { Switch } from "../src/switch";
 
-// The two the test config binds. The webhook is the one string that may never appear in
+// The two the test config binds. The bot token is the one string that may never appear in
 // anything this Worker writes, so it is here to be asserted against as well as used.
 const TOKEN = "a-token-only-the-tests-know";
-const WEBHOOK = "https://discord.invalid/api/webhooks/1/secret";
+const BOT = "a-bot-token-only-the-tests-know";
 
-// Every test spies on console.log, to assert the webhook reaches no log, so the one test that
+// A Discord of the tests' own, holding the forum's posts the way the real one does, so what
+// shibuya finds open, adopts, opens and closes is asserted against state rather than against
+// a script of replies.
+const FORUM = env.DISCORD_FORUM;
+const GUILD = "50";
+const SELF_ID = "900";
+const SOMEONE_ELSE = "901";
+const OPEN = "1";
+const RESOLVED = "2";
+
+interface Call {
+  method: string;
+  path: string;
+  body: unknown;
+}
+
+interface Post {
+  id: string;
+  name: string;
+  owner: string;
+  tags: string[];
+  archived: boolean;
+}
+
+interface Request_ {
+  post: string;
+  opened: boolean;
+  fields: {
+    content?: string;
+    thread_name?: string;
+    allowed_mentions?: unknown;
+    applied_tags?: string[];
+  };
+}
+
+interface Reply {
+  status: number;
+  // The id a post this reply opens gets.
+  id?: string;
+  throws?: string;
+}
+
+let api: Call[] = [];
+let posts = new Map<string, Post>();
+// Checked before the fake answers anything, for a test that needs Discord to misbehave.
+let answer: (call: Call) => Response | undefined | Promise<Response | undefined> = () => undefined;
+
+function existing(id: string, name = "a post", tags = [OPEN], owner = SELF_ID, archived = false): void {
+  posts.set(id, { id, name, owner, tags, archived });
+}
+
+function gone(): Response {
+  return Response.json({ code: 10003, message: "Unknown Channel" }, { status: 404 });
+}
+
+function serve(call: Call, sent: Request_[], replies: Reply[], next: () => string): Response {
+  const path = call.path;
+  const body = (call.body ?? {}) as Record<string, unknown>;
+
+  if (call.method === "GET" && path === "/users/@me") {
+    return Response.json({ id: SELF_ID, bot: true });
+  }
+  if (call.method === "GET" && path === `/channels/${FORUM}`) {
+    return Response.json({
+      id: FORUM,
+      type: 15,
+      guild_id: GUILD,
+      available_tags: [
+        { id: OPEN, name: "Open" },
+        { id: RESOLVED, name: "Resolved" },
+      ],
+    });
+  }
+  if (call.method === "GET" && path === `/guilds/${GUILD}/threads/active`) {
+    return Response.json({
+      threads: [...posts.values()]
+        .filter((post) => !post.archived)
+        .map((post) => ({
+          id: post.id,
+          name: post.name,
+          parent_id: FORUM,
+          owner_id: post.owner,
+          applied_tags: post.tags,
+        })),
+    });
+  }
+
+  if (call.method === "POST" && path === `/channels/${FORUM}/threads`) {
+    const message = (body.message ?? {}) as Record<string, unknown>;
+    const reply = replies.shift() ?? { status: 200 };
+    const request: Request_ = {
+      post: "",
+      opened: true,
+      fields: {
+        content: message.content as string,
+        allowed_mentions: message.allowed_mentions,
+        thread_name: body.name as string,
+        applied_tags: body.applied_tags as string[] | undefined,
+      },
+    };
+    sent.push(request);
+    if (reply.throws !== undefined) {
+      throw new TypeError(reply.throws);
+    }
+    if (reply.status !== 200) {
+      return new Response("{}", { status: reply.status });
+    }
+    request.post = reply.id ?? next();
+    existing(request.post, body.name as string, (body.applied_tags as string[] | undefined) ?? []);
+    return Response.json({ id: request.post, parent_id: FORUM });
+  }
+
+  const into = /^\/channels\/(\d+)\/messages$/.exec(path);
+  if (call.method === "POST" && into !== null) {
+    const reply = replies.shift() ?? { status: 200 };
+    sent.push({
+      post: into[1]!,
+      opened: false,
+      fields: { content: body.content as string, allowed_mentions: body.allowed_mentions },
+    });
+    if (reply.throws !== undefined) {
+      throw new TypeError(reply.throws);
+    }
+    const post = posts.get(into[1]!);
+    if (post === undefined || reply.status === 404) {
+      return gone();
+    }
+    if (reply.status !== 200) {
+      return new Response("{}", { status: reply.status });
+    }
+    post.archived = false;
+    return Response.json({ id: "5", channel_id: post.id });
+  }
+
+  const channel = /^\/channels\/(\d+)$/.exec(path);
+  if (channel !== null) {
+    const post = posts.get(channel[1]!);
+    if (post === undefined) {
+      return gone();
+    }
+    if (call.method === "PATCH") {
+      post.tags = (body.applied_tags as string[] | undefined) ?? post.tags;
+      post.archived = body.archived === true;
+    }
+    return Response.json({ id: post.id, parent_id: FORUM, applied_tags: post.tags });
+  }
+
+  return new Response("{}", { status: 404 });
+}
+
+// The pool runs the tests in the same isolate as the Worker, so a stubbed global fetch is
+// what the Worker's own fetch resolves to. What comes back is the list of messages sent, in
+// order, each with the post it went into; every call is in `api` as well. Each message uses
+// up the next reply, and one with none left succeeds.
+function discord(...replies: Reply[]): Request_[] {
+  const sent: Request_[] = [];
+  const queue = [...replies];
+  let id = 4242;
+  posts = new Map();
+
+  vi.stubGlobal("fetch", async (input: unknown, init?: RequestInit): Promise<Response> => {
+    const url = new URL(String(input));
+    const call: Call = {
+      method: init?.method ?? "GET",
+      path: url.pathname.replace(/^\/api\/v10/, ""),
+      body: init?.body === undefined ? undefined : JSON.parse(String(init.body)),
+    };
+    expect(url.origin).toBe("https://discord.com");
+    expect(new Headers(init?.headers).get("authorization")).toBe(`Bot ${BOT}`);
+    api.push(call);
+
+    const override = await answer(call);
+    if (override !== undefined) {
+      return override;
+    }
+    return serve(call, sent, queue, () => String(id++));
+  });
+
+  return sent;
+}
+
+function patches(): Call[] {
+  return api.filter((call) => call.method === "PATCH");
+}
+
+// Every test spies on console.log, to assert the token reaches no log, so the one test that
 // prints for a reader to read takes the real one before any of that happens.
 const print = console.log.bind(console);
 
@@ -25,47 +210,6 @@ const BUILD = "1a2b3c4d5e6f";
 const READING = "1 GB free, no open incidents, nothing busy";
 
 const SUMMARY = "787 GB free, no open incidents, nothing busy";
-
-interface Reply {
-  status: number;
-  body?: unknown;
-  throws?: string;
-}
-
-interface Request_ {
-  url: string;
-  fields: {
-    content?: string;
-    thread_name?: string;
-    username?: string;
-    allowed_mentions?: unknown;
-  };
-}
-
-// The pool runs the tests in the same isolate as the Worker, so a stubbed global fetch is
-// what the Worker's own fetch resolves to. What comes back is the list of requests, which is
-// the whole of what the Discord rules are asserted on.
-function discord(...replies: Reply[]): Request_[] {
-  const sent: Request_[] = [];
-  const queue = [...replies];
-
-  vi.stubGlobal("fetch", async (input: unknown, init?: RequestInit): Promise<Response> => {
-    sent.push({ url: String(input), fields: JSON.parse(String(init?.body ?? "{}")) as Request_["fields"] });
-
-    const reply = queue.shift() ?? { status: 200, body: { channel_id: "999" } };
-    if (reply.throws !== undefined) {
-      throw new TypeError(reply.throws);
-    }
-    // Discord answers a plain webhook post with 204 and no body at all, which a Response
-    // refuses to carry.
-    return new Response(reply.status === 204 ? null : JSON.stringify(reply.body ?? {}), {
-      status: reply.status,
-      headers: { "content-type": "application/json" },
-    });
-  });
-
-  return sent;
-}
 
 function switchFor(host = HOST) {
   return env.SWITCH.get(env.SWITCH.idFromName(host));
@@ -114,13 +258,18 @@ beforeEach(async () => {
   // A Durable Object outlives the test that made it, so one left down or failing would be
   // that test deciding this one's assertions.
   for (const host of [HOST, "other-mac", GOLDEN_HOST]) {
-    await runInDurableObject(switchFor(host), async (_instance, state) => {
+    await runInDurableObject(switchFor(host), async (instance, state) => {
       await state.storage.deleteAll();
       await state.storage.deleteAlarm();
+      // And what it remembers of Discord, which is the forum one test described to it.
+      (instance as unknown as { client: unknown }).client = undefined;
     });
   }
 
   logged = [];
+  api = [];
+  posts = new Map();
+  answer = () => undefined;
   vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
     logged.push(args.map(String).join(" "));
   });
@@ -187,17 +336,18 @@ it("arms the deadline a check-in's grace ahead of it, and remembers the reading"
   expect(live.version).toBe("abc1234");
 });
 
-it("opens one forum post when the deadline passes with no check-in", async () => {
-  const sent = discord({ status: 200, body: { channel_id: "4242" } });
+it("opens one forum post, tagged Open, when the deadline passes with no check-in", async () => {
+  const sent = discord();
   const lastPing = Date.now() - 20 * 60_000;
   await seed({ host: HOST, lastPing, summary: SUMMARY, version: "abc1234" });
 
   expect(await runDurableObjectAlarm(switchFor())).toBe(true);
 
   expect(sent).toHaveLength(1);
-  expect(sent[0]!.url).toBe(`${WEBHOOK}?wait=true`);
+  expect(sent[0]!.opened).toBe(true);
   expect(sent[0]!.fields.thread_name).toMatch(/^🔴 mac-mini offline · /);
   expect(sent[0]!.fields.thread_name!.length).toBeLessThanOrEqual(100);
+  expect(sent[0]!.fields.applied_tags).toEqual([OPEN]);
   expect(sent[0]!.fields.content).toContain(`**Last reading:** ${SUMMARY}`);
   expect(sent[0]!.fields.content).toMatch(/^🔴 mac-mini has gone quiet — no check-in for 20 minutes$/m);
   expect(sent[0]!.fields.content).toContain("-# mac-mini · hachiko build abc1234");
@@ -208,7 +358,7 @@ it("opens one forum post when the deadline passes with no check-in", async () =>
 });
 
 it("leaves the build line out of an outage alert when no check-in has named one", async () => {
-  const sent = discord({ status: 200, body: { channel_id: "4242" } });
+  const sent = discord();
   await seed({ host: HOST, lastPing: Date.now() - 20 * 60_000, summary: SUMMARY });
 
   expect(await runDurableObjectAlarm(switchFor())).toBe(true);
@@ -218,28 +368,20 @@ it("leaves the build line out of an outage alert when no check-in has named one"
   expect(sent[0]!.fields.content).not.toContain("hachiko");
 });
 
-// The webhook is hachiko's own, so every one of these arrives under hachiko's name unless
-// the body says otherwise — and an outage post is the one message that has to be clearly
-// not the watch talking. The three shapes a post can take are all exercised, because the
-// one that forgot the name is the one that would be reached.
-it("posts under its own name rather than the webhook's", async () => {
-  const sent = discord({ status: 200, body: { channel_id: "7" } }, { status: 400 }, { status: 204 });
+it("asks Discord nothing on a check-in that changes nothing", async () => {
+  discord();
 
-  await ping({ ...checkin, reason: "the walk ran out of its seconds" }, TOKEN, "/fail");
   await ping(checkin);
+  await ping(checkin);
+  await ping({ ...checkin, reason: "no process sample" }, TOKEN, "/fail");
+  api = [];
+  await ping({ ...checkin, reason: "no process sample" }, TOKEN, "/fail");
 
-  expect(sent).toHaveLength(3);
-  expect(sent[0]!.url).toBe(`${WEBHOOK}?wait=true`);
-  expect(sent[1]!.url).toBe(`${WEBHOOK}?thread_id=7`);
-  expect(sent[2]!.url).toBe(WEBHOOK);
-
-  for (const request of sent) {
-    expect(request.fields.username).toBe("shibuya");
-  }
+  expect(api).toEqual([]);
 });
 
 it("does not post a second time on the next alarm of the same outage", async () => {
-  const sent = discord({ status: 200, body: { channel_id: "4242" } });
+  const sent = discord();
   await seed({ host: HOST, lastPing: Date.now() - 20 * 60_000, summary: SUMMARY });
 
   await runDurableObjectAlarm(switchFor());
@@ -255,7 +397,7 @@ it("does not post a second time on the next alarm of the same outage", async () 
 // What a Durable Objects storage incident did: the alarm posted, its write failed, Cloudflare
 // retried the alarm within seconds, and every retry found the host still up and posted again.
 it("opens one post when the alarm's write fails and the alarm is retried", async () => {
-  const sent = discord({ status: 200, body: { channel_id: "4242" } });
+  const sent = discord();
   await seed({ host: HOST, lastPing: Date.now() - 20 * 60_000, summary: SUMMARY });
 
   await runInDurableObject(switchFor(), async (_instance, state) => {
@@ -276,10 +418,58 @@ it("opens one post when the alarm's write fails and the alarm is retried", async
   expect(live.queue).toEqual([]);
 });
 
+// The other half of the same incident: the post went out and the record of it did not, so
+// the object holds no thread and no outage. The forum still has the post, open, and that is
+// what decides there is one already.
+it("posts into the open post it finds in the forum rather than opening a second", async () => {
+  const sent = discord();
+  existing("3000", "🔴 mac-mini offline · Thu 18:06");
+  await seed({ host: HOST, lastPing: Date.now() - 20 * 60_000, summary: SUMMARY });
+
+  await runDurableObjectAlarm(switchFor());
+
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.opened).toBe(false);
+  expect(sent[0]!.post).toBe("3000");
+  expect((await stored()).live.outageThread).toBe("3000");
+});
+
+it("adopts only its own open post for this Mac and this kind", async () => {
+  const sent = discord();
+  existing("3001", "🔴 mac-mini offline · Thu 18:06", [OPEN], SOMEONE_ELSE);
+  existing("3002", "🔴 mac-mini offline · Thu 18:06", [RESOLVED]);
+  existing("3003", "🔴 mac-mini offline · Thu 18:06", [OPEN], SELF_ID, true);
+  existing("3004", "🔴 other-mac offline · Thu 18:06");
+  existing("3005", "⚠️ mac-mini: hachiko's checks are failing · Thu 18:06");
+  existing("3006", "🔴 mac-mini offline again · Thu 18:06");
+  await seed({ host: HOST, lastPing: Date.now() - 20 * 60_000, summary: SUMMARY });
+
+  await runDurableObjectAlarm(switchFor());
+
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.opened).toBe(true);
+  expect(sent[0]!.post).toBe("4242");
+});
+
+it("still opens the alert when the forum's open posts cannot be read", async () => {
+  const sent = discord();
+  existing("3000", "🔴 mac-mini offline · Thu 18:06");
+  answer = (call) =>
+    call.path.endsWith("/threads/active") ? new Response("{}", { status: 500 }) : undefined;
+  await seed({ host: HOST, lastPing: Date.now() - 20 * 60_000, summary: SUMMARY });
+
+  await runDurableObjectAlarm(switchFor());
+
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.opened).toBe(true);
+  expect(logged.join("\n")).toContain("could not be read");
+  expect((await stored()).live.queue).toEqual([]);
+});
+
 // The alert is held back by Discord, the Mac comes back meanwhile, and the recovery has to
 // wait for the post the alert opens rather than go out ahead of it into none.
 it("sends a recovery after the alert it answers, into that alert's post", async () => {
-  const sent = discord({ status: 500 }, { status: 200, body: { channel_id: "4242" } }, { status: 200, body: {} });
+  const sent = discord({ status: 500 });
   await seed({ host: HOST, lastPing: Date.now() - 20 * 60_000, summary: SUMMARY });
 
   await runDurableObjectAlarm(switchFor());
@@ -295,39 +485,183 @@ it("sends a recovery after the alert it answers, into that alert's post", async 
   await runDurableObjectAlarm(switchFor());
 
   expect(sent).toHaveLength(3);
-  expect(sent[1]!.url).toBe(`${WEBHOOK}?wait=true`);
+  expect(sent[1]!.opened).toBe(true);
   expect(sent[1]!.fields.content).toContain("has gone quiet");
-  expect(sent[2]!.url).toBe(`${WEBHOOK}?thread_id=4242`);
+  expect(sent[2]!.post).toBe(sent[1]!.post);
   expect(sent[2]!.fields.content).toContain("is back");
   expect((await stored()).live.queue).toEqual([]);
 });
 
-it("posts the recovery into the outage's own post", async () => {
-  const sent = discord({ status: 200, body: { channel_id: "4242" } }, { status: 200, body: { id: "5" } });
+// The forum reads as a list of what is still running, the same as hachiko's own posts: the
+// message that ends an incident closes its post Resolved, after the message and never before.
+it("posts the recovery into the outage's own post and closes it Resolved", async () => {
+  const sent = discord();
+  let messagesBeforeClose = -1;
+  answer = (call) => {
+    if (call.method === "PATCH") {
+      messagesBeforeClose = sent.length;
+    }
+    return undefined;
+  };
   await seed({ host: HOST, lastPing: Date.now() - 20 * 60_000, summary: SUMMARY });
 
   await runDurableObjectAlarm(switchFor());
+  expect(patches()).toEqual([]);
+  posts.get("4242")!.tags.push("7");
+
   expect((await ping(checkin)).status).toBe(200);
 
   expect(sent).toHaveLength(2);
-  expect(sent[1]!.url).toBe(`${WEBHOOK}?thread_id=4242`);
-  // A message going back into a post names no post: the title it carries is only for the
-  // post it would have to open if this one were gone.
-  expect(sent[1]!.fields.thread_name).toBeUndefined();
+  expect(sent[1]!.opened).toBe(false);
+  expect(sent[1]!.post).toBe("4242");
   expect(sent[1]!.fields.content).toContain("🟢 mac-mini is back — it checked in after 20 minutes of silence");
   expect(sent[1]!.fields.content).toContain(`**Reading now:** ${SUMMARY}`);
 
+  expect(patches()).toHaveLength(1);
+  expect(patches()[0]!.path).toBe("/channels/4242");
+  // Open off, Resolved on, and whatever else Tim tagged it with left alone.
+  expect(patches()[0]!.body).toEqual({ applied_tags: ["7", RESOLVED], archived: true });
+  expect(messagesBeforeClose).toBe(2);
+  expect((await stored()).live.downSince).toBe(0);
+});
+
+// Whatever got out twice is closed with the incident, so nothing is left Open behind it.
+it("closes every open post of the outage when the Mac is back", async () => {
+  const sent = discord();
+  existing("3000", "🔴 mac-mini offline · Thu 18:06");
+  existing("3001", "🔴 mac-mini offline · Thu 18:07");
+  existing("3002", "⚠️ mac-mini: hachiko's checks are failing · Thu 18:07");
+  await seed({
+    host: HOST,
+    lastPing: Date.now() - 20 * 60_000,
+    summary: SUMMARY,
+    downSince: Date.now() - 5 * 60_000,
+    outageThread: "3001",
+  });
+
+  await ping(checkin);
+
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.post).toBe("3001");
+  expect(patches().map((call) => call.path).sort()).toEqual(["/channels/3000", "/channels/3001"]);
+  expect(posts.get("3002")!.archived).toBe(false);
+});
+
+// After the record of a post was lost: the recovery goes into the post the forum has open.
+it("finds the outage's post in the forum when it has none of its own", async () => {
+  const sent = discord();
+  existing("3000", "🔴 mac-mini offline · Thu 18:06");
+  await seed({ host: HOST, lastPing: Date.now() - 20 * 60_000, summary: SUMMARY, downSince: Date.now() - 60_000 });
+
+  await ping(checkin);
+
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.post).toBe("3000");
+  expect(posts.get("3000")!.archived).toBe(true);
+  expect(posts.get("3000")!.tags).toEqual([RESOLVED]);
+});
+
+it("opens a failing post tagged Open and closes it Resolved on a clean run", async () => {
+  const sent = discord();
+
+  await ping({ ...checkin, reason: "the walk ran out of its seconds" }, TOKEN, "/fail");
+  expect(sent[0]!.fields.applied_tags).toEqual([OPEN]);
+  expect(sent[0]!.fields.thread_name).toMatch(/^⚠️ mac-mini: hachiko's checks are failing · /);
+
+  await ping(checkin);
+  expect(patches().map((call) => call.path)).toEqual(["/channels/4242"]);
+  expect(posts.get("4242")!.tags).toEqual([RESOLVED]);
+});
+
+it("posts a reminder into the post already open, untagged", async () => {
+  const sent = discord();
+  existing("4242", "🔴 mac-mini offline · Thu 18:06");
+  await seed({
+    host: HOST,
+    lastPing: Date.now() - 7 * 60 * 60_000,
+    summary: SUMMARY,
+    downSince: Date.now() - 6 * 60 * 60_000 - 60_000,
+    outageThread: "4242",
+  });
+
+  await runDurableObjectAlarm(switchFor());
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.post).toBe("4242");
+  expect(patches()).toEqual([]);
+});
+
+// Without a token nothing reaches Discord at all, so the message waits in the queue and is
+// retried rather than being dropped.
+it("keeps a message to retry when there is no bot token", async () => {
+  const sent = discord();
+  await runInDurableObject(switchFor(), (instance) => {
+    (instance as unknown as { env: Record<string, unknown> }).env.DISCORD_BOT_TOKEN = "";
+  });
+
+  try {
+    await seed({ host: HOST, lastPing: Date.now() - 20 * 60_000, summary: SUMMARY });
+    await runDurableObjectAlarm(switchFor());
+  } finally {
+    await runInDurableObject(switchFor(), (instance) => {
+      (instance as unknown as { env: Record<string, unknown> }).env.DISCORD_BOT_TOKEN = BOT;
+    });
+  }
+
+  expect(sent).toHaveLength(0);
+  expect(api).toEqual([]);
+  expect(logged.join("\n")).toContain("no DISCORD_BOT_TOKEN");
+  expect((await stored()).live.queue).toHaveLength(1);
+});
+
+// The message is in the post already, so a label that would not go on is said and dropped:
+// sending the recovery again would be the duplicate this is meant to prevent.
+it("logs a post it could not close and does not send the message again", async () => {
+  const sent = discord();
+  answer = (call) => {
+    if (call.method === "PATCH") {
+      throw new TypeError(`fetch failed with Bot ${BOT}`);
+    }
+    return undefined;
+  };
+  await seed({ host: HOST, lastPing: Date.now() - 20 * 60_000, summary: SUMMARY });
+
+  await runDurableObjectAlarm(switchFor());
+  await ping(checkin);
+
+  expect(sent).toHaveLength(2);
   const { live } = await stored();
-  expect(live.downSince).toBe(0);
+  expect(live.queue).toEqual([]);
+  expect(live.outageThread).toBe("4242");
+  expect(await runDurableObjectAlarm(switchFor())).toBe(true);
+  expect(sent).toHaveLength(2);
+
+  const log = logged.join("\n");
+  expect(log).toContain("could not be closed");
+  expect(log).not.toContain(BOT);
+  expect(log).toContain("the bot token");
+});
+
+it("opens the post untagged when the forum cannot be read", async () => {
+  const sent = discord();
+  answer = (call) =>
+    call.method === "GET" && call.path === `/channels/${FORUM}` ? new Response("{}", { status: 403 }) : undefined;
+  await seed({ host: HOST, lastPing: Date.now() - 20 * 60_000, summary: SUMMARY });
+
+  await runDurableObjectAlarm(switchFor());
+
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.fields.applied_tags).toBeUndefined();
+  expect(logged.join("\n")).toContain("untagged");
+  expect((await stored()).live.outageThread).toBe("4242");
 });
 
 it("opens one post for a failing streak, posts nothing for the next fail, and clears it on a clean run", async () => {
-  const sent = discord({ status: 200, body: { channel_id: "7" } });
+  const sent = discord();
 
   const first = await ping({ ...checkin, reason: "the walk ran out of its 1m0s" }, TOKEN, "/fail");
   expect(first.status).toBe(200);
   expect(sent).toHaveLength(1);
-  expect(sent[0]!.url).toBe(`${WEBHOOK}?wait=true`);
+  expect(sent[0]!.opened).toBe(true);
   expect(sent[0]!.fields.thread_name).toMatch(/^⚠️ mac-mini: hachiko's checks are failing · /);
   expect(sent[0]!.fields.content).toContain("**Why:** the walk ran out of its 1m0s");
 
@@ -336,7 +670,7 @@ it("opens one post for a failing streak, posts nothing for the next fail, and cl
 
   await ping(checkin);
   expect(sent).toHaveLength(2);
-  expect(sent[1]!.url).toBe(`${WEBHOOK}?thread_id=7`);
+  expect(sent[1]!.post).toBe("4242");
   expect(sent[1]!.fields.content).toContain("hachiko's checks are finishing again after");
 
   const { live } = await stored();
@@ -365,29 +699,20 @@ it("strips the control characters out of a reason and caps it", async () => {
   expect(reason.length).toBeLessThanOrEqual(300);
 });
 
+// A post Tim deleted is gone from the forum too, so the message opens one of its own, under
+// the incident's own name, and closes it if the message is the one that ends it.
 it("opens a new post when the one it recorded is gone", async () => {
-  const sent = discord({ status: 404 }, { status: 200, body: { channel_id: "8080" } });
+  const sent = discord();
   await seed({ host: HOST, lastPing: Date.now() - 20 * 60_000, summary: SUMMARY, failingThread: "7", failingSince: 1 });
 
   await ping(checkin);
 
   expect(sent).toHaveLength(2);
-  expect(sent[0]!.url).toBe(`${WEBHOOK}?thread_id=7`);
-  expect(sent[1]!.url).toBe(`${WEBHOOK}?wait=true`);
-  expect(sent[1]!.fields.thread_name).toMatch(/^🟢 mac-mini: hachiko's checks are clean · /);
-  expect((await stored()).live.failingThread).toBe("8080");
-});
-
-it("sends a plain message when the webhook will not take a post id", async () => {
-  const sent = discord({ status: 400 }, { status: 204 });
-  await seed({ host: HOST, lastPing: Date.now(), summary: SUMMARY, failingThread: "7", failingSince: 1 });
-
-  await ping(checkin);
-
-  expect(sent).toHaveLength(2);
-  expect(sent[1]!.url).toBe(WEBHOOK);
-  expect(sent[1]!.fields.thread_name).toBeUndefined();
-  expect((await stored()).live.failingThread).toBe("");
+  expect(sent[0]!.post).toBe("7");
+  expect(sent[1]!.opened).toBe(true);
+  expect(sent[1]!.fields.thread_name).toMatch(/^⚠️ mac-mini: hachiko's checks are failing · /);
+  expect((await stored()).live.failingThread).toBe("4242");
+  expect(posts.get("4242")!.archived).toBe(true);
 });
 
 it("retries an outage alert Discord refused, soon and then less often", async () => {
@@ -416,19 +741,18 @@ it("retries an outage alert Discord refused, soon and then less often", async ()
 
 // A reason is written by a sweep, which names paths and quotes log lines chosen by whatever
 // filled the disk — so a worker writing "@everyone" into the log it is flooding would page
-// the whole server from inside an outage alert. The three shapes a post can take are all
-// exercised, because the one that forgot the flag is the one that would be reached. The text
-// is not scrubbed and should not be: what Tim reads is what the sweep found.
+// the whole server from inside an outage alert. Both shapes a message can take are exercised,
+// because the one that forgot the flag is the one that would be reached. The text is not
+// scrubbed and should not be: what Tim reads is what the sweep found.
 it("lets nothing it posts mention anybody", async () => {
-  const sent = discord({ status: 200, body: { channel_id: "7" } }, { status: 400 }, { status: 204 });
+  const sent = discord();
 
   await ping({ ...checkin, reason: "@everyone the walk ran out of its seconds" }, TOKEN, "/fail");
   await ping(checkin);
 
-  expect(sent).toHaveLength(3);
-  expect(sent[0]!.url).toBe(`${WEBHOOK}?wait=true`);
-  expect(sent[1]!.url).toBe(`${WEBHOOK}?thread_id=7`);
-  expect(sent[2]!.url).toBe(WEBHOOK);
+  expect(sent).toHaveLength(2);
+  expect(sent[0]!.opened).toBe(true);
+  expect(sent[1]!.opened).toBe(false);
 
   for (const request of sent) {
     expect(request.fields.allowed_mentions).toEqual({ parse: [] });
@@ -436,16 +760,15 @@ it("lets nothing it posts mention anybody", async () => {
   expect(sent[0]!.fields.content).toContain("@everyone the walk ran out of its seconds");
 });
 
-it("never writes the webhook anywhere, whatever Discord says about it", async () => {
-  discord({ status: 500, throws: `Network connection lost: POST ${WEBHOOK}?wait=true` });
+it("never writes the bot token anywhere, whatever Discord says about it", async () => {
+  discord({ status: 500, throws: `Network connection lost: Bot ${BOT}` });
   await seed({ host: HOST, lastPing: Date.now() - 20 * 60_000, summary: SUMMARY });
 
   await runDurableObjectAlarm(switchFor());
 
   expect(logged.length).toBeGreaterThan(0);
-  expect(logged.join("\n")).not.toContain(WEBHOOK);
-  expect(logged.join("\n")).not.toContain("/api/webhooks/");
-  expect(logged.join("\n")).toContain("the webhook");
+  expect(logged.join("\n")).not.toContain(BOT);
+  expect(logged.join("\n")).toContain("the bot token");
 });
 
 it("reports where a host stands, to a caller with the token", async () => {
@@ -549,21 +872,21 @@ it("lets a forget stand that landed while an alert was in flight", async () => {
     release = resolve;
   });
 
-  const sent: Request_[] = [];
-  vi.stubGlobal("fetch", async (input: unknown, init?: RequestInit): Promise<Response> => {
-    sent.push({ url: String(input), fields: JSON.parse(String(init?.body ?? "{}")) as Request_["fields"] });
-    await held;
-    return new Response(JSON.stringify({ channel_id: "4242" }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
-  });
+  discord();
+  let posting = false;
+  answer = async (call) => {
+    if (call.method === "POST" && call.path === `/channels/${FORUM}/threads`) {
+      posting = true;
+      await held;
+    }
+    return undefined;
+  };
 
   await seed({ host: HOST, lastPing: Date.now() - 20 * 60_000, summary: SUMMARY });
 
   // Not awaited: the alarm is inside the fetch above, which is where the gate opens.
   const alarm = runDurableObjectAlarm(switchFor());
-  await vi.waitUntil(() => sent.length === 1);
+  await vi.waitUntil(() => posting);
 
   const response = await forget(HOST);
   expect(response.status).toBe(200);
@@ -609,7 +932,7 @@ it("answers 503 rather than an uncaught exception when the object will not answe
 
   // Thrown rather than a rejected promise handed to the mock, which workerd reports as an
   // unhandled rejection the moment it is made, before anything has awaited it.
-  const why = `Durable Object class has no method forget: ${WEBHOOK}`;
+  const why = `Durable Object class has no method forget: Bot ${BOT}`;
   const throwing = (): never => {
     throw new Error(why);
   };
@@ -624,8 +947,8 @@ it("answers 503 rather than an uncaught exception when the object will not answe
   expect((await ping(checkin)).status).toBe(503);
 
   expect(logged.join("\n")).toContain("the switch did not answer");
-  expect(logged.join("\n")).not.toContain(WEBHOOK);
-  expect(logged.join("\n")).toContain("the webhook");
+  expect(logged.join("\n")).not.toContain(BOT);
+  expect(logged.join("\n")).toContain("the bot token");
 });
 
 it("answers a host it has never heard of without making one", async () => {
@@ -693,7 +1016,7 @@ it("never cuts a name through the middle of a character", async () => {
 // arrive as a link, and a Mac that calls itself `**Mac mini**` must not arrive as emphasis —
 // but the post's title is plain text, so the name goes in there as it is.
 it("lets nothing in a check-in style a message or fake a link", async () => {
-  const sent = discord({ status: 200, body: { channel_id: "7" } });
+  const sent = discord();
 
   await ping(
     {
@@ -723,7 +1046,7 @@ it("treats a display name that cleans away to nothing as one that was never sent
 });
 
 it("calls the Mac what it calls itself, in the post's name and in the first line", async () => {
-  const sent = discord({ status: 200, body: { channel_id: "4242" } });
+  const sent = discord();
   await seed(
     {
       host: GOLDEN_HOST,
@@ -773,7 +1096,7 @@ it("reads a reading in words, however many of each there are", async () => {
 // A reading with nothing in it is a check-in that reported nothing, so the line it would have
 // been on is missing rather than there and empty.
 it("leaves the reading line out when a check-in carried no reading", async () => {
-  const sent = discord({ status: 200, body: { channel_id: "4242" } });
+  const sent = discord();
   await seed({ host: GOLDEN_HOST, display: DISPLAY, lastPing: Date.now() - 20 * 60_000 }, GOLDEN_HOST);
 
   await runDurableObjectAlarm(switchFor(GOLDEN_HOST));
@@ -818,7 +1141,7 @@ it("renders the six messages, in full", async () => {
   }
 
   // 1. The deadline passed with no check-in, which opens the post.
-  let sent = discord({ status: 200, body: { channel_id: "4242" } });
+  let sent = discord();
   await fresh({ lastPing: NOW - 15 * 60_000, summary: READING });
   await runDurableObjectAlarm(switchFor(GOLDEN_HOST));
   expect(sent[0]!.fields.thread_name).toMatch(/^🔴 Mac mini offline · \w{3} \d\d:\d\d$/);
@@ -828,6 +1151,7 @@ it("renders the six messages, in full", async () => {
 
   // 2. Six hours into the outage, into the same post.
   sent = discord();
+  existing("4242", "🔴 Mac mini offline · Thu 18:06");
   await fresh({
     lastPing: NOW - 6 * 60 * 60_000 - 15 * 60_000,
     summary: READING,
@@ -840,13 +1164,14 @@ it("renders the six messages, in full", async () => {
 
   // 3. The check-in that comes back, into the same post.
   sent = discord();
+  existing("4242", "🔴 Mac mini offline · Thu 18:06");
   await fresh({ lastPing: NOW - 16 * 60_000, summary: READING, downSince: NOW - 60_000, outageThread: "4242" });
   await ping(reading);
   expect(sent[0]!.fields.content).toContain("🟢 Mac mini is back — it checked in after 16 minutes of silence");
   show("recovered", sent);
 
   // 4. The first failing check-in, which opens a post of its own.
-  sent = discord({ status: 200, body: { channel_id: "7" } });
+  sent = discord();
   await fresh({});
   await ping({ ...reading, reason: "the walk ran out of its seconds and saw only part of the disk" }, TOKEN, "/fail");
   expect(sent[0]!.fields.thread_name).toMatch(/^⚠️ Mac mini: hachiko's checks are failing · \w{3} \d\d:\d\d$/);
@@ -854,6 +1179,7 @@ it("renders the six messages, in full", async () => {
 
   // 5. An hour of them, into that post.
   sent = discord();
+  existing("7", "⚠️ Mac mini: hachiko's checks are failing · Thu 18:06");
   await fresh({
     lastPing: NOW - 60_000,
     summary: READING,
@@ -867,6 +1193,7 @@ it("renders the six messages, in full", async () => {
 
   // 6. The check that finishes, into that post.
   sent = discord();
+  existing("7", "⚠️ Mac mini: hachiko's checks are failing · Thu 18:06");
   await fresh({
     lastPing: NOW - 5 * 60_000,
     summary: READING,

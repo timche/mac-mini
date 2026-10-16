@@ -967,7 +967,7 @@ check "the ping token is in no .env.op and in no op:// reference" \
 
 check "shibuya's .env.op is op:// references and nothing resolved" \
   'grep -qx "CLOUDFLARE_API_TOKEN=op://dev/shibuya/api token" "$repo/shibuya/.env.op" &&
-   grep -qx "DISCORD_WEBHOOK_URL=op://dev/shibuya-discord/webhook url" "$repo/shibuya/.env.op" &&
+   grep -qx "DISCORD_BOT_TOKEN=op://dev/shibuya-discord/bot token" "$repo/shibuya/.env.op" &&
    ! grep -qE "^[A-Z_]+=[^o]" "$repo/shibuya/.env.op"'
 
 check "the two shibuya scripts are executable and parse" \

@@ -15,7 +15,7 @@ export default defineConfig({
       miniflare: {
         bindings: {
           PING_TOKEN: "a-token-only-the-tests-know",
-          DISCORD_WEBHOOK_URL: "https://discord.invalid/api/webhooks/1/secret",
+          DISCORD_BOT_TOKEN: "a-bot-token-only-the-tests-know",
         },
       },
     }),

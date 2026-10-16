@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 
 import { graceMs, type Env } from "./env";
-import { postToForum, redact } from "./discord";
+import { Discord, GoneError, type Thread } from "./discord";
 import { code, duration, machine, markers, plain, plural, render, size, title, when } from "./message";
 
 // One object per host, so the alarm that decides a Mac has gone quiet is the same object
@@ -53,10 +53,12 @@ type Where = "outage" | "failing";
 interface Queued {
   where: Where;
   text: string;
-  // Every message carries one, because a post Tim deleted is a post the next message has to
-  // open; `open` is what says which of the two this message is.
-  title: string;
+  // A post to open rather than one to go back into, which is what makes a new outage a new
+  // post under a thread id this object is still holding.
   open: boolean;
+  // The message that ends the incident, after which the post is tagged Resolved and closed.
+  // Optional, since a queue written before it existed has none.
+  resolve?: boolean;
   attempt: number;
   at: number;
 }
@@ -114,6 +116,9 @@ export class Switch extends DurableObject<Env> {
   // the queue then and find the same message still due.
   private flushing = false;
 
+  private client: Discord | undefined;
+  private clientToken = "";
+
   // A check-in is liveness and nothing else: it rearms the deadline, and it is what says an
   // outage or a failing streak is over.
   async ping(checkin: Checkin): Promise<void> {
@@ -129,7 +134,7 @@ export class Switch extends DurableObject<Env> {
     live.version = checkin.version ?? live.version;
     live.lastPing = now;
 
-    this.recover(live, silence, now);
+    this.recover(live, silence);
     this.clean(live, now);
 
     await this.commit(live, forgets);
@@ -151,7 +156,7 @@ export class Switch extends DurableObject<Env> {
     live.version = checkin.version ?? live.version;
     live.lastPing = now;
 
-    this.recover(live, silence, now);
+    this.recover(live, silence);
 
     const reason = checkin.reason === undefined || checkin.reason === "" ? "hachiko did not say" : checkin.reason;
     live.failingReason = reason;
@@ -164,7 +169,6 @@ export class Switch extends DurableObject<Env> {
       this.post(live, {
         where: "failing",
         open: true,
-        title: title(markers.warn, `${named}: hachiko's checks are failing`, now),
         text: render({
           marker: markers.warn,
           lead: `${shown} is still checking in, but hachiko's checks are not finishing`,
@@ -227,7 +231,6 @@ export class Switch extends DurableObject<Env> {
       this.post(live, {
         where: "outage",
         open: true,
-        title: title(markers.down, `${named} offline`, now),
         text: render({
           marker: markers.down,
           lead: `${shown} has gone quiet — no check-in for ${duration(now - live.lastPing)}`,
@@ -247,7 +250,6 @@ export class Switch extends DurableObject<Env> {
       this.post(live, {
         where: "outage",
         open: false,
-        title: title(markers.down, `${named} still offline`, now),
         text: render({
           marker: markers.down,
           lead: `${shown} is still offline, ${duration(now - live.downSince)} after the first alert`,
@@ -265,7 +267,6 @@ export class Switch extends DurableObject<Env> {
       this.post(live, {
         where: "failing",
         open: false,
-        title: title(markers.warn, `${named}: hachiko's checks still failing`, now),
         text: render({
           marker: markers.warn,
           lead: `${shown}: hachiko's checks have been failing for ${duration(now - live.failingSince)}`,
@@ -280,7 +281,7 @@ export class Switch extends DurableObject<Env> {
 
   // The whole silence rather than the time since the alert, because what Tim wants from a
   // recovery is how long the Mac was gone, and the alert went out a grace into that.
-  private recover(live: Live, silence: number, now: number): void {
+  private recover(live: Live, silence: number): void {
     if (live.downSince === 0) {
       return;
     }
@@ -293,7 +294,7 @@ export class Switch extends DurableObject<Env> {
     this.post(live, {
       where: "outage",
       open: false,
-      title: title(markers.clear, `${named} back online`, now),
+      resolve: true,
       text: render({
         marker: markers.clear,
         lead: `${shown} is back — it checked in after ${duration(silence)} of silence`,
@@ -318,7 +319,7 @@ export class Switch extends DurableObject<Env> {
     this.post(live, {
       where: "failing",
       open: false,
-      title: title(markers.clear, `${named}: hachiko's checks are clean`, now),
+      resolve: true,
       text: render({
         marker: markers.clear,
         lead: `${shown}: hachiko's checks are finishing again after ${duration(failing)}`,
@@ -371,24 +372,97 @@ export class Switch extends DurableObject<Env> {
     }
   }
 
-  // The post the message landed in, "" for none, or undefined when it did not land.
+  // The post the message landed in, or undefined when it did not land.
   private async deliver(live: Live, message: Queued): Promise<string | undefined> {
-    const thread = message.where === "outage" ? live.outageThread : live.failingThread;
+    const discord = this.discord();
+    const prefix = postPrefix(message.where, name(live));
+    let open: Thread[] | undefined;
 
     try {
-      // `open` is a post to open rather than one to go back into, which is what makes a new
-      // outage a new post under a thread id this object is still holding. The title rides
-      // along either way: a post Tim deleted answers 404, and the message that found it gone
-      // opens one of its own under a name of its own rather than its first line.
-      return await postToForum(this.env.DISCORD_WEBHOOK_URL, {
-        content: message.text,
-        threadId: message.open ? "" : thread,
-        threadName: message.title,
-      });
+      let post = message.open ? "" : message.where === "outage" ? live.outageThread : live.failingThread;
+
+      if (post !== "") {
+        try {
+          await discord.postInto(post, message.text);
+        } catch (err) {
+          if (!(err instanceof GoneError)) {
+            throw err;
+          }
+          post = "";
+        }
+      }
+
+      // The forum decides whether this incident already has a post, not this object's
+      // memory of one: a retried alarm whose write was lost, a thread id that went with a
+      // forgotten host, a post opened by an instance that died before it could say so, all
+      // find the post that is there rather than opening a second.
+      if (post === "") {
+        open = await this.openPosts(discord, live, prefix);
+        const newest = open[open.length - 1];
+        if (newest !== undefined) {
+          try {
+            await discord.postInto(newest.id, message.text);
+            post = newest.id;
+          } catch (err) {
+            if (!(err instanceof GoneError)) {
+              throw err;
+            }
+          }
+        }
+      }
+
+      if (post === "") {
+        post = await discord.openPost(postTitle(message.where, name(live), Date.now()), message.text);
+      }
+
+      if (message.resolve === true) {
+        await this.resolve(discord, live, prefix, post, open);
+      }
+      return post;
     } catch (err) {
-      console.log(`shibuya: the message about ${live.host} did not reach Discord: ${this.say(err)}`);
+      console.log(`shibuya: the message about ${live.host} did not reach Discord: ${discord.scrub(err)}`);
       return undefined;
     }
+  }
+
+  // An empty list when Discord cannot say, which is today's behaviour without the forum: the
+  // stored post if there is one, a new post if there is not, and never no alert.
+  private async openPosts(discord: Discord, live: Live, prefix: string): Promise<Thread[]> {
+    try {
+      return await discord.openPosts(prefix);
+    } catch (err) {
+      console.log(`shibuya: the forum's open posts about ${live.host} could not be read: ${discord.scrub(err)}`);
+      return [];
+    }
+  }
+
+  // Every open post of this incident's kind rather than the one it ended in, so a duplicate
+  // that got out anyway is closed with it. Reported and never retried: the message is already
+  // in the post, and a label that would not go on is no reason to send it a second time.
+  private async resolve(discord: Discord, live: Live, prefix: string, landed: string, listed?: Thread[]): Promise<void> {
+    const posts = listed ?? (await this.openPosts(discord, live, prefix));
+    const close = new Map<string, string[] | undefined>([[landed, undefined]]);
+    for (const post of posts) {
+      close.set(post.id, post.appliedTags);
+    }
+
+    for (const [post, tags] of close) {
+      try {
+        await discord.closePost(post, tags);
+      } catch (err) {
+        console.log(`shibuya: a post about ${live.host} could not be closed: ${discord.scrub(err)}`);
+      }
+    }
+  }
+
+  // Kept for the life of the instance, so the forum and the bot's own id are asked once.
+  private discord(): Discord {
+    const token = this.env.DISCORD_BOT_TOKEN ?? "";
+    if (this.client === undefined || this.clientToken !== token) {
+      this.client = new Discord(token, this.env.DISCORD_FORUM);
+      this.clientToken = token;
+    }
+    return this.client;
   }
 
   private delivered(live: Live, message: Queued, landed: string | undefined, now: number): void {
@@ -460,9 +534,6 @@ export class Switch extends DurableObject<Env> {
     return { ...empty, queue: [], ...stored };
   }
 
-  private say(err: unknown): string {
-    return redact(err instanceof Error ? err.message : String(err), this.env.DISCORD_WEBHOOK_URL);
-  }
 }
 
 // What the Mac is called, falling back to the slug it is keyed by. The slug is a storage key
@@ -515,7 +586,22 @@ function due(queue: Queued[], now: number): Queued | undefined {
 }
 
 function same(a: Queued, b: Queued): boolean {
-  return a.where === b.where && a.open === b.open && a.title === b.title && a.text === b.text;
+  return a.where === b.where && a.open === b.open && a.text === b.text;
+}
+
+// What a post of each kind is called, and the start of that name that identifies it: the same
+// words whichever message happened to open it, so the forum can be searched for the one post
+// an incident has.
+function postTitle(where: Where, named: string, at: number): string {
+  return where === "outage" ? title(markers.down, `${named} offline`, at) : title(markers.warn, failing(named), at);
+}
+
+function postPrefix(where: Where, named: string): string {
+  return where === "outage" ? `${markers.down} ${named} offline · ` : `${markers.warn} ${failing(named)} · `;
+}
+
+function failing(named: string): string {
+  return `${named}: hachiko's checks are failing`;
 }
 
 function iso(at: number): string | null {

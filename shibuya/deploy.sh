@@ -92,8 +92,8 @@ fi
 npm test
 
 # One --env-file, and the reference rather than the value: the API token reaches wrangler's
-# environment and nothing else, and the webhook is not needed here at all — secrets.sh is
-# what puts that in the Worker.
+# environment and nothing else, and the bot token is not needed here at all —
+# secrets.sh is what puts that in the Worker.
 op run --env-file "$dir/.env.op" -- npx wrangler deploy
 
 mkdir -p "$state"
@@ -105,5 +105,5 @@ echo "deployed shibuya"
 # all, so a Mac that has never run secrets.sh has a switch that is deployed and deaf.
 if [ ! -f "$token_file" ]; then
   echo "$token_file is missing, so nothing on this Mac can check in with shibuya —" \
-       "run shibuya/secrets.sh once to make the token and set both Worker secrets" >&2
+       "run shibuya/secrets.sh once to make the token and set the Worker's secrets" >&2
 fi

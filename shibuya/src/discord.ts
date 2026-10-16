@@ -1,130 +1,251 @@
-// The same rules hachiko's own sender obeys, because it is the same channel: a webhook
-// on a forum refuses a message that names no post and one on a text channel refuses a
-// message that does, and nothing here is told which it has. So the first message of an
-// outage opens a post, reads the post's id off the message that comes back, and every
-// message after it goes in by id. A post Tim deleted answers 404 and the message that
-// found it gone opens a new one; a 400 is the webhook refusing the id rather than the post
-// being missing, which is what a text channel says, so that message goes to the channel.
+// shibuya's own bot, which is hachiko's sender on this side of the wire: a forum post is
+// opened with its first message in one call, every message after it goes into the post, and
+// the post is tagged and closed the way hachiko's are. A bot of its own rather than hachiko's,
+// so the name on a message says which of the two is talking and a token leaked from
+// Cloudflare reaches neither the forum hachiko reads Tim's replies in nor anything else.
+
+const API = "https://discord.com/api/v10";
+const FORUM = 15;
 
 const CONTENT_LIMIT = 2000;
 const CONTENT_KEEP = 1940;
 const NAME_LIMIT = 100;
 
+// Unknown Channel: the post Tim deleted.
+const UNKNOWN_CHANNEL = 10003;
+
+// A week rather than hachiko's day, because an open post is how shibuya finds its incident
+// again, and Discord drops a post from the active list once it has auto-archived — an outage
+// is quiet for longer than a day between its alert and its six-hour reminder and the end.
+const AUTO_ARCHIVE_MINUTES = 10080;
+
 const SNOWFLAKE = /^[0-9]{1,24}$/;
 
-// The webhook is hachiko's own, so without this every message here arrives under hachiko's
-// name — and what an outage post has to be clear about is that the watch is not the thing
-// talking. A webhook body overrides the name per message.
-const USERNAME = "shibuya";
+// By name and never by id, exactly as hachiko's sender finds them: the ids are the forum's
+// own, and a forum missing one simply does not get that label.
+const TAG_OPEN = "Open";
+const TAG_RESOLVED = "Resolved";
 
-export interface Post {
-  content: string;
-  threadId?: string;
-  threadName?: string;
+export interface Thread {
+  id: string;
+  name: string;
+  appliedTags: string[];
 }
 
-// The post the message landed in, or "" when there is no post to go back into.
-export async function postToForum(webhook: string, post: Post): Promise<string> {
-  const content = cap(post.content);
-
-  if (post.threadId && SNOWFLAKE.test(post.threadId)) {
-    const into = await send(webhook, `thread_id=${encodeURIComponent(post.threadId)}`, { content });
-    if (into.ok) {
-      return post.threadId;
-    }
-    if (into.status === 400) {
-      await plain(webhook, content);
-      return "";
-    }
-    if (into.status !== 404) {
-      throw new Error(`the webhook answered ${into.status}`);
-    }
-  }
-
-  // wait=true so Discord answers with the message it made rather than an empty 204: the
-  // channel that message landed in is the post, and its id is the only way back into it.
-  const opened = await send(webhook, "wait=true", {
-    content,
-    thread_name: name(post),
-  });
-  if (opened.ok) {
-    return threadOf(opened.body);
-  }
-  if (opened.status === 400) {
-    await plain(webhook, content);
-    return "";
-  }
-  throw new Error(`the webhook answered ${opened.status}`);
+interface Channel {
+  id?: string;
+  type?: number;
+  guild_id?: string;
+  parent_id?: string;
+  owner_id?: string;
+  name?: string;
+  applied_tags?: string[];
+  available_tags?: { id: string; name: string }[];
 }
 
-// net/http's counterpart on this side: an error from fetch names the URL it failed on, and
-// nothing that leaves this module may carry the webhook. Longest form first, so a prefix of
-// one does not break the match for another.
-export function redact(text: string, webhook: string): string {
-  const trimmed = webhook.trim();
+interface Forum {
+  guild: string;
+  open: string;
+  resolved: string;
+}
+
+export class GoneError extends Error {}
+
+export class Discord {
+  private forumCache: Forum | undefined;
+  private self = "";
+
+  constructor(
+    private readonly token: string,
+    private readonly forum: string,
+  ) {}
+
+  // The post and the message that opens it, which is the only shape a forum takes. The id
+  // that comes back is the post's and the starter message's both.
+  async openPost(name: string, content: string): Promise<string> {
+    let tags: string[] = [];
+    try {
+      const forum = await this.describe();
+      tags = forum.open === "" ? [] : [forum.open];
+    } catch (err) {
+      console.log(`shibuya: a post goes up untagged, since the forum could not be read: ${this.scrub(err)}`);
+    }
+
+    const answer = await this.call("POST", `/channels/${this.forum}/threads`, {
+      name: postName(name),
+      auto_archive_duration: AUTO_ARCHIVE_MINUTES,
+      ...(tags.length > 0 ? { applied_tags: tags } : {}),
+      message: { content: cap(content), allowed_mentions: noMentions() },
+    });
+
+    const id = (parse(answer) as Channel).id;
+    if (typeof id !== "string" || !SNOWFLAKE.test(id)) {
+      throw new Error("Discord made a post it did not name");
+    }
+    return id;
+  }
+
+  // Throws GoneError when the post is gone, which the caller answers by opening another.
+  async postInto(post: string, content: string): Promise<void> {
+    if (!SNOWFLAKE.test(post)) {
+      throw new GoneError("no post");
+    }
+    await this.call("POST", `/channels/${post}/messages`, {
+      content: cap(content),
+      allowed_mentions: noMentions(),
+    });
+  }
+
+  // The posts shibuya opened that are still tagged Open and whose name starts with the
+  // prefix, which is what makes the forum rather than this object's memory the answer to
+  // whether an incident is already posted. Active threads only: a post that archived is
+  // either closed or one Discord no longer lists, and both are a post to open afresh.
+  async openPosts(prefix: string): Promise<Thread[]> {
+    const forum = await this.describe();
+    if (forum.open === "") {
+      return [];
+    }
+    const self = await this.me();
+
+    const answer = parse(await this.call("GET", `/guilds/${forum.guild}/threads/active`)) as {
+      threads?: Channel[];
+    };
+
+    return (answer.threads ?? [])
+      .filter(
+        (thread) =>
+          thread.parent_id === this.forum &&
+          thread.owner_id === self &&
+          (thread.applied_tags ?? []).includes(forum.open) &&
+          (thread.name ?? "").startsWith(prefix) &&
+          typeof thread.id === "string" &&
+          SNOWFLAKE.test(thread.id),
+      )
+      .map((thread) => ({ id: thread.id as string, name: thread.name ?? "", appliedTags: thread.applied_tags ?? [] }))
+      .sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
+  }
+
+  // The tags a post ends with and the archive in one call, after the message and never
+  // before it, because Discord unarchives a post anything is posted into.
+  async closePost(post: string, applied?: string[]): Promise<void> {
+    if (!SNOWFLAKE.test(post)) {
+      return;
+    }
+    const forum = await this.describe();
+
+    let current = applied;
+    if (current === undefined) {
+      current = (parse(await this.call("GET", `/channels/${post}`)) as Channel).applied_tags ?? [];
+    }
+
+    const tags = current.filter((id) => id !== forum.open);
+    if (forum.resolved !== "" && !tags.includes(forum.resolved)) {
+      tags.push(forum.resolved);
+    }
+
+    await this.call("PATCH", `/channels/${post}`, { applied_tags: tags, archived: true });
+  }
+
+  // The error text with the token taken out, for anything that logs one.
+  scrub(err: unknown): string {
+    return redact(err instanceof Error ? err.message : String(err), this.token);
+  }
+
+  // Kept for the life of the instance: the guild a forum is in does not move, and tags
+  // renamed under a running object are found again on its next start.
+  private async describe(): Promise<Forum> {
+    if (this.forumCache !== undefined) {
+      return this.forumCache;
+    }
+    const channel = parse(await this.call("GET", `/channels/${this.forum}`)) as Channel;
+    if (channel.type !== FORUM || typeof channel.guild_id !== "string") {
+      throw new Error("DISCORD_FORUM is not a forum channel");
+    }
+    this.forumCache = { guild: channel.guild_id, open: tag(channel, TAG_OPEN), resolved: tag(channel, TAG_RESOLVED) };
+    return this.forumCache;
+  }
+
+  private async me(): Promise<string> {
+    if (this.self === "") {
+      const id = (parse(await this.call("GET", "/users/@me")) as { id?: unknown }).id;
+      if (typeof id !== "string" || !SNOWFLAKE.test(id)) {
+        throw new Error("Discord did not say who this bot is");
+      }
+      this.self = id;
+    }
+    return this.self;
+  }
+
+  private async call(method: string, path: string, body?: unknown): Promise<string> {
+    if (this.token === "") {
+      throw new Error("there is no DISCORD_BOT_TOKEN");
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(API + path, {
+        method,
+        headers: {
+          authorization: `Bot ${this.token}`,
+          ...(body === undefined ? {} : { "content-type": "application/json" }),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+    } catch (err) {
+      throw new Error(redact(String(err), this.token));
+    }
+
+    const text = await response.text().catch(() => "");
+    if (response.status === 404 && (parse(text) as { code?: unknown }).code === UNKNOWN_CHANNEL) {
+      throw new GoneError(`Discord answered 404 to ${method} ${path}`);
+    }
+    if (!response.ok) {
+      throw new Error(`Discord answered ${response.status} to ${method} ${path}`);
+    }
+    return text;
+  }
+}
+
+// Longest form first, so a prefix of one does not break the match for another. The token is
+// only ever in a header, but an error that echoed one back would be logged.
+export function redact(text: string, token: string): string {
+  const trimmed = token.trim();
   if (trimmed === "") {
     return text;
   }
 
-  const forms = [trimmed, encodeURIComponent(trimmed), encodeURI(trimmed)];
+  const forms = [trimmed, encodeURIComponent(trimmed)];
   forms.sort((a, b) => b.length - a.length);
 
   let out = text;
   for (const form of forms) {
-    out = out.split(form).join("the webhook");
+    out = out.split(form).join("the bot token");
   }
   return out;
-}
-
-interface Answer {
-  ok: boolean;
-  status: number;
-  body: string;
 }
 
 // Discord resolves @everyone, @here and a role mention in a message body unless the body
 // says otherwise, and what shibuya posts carries a reason written by a sweep — so a path or
 // a log line holding "@everyone" would page the whole server from inside an outage alert.
-// `parse` with nothing in it allows no mention of any kind.
-//
-// Both this and the name are added here rather than at each call site, so nothing that posts
-// can forget either.
-async function send(webhook: string, query: string, fields: Record<string, string>): Promise<Answer> {
-  let response: Response;
+function noMentions(): { parse: string[] } {
+  return { parse: [] };
+}
+
+function tag(forum: Channel, name: string): string {
+  const found = (forum.available_tags ?? []).find((candidate) => candidate.name.toLowerCase() === name.toLowerCase());
+  return found?.id ?? "";
+}
+
+function parse(text: string): unknown {
   try {
-    response = await fetch(withQuery(webhook, query), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...fields, username: USERNAME, allowed_mentions: { parse: [] } }),
-    });
-  } catch (err) {
-    throw new Error(redact(String(err), webhook));
-  }
-
-  const body = await response.text().catch(() => "");
-  return { ok: response.ok, status: response.status, body: body.slice(0, 4096) };
-}
-
-// The message and nothing else, which is what a webhook on a text channel takes and what
-// anything that could not find its post falls back to.
-async function plain(webhook: string, content: string): Promise<void> {
-  const answer = await send(webhook, "", { content });
-  if (!answer.ok) {
-    throw new Error(`the webhook answered ${answer.status}`);
+    return JSON.parse(text) as unknown;
+  } catch {
+    return {};
   }
 }
 
-// A webhook URL of Tim's carries no query of its own, but one that did would otherwise have
-// `?wait=true` appended to a URL that already has a `?` in it.
-function withQuery(webhook: string, query: string): string {
-  if (query === "") {
-    return webhook;
-  }
-  return webhook + (webhook.includes("?") ? "&" : "?") + query;
-}
-
-function name(post: Post): string {
-  const first = (post.threadName ?? post.content).trim().split("\n")[0] ?? "";
+function postName(name: string): string {
+  const first = name.trim().split("\n")[0] ?? "";
   const trimmed = first.slice(0, NAME_LIMIT).trim();
   return trimmed === "" ? "shibuya" : trimmed;
 }
@@ -135,16 +256,4 @@ function cap(content: string): string {
     return message;
   }
   return `${message.slice(0, CONTENT_KEEP)}\n[truncated]`;
-}
-
-// A forum webhook answers with the message, whose `channel_id` is the post it opened
-// rather than the channel the webhook is on.
-function threadOf(body: string): string {
-  try {
-    const message: unknown = JSON.parse(body);
-    const id = (message as { channel_id?: unknown }).channel_id;
-    return typeof id === "string" && SNOWFLAKE.test(id) ? id : "";
-  } catch {
-    return "";
-  }
 }

@@ -105,7 +105,7 @@ async function reached<T>(env: Env, work: () => Promise<T>): Promise<Reached<T>>
     return { ok: true, value: await work() };
   } catch (err) {
     // An error out of the object is the object's own text, and the object talks to Discord.
-    const why = redact(err instanceof Error ? err.message : String(err), env.DISCORD_WEBHOOK_URL);
+    const why = redact(err instanceof Error ? err.message : String(err), env.DISCORD_BOT_TOKEN ?? "");
     console.log(`shibuya: the switch did not answer: ${why}`);
     return { ok: false };
   }

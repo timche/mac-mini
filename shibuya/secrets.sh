@@ -10,10 +10,9 @@
 # is generated here, on the Mac, kept at 0600, and handed to Cloudflare once; nothing ever
 # resolves it from anywhere.
 #
-# The webhook is the other way round: it is Discord's, a reference in shibuya/.env.op, and
-# it reaches this script only through `op run`'s environment. Neither value is ever an
-# argument — `ps` shows every process on this Mac the command line of every other — and
-# neither is echoed. What this prints is the names it set.
+# The bot token is the other way round: it is Discord's, a reference in shibuya/.env.op,
+# and it reaches this script only through `op run`'s environment. No value is ever an argument — `ps` shows every process on this Mac the
+# command line of every other — and none is echoed. What this prints is the names it set.
 
 set -euo pipefail
 
@@ -31,9 +30,9 @@ if [ "${1:-}" = "--under-op" ]; then
          "op://dev/shibuya/api token" >&2
     exit 1
   fi
-  if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
-    echo "DISCORD_WEBHOOK_URL did not resolve, so no secret was set — ask Tim about" \
-         "op://dev/shibuya-discord/webhook url" >&2
+  if [ -z "${DISCORD_BOT_TOKEN:-}" ]; then
+    echo "DISCORD_BOT_TOKEN did not resolve, so no secret was set — ask Tim about" \
+         "op://dev/shibuya-discord/bot token" >&2
     exit 1
   fi
 
@@ -43,8 +42,8 @@ if [ "${1:-}" = "--under-op" ]; then
   tr -d '\r\n' <"$token_file" | npx wrangler secret put PING_TOKEN >/dev/null
   echo "set PING_TOKEN"
 
-  printf '%s' "$DISCORD_WEBHOOK_URL" | npx wrangler secret put DISCORD_WEBHOOK_URL >/dev/null
-  echo "set DISCORD_WEBHOOK_URL"
+  printf '%s' "$DISCORD_BOT_TOKEN" | npx wrangler secret put DISCORD_BOT_TOKEN >/dev/null
+  echo "set DISCORD_BOT_TOKEN"
   exit 0
 fi
 

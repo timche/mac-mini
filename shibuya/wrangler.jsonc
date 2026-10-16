@@ -19,5 +19,6 @@
   "durable_objects": { "bindings": [{ "name": "SWITCH", "class_name": "Switch" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Switch"] }],
 
-  "vars": { "GRACE_MINUTES": "15" }
+  // The forum hachiko alerts to. Not a secret: a channel id is in the URL of every message in it.
+  "vars": { "GRACE_MINUTES": "15", "DISCORD_FORUM": "1556226410828275722" }
 }

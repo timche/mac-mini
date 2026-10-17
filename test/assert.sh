@@ -361,11 +361,13 @@ check "git worktree add installs when the main worktree is already installed" \
    grep -qx "$d/wt install --frozen-lockfile" "$d/bun.log"'
 
 # An uninstalled main worktree is a project nobody has run the install for by
-# hand, so nothing here decides to run its lifecycle scripts for the first time.
-check "git worktree add installs nothing when the main worktree has not been" \
+# hand, so nothing here decides to run its lifecycle scripts for the first time —
+# but it says what to run, or a fresh clone's worktrees go without in silence.
+check "git worktree add installs nothing when the main worktree has not been, and says what to run" \
   'd="$(cd "$(mktemp -d)" && pwd -P)" && worktree_install_fixture "$d" &&
-   PATH="$d/bin:$PATH" git -C "$d/app" worktree add -q -b feat "$d/wt" &&
-   [ ! -e "$d/wt/node_modules" ] && [ ! -f "$d/bun.log" ]'
+   out="$(PATH="$d/bin:$PATH" git -C "$d/app" worktree add -b feat "$d/wt" 2>&1)" &&
+   [ ! -e "$d/wt/node_modules" ] && [ ! -f "$d/bun.log" ] &&
+   printf "%s" "$out" | grep -qF "cd \"$d/app\" && bun install --frozen-lockfile"'
 
 check "git clone installs nothing" \
   'd="$(cd "$(mktemp -d)" && pwd -P)" && worktree_install_fixture "$d" &&

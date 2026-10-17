@@ -30,11 +30,6 @@ worktree="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
 [ -f "$worktree/package.json" ] || exit 0
 [ ! -e "$worktree/node_modules" ] || exit 0
 
-# The main worktree having node_modules is what says the project has already been
-# installed by hand, and so trusted once, by whoever cloned it.
-main="$(git worktree list --porcelain | sed -n 's/^worktree //p' | head -1)"
-[ -n "$main" ] && [ -d "$main/node_modules" ] || exit 0
-
 if [ -f "$worktree/bun.lock" ] || [ -f "$worktree/bun.lockb" ]; then
   set -- bun install --frozen-lockfile
 elif [ -f "$worktree/pnpm-lock.yaml" ]; then
@@ -44,6 +39,25 @@ elif [ -f "$worktree/package-lock.json" ]; then
 elif [ -f "$worktree/yarn.lock" ]; then
   set -- yarn install --immutable
 else
+  exit 0
+fi
+
+# The main worktree having node_modules is what says the project has already been
+# installed by hand, and so trusted once, by whoever cloned it. Said out loud when
+# it has not, because a fresh clone otherwise gives every worktree no dependencies
+# and nothing says why.
+main="$(git worktree list --porcelain | sed -n 's/^worktree //p' | head -1)"
+[ -n "$main" ] || exit 0
+
+if [ ! -d "$main/node_modules" ]; then
+  first="$*"
+  if [ -f "$main/mise.toml" ] || [ -f "$main/.mise.toml" ]; then
+    first="mise install && $first"
+  fi
+  echo "No dependencies installed: the main checkout has none, and its first install" >&2
+  echo "runs the project's lifecycle scripts, so it is a person's call. Once the project" >&2
+  echo "has been read: cd \"$main\" && $first" >&2
+  echo "Every worktree added after that installs its own; this one: cd \"$worktree\" && $*" >&2
   exit 0
 fi
 

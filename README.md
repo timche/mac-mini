@@ -197,6 +197,8 @@ xcodes installed       # every Xcode on the Mac, and which one is selected
 
 Nothing here installs the Developer ID certificate, and nothing should: electron-builder takes it from `CSC_LINK` and `CSC_KEY_PASSWORD` and imports it into a keychain of its own for the length of a build. A project resolves both from 1Password with `op run` at that point, as below, so the login keychain never holds it and a Mac reprovisioned from here has nothing to re-import.
 
+The intermediate that issued it is another matter. The certificate is from Apple's G2 Developer ID authority, macOS ships only the original one, and codesign may not build the chain from the copy inside the `.p12`, so `install.sh` adds the G2 intermediate to the login keychain from apple.com, with its SHA-256 pinned. An intermediate changes no trust, so this takes no sudo and no dialog on the screen. Both authorities have the common name `Developer ID Certification Authority`, so the check before it is by the OU, `G2`, and not by name.
+
 ## The account
 
 `claude.sh` is the second phase and the part that needs an account. It installs no packages of its own — every package is the `Brewfile`'s — and runs four steps in order:

@@ -251,6 +251,37 @@ if tailscale status >/dev/null 2>&1; then
   fi
 fi
 
+# Apple's G2 Developer ID intermediate, which issues the certificate meru signs
+# with. macOS ships only the original authority, Xcode adds neither, and codesign
+# can fail to build the chain from the copy in the .p12 that electron-builder
+# imports. The login keychain rather than the System one, because adding an
+# intermediate changes no trust and so needs neither sudo nor a dialog on the
+# Mac's screen. Both authorities share a common name and differ in the OU, so the
+# check is by OU. The fingerprint is pinned because codesign builds its chain
+# from whatever the keychain holds.
+g2_name="Developer ID Certification Authority"
+g2_url=https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+g2_sha256=f16cd3c54c7f83cea4bf1a3e6a0819c8aaa8e4a1528fd144715f350643d2df3a
+
+if security find-certificate -a -p -c "$g2_name" 2>/dev/null |
+  /usr/bin/openssl crl2pkcs7 -nocrl -certfile /dev/stdin 2>/dev/null |
+  /usr/bin/openssl pkcs7 -print_certs -noout 2>/dev/null |
+  grep -qE '^subject=.*OU ?= ?G2([,/]|$)'; then
+  echo "Apple's G2 Developer ID intermediate is already in a keychain"
+else
+  g2_dir="$(mktemp -d)"
+  if curl -fsSL -o "$g2_dir/g2.cer" "$g2_url" &&
+     [ "$(shasum -a 256 "$g2_dir/g2.cer" | cut -d' ' -f1)" = "$g2_sha256" ] &&
+     security add-certificates -k "$HOME/Library/Keychains/login.keychain-db" "$g2_dir/g2.cer"; then
+    echo "added Apple's G2 Developer ID intermediate to the login keychain"
+  else
+    echo "could not add Apple's G2 Developer ID intermediate from $g2_url —" \
+         "a Developer ID build may fail to build its chain until it is in" \
+         "the login keychain" >&2
+  fi
+  rm -rf "$g2_dir"
+fi
+
 # Tim's preferences
 #
 # mise.toml holds the plain user defaults and the bootstrap above has already

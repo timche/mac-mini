@@ -127,6 +127,13 @@ check "starship runs"       'starship --version'
 check "portless runs" 'portless --version'
 check "portless is mise's npm install" 'mise which portless | grep -q "/installs/npm-portless/"'
 
+# By OU, because the original authority has the same common name.
+check "Apple's G2 Developer ID intermediate is in a keychain" \
+  'security find-certificate -a -p -c "Developer ID Certification Authority" |
+     /usr/bin/openssl crl2pkcs7 -nocrl -certfile /dev/stdin |
+     /usr/bin/openssl pkcs7 -print_certs -noout |
+     grep -qE "^subject=.*OU ?= ?G2([,/]|\$)"'
+
 # The app rather than the cask, because a runner is handed Chrome by its own image
 # and brew bundle's own --adopt takes that copy over instead of installing a second
 # one.

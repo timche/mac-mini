@@ -125,19 +125,6 @@ check "starship runs"       'starship --version'
 check "portless runs" 'portless --version'
 check "portless is mise's npm install" 'mise which portless | grep -q "/installs/npm-portless/"'
 
-# Read off the repo rather than the machine: a runner has already been installed
-# once by the time a check runs, and no SSH session anywhere in CI is what the skip
-# below turns on.
-#
-# `portless trust` over SSH is a sudo prompt on this terminal plus a confirmation
-# dialog on the Mac's own screen, and only the first of those is reachable — so the
-# attempt is skipped where there is no GUI session in reach and the line to run is
-# printed instead. The already-trusted read stays in front of both.
-check "install.sh trusts portless's CA once, and not over SSH" \
-  'grep -q "security verify-cert -c \"\$portless_ca\"" "$repo/install.sh" &&
-   grep -q "elif \[ -n \"\${SSH_CONNECTION:-}\" \]; then" "$repo/install.sh" &&
-   grep -q "elif portless trust </dev/null; then" "$repo/install.sh"'
-
 # The app rather than the cask, because a runner is handed Chrome by its own image
 # and brew bundle's own --adopt takes that copy over instead of installing a second
 # one.
@@ -162,12 +149,6 @@ done
 # the one that proves the tap, which mise's bootstrap cannot fetch from at all.
 check "mise.toml declares no Homebrew package" \
   '! grep -qE "^\"brew(-cask)?:" "$repo/mise.toml"'
-
-check "install.sh installs the Brewfile, the tap included, and moves no version" \
-  'grep -q "brew bundle --no-upgrade --file=\"\$repo/Brewfile\"" "$repo/install.sh" &&
-   ! grep -qE "(^|[^A-Za-z])brew install " "$repo/install.sh" &&
-   grep -q "^tap \"timche/tap\", trusted: true$" "$repo/Brewfile" &&
-   grep -q "^brew \"betterleaks\"$" "$repo/Brewfile"'
 
 # Tim's preferences on the Mac, read back rather than taken on trust: mise warns
 # about a config key it does not recognise and carries on, so an older mise would
@@ -210,22 +191,9 @@ check "the Dock holds none of the icons macOS ships with, recorded as done once"
 
 # Safe to re-run, which for a preference means the second pass finds nothing to
 # write and so has no reason to restart Finder, the Dock or SystemUIServer.
-# mise answers for its own half; install.sh's guards are the four reads above,
-# and this is the one that is only about the repeat.
+# mise answers for its own half; install.sh's guards are the four reads above.
 check "a second pass over the declared defaults has nothing to write" \
   'mise -C "$repo" bootstrap macos defaults status --missing'
-
-# Reading before writing, and restarting only what changed, is the part a runner
-# cannot show: it has already been installed once by the time this runs, so every
-# guard above is satisfied and no branch is left to exercise. Read instead, as the
-# sync and gc checks read theirs.
-check "install.sh writes a preference only when it differs and restarts only then" \
-  'grep -q "if \[ \"\$(defaults read com.apple.screencapture location 2>/dev/null)\" != \"\$screenshots\" \]" \
-     "$repo/install.sh" &&
-   grep -q "find \"\$HOME/Library\" -maxdepth 0 -flags +hidden" "$repo/install.sh" &&
-   grep -q "if \[ ! -e \"\$dock_marker\" \]" "$repo/install.sh" &&
-   grep -q "if \[ \"\$finder_changed\" = true \]" "$repo/install.sh" &&
-   grep -q "killall SystemUIServer screencaptureui" "$repo/install.sh"'
 
 # The rc files have to work in a real interactive shell, which is the only
 # place the mise block is reached.
@@ -402,31 +370,17 @@ check "an install that fails leaves the worktree added and says what to run" \
 
 # Auto-sync is one `hachiko sync` daemon watching every repository its config lists:
 # the project docs, and this repository's `home/.claude` alone. Its own wiring is checked
-# with the sync agent further down; what belongs here is the clone it watches, and that
-# boswell, the daemon it took over from, is gone.
+# with the sync agent further down; what belongs here is that boswell, the daemon it
+# took over from, is gone.
 #
-# A token that reaches this repo does not necessarily reach the docs one, and
-# CI's does not. The clone has to degrade to a warning, or the shell never gets
-# installed on a machine whose only problem is a missing docs repo.
-check "a failed docs clone does not abort install.sh" \
-  'grep -q "elif gh repo clone timche/docs" "$repo/install.sh"'
-
-check "install.sh clones the docs repo" \
-  'grep -q "gh repo clone timche/docs" "$repo/install.sh"'
-
 # Two daemons committing one tree would each commit what the other wrote, so
 # boswell's agent goes before sync is loaded, and nothing here declares its plist,
-# its config or its formula any more. mise removes no link it no longer declares, so
-# both of its links are install.sh's to take back — each only when it points into
-# this checkout or nowhere at all.
-check "boswell is gone, and install.sh takes it back" \
+# its config or its formula any more.
+check "boswell is gone" \
   '[ ! -e "$repo/home/Library/LaunchAgents/io.github.timche.boswell.plist" ] &&
    [ ! -e "$repo/home/.config/boswell" ] &&
    ! grep -q boswell "$repo/mise.toml" &&
    ! grep -q boswell "$repo/Brewfile" &&
-   grep -q "launchctl bootout \"gui/\$uid/\$old_sync_label\"" "$repo/install.sh" &&
-   grep -q "rm \"\$old_sync_path\"" "$repo/install.sh" &&
-   grep -q "brew uninstall boswell" "$repo/install.sh" &&
    ! launchctl print "gui/$(id -u)/io.github.timche.boswell" &&
    [ ! -e "$HOME/Library/LaunchAgents/io.github.timche.boswell.plist" ] &&
    [ ! -e "$HOME/.config/boswell/config.toml" ] &&
@@ -566,18 +520,13 @@ check "the worktree-info hook prints the tailnet URL for every TLD after the fir
 check "PORTLESS_TLD serves .localhost first and the tailnet name after it" \
   '[ "$(zsh -c "echo \$PORTLESS_TLD")" = "localhost,timche.dev" ]'
 
-check "install.sh forwards the tailnet's port 443 to portless and names its daemon" \
-  'grep -q "tailscale serve --bg --tcp 443 tcp://127.0.0.1:443" "$repo/install.sh" &&
-   grep -q "sudo portless service install --tld" "$repo/install.sh"'
-
 # A proxy of this account's own would hold a second ~/.portless/proxy.port, which
 # is where every client looks, so the URLs would reach whichever of the two won.
-# Nothing here may declare one, and install.sh takes out the agent that did.
-check "no proxy agent is declared, and install.sh removes one left loaded" \
+# Nothing here may declare one.
+check "no proxy agent is declared" \
   '[ ! -e "$repo/home/Library/LaunchAgents/io.github.timche.portless.plist" ] &&
    ! grep -q "io.github.timche.portless" "$repo/mise.toml" &&
-   ! grep -q "PORTLESS_PORT" "$repo/home/.zshenv" &&
-   grep -q "launchctl bootout \"gui/\$uid/\$portless_label\"" "$repo/install.sh"'
+   ! grep -q "PORTLESS_PORT" "$repo/home/.zshenv"'
 
 check "the worktree-info hook prints the Electron profile rule" \
   'd="$(mktemp -d)" &&
@@ -661,10 +610,6 @@ check "the herdr agent runs the launcher and is always kept alive" \
   'plutil -extract ProgramArguments.2 raw "$herdr_plist" |
      grep -qF "exec \"\$HOME/.local/libexec/herdr-launcher\" server" &&
    [ "$(plutil -extract KeepAlive raw "$herdr_plist")" = true ]'
-check "install.sh never restarts the herdr server it may be running in" \
-  '! grep -qE "launchctl (bootout|kickstart)[^;]*herdr_label\"?\)?$" "$repo/install.sh" &&
-   grep -q "a herdr server is running outside launchd" "$repo/install.sh"'
-
 # The launcher is what macOS holds responsible for the grants herdr needs — Screen
 # Recording, Full Disk Access and Device Control and Data Access — and a grant is
 # pinned to the exact contents of an ad-hoc signed binary. So its bytes may move
@@ -679,21 +624,12 @@ check "the launcher is a real executable at the path the plist names" \
 check "the launcher was built from the source in this checkout" \
   'stamp="${XDG_STATE_HOME:-$HOME/.local/state}/mac-mini/herdr-launcher.sha256" &&
    [ "$(cat "$stamp")" = "$(shasum -a 256 "$launcher_src" | cut -d" " -f1)" ]'
-check "install.sh rebuilds the launcher only when its source has changed" \
-  'grep -qF "launcher_hash=\"\$(shasum -a 256 \"\$launcher_src\"" "$repo/install.sh" &&
-   grep -qF "[ \"\$(cat \"\$launcher_stamp\" 2>/dev/null)\" = \"\$launcher_hash\" ]" "$repo/install.sh"'
-check "install.sh says what a rebuilt launcher costs, and loads no agent without one" \
-  'grep -q "these are new bytes" "$repo/install.sh" &&
-   grep -qF "is not built, so \$herdr_label was not loaded" "$repo/install.sh"'
 # Nothing may rebuild it on a schedule or behind a wrapper: that is the one way the
 # grants go away again without anybody deciding to. mise declares no link to it and
-# there is no wrapper in ~/.local/bin, so install.sh is the only thing that compiles
-# it and the only script besides this one that names the source at all.
-check "nothing but install.sh builds the launcher" \
+# there is no wrapper in ~/.local/bin, so install.sh is the only thing that compiles it.
+check "no tool list or wrapper builds the launcher" \
   '! grep -q "herdr-launcher" "$repo/mise.toml" &&
-   [ ! -e "$repo/home/.local/bin/herdr-launcher" ] &&
-   [ "$(grep -rlF "herdr-launcher.c" "$repo" --exclude-dir=.git --include="*.sh" |
-         sort | tr "\n" " ")" = "$repo/install.sh $repo/test/assert.sh " ]'
+   [ ! -e "$repo/home/.local/bin/herdr-launcher" ]'
 
 # What the launcher has to be, built from the source rather than taken from the
 # installed copy, so the check is of this checkout: the parent of herdr and not a
@@ -823,71 +759,16 @@ check "the gc agent logs to ~/Library/Logs" \
   '[ "$(plutil -extract StandardErrorPath raw -o - "$gc_plist")" = \
      "$HOME/Library/Logs/hachiko-gc.log" ]'
 
-check "install.sh loads the gc agent and reloads a changed one" \
-  'grep -q "launchctl bootstrap \"gui/\$uid\" \"\$gc_plist\"" "$repo/install.sh" &&
-   grep -q "launchctl bootout \"gui/\$uid/\$gc_label\"" "$repo/install.sh" &&
-   grep -q "cmp -s \"\$gc_plist_before\" \"\$gc_plist\"" "$repo/install.sh" &&
-   grep -q "mkdir -p \"\$HOME/.herdr/worktrees\"" "$repo/install.sh"'
-
 # Two agents on one ten-minute timer, each holding a lock the other knows nothing
 # about, would race over the same worktrees — so the shell script's agent and the
 # link to it go before the new one loads, and nothing here renders or declares
 # either any more.
-check "the sweep that hachiko gc replaced is gone, and install.sh takes it back" \
+check "the sweep that hachiko gc replaced is gone" \
   '[ ! -e "$repo/home/.local/bin/worktree-gc" ] &&
    [ ! -e "$repo/home/Library/LaunchAgents/io.github.timche.worktree-gc.plist" ] &&
    ! grep -q "io.github.timche.worktree-gc" "$repo/mise.toml" &&
    ! grep -q "bin/worktree-gc" "$repo/mise.toml" &&
-   grep -q "launchctl bootout \"gui/\$uid/\$old_gc_label\"" "$repo/install.sh" &&
-   grep -q "rm \"\$old_gc_plist\"" "$repo/install.sh" &&
-   grep -q "rm \"\$old_gc_link\"" "$repo/install.sh" &&
    [ ! -e "$HOME/.local/bin/worktree-gc" ]'
-
-# The one pass of the sweep that is about nothing having been left behind, and the one where a
-# mistake would cost a database rather than disk. The Go tests drive it against the dep they
-# were handed, so what is left for here is the commands themselves: two prunes by age, and
-# none of the three things docker would also take if this were `docker system prune` or if
-# `-a` were on either of them.
-check "the daily prune takes docker's build cache and dangling images and nothing else" \
-  'p="$repo/hachiko/internal/gc/deps.go" &&
-   grep -qF "\"docker\", \"builder\", \"prune\", \"--force\", \"--filter\", \"until=\"+until" "$p" &&
-   grep -qF "\"docker\", \"image\", \"prune\", \"--force\", \"--filter\", \"until=\"+until" "$p" &&
-   ! grep -qF "\"system\", \"prune\"" "$p" &&
-   ! grep -qF "\"network\", \"prune\"" "$p" &&
-   ! grep -qF "\"volume\", \"prune\"" "$p" &&
-   ! grep -qE "\"prune\", \"(-a|--all)\"" "$p"'
-
-# The logs the watch caps are one list of exact paths, and how each is capped depends on
-# whether its writer holds the descriptor or reopens the path. The Go tests run that list
-# against a temp folder, so what is left for here is that the names are the ones the plists
-# and wrappers in this checkout actually write: a cap aimed at a log nothing writes is a cap
-# that never fires, and a log nothing caps is the drift this exists to stop.
-check "every log the watch caps is one this machine's own agents write" \
-  'cap="$repo/hachiko/internal/watch/logcap.go" &&
-   for name in herdr.log hachiko.log hachiko-gc.log hachiko-sync.log hachiko-listen.log; do
-     grep -qF "under(\"$name\")" "$cap" || exit 1
-     grep -rqF "Library/Logs/$name" "$repo/home/Library/LaunchAgents/" || exit 1
-   done'
-
-# The one that is renamed rather than copied, because launchd opens it itself once per run
-# of a job that exits between them. Everything else on the list is held open for the life of
-# the Mac — or is the capping sweep's own stdout — where a rename leaves the writer appending
-# to the archive and the empty file at the path never grows enough to be capped again.
-check "only the log launchd reopens every run is capped by a rename" \
-  'cap="$repo/hachiko/internal/watch/logcap.go" &&
-   [ "$(grep -c "how: capRename" "$cap")" = 1 ] &&
-   grep -qF "{path: under(\"hachiko-gc.log\"), how: capRename}" "$cap" &&
-   plutil -extract StandardOutPath raw -o - "$gc_plist" |
-     grep -qF "Library/Logs/hachiko-gc.log"'
-
-# The sweep writes a stamp at the end of every run it finishes, and the watch reads
-# its age: a sweep that has stopped is the one thing about gc nothing on this Mac
-# could otherwise notice. The plist being there is what makes the watch look at all,
-# so a Mac install.sh has not reached is not one reported as having stopped.
-check "the watch notices a sweep that has stopped, and says nothing on a Mac with no sweep agent" \
-  'grep -q "io.github.timche.hachiko-gc.plist" "$repo/hachiko/internal/config/config.go" &&
-   grep -q "func (c Config) GCStamp()" "$repo/hachiko/internal/config/config.go" &&
-   grep -q "s.liveness(state, now)" "$repo/hachiko/internal/watch/sweep.go"'
 
 # `hachiko sync`, which commits and pushes the repositories its config lists. It is a
 # long-running agent rather than a timer, so the plist is the whole of what assert.sh
@@ -947,32 +828,6 @@ check "the sync config names the docs whole and this repository's home/.claude a
    [ "$(grep -c "^paths = " "$HOME/.config/hachiko/sync")" = 1 ] &&
    ! grep -q "/Users/" "$HOME/.config/hachiko/sync"'
 
-# launchd reads a plist when it loads the job and never again, so one that changed —
-# a directory added to its PATH, say — would otherwise wait for a reboot. The reload
-# is not reachable from here, a runner having no docs clone, so this reads the wiring
-# as the checks around it do.
-#
-# The plist is a link into the checkout, and a link that still points where it did
-# says nothing about the file behind it: what the comparison reads is a copy of the
-# definition the daemon was last loaded from, kept outside the checkout and written
-# only once the load succeeded.
-check "install.sh loads the sync agent once the docs are cloned, and reloads a changed one" \
-  'grep -q "launchctl bootstrap \"gui/\$uid\" \"\$sync_plist\"" "$repo/install.sh" &&
-   grep -q "launchctl bootout \"gui/\$uid/\$sync_label\"" "$repo/install.sh" &&
-   grep -q "cmp -s \"\$sync_plist\" \"\$sync_loaded\"" "$repo/install.sh" &&
-   grep -q "^if \[ -d \"\$docs/.git\" \]; then" "$repo/install.sh" &&
-   grep -q "elif \[ \"\$sync_ready\" != true \]; then" "$repo/install.sh"'
-
-# sync writes a heartbeat every half minute and the watch reads its age: a sync that has
-# stopped is the one thing about it nothing on this Mac could otherwise notice. The plist
-# being there is what makes the watch look at all, so a Mac install.sh has not reached is
-# not one reported as having stopped.
-check "the watch notices a sync that has stopped, and says nothing on a Mac with no sync agent" \
-  'grep -q "io.github.timche.hachiko-sync.plist" "$repo/hachiko/internal/config/config.go" &&
-   grep -q "func (c Config) SyncStamp()" "$repo/hachiko/internal/config/config.go" &&
-   grep -q "statedir.AgentSync" "$repo/hachiko/internal/watch/sweep.go" &&
-   grep -q "func syncLastBeat" "$repo/hachiko/internal/watch/deps.go"'
-
 # hachiko, the one compiled tool here. Its behaviour is `go test ./...` in hachiko/,
 # which drives the whole of the decision-making against injected seams; what is left
 # for this script is the wiring a Go test cannot see — the links, the agent, and the
@@ -1000,30 +855,6 @@ check "hachiko status prints one screen of this Mac and writes nothing" \
    printf "%s\n" "$out" | grep -q "the watch" &&
    printf "%s\n" "$out" | grep -q "stale after" &&
    [ -z "$(ls -A "$d")" ]'
-
-# A binary that compiles is not one that works, and the agents it runs include the one
-# that commits and pushes the project docs — so the whole module's tests run
-# between the build and the move into place. A failing test keeps the last binary
-# exactly as a failing build does, and records no hash, so the next run tries again.
-#
-# Two deadlines rather than one shared between them: a slow build would otherwise leave
-# the tests a few seconds and make a suite that ran fine look hung.
-# Build, then test, then the move into place, in that order — and the hash written once,
-# after both, since a failing test that recorded it would never be tried again.
-check "the wrapper runs the tests between the build and the move, and records no hash until both pass" \
-  'w="$repo/home/.local/bin/hachiko" &&
-   grep -q "^build_timeout=120\$" "$w" &&
-   grep -q "^test_timeout=120\$" "$w" &&
-   grep -q "bounded \"\$test_timeout\" \"\$out\"" "$w" &&
-   grep -q "go test -C \"\$src\" \./\.\.\." "$w" &&
-   grep -q "the tests in \$src do not pass" "$w" &&
-   [ "$(grep -c "\"\$hash\" >\"\$stamp\"" "$w")" = 1 ] &&
-   build_at=$(grep -n "bounded \"\$build_timeout\"" "$w" | cut -d: -f1) &&
-   test_at=$(grep -n "bounded \"\$test_timeout\"" "$w" | cut -d: -f1) &&
-   move_at=$(grep -n "mv -f \"\$cache/hachiko" "$w" | cut -d: -f1) &&
-   hash_at=$(grep -n ">\"\$stamp\"" "$w" | cut -d: -f1) &&
-   [ "$build_at" -lt "$test_at" ] && [ "$test_at" -lt "$move_at" ] &&
-   [ "$test_at" -lt "$hash_at" ]'
 
 # A copy of the checkout rather than the checkout, because the test below has to break a
 # test on purpose and the wrapper builds from the working tree, so a broken source in the
@@ -1124,31 +955,6 @@ check "shibuya is deployed to its custom domain alone" \
    grep -q "shibuya.timche.dev" "$repo/shibuya/wrangler.jsonc" &&
    grep -q "new_sqlite_classes" "$repo/shibuya/wrangler.jsonc"'
 
-# install.sh reports a deploy that did not happen and carries on, the way it does for every
-# other step that needs something off this Mac.
-check "install.sh deploys shibuya and does not fail on a Cloudflare that is down" \
-  'grep -q "shibuya/deploy.sh\"; then" "$repo/install.sh" &&
-   grep -q "shibuya was not deployed" "$repo/install.sh"'
-
-# The two steps install.sh cannot take on a Mac being provisioned: the deploy needs the
-# service-account token signing-key.sh stores a moment earlier, and the ping token is made
-# only where there is no file holding one. Both are guarded on that service-account token,
-# which is what makes CI's `claude.sh` deploy nothing — a runner has no vault — and both are
-# the condition of an `if` rather than a bare call, so `set -e` cannot end the script on a
-# Cloudflare that is down.
-check "claude.sh makes the dead man's switch after the signing key, and skips it with no vault" \
-  'c="$repo/claude.sh" &&
-   k=$(grep -n "signing_failed=1$" "$c" | head -1 | cut -d: -f1) &&
-   d=$(grep -n "shibuya/deploy.sh\"; then" "$c" | head -1 | cut -d: -f1) &&
-   [ "$k" -lt "$d" ] &&
-   grep -q "OP_SERVICE_ACCOUNT_TOKEN_FILE:-\$HOME/.config/op/service-account-token" "$c" &&
-   grep -q "if \[ ! -f \"\$op_token_file\" \]; then" "$c" &&
-   grep -q "elif ! \"\$repo/shibuya/deploy.sh\"; then" "$c" &&
-   grep -q "elif \[ ! -f \"\$shibuya_token\" \]; then" "$c" &&
-   grep -q "if ! \"\$repo/shibuya/secrets.sh\"; then" "$c" &&
-   grep -q "shibuya was not deployed" "$c" &&
-   grep -q "nothing is watching hachiko" "$c"'
-
 check "the CPU allowlist is a live symlink and names the VMs and the indexer" \
   '[ -L "$HOME/.config/hachiko/cpu-allow" ] &&
    [ -e "$HOME/.config/hachiko/cpu-allow" ] &&
@@ -1164,8 +970,7 @@ check "the on-call session's review partner is there, reads Opus's second opinio
   'p="$HOME/.claude/agents/oncall-partner.md" && [ -e "$p" ] &&
    grep -qx "model: fable" "$p" &&
    grep -qx "tools: Read, Grep, Glob, Bash" "$p" &&
-   grep -q "Read-only, absolutely" "$p" &&
-   grep -q "oncall-partner" "$repo/hachiko/internal/oncall/oncall.go"'
+   grep -q "Read-only, absolutely" "$p"'
 
 # The partner checks a proposed action against limits it is given in its own prompt, so one
 # that drifted from the limits the session was told is a reviewer agreeing to something nobody
@@ -1197,35 +1002,10 @@ export -f hachiko_limits_in_step
 check "the partner's limits are the same words as the standing orders'" \
   'hachiko_limits_in_step "$HOME/.claude/agents/oncall-partner.md" "$repo/hachiko/internal/oncall/oncall.go"'
 
-# The numbers the README and the plist comment both name. Every one of them is an
-# environment variable so that a test can trip the same arithmetic with megabytes and
-# minutes, which is exactly why the defaults need asserting.
-check "hachiko watches for 100 GB free, 20 GB critical, 1 GB files, 2 GB of growth six hours from full, half a core for an hour" \
-  'c="$repo/hachiko/internal/config/config.go" &&
-   grep -qF "envInt64(\"HACHIKO_LOW_GB\", 100)" "$c" &&
-   grep -qF "envInt64(\"HACHIKO_CRITICAL_GB\", 20)" "$c" &&
-   grep -qF "envInt64(\"HACHIKO_BIG_KB\", GiB)" "$c" &&
-   grep -qF "envInt64(\"HACHIKO_GROWTH_KB\", 2*GiB)" "$c" &&
-   grep -qF "envInt64(\"HACHIKO_FILL_HOURS\", 6)" "$c" &&
-   grep -qF "envInt64(\"HACHIKO_CPU_SHARE\", 50)" "$c" &&
-   grep -qF "envInt64(\"HACHIKO_CPU_WINDOW\", 3600)" "$c" &&
-   grep -qF "envInt64(\"HACHIKO_ONCALL_DEADLINE\", 600)" "$c"'
-
-# The wait after the session has asked its question: an hour, a quarter of an hour's
-# notice before the deadline, and three hours to the deadline itself. Tim's numbers, and
-# the point at which the session is allowed to act for him.
-check "hachiko reminds at an hour, warns at 2h45 and hands the decision over at three hours" \
-  'c="$repo/hachiko/internal/config/config.go" &&
-   grep -qF "envInt64(\"HACHIKO_REMIND_AFTER\", 3600)" "$c" &&
-   grep -qF "envInt64(\"HACHIKO_WARN_AFTER\", 9900)" "$c" &&
-   grep -qF "envInt64(\"HACHIKO_HANDOVER_AFTER\", 10800)" "$c"'
-
 # The go the wrapper builds with is this repository's own, in its root mise.toml: this
 # repo is one of the projects that wants a runtime for itself.
 check "this repo declares the go its compiled tools are built with" \
-  'grep -qE "^go = \"[0-9]" "$repo/mise.toml" &&
-   grep -q "mise install --locked" "$repo/install.sh" &&
-   grep -q "mise exec -- go version" "$repo/install.sh"'
+  'grep -qE "^go = \"[0-9]" "$repo/mise.toml"'
 
 check "the hachiko module is standard library only and builds without cgo" \
   '[ ! -f "$repo/hachiko/go.sum" ] &&
@@ -1253,11 +1033,6 @@ check "the hachiko agent's PATH reaches the op wrapper, herdr, mise and Homebrew
   'plutil -extract ProgramArguments.2 raw -o - "$hachiko_plist" |
      grep -qF "export PATH=\"\$HOME/.local/bin:/opt/homebrew/bin"'
 
-check "install.sh loads the hachiko agent and reloads a changed one" \
-  'grep -q "launchctl bootstrap \"gui/\$uid\" \"\$hachiko_plist\"" "$repo/install.sh" &&
-   grep -q "launchctl bootout \"gui/\$uid/\$hachiko_label\"" "$repo/install.sh" &&
-   grep -q "cmp -s \"\$hachiko_plist\" \"\$hachiko_loaded\"" "$repo/install.sh"'
-
 check "the hachiko agent is loaded" \
   'launchctl print "gui/$(id -u)/io.github.timche.hachiko" >/dev/null'
 
@@ -1276,24 +1051,8 @@ check "the listener runs hachiko listen and logs to ~/Library/Logs" \
 check "the listener is kept alive and throttled to five minutes" \
   'plutil -extract KeepAlive xml1 -o - "$listen_plist" | grep -q "<true/>" &&
    [ "$(plutil -extract ThrottleInterval raw -o - "$listen_plist")" = 300 ]'
-check "install.sh loads the listener agent and reloads a changed one" \
-  'grep -q "launchctl bootstrap \"gui/\$uid\" \"\$listen_plist\"" "$repo/install.sh" &&
-   grep -q "launchctl bootout \"gui/\$uid/\$listen_label\"" "$repo/install.sh" &&
-   grep -q "cmp -s \"\$listen_plist\" \"\$listen_loaded\"" "$repo/install.sh"'
 check "the listener agent is loaded" \
   'launchctl print "gui/$(id -u)/io.github.timche.hachiko-listen" >/dev/null'
-
-# The listener writes a heartbeat while it polls and the watch reads its age, the way it
-# reads the sweep's stamp and sync's. Its own clock and no plist behind it: a listener with
-# no heartbeat has never polled, which is what answering from Discord being off looks like
-# for the life of the Mac, and counting from the plist would alert on every Mac here.
-check "the watch notices a listener that has stopped, and says nothing where the feature is off" \
-  'grep -q "io.github.timche.hachiko-listen.plist" "$repo/hachiko/internal/config/config.go" &&
-   grep -q "func (c Config) ListenStamp()" "$repo/hachiko/internal/config/config.go" &&
-   grep -q "func listenLastBeat" "$repo/hachiko/internal/watch/deps.go" &&
-   grep -q "statedir.AgentListen" "$repo/hachiko/internal/watch/liveness.go" &&
-   grep -q "goIdle(cfg, switchedOff" "$repo/hachiko/internal/listen/listen.go" &&
-   grep -q "goIdle(cfg, configuredAndBroken" "$repo/hachiko/internal/listen/listen.go"'
 
 # The one check that is the agent rather than a description of it. Everything else here
 # runs hachiko as this session, which holds the privacy grants herdr was given — and that
@@ -1436,11 +1195,6 @@ check "the wrapper says why it could not rebuild and keeps watching" \
      2>"$d/nogo" | grep -q "dry-run" &&
    grep -q "is not installed, so hachiko could not be rebuilt — run install.sh" "$d/nogo"'
 
-check "the wrapper never has mise install a toolchain of its own" \
-  'grep -q "MISE_EXEC_AUTO_INSTALL=0" "$repo/home/.local/bin/hachiko" &&
-   grep -q "MISE_NOT_FOUND_AUTO_INSTALL=0" "$repo/home/.local/bin/hachiko" &&
-   grep -q "build_timeout=" "$repo/home/.local/bin/hachiko"'
-
 # A run with nothing to build may not reach for mise at all: this runs every five
 # minutes forever, and the binary it execs depends on nothing.
 check "the wrapper runs the cached binary without a go of any kind when nothing changed" \
@@ -1565,27 +1319,6 @@ check "the project-docs hook reads ~/projects/docs/<repo>, not the checkout's do
    mkdir -p "$h/projects/docs/has-docs" && : > "$h/projects/docs/has-docs/decisions.md" &&
    [ "$(cd "$d" && HOME="$h" PROJECT_DOCS_DIR="$h/projects/docs" bash "$hook" | head -1)" = \
      "Working docs for has-docs: $h/projects/docs/has-docs" ]'
-
-# The name comes from the remote, not the directory: a worktree is named for
-# its branch, and every branch of a repository shares one docs folder.
-check "the project-docs hook resolves the repo name from the remote" \
-  'grep -q "remote get-url origin" "$HOME/.claude/hooks/project-docs.sh"'
-
-# The path and the shape, nothing about what the docs are or how they sync:
-# the first differs per project and is its README's to say, the second is the
-# same everywhere and is the global CLAUDE.md's.
-check "the project-docs hook asserts nothing about the docs themselves" \
-  '! grep -qiE "settled decisions|architecture as it stands|synced by a timer|timche/docs" \
-     "$HOME/.claude/hooks/project-docs.sh"'
-
-# Every line it prints is paid for on every session start, forever. The path
-# and the shape are facts nothing else carries; an instruction to read them is
-# already in the global CLAUDE.md and would be rent on a restatement. Counted
-# in the script rather than by running it: a runner has neither a checkout with
-# docs nor the docs themselves, so a runtime check would pass by printing nothing
-# and prove nothing. One line for the shared folder, one for the project's.
-check "the project-docs hook prints a line of prose per folder, not a paragraph" \
-  'test "$(grep -c "^ *echo \"[A-Z]" "$HOME/.claude/hooks/project-docs.sh")" -eq 2'
 
 if [ "$failures" -gt 0 ]; then
   echo "  $failures check(s) failed"

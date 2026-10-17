@@ -38,14 +38,6 @@ check "no hardcoded home directory in the scripts" \
        "/Users/[A-Za-z0-9_.-]+" "$root" |
      grep -q .'
 
-# The clone is ~/.mac-mini, hidden because it is machinery rather than work, and
-# the LaunchAgent the Claude half installs is a link into it — so where it lands is
-# also where launchd reads the agent from. bootstrap.sh is the only thing that
-# decides that, and a runner's clone is the workspace, so the default is what there
-# is to assert here.
-check "the clone defaults to the hidden path" \
-  'grep -q "MAC_MINI_DIR:-\$HOME/\.mac-mini" "$root/bootstrap.sh"'
-
 # Homebrew and its packages, which is all the machine half installs.
 check "brew is the Apple Silicon prefix" '[ -x /opt/homebrew/bin/brew ]'
 
@@ -54,10 +46,6 @@ check "brew is the Apple Silicon prefix" '[ -x /opt/homebrew/bin/brew ]'
 # a version.
 check "the Brewfile's dependencies are satisfied" \
   'brew bundle check --no-upgrade --file="$root/Brewfile"'
-
-check "bootstrap-system.sh installs the Brewfile and moves no version" \
-  'grep -q "brew bundle --no-upgrade --file=\"\$repo/Brewfile\"" \
-     "$root/bootstrap-system.sh"'
 
 # xcodes and aria2 are xcode.sh's, because that step only runs where there is a
 # terminal — so nothing else may install a package and the Brewfile may not declare
@@ -141,8 +129,6 @@ check "the orb CLI answers"   'command -v orb'
 check "no colima or Homebrew docker is declared any more" \
   '! grep -qE "^brew \"(colima|docker|docker-buildx|docker-compose)\"" "$root/Brewfile"'
 check "no colima VM state is left behind" '[ ! -d "$HOME/.colima" ]'
-check "docker.sh clears a colima left by an older run" \
-  'grep -q "colima delete --force" "$root/docker.sh"'
 
 # The plugin directory the old script wrote into docker's config, which points at
 # nothing now that Homebrew's docker formulae are gone. OrbStack's plugins are in

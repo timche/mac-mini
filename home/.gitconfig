@@ -30,5 +30,14 @@
 [hook "worktree-install"]
 	event = post-checkout
 	command = "\"$HOME/.config/git/worktree-install\""
+# Claude Code's attribution setting only changes what the model is asked to write,
+# so these hold for every repository regardless: commit-msg strips the lines, and
+# pre-push refuses what reached a commit without passing through it.
+[hook "strip-claude-attribution"]
+	event = commit-msg
+	command = "\"$HOME/.config/git/strip-claude-attribution\""
+[hook "refuse-claude-attribution"]
+	event = pre-push
+	command = "\"$HOME/.config/git/refuse-claude-attribution\""
 [include]
 	path = ~/.gitconfig.local

@@ -1,0 +1,19 @@
+#!/bin/sh
+
+# commit-msg, from [hook "strip-claude-attribution"] in .gitconfig. Claude Code's
+# attribution setting only changes what the model is asked to write, so a trailer
+# it writes anyway still lands; this takes the lines out of every message instead.
+# Stripped rather than refused, since a refused commit is one an agent retries and
+# works around.
+
+set -u
+
+msg="${1:?usage: strip-claude-attribution <message file>}"
+pattern='^[[:space:]]*co-authored-by:.*(claude|anthropic\.com)|generated with \[?claude code'
+
+grep -qiE "$pattern" "$msg" || exit 0
+
+kept="$(mktemp "${msg}.XXXXXX")" || exit 1
+grep -viE "$pattern" "$msg" |
+  awk '{ lines[NR] = $0 } /[^[:space:]]/ { last = NR } END { for (i = 1; i <= last; i++) print lines[i] }' \
+  >"$kept" && mv "$kept" "$msg"

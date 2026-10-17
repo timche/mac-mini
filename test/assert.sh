@@ -45,6 +45,8 @@ for path in .zshrc .zshenv .zprofile .bashrc .gitconfig \
             .config/mise/locks \
             .config/ccstatusline/settings.json \
             .config/git/worktree-install \
+            .config/git/strip-claude-attribution \
+            .config/git/refuse-claude-attribution \
             .config/herdr/config.toml .config/starship.toml \
             .terminfo/x/xterm-ghostty .terminfo/78/xterm-ghostty \
             .config/hachiko/sync; do
@@ -323,6 +325,21 @@ export -f worktree_install_fixture
 
 # mktemp's path goes through /var, and the hook reports the worktree as git
 # resolves it, so the fixture root is resolved once and compared against that.
+check "a commit loses Claude's attribution and keeps a person's co-author" \
+  'd="$(mktemp -d)" && git init -q "$d" && echo a >"$d/f" && git -C "$d" add f &&
+   git -C "$d" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false \
+     commit -q -m x -m "Co-Authored-By: Claude <noreply@anthropic.com>
+Co-authored-by: Jane <jane@example.com>" &&
+   msg="$(git -C "$d" log -1 --format=%B)" && rm -rf "$d" &&
+   ! echo "$msg" | grep -qi anthropic && echo "$msg" | grep -q "Jane"'
+
+check "a push of a commit carrying Claude's attribution is refused" \
+  'd="$(mktemp -d)" && git init -q --bare "$d/r.git" && git init -q "$d/w" &&
+   echo a >"$d/w/f" && git -C "$d/w" add f &&
+   git -C "$d/w" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false \
+     commit -q --no-verify -m x -m "Co-Authored-By: Claude <noreply@anthropic.com>" &&
+   ! git -C "$d/w" push -q "$d/r.git" HEAD:main 2>/dev/null; r=$?; rm -rf "$d"; exit $r'
+
 check "the tracked config installs a new worktree's dependencies" \
   '[ "$(git config --file "$tracked" --get hook.worktree-install.event)" = post-checkout ] &&
    git config --file "$tracked" --get hook.worktree-install.command |

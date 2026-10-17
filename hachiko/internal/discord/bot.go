@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -195,11 +197,32 @@ type Channel struct {
 	Type     int    `json:"type"`
 	ParentID string `json:"parent_id"`
 
+	Name string `json:"name"`
+
 	AvailableTags []struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
 	} `json:"available_tags"`
 	AppliedTags []string `json:"applied_tags"`
+
+	// A post's own archive state, which is what closed means on a forum, and when it was
+	// last set — which for a post hachiko or shibuya resolved is when the incident ended.
+	ThreadMetadata struct {
+		Archived         bool   `json:"archived"`
+		ArchiveTimestamp string `json:"archive_timestamp"`
+	} `json:"thread_metadata"`
+}
+
+func (c Channel) HasTag(id string) bool { return statedir.Contains(c.AppliedTags, id) }
+
+// When the post was closed, and the zero time when Discord said nothing readable about it —
+// which is a post nothing deletes.
+func (c Channel) ClosedAt() time.Time {
+	at, err := time.Parse(time.RFC3339, c.ThreadMetadata.ArchiveTimestamp)
+	if err != nil {
+		return time.Time{}
+	}
+	return at
 }
 
 func (c Channel) Forum() bool { return c.Type == channelForum }
@@ -269,6 +292,40 @@ func (b Bot) ClosePost(post string, tags []string) error {
 	}
 	_, err := b.call(http.MethodPatch, "/channels/"+post,
 		map[string]any{"applied_tags": tags, "archived": true})
+	return err
+}
+
+// The forum's closed posts, newest first, which is the order Discord returns them in and
+// the order the pagination is built for: `before` is the archive timestamp to continue from,
+// and what comes back says whether there is more.
+//
+// Only the archived ones, because only they can be resolved: closing a post is what
+// archiving it means here, and anything still open is an incident or a conversation.
+func (b Bot) ClosedPosts(forum, before string) ([]Channel, bool, error) {
+	path := "/channels/" + forum + "/threads/archived/public?limit=100"
+	if before != "" {
+		path += "&before=" + url.QueryEscape(before)
+	}
+
+	answer, err := b.call(http.MethodGet, path, nil)
+	if err != nil {
+		return nil, false, err
+	}
+
+	var page struct {
+		Threads []Channel `json:"threads"`
+		HasMore bool      `json:"has_more"`
+	}
+	if err := json.Unmarshal(answer, &page); err != nil {
+		return nil, false, errors.New("Discord answered something that is not a list of posts")
+	}
+	return page.Threads, page.HasMore, nil
+}
+
+// Deleting a post deletes every message in it, and there is no undoing it — which is why
+// nothing calls this but the sweep over posts that have been closed for days.
+func (b Bot) DeletePost(post string) error {
+	_, err := b.call(http.MethodDelete, "/channels/"+post, nil)
 	return err
 }
 

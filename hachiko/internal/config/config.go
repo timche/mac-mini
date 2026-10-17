@@ -153,6 +153,12 @@ type Config struct {
 	// filled them in, which is what turns the bot and `hachiko listen` on.
 	Discord DiscordConfig
 
+	// How long a resolved incident's post stays in the forum after it was closed. Three
+	// days: long enough that a morning's reading of what happened overnight is still there,
+	// and short enough that the forum is what is happening rather than an archive. Zero
+	// leaves every post where it is.
+	PostKeep time.Duration
+
 	Host string
 
 	// What to call this Mac in a message somebody else writes. shibuya posts about a Mac it
@@ -308,6 +314,8 @@ func FromEnv() Config {
 
 		Discord: readDiscordConfig(envString("HACHIKO_DISCORD_CONFIG",
 			filepath.Join(home, ".config", "hachiko", "discord"))),
+
+		PostKeep: time.Duration(envInt64("HACHIKO_POST_KEEP", 3*86400)) * time.Second,
 
 		Host:    host,
 		Display: envString("HACHIKO_DISPLAY", "Mac mini"),

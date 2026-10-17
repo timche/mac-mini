@@ -28,6 +28,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
+	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/discord"
@@ -180,12 +182,14 @@ func run(args []string) error {
 			dry = true
 		case "--test-alert":
 			return watch.TestAlert(cfg)
-		// Left out of the usage: these two are how the steps that hold the bot token are
+		// Left out of the usage: these three are how the steps that hold the bot token are
 		// re-entered under `op run`, and nothing else should call them.
 		case "--send":
 			return sendFromStdin(args[i+1:])
 		case "--listen-mode":
 			return listen.WithToken(cfg)
+		case "--prune-posts":
+			return pruneFromArgs(args[i+1:])
 		case "-h", "--help":
 			fmt.Print(usage)
 			return nil
@@ -204,6 +208,32 @@ func run(args []string) error {
 		err = nightly
 	}
 	return err
+}
+
+// The flags the other `op run` child takes: the forum and how long a resolved post stays in
+// it, neither of them a secret and neither of them anything an incident chose.
+func pruneFromArgs(args []string) error {
+	channel, keep := "", time.Duration(0)
+
+	for i := 0; i+1 < len(args); i += 2 {
+		switch args[i] {
+		case "--channel":
+			channel = args[i+1]
+		case "--keep":
+			seconds, err := strconv.ParseInt(args[i+1], 10, 64)
+			if err != nil || seconds <= 0 {
+				return badUsage("--keep takes a number of seconds")
+			}
+			keep = time.Duration(seconds) * time.Second
+		default:
+			return badUsage("unknown option %s", args[i])
+		}
+	}
+
+	if keep == 0 {
+		return badUsage("--prune-posts takes --keep")
+	}
+	return discord.PruneMode(channel, keep, time.Now())
 }
 
 // The flags the `op run` child is handed: a channel and a thread, which are ids in a URL

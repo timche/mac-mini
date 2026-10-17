@@ -62,6 +62,11 @@ type fixture struct {
 	keepGrowing string
 	keepKB      int64
 
+	// What the forum sweep was asked for, what it answers with, and what it refuses with.
+	pruned      []time.Duration
+	prunedLines []string
+	prunedErr   error
+
 	// What the walk reports it could not look at, and what it was told to skip.
 	stalls   []string
 	cutShort bool
@@ -368,6 +373,13 @@ func (f *fixture) deps() Deps {
 				return "thread-" + out.OpenThread, nil
 			}
 			return "", nil
+		},
+		PrunePosts: func(keep time.Duration) ([]string, error) {
+			f.pruned = append(f.pruned, keep)
+			if f.prunedErr != nil {
+				return nil, f.prunedErr
+			}
+			return f.prunedLines, nil
 		},
 		CheckIn: func(in shibuya.Checkin) (string, string) {
 			f.checkins = append(f.checkins, in)

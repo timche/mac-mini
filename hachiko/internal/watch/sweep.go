@@ -155,6 +155,11 @@ func (s sweeper) run() error {
 		s.say("%s GB free, %d file(s) growing fast, %d over %s GB, %d process(es) hot of %d sampled, %d director(ies) skipped for not answering",
 			gbStr(free), len(disk.growing), len(disk.sizes), gbStr(s.cfg.BigKB), len(cpu.hot), cpu.sampled, len(disk.stalled))
 
+		if s.cfg.PostKeep > 0 && s.cfg.Discord.ChannelID != "" {
+			s.say("would look through the forum for posts resolved more than %s ago",
+				wording.DurationPhrase(s.cfg.PostKeep))
+		}
+
 		// Said rather than sent: a dry run that checked in would tell shibuya this Mac is
 		// being watched on a run that watched nothing.
 		if reasons := sweepFaults(corrupt, disk, cpu); len(reasons) > 0 {
@@ -260,6 +265,10 @@ func (s sweeper) run() error {
 	// A wait can end before the session reports, when its question went away with the
 	// session, and the outcome it sends hours later belongs in the same thread.
 	state.CloseThreads(expected, now, closedThreadKeep)
+
+	// Once an hour, and after everything this check has to say has been said: a message
+	// about an incident may not wait behind the forum's housekeeping.
+	s.prunePosts(state, now)
 
 	// Last, so that what shibuya is told about this Mac is what the check decided rather
 	// than what it had got to — and so that a Worker that will not answer costs the sweep

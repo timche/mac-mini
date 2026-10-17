@@ -81,6 +81,11 @@ type State struct {
 	SyncStale  int64  `json:"sync_stale,omitempty"`
 	SyncThread string `json:"sync_thread,omitempty"`
 
+	// When the watch last went through the forum for resolved posts old enough to delete.
+	// Once an hour is plenty for housekeeping and it costs an `op run`, where the check
+	// itself runs twelve times an hour.
+	PostsSwept int64 `json:"posts_swept,omitempty"`
+
 	// What the last check-in with shibuya came to. Kept so that a token that is missing, a
 	// file anyone can read or a Worker that will not answer is one line rather than twelve
 	// an hour for the life of the Mac.

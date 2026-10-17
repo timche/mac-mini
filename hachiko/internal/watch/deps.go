@@ -85,6 +85,11 @@ type Deps struct {
 	// answers with the thread it opened when the message was the first of an incident.
 	Send func(out discord.Outgoing) (string, error)
 
+	// Deletes the forum's posts about incidents that have been resolved for longer than
+	// keep, and answers with a line about each one it deleted. The second thing here that
+	// holds the bot token, and the only thing hachiko does that cannot be undone.
+	PrunePosts func(keep time.Duration) ([]string, error)
+
 	// Tells shibuya this sweep happened, which is the half of the watch that is not on this
 	// Mac. It answers with the state to remember and the one line to log when that state is
 	// new, since a Mac with no token configured has nothing to say every five minutes.
@@ -144,7 +149,10 @@ func realDeps(cfg config.Config) Deps {
 		Prompt: func(kind, lead, data string) error {
 			return oncall.Oncaller{Cfg: cfg, Herdr: oncall.HerdrCLI, Now: now, Log: log}.PromptWith(kind, lead, "INCIDENT DATA", data)
 		},
-		Send:    func(out discord.Outgoing) (string, error) { return discord.SendThroughOP(cfg, out) },
+		Send: func(out discord.Outgoing) (string, error) { return discord.SendThroughOP(cfg, out) },
+		PrunePosts: func(keep time.Duration) ([]string, error) {
+			return discord.PruneThroughOP(cfg, keep)
+		},
 		CheckIn: shibuya.New(cfg).Send,
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/harness"
 )
@@ -95,5 +96,12 @@ func TestTruncateRefusesWhatIsNotAFile(t *testing.T) {
 	}
 	if err := truncateLog(filepath.Join(dir, "absent.log"), device); err == nil {
 		t.Error("a path with nothing at it was emptied")
+	}
+}
+
+func TestBootedReadsWhenThisMacStarted(t *testing.T) {
+	boot := booted()
+	if boot.IsZero() || boot.After(time.Now()) || boot.Before(time.Now().Add(-365*24*time.Hour)) {
+		t.Fatalf("booted() = %v, which is not a boot this year", boot)
 	}
 }

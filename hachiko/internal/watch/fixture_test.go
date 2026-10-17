@@ -113,6 +113,9 @@ type fixture struct {
 	listenBeat    time.Time
 	listenBeating bool
 
+	// When the Mac last started, which is long before any stamp unless a test pins it.
+	booted time.Time
+
 	oncallName    string
 	oncallBrief   string
 	oncallCalls   int
@@ -290,6 +293,7 @@ func (f *fixture) deps() Deps {
 		SyncRepoState: func(repo SyncRepo) SyncRepoState { return f.syncState[repo.Path] },
 
 		ListenLastBeat: func() (time.Time, bool) { return f.lastListenBeat(), f.listenBeating },
+		Booted:         func() time.Time { return f.booted },
 
 		Oncall: func(name, brief string) (oncall.Session, error) {
 			f.oncallCalls++

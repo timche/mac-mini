@@ -1,6 +1,7 @@
 package watch
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
@@ -58,6 +59,11 @@ type Deps struct {
 	// run keeps the heartbeat it has, or writes one where it has never had any, that being a
 	// listener that has stopped.
 	ListenLastBeat func() (time.Time, bool)
+
+	// When this Mac last started. launchd starts every agent at boot, so an agent's silence
+	// counts from here at the earliest: the first check after a Mac was switched off would
+	// otherwise report each agent as stopped for as long as the Mac was.
+	Booted func() time.Time
 
 	// Opens the on-call session and answers with where it is and whether the brief
 	// reached it, which is what the message about to go out has to say.
@@ -136,6 +142,7 @@ func realDeps(cfg config.Config) Deps {
 		SyncRepoState: syncRepoState,
 
 		ListenLastBeat: func() (time.Time, bool) { return listenLastBeat(cfg) },
+		Booted:         booted,
 
 		Oncall: func(name, brief string) (oncall.Session, error) {
 			return oncall.Oncaller{Cfg: cfg, Herdr: oncall.HerdrCLI, Now: now, Log: log}.Open(name, brief)
@@ -166,6 +173,17 @@ func FreeKB(path string) (int64, error) {
 		return 0, fmt.Errorf("statfs %s: %w", path, err)
 	}
 	return int64(fs.Bavail) * int64(fs.Bsize) / 1024, nil
+}
+
+// kern.boottime is a timeval whose first eight bytes are the seconds. syscall.Sysctl drops a
+// trailing NUL as if the value were a string, which costs a byte of padding and none of the
+// seconds. A boot time that cannot be read is the zero time, which counts nothing from it.
+func booted() time.Time {
+	raw, err := syscall.Sysctl("kern.boottime")
+	if err != nil || len(raw) < 8 {
+		return time.Time{}
+	}
+	return time.Unix(int64(binary.LittleEndian.Uint64([]byte(raw[:8]))), 0)
 }
 
 // The nearest thing the watch has to a stamp of its own: the state file it writes at the end

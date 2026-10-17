@@ -249,6 +249,17 @@ func TestAListenerThatHasStoppedIsOneMessageAndNoSession(t *testing.T) {
 	harness.Equal(t, f.sentCount(), 1, "messages sent")
 }
 
+func TestTheTimeAMacWasOffIsNotCountedAgainstItsAgents(t *testing.T) {
+	f := listenerFixture(t)
+	f.booted = base.Add(time.Hour)
+
+	harness.Equal(t, f.at(3612).sweep(), "", "the log of the first check after a boot")
+	harness.Equal(t, f.sentCount(), 0, "messages sent")
+
+	harness.Wants(t, f.at(3600+660).sweep(), "the Discord listener has not run for 0h11m")
+	harness.Equal(t, f.sentCount(), 1, "messages sent")
+}
+
 func TestAListenerThatComesBackIsOneMoreLineInTheSameThread(t *testing.T) {
 	f := listenerFixture(t)
 	f.threads = true

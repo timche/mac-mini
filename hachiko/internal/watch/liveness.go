@@ -212,7 +212,11 @@ func (s sweeper) stillRunning(state *statedir.State, now time.Time, a liveness) 
 		return false
 	}
 
-	age := now.Sub(since)
+	counted := since
+	if boot := s.deps.Booted(); boot.After(since) {
+		counted = boot
+	}
+	age := now.Sub(counted)
 	stale := age > a.Stale
 
 	switch was := state.Agent(a.Key).Stale != 0; {

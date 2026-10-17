@@ -37,9 +37,9 @@ if ! command -v brew >/dev/null 2>&1 && [ -x /opt/homebrew/bin/brew ]; then
 fi
 
 # --no-upgrade because this Mac is re-run in place and is reached over the sshd and
-# the tailnet a run here touches: `brew upgrade tailscale` restarts the daemon the
-# SSH session is riding on, and nothing about installing a missing package asks for
-# that. `brew bundle upgrade` is the deliberate version of it.
+# the tailnet a run here touches: an upgraded tailscale means nothing until the
+# daemon is restarted onto it, and that restart drops the SSH session this run is
+# riding on. `brew bundle upgrade` is the deliberate version of it.
 #
 # Not fatal, which is the same trade docker.sh and tailscale.sh have always made for
 # their own packages: an OrbStack that will not install is no reason to leave the Mac

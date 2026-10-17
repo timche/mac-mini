@@ -83,75 +83,41 @@ check "git came with the command line tools" \
 check "tailscaled installed"      'command -v tailscaled'
 check "the tailscale CLI answers" 'tailscale version'
 
-tailscale_daemon=io.github.timche.tailscaled
-tailscale_plist="/Library/LaunchDaemons/$tailscale_daemon.plist"
-export tailscale_daemon tailscale_plist
+# The label is asked for rather than spelled out, because Homebrew has renamed it
+# once already and names the plist it installs after it.
+tailscale_daemon="$(brew services info tailscale --json 2>/dev/null |
+  jq -r '.[0].service_name // empty')"
+retired_daemon=io.github.timche.tailscaled
+export tailscale_daemon retired_daemon
 
-# Every component of a path root executes, the path itself included: owned by root
-# and writable by nobody else. Homebrew's prefix fails this — its Cellar and opt
-# directories are the account's — which is the whole reason the daemon runs a copy
-# in /usr/local/bin rather than the formula's own binary.
-root_owned_path() {
-  local path="$1" owner mode
-
-  while :; do
-    owner="$(stat -f '%Su' "$path" 2>/dev/null)" || return 1
-    mode="$(stat -f '%OLp' "$path" 2>/dev/null)" || return 1
-
-    # stat reads the link rather than what it points at, and a root-owned link
-    # into the account's prefix is the hole this is looking for.
-    [ ! -L "$path" ] || return 1
-    [ "$owner" = root ] || return 1
-    [ $((8#$mode & 8#022)) -eq 0 ] || return 1
-
-    case "$path" in /) return 0 ;; esac
-    path="$(dirname "$path")"
-  done
-}
-export -f root_owned_path
-
-daemon_program() {
-  plutil -extract ProgramArguments.0 raw -o - "$tailscale_plist" 2>/dev/null
-}
-export -f daemon_program
-
-# The plist is a root-owned copy rather than a link into the checkout: launchd
-# reads it as root, and a link would put root's job description in a directory the
-# account can write.
-check "the daemon's plist is this repo's, byte for byte" \
-  'cmp -s "$root/system/launchd/$tailscale_daemon.plist" "$tailscale_plist"'
-check "the daemon's plist belongs to root" \
-  '[ "$(stat -f "%Su %Lp" "$tailscale_plist")" = "root 644" ]'
-check "the binary the daemon runs is root-owned all the way up" \
-  'root_owned_path "$(daemon_program)"'
-check "the CLI this repo runs under sudo is root-owned all the way up" \
-  'root_owned_path /usr/local/bin/tailscale'
-
-# Which is also what says tailscale.sh has been re-run since the last `brew
-# upgrade tailscale`: the copies are Homebrew's exact bytes or they are stale.
-check "the copies are the formula's current binaries" \
-  'cmp -s "$(brew --prefix tailscale)/bin/tailscaled" "$(daemon_program)" &&
-   cmp -s "$(brew --prefix tailscale)/bin/tailscale" /usr/local/bin/tailscale'
+# `brew services start` installs the plist and `brew services stop` takes it back
+# out, so its presence in the boot path is what says the daemon is registered to
+# start at boot — and it reads without root, where the system domain does not.
+check "brew services registered tailscaled as a system daemon" \
+  '[ -n "$tailscale_daemon" ] &&
+   [ -f "/Library/LaunchDaemons/$tailscale_daemon.plist" ]'
+check "the daemon this replaced is gone" \
+  '[ ! -e "/Library/LaunchDaemons/$retired_daemon.plist" ]'
 
 # The daemon is in the system domain, which needs root to read — and a Mac being
 # provisioned by hand should not meet a password prompt inside a test.
 if /usr/bin/sudo -n /usr/bin/true 2>/dev/null; then
   check "tailscaled is a loaded system daemon" \
     '/usr/bin/sudo -n /bin/launchctl print "system/$tailscale_daemon"'
-  # Two tailscaled cannot share one tunnel, and brew services' one runs the
-  # account-writable binary this replaced.
-  check "brew services' tailscale daemon is gone" \
-    '! /usr/bin/sudo -n /bin/launchctl print system/sh.brew.tailscale'
+  # Two tailscaled cannot share one tunnel.
+  check "the daemon this replaced is not loaded" \
+    '! /usr/bin/sudo -n /bin/launchctl print "system/$retired_daemon"'
 else
   echo "  --    sudo wants a password, so tailscaled's daemon was not checked"
 fi
 
 # The prefs, which tailscale.sh writes whether or not the node has ever logged in.
-# Readable without root on macOS; the sudo is the fallback for a daemon that
-# disagrees.
+# tailscaled gives a read-write connection to members of the admin group on macOS,
+# so no root for either of these; the sudo is the fallback for an account outside
+# that group, whose connection is read-only and which cannot read prefs at all.
 prefs() {
   tailscale debug prefs 2>/dev/null ||
-    /usr/bin/sudo -n /usr/local/bin/tailscale debug prefs 2>/dev/null
+    /usr/bin/sudo -n "$(brew --prefix tailscale)/bin/tailscale" debug prefs 2>/dev/null
 }
 export -f prefs
 
@@ -436,6 +402,28 @@ export rendered
 
 sed "s/__USER__/$(id -un)/g" "$root/system/sudoers/claude-root" \
   >"$rendered/sudoers"
+
+# Every component of a path root executes, the path itself included: owned by root
+# and writable by nobody else, or the file at the end of it is only as safe as the
+# weakest directory above it.
+root_owned_path() {
+  local path="$1" owner mode
+
+  while :; do
+    owner="$(stat -f '%Su' "$path" 2>/dev/null)" || return 1
+    mode="$(stat -f '%OLp' "$path" 2>/dev/null)" || return 1
+
+    # stat reads the link rather than what it points at, and a root-owned link
+    # into a directory the account can write is the hole this is looking for.
+    [ ! -L "$path" ] || return 1
+    [ "$owner" = root ] || return 1
+    [ $((8#$mode & 8#022)) -eq 0 ] || return 1
+
+    case "$path" in /) return 0 ;; esac
+    path="$(dirname "$path")"
+  done
+}
+export -f root_owned_path
 
 # Never a symlink, whatever else is true of it: the account can write the
 # checkout, so a link at this path would hand every session on this Mac root.

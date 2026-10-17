@@ -29,9 +29,9 @@ brew "jq"
 # this a root system daemon that is up before anybody logs in.
 #
 # This one is the exception to `brew bundle upgrade` being the whole of an
-# upgrade: root runs a copy of these binaries rather than the formula's own, so
-# `brew upgrade tailscale` moves nothing until tailscale.sh is re-run — which is
-# also the point at which the daemon is restarted, from the LAN.
+# upgrade: root is running the tailscaled it exec'd at the last daemon start, so
+# an upgraded formula reaches it only through `sudo brew services restart
+# tailscale`, from the LAN, since that drops every tailnet connection.
 brew "tailscale"
 
 # docker on a Mac is a Linux VM and a CLI pointed into it, and OrbStack is both:

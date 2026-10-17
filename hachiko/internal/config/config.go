@@ -229,9 +229,6 @@ func FromEnv() Config {
 		cache = filepath.Join(home, "Library", "Caches")
 	}
 
-	host, _ := os.Hostname()
-	host, _, _ = strings.Cut(host, ".")
-
 	// Beside the wrapper rather than beside the binary: the wrapper is what mise
 	// links into ~/.local/bin, and the env file is linked next to it, while the
 	// binary lives in a cache that holds nothing else.
@@ -317,7 +314,9 @@ func FromEnv() Config {
 
 		PostKeep: time.Duration(envInt64("HACHIKO_POST_KEEP", 3*86400)) * time.Second,
 
-		Host:    host,
+		// Fixed rather than the kernel hostname, which the router can rename: shibuya keys a
+		// Mac by this name, so a rename reads there as this Mac going offline.
+		Host:    envString("HACHIKO_HOST", "mac-mini"),
 		Display: envString("HACHIKO_DISPLAY", "Mac mini"),
 	}
 }

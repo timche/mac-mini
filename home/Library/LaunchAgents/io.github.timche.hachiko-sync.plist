@@ -18,16 +18,15 @@
   <!-- The PATH is for the wrapper itself, for the mise that rebuilds the binary when
        the sources have changed, for the op that resolves the bot token when there is a
        failure to report, for the git every pass shells out to, and for the claude in
-       ~/.local/bin that writes a commit subject from the diff. The socket is the
-       ssh-agent claude/ssh-agent.sh keeps the signing key in — these commits are
-       signed, and the SSH_AUTH_SOCK launchd hands out holds nothing. exec, so the
-       exit status launchd sees is the daemon's rather than sh's and KeepAlive below
-       still reads it. -->
+       ~/.local/bin that writes a commit subject from the diff. These commits are
+       signed, and the key is a file ~/.gitconfig names, so there is nothing else for
+       this shell to export. exec, so the exit status launchd sees is the daemon's
+       rather than sh's and KeepAlive below still reads it. -->
   <key>ProgramArguments</key>
   <array>
     <string>/bin/sh</string>
     <string>-c</string>
-    <string>export PATH="$HOME/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"; export SSH_AUTH_SOCK="$HOME/.ssh/agent.sock"; exec "$HOME/.local/bin/hachiko" sync &gt;&gt;"$HOME/Library/Logs/hachiko-sync.log" 2&gt;&amp;1</string>
+    <string>export PATH="$HOME/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"; exec "$HOME/.local/bin/hachiko" sync &gt;&gt;"$HOME/Library/Logs/hachiko-sync.log" 2&gt;&amp;1</string>
   </array>
   <key>RunAtLoad</key>
   <true/>

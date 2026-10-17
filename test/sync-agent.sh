@@ -67,7 +67,7 @@ trap cleanup EXIT
 cat >"$stand_in" <<'SH'
 #!/bin/sh
 # What the agent's shell handed it, and a status no shell of its own would pick.
-printf 'HOME=%s\nPATH=%s\nSSH_AUTH_SOCK=%s\n' "$HOME" "$PATH" "$SSH_AUTH_SOCK"
+printf 'HOME=%s\nPATH=%s\n' "$HOME" "$PATH"
 exit 7
 SH
 chmod +x "$stand_in"
@@ -109,14 +109,12 @@ done
 
 check "the shell opened the log the plist names" '[ -s "$log" ]'
 
-# The three that would each be an unexpanded ~ or $HOME in a plist launchd rendered
+# The two that would each be an unexpanded ~ or $HOME in a plist launchd rendered
 # nothing for: the account's home directory reached the job, and the shell spent it.
 check "launchd handed the job the account's home directory" \
   'grep -qx "HOME=$HOME" "$log"'
 check "the job's PATH reaches the wrapper and Homebrew" \
   'grep -q "^PATH=$HOME/.local/bin:/opt/homebrew/bin:" "$log"'
-check "the job reaches the ssh-agent holding the signing key" \
-  'grep -qx "SSH_AUTH_SOCK=$HOME/.ssh/agent.sock" "$log"'
 
 # What KeepAlive { SuccessfulExit = false } reads, and the reason the command execs
 # rather than calling: a status of the program's own, not a shell's. 7 raw, or the

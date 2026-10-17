@@ -194,7 +194,7 @@ func (f Failure) action() string {
 	case failedCommit:
 		return "**Needs you:** nothing in that repository is being committed, so nothing " +
 			"written there is safe. " + wording.CodeSpan("git status") + " in it says why; a " +
-			"lock file left by a killed git and a signing key the agent has lost are the two " +
+			"lock file left by a killed git and a signing key git cannot read are the two " +
 			"usual answers. Sync tries again every minute."
 	default:
 		return "**Needs you:** nothing written there is reaching the origin. " +

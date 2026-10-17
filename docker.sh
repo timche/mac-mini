@@ -23,8 +23,7 @@
 #
 # Start at login means a login item, so docker here is only running once the Mac
 # has logged itself in. That is the auto-login unattended.sh checks for and will
-# not turn on, and it is the same thing the agent holding the signing key depends
-# on.
+# not turn on, and it is the same thing hachiko and the herdr server depend on.
 #
 # Not fatal. Every step says what it could not do, and a Mac with no VM running is
 # still the machine the rest of this repo built.

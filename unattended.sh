@@ -234,9 +234,9 @@ else
   echo
   if [ -z "$auto_login_user" ]; then
     echo "warning: auto-login is off. After a restart this Mac sits at the login" >&2
-    echo "window, where there is no gui/$(id -u) domain — so hachiko and the" >&2
-    echo "ssh-agent that holds the signing key are not running, and nothing says" >&2
-    echo "so beyond commits failing to sign." >&2
+    echo "window, where there is no gui/$(id -u) domain — so neither hachiko nor" >&2
+    echo "the herdr server is running, and nothing says so beyond a Mac nobody" >&2
+    echo "can attach a session on." >&2
   else
     echo "warning: auto-login logs in $auto_login_user rather than $user, whose" >&2
     echo "session is the one the agents are loaded into." >&2

@@ -157,16 +157,12 @@ jobs:
           npm test
           npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/shibuya-dry"
 
-      # The signing key and the agent that holds it, with a stub op standing in
-      # for 1Password. The one thing here that cannot be checked without a vault.
-      - run: test/signing-agent.sh
+      # The signing key, with a stub op standing in for 1Password. The one thing
+      # here that cannot be checked without a vault.
+      - run: test/signing-key.sh
 
-      # The same agent as launchd loads it for the account itself, which is what
-      # proves the two links: a symlinked plist bootstraps, and a wrapper that
-      # changed in the checkout restarts the job. A runner has a gui domain, which
-      # is the one thing this cannot do without — and the same is what
-      # sync-agent.sh needs.
-      - run: test/agent-links.sh
+      # The sync agent as launchd loads it, under a label of its own. A runner has
+      # a gui domain, which is the one thing this cannot do without.
       - run: test/sync-agent.sh
 
       # machine.sh left the sshd drop-in out for want of a key to log in with,

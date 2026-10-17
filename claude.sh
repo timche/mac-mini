@@ -10,7 +10,7 @@
 #
 # Three phases: install.sh links $HOME out of this checkout and installs the
 # tooling those files configure, login.sh logs in to GitHub and Claude Code, and
-# signing-key.sh puts the commit-signing key into an agent. install.sh first,
+# signing-key.sh writes the commit-signing key into ~/.ssh. install.sh first,
 # because login.sh logs in to a Claude Code it installs and signing-key.sh needs
 # the user.email install.sh's .gitconfig carries; login.sh runs it again for the
 # half that wanted a token. shibuya is deployed and its ping token made after all

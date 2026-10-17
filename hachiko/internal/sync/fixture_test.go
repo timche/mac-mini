@@ -57,7 +57,7 @@ type fakeRepo struct {
 	// not.
 	fetchFails int
 	fetchText  string
-	// What a failed commit printed. The signing key the agent has lost by default, which is a
+	// What a failed commit printed. A signing key git cannot read by default, which is a
 	// commit that will not be made however many times it is tried; a locked index is the
 	// other shape and is nobody's news until it lasts.
 	commitFails int

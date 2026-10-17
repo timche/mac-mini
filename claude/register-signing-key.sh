@@ -4,10 +4,9 @@
 # trusts the key on this machine; this is the other half, and the only part of it
 # that needs an account rather than a file.
 #
-# The key comes from the agent holding it, or from 1Password when the agent is not
-# up yet. Never from a file: nothing here writes one, and the agent is the same
-# place git asks under gpg.ssh.defaultKeyCommand, so what gets registered is what
-# signatures will carry.
+# The key comes from the file home/.gitconfig names, so what gets registered is
+# what signatures will carry, or from 1Password when signing-key.sh has not
+# written that file yet.
 #
 # Everything that stops it is a skip, not a failure: no key to be had yet, no gh,
 # gh not logged in, or a token without the scope. On a fresh Mac all of those are
@@ -23,18 +22,15 @@ set +x
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# The agent ssh-agent.sh keeps, named rather than read from SSH_AUTH_SOCK: launchd
-# hands every session a socket of its own whose agent holds nothing of this.
-socket="$HOME/.ssh/agent.sock"
+key_file="$HOME/.ssh/id_signing.pub"
 
 item="${SIGNING_KEY_OP_ITEM:-op://dev/ssh-commit-signing}"
 token_file="${OP_SERVICE_ACCOUNT_TOKEN_FILE:-$HOME/.config/op/service-account-token}"
 
 public=""
 
-# The first key, because that is the one git signs with when it asks the agent.
-if [ -S "$socket" ]; then
-  public="$(SSH_AUTH_SOCK="$socket" ssh-add -L 2>/dev/null | head -n 1 || true)"
+if [ -f "$key_file" ]; then
+  public="$(head -n 1 "$key_file" || true)"
 fi
 
 if [ -z "$public" ] && command -v op >/dev/null 2>&1 && [ -f "$token_file" ]; then
@@ -43,8 +39,8 @@ if [ -z "$public" ] && command -v op >/dev/null 2>&1 && [ -f "$token_file" ]; th
 fi
 
 if [ -z "$public" ]; then
-  echo "the agent at $socket holds no key and $item could not be read, so" >&2
-  echo "nothing was registered — run $repo/signing-key.sh first" >&2
+  echo "$key_file is not there and $item could not be read, so nothing was" >&2
+  echo "registered — run $repo/signing-key.sh first" >&2
   exit 0
 fi
 
@@ -52,9 +48,9 @@ staged="$(mktemp)"
 trap 'rm -f "$staged"' EXIT
 printf '%s\n' "$public" >"$staged"
 
-# Whatever served it could have served something else — a field holding a note, an
-# agent answering with a line that is not a key — and a key GitHub accepted but
-# cannot match would be found out months later as a signature nobody can verify.
+# Whatever served it could have served something else — a field holding a note, a
+# file somebody wrote by hand — and a key GitHub accepted but cannot match would be
+# found out months later as a signature nobody can verify.
 if ! ssh-keygen -l -f "$staged" >/dev/null 2>&1; then
   echo "what came back is not a public key ssh-keygen recognises, so nothing" >&2
   echo "was registered" >&2

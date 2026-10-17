@@ -1,6 +1,7 @@
 [user]
 	name = Tim Cheung
 	email = tim@cheung.io
+	signingkey = ~/.ssh/id_signing.pub
 [credential "https://github.com"]
 	helper = 
 	helper = !gh auth git-credential
@@ -12,7 +13,6 @@
 [commit]
 	gpgsign = true
 [gpg "ssh"]
-	defaultKeyCommand = ssh-add -L
 	allowedSignersFile = ~/.ssh/allowed_signers
 [url "https://github.com/"]
 	insteadOf = git@github.com:

@@ -11,7 +11,7 @@
 # daemon and runs before anybody logs in, so a Mac whose auto-login fails or whose
 # GUI session dies is still on the tailnet and still reachable — where the app is
 # a login item inside a session, the same dependency that makes docker and the
-# signing agent wait for one. Tailscale call tailscaled on macOS the less-tested
+# herdr server wait for one. Tailscale call tailscaled on macOS the less-tested
 # variant and point unattended installs at it, which is what this is.
 #
 # Root runs Homebrew's own binary under the LaunchDaemon `brew services` writes,

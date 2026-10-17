@@ -266,11 +266,11 @@ func TestALogIsItsSizeAgainstTheCapTheWatchKeepsItUnder(t *testing.T) {
 	f := newFixture(t)
 	f.log("hachiko.log", 1200)
 	f.log("herdr.log", 11*1024)
-	f.logs = append(f.logs, Log{Path: f.cfg.Home + "/Library/Logs/ssh-agent.log"})
+	f.logs = append(f.logs, Log{Path: f.cfg.Home + "/Library/Logs/hachiko-listen.log"})
 
 	harness.Wants(t, f.row("Logs", "~/Library/Logs/hachiko.log"), "1 MB of 10 MB")
 	harness.Wants(t, f.row("Logs", "~/Library/Logs/herdr.log"), "11 MB of 10 MB")
-	harness.Wants(t, f.row("Logs", "~/Library/Logs/ssh-agent.log"), "nothing has been written to it")
+	harness.Wants(t, f.row("Logs", "~/Library/Logs/hachiko-listen.log"), "nothing has been written to it")
 
 	f.colour = true
 	harness.Wants(t, f.row("Logs", "~/Library/Logs/herdr.log"), "\x1b[33m11 MB of 10 MB\x1b[0m")

@@ -76,7 +76,7 @@ func TestALockThatLastsIsReported(t *testing.T) {
 }
 
 // Anything else a commit says is a commit that will not be made however often it is tried —
-// the signing key the agent has lost is the usual one — and that is a failure at once.
+// a signing key git cannot read is the usual one — and that is a failure at once.
 func TestACommitThatFailsForAnyOtherReasonIsStillAFailureAtOnce(t *testing.T) {
 	f := newFixture(t)
 	f.tree.status = " M a.md\x00"

@@ -255,15 +255,6 @@ check "non-interactive zsh finds the shims before Homebrew before /usr/bin" \
 check "login zsh keeps that order through path_helper" 'zsh_path_order -l'
 check "interactive zsh keeps that order" 'zsh_path_order -i'
 
-# The signing key lives in the agent claude/ssh-agent.sh keeps at that socket, and
-# nothing finds it without this: launchd hands every session an SSH_AUTH_SOCK
-# of its own whose agent holds nothing. Unguarded in .zshenv, so it is set
-# whether or not the agent happens to be up — which is what makes it
-# assertable on a runner that has no agent at all.
-check "zsh points at the agent socket claude/ssh-agent.sh keeps" \
-  '[ "$(PATH=$stock_path zsh -c "print -r -- \$SSH_AUTH_SOCK")" = \
-     "$HOME/.ssh/agent.sock" ]'
-
 # Both hooks in .gitconfig are defined in config rather than in .git/hooks, which
 # git learned to run in 2.54: an older git reads those sections and runs neither,
 # so every commit goes unscanned and every new worktree uninstalled with nothing
@@ -292,23 +283,50 @@ check "every commit is scanned for secrets, beside the repository's own hooks" \
 
 check "commit signing stays on"     'git config --get commit.gpgsign | grep -q true'
 
-# The key is the agent's and no file names it: gpg.ssh.defaultKeyCommand is how git
-# asks, and with no user.signingkey it signs with the first key the agent answers
-# with. Read out of the tracked file rather than the effective config, which a
-# machine-local override is allowed to disagree with.
+# The key is a file git finds through the `~` it expands itself, and nothing asks
+# an agent for one. Read out of the tracked file rather than the effective config,
+# which a machine-local override is allowed to disagree with.
 export tracked="$repo/home/.gitconfig"
 
-check "the tracked config names no signing key" \
-  '[ -f "$tracked" ] && ! git config --file "$tracked" --get user.signingkey'
-check "the tracked config asks the agent for one" \
-  '[ "$(git config --file "$tracked" --get gpg.ssh.defaultKeyCommand)" = "ssh-add -L" ]'
+check "the tracked config names the signing key file" \
+  '[ "$(git config --file "$tracked" --get user.signingkey)" = "~/.ssh/id_signing.pub" ]'
+check "the tracked config asks no agent for a key" \
+  '! git config --file "$tracked" --get gpg.ssh.defaultKeyCommand'
 check "the tracked config includes the machine-local override" \
   '[ "$(git config --file "$tracked" --get include.path)" = "~/.gitconfig.local" ]'
 
 # The effective config too, since the machine-local override is untracked and
-# written by hand: a key named there would be signed with in place of the agent's.
-check "nothing outside the agent names a signing key" \
-  '! git config --get user.signingkey'
+# written by hand: a key named there would be signed with in place of this one.
+check "nothing outside the tracked config names a signing key" \
+  '[ "$(git config --get user.signingkey)" = "~/.ssh/id_signing.pub" ]'
+
+# The key itself, which only a Mac with a 1Password service account has:
+# claude/signing-key.sh writes both halves and skips where there is no token.
+export signing_key="$HOME/.ssh/id_signing"
+
+if [ -f "$signing_key" ]; then
+  # Anything running as the account can read it, which is the whole of what bounds
+  # it; nobody else may.
+  check "the directory holding the signing key is the account's alone" \
+    '[ "$(stat -f %Lp "$HOME/.ssh")" = 700 ]'
+  check "the signing key is a plain file only the account can read" \
+    '[ ! -L "$signing_key" ] && [ "$(stat -f %Lp "$signing_key")" = 600 ] &&
+     [ "$(stat -f %Su "$signing_key")" = "$(id -un)" ]'
+  check "the public half beside it is the same key" \
+    '[ "$(ssh-keygen -y -f "$signing_key" | awk "{print \$1\" \"\$2}")" = \
+       "$(awk "{print \$1\" \"\$2}" "$signing_key.pub")" ]'
+  check "a commit signs with it and verifies against the trust list" \
+    'd="$(mktemp -d)" && git -C "$d" init -q &&
+     git -C "$d" commit --allow-empty -q -m signed &&
+     [ "$(git -C "$d" log --format=%G? -1)" = G ]'
+else
+  echo "  skip  the signing key (no 1Password service account on this machine)"
+fi
+
+# git asks no agent for a key, so a job still loading one into an ssh-agent would be
+# a private key in memory that nothing reads.
+check "no ssh-agent LaunchAgent of this repository's is loaded" \
+  '! launchctl print "gui/$(id -u)/io.github.timche.ssh-agent" >/dev/null 2>&1'
 
 # A new worktree of a JS project, installed from config rather than remembered.
 # The fixture is a repository with a bun lockfile and a bun of its own on PATH
@@ -849,9 +867,7 @@ check "every log the watch caps is one this machine's own agents write" \
    for name in herdr.log hachiko.log hachiko-gc.log hachiko-sync.log hachiko-listen.log; do
      grep -qF "under(\"$name\")" "$cap" || exit 1
      grep -rqF "Library/Logs/$name" "$repo/home/Library/LaunchAgents/" || exit 1
-   done &&
-   grep -qF "under(\"ssh-agent.log\")" "$cap" &&
-   grep -qF "Library/Logs/ssh-agent.log" "$repo/launchd/agent.sh"'
+   done'
 
 # The one that is renamed rather than copied, because launchd opens it itself once per run
 # of a job that exits between them. Everything else on the list is held open for the life of
@@ -896,13 +912,12 @@ check "the sync agent runs hachiko sync through a shell, with no key launchd lea
    ! plutil -extract EnvironmentVariables xml1 -o - "$sync_plist" &&
    ! plutil -extract WatchPaths xml1 -o - "$sync_plist"'
 
-# Its own commits are signed, and it reads no rc file: the socket has to come from the
-# agent or every push it makes fails on a key it cannot find. The PATH because launchd
-# hands a job almost none, and this one shells out to git on every pass and to the
-# `claude` in ~/.local/bin for the subject of each commit.
-check "the sync agent reaches the ssh-agent holding the signing key, git and claude" \
+# It reads no rc file, so the PATH is the shell's to export: launchd hands a job almost
+# none, and this one shells out to git on every pass and to the `claude` in
+# ~/.local/bin for the subject of each commit. Its commits are signed from the key
+# ~/.gitconfig names, which needs nothing in the environment.
+check "the sync agent reaches git and claude" \
   'c="$(plutil -extract ProgramArguments.2 raw -o - "$sync_plist")" &&
-   printf "%s\n" "$c" | grep -qF "export SSH_AUTH_SOCK=\"\$HOME/.ssh/agent.sock\"" &&
    printf "%s\n" "$c" | grep -qF "export PATH=\"\$HOME/.local/bin:" &&
    printf "%s\n" "$c" | grep -qF ":/usr/bin:/bin:" &&
    printf "%s\n" "$c" | grep -qF ">>\"\$HOME/Library/Logs/hachiko-sync.log\" 2>&1"'
@@ -933,7 +948,7 @@ check "the sync config names the docs whole and this repository's home/.claude a
    ! grep -q "/Users/" "$HOME/.config/hachiko/sync"'
 
 # launchd reads a plist when it loads the job and never again, so one that changed —
-# the SSH_AUTH_SOCK added to it, say — would otherwise wait for a reboot. The reload
+# a directory added to its PATH, say — would otherwise wait for a reboot. The reload
 # is not reachable from here, a runner having no docs clone, so this reads the wiring
 # as the checks around it do.
 #

@@ -40,12 +40,10 @@ func cappedLogs(cfg config.Config) []cappedLog {
 
 	return []cappedLog{
 		// Held open for the life of the Mac: the herdr server and the two hachiko agents that
-		// never finish a run, each opened with `>>` by the shell in its plist, and the
-		// ssh-agent wrapper, which opens its own with `exec >>` when nobody is watching.
+		// never finish a run, each opened with `>>` by the shell in its plist.
 		{path: under("herdr.log"), how: capCopy},
 		{path: under("hachiko-sync.log"), how: capCopy},
 		{path: under("hachiko-listen.log"), how: capCopy},
-		{path: under("ssh-agent.log"), how: capCopy},
 
 		// This sweep's own stdout, which its plist opens with `>>` for each five-minute run.
 		// Between runs there is nothing to orphan and a rename would be safe, but the process

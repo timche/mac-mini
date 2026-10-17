@@ -254,7 +254,7 @@ func TestACopyPathThatIsASymlinkIsRefusedAndSaidSo(t *testing.T) {
 // every one of these is the account and nobody else.
 func TestAGenerationKeepsTheLogsOwnPermissions(t *testing.T) {
 	f := newFixture(t)
-	path := logFile(t, f, "ssh-agent.log", 2*logCapKB)
+	path := logFile(t, f, "hachiko-listen.log", 2*logCapKB)
 	if err := os.Chmod(path, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +308,7 @@ func TestTheSweepsOwnLogIsCappedUnderItself(t *testing.T) {
 
 func TestADryRunSaysWhatItWouldCapAndCapsNothing(t *testing.T) {
 	f := newFixture(t)
-	path := logFile(t, f, "ssh-agent.log", 2*logCapKB)
+	path := logFile(t, f, "hachiko-listen.log", 2*logCapKB)
 
 	out := f.dryRun()
 	harness.Wants(t, out, "would cap "+path+" at 2 MB, keeping what is there now as "+path+".0")

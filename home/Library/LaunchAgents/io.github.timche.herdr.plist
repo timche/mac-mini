@@ -20,8 +20,8 @@
 <dict>
   <key>Label</key>
   <string>io.github.timche.herdr</string>
-  <!-- A pane's shell reads .zshenv and .zprofile for its PATH and agent socket, so
-       the server itself needs only enough PATH to find them, a UTF-8 locale that
+  <!-- A pane's shell reads .zshenv and .zprofile for its own PATH, so the server
+       itself needs only enough PATH to find them, a UTF-8 locale that
        launchd does not hand a job, and exec so this job's own process is the
        launcher and nothing stands between launchd and it. The launcher takes the
        arguments herdr is to run with, and finds herdr under the same HOME launchd
@@ -30,7 +30,7 @@
   <array>
     <string>/bin/sh</string>
     <string>-c</string>
-    <string>export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"; export LANG=en_US.UTF-8; export SSH_AUTH_SOCK="$HOME/.ssh/agent.sock"; exec "$HOME/.local/libexec/herdr-launcher" server >>"$HOME/Library/Logs/herdr.log" 2>&amp;1</string>
+    <string>export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"; export LANG=en_US.UTF-8; exec "$HOME/.local/libexec/herdr-launcher" server >>"$HOME/Library/Logs/herdr.log" 2>&amp;1</string>
   </array>
   <key>RunAtLoad</key>
   <true/>

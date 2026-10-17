@@ -82,31 +82,15 @@ fi
 
 # The machine
 
-# Every agent below whose plist is a symlink into this checkout keeps a copy here
-# of the definition launchd was last loaded from: comparing the link's target
-# across the bootstrap says nothing, since what it points at is a file a pull
-# changed before this script ever ran. Each copy is written only once the load
-# succeeded, so a load that failed leaves the next run to try again rather than to
-# skip the reload. Beside the Dock marker rather than in ~/Library/LaunchAgents,
-# which launchd reads at login and is for plists.
+# Where each agent's copy of the definition launchd was last loaded from goes.
+# Beside the Dock marker rather than in ~/Library/LaunchAgents, which launchd reads
+# at login and is for plists.
 state="${XDG_STATE_HOME:-$HOME/.local/state}/mac-mini"
-
-gc_label=io.github.timche.hachiko-gc
-gc_plist="$HOME/Library/LaunchAgents/$gc_label.plist"
-
-# The sweep's plist is the one still rendered rather than linked, so the bootstrap
-# rewrites the file itself and there is nothing left to compare against afterwards.
-gc_plist_before="$(mktemp)"
-trap 'rm -f "$gc_plist_before"' EXIT
-
-if [ -f "$gc_plist" ]; then
-  cp "$gc_plist" "$gc_plist_before"
-fi
 
 # Finder reads its preferences once at launch, and mise deliberately restarts no
 # application — so the bootstrap below can leave Finder showing the old thing
-# with the new value already stored. Taken aside first for the same reason the
-# plists are: afterwards there is nothing to compare against.
+# with the new value already stored. Read before the bootstrap, which is the thing
+# that changes them, so afterwards there is nothing to compare against.
 # The whole domain rather than the four keys, so this cannot drift out of step
 # with mise.toml's list, plus the one Finder preference that lives in the global
 # domain.
@@ -399,6 +383,26 @@ uid="$(id -u)"
 # not there fails before the job starts.
 mkdir -p "$HOME/Library/Logs"
 
+# Every agent below but herdr's is loaded through this, and the comparison is the
+# whole of why: launchd reads a plist at bootstrap and not again, so one a pull
+# changed reaches a job that is already loaded only through a bootout and a fresh
+# bootstrap. The plist is a link into this checkout, so comparing the link's target
+# across the bootstrap says nothing — what it points at is the file a pull already
+# changed — and the copy here, written only once a load succeeded, is what there is
+# to compare against. A load that failed leaves no copy, so the next run tries again
+# rather than skipping the reload. The caller says what a failure costs.
+load_agent() {  # label plist
+  local saved="$state/$1.plist.loaded"
+
+  if launchctl print "gui/$uid/$1" >/dev/null 2>&1; then
+    cmp -s "$2" "$saved" && { echo "$1 is already loaded"; return 0; }
+    launchctl bootout "gui/$uid/$1" || true
+  fi
+
+  launchctl bootstrap "gui/$uid" "$2" && mkdir -p "$state" && cp "$2" "$saved" &&
+    echo "loaded $1"
+}
+
 # The sweep that follows a removed worktree, on a timer because no removal hands
 # anything a hook: herdr, Claude Code and `git worktree remove` all leave, and
 # Claude Code's WorktreeRemove does not fire for a git worktree. Nothing gates it
@@ -413,99 +417,47 @@ mkdir -p "$HOME/Library/Logs"
 # worktree root only when it makes the first worktree.
 mkdir -p "$HOME/.herdr/worktrees"
 
+gc_label=io.github.timche.hachiko-gc
+gc_plist="$HOME/Library/LaunchAgents/$gc_label.plist"
+
 if [ ! -f "$gc_plist" ]; then
   echo "$gc_plist is missing — mise renders it from mise.toml" >&2
-else
-  gc_loaded=false
-  if launchctl print "gui/$uid/$gc_label" >/dev/null 2>&1; then
-    gc_loaded=true
-  fi
-
-  if [ "$gc_loaded" = true ] && ! cmp -s "$gc_plist_before" "$gc_plist"; then
-    launchctl bootout "gui/$uid/$gc_label" || true
-    gc_loaded=false
-  fi
-
-  if [ "$gc_loaded" = true ]; then
-    echo "$gc_label is already loaded"
-  elif launchctl bootstrap "gui/$uid" "$gc_plist"; then
-    echo "loaded $gc_label"
-  else
-    echo "could not load $gc_label — the gui/$uid domain needs a GUI session" \
-         "logged in on the Mac; nothing will sweep a removed worktree's" \
-         "containers until it is loaded, and \`hachiko gc\` runs by hand" >&2
-  fi
+elif ! load_agent "$gc_label" "$gc_plist"; then
+  echo "could not load $gc_label — the gui/$uid domain needs a GUI session" \
+       "logged in on the Mac; nothing will sweep a removed worktree's" \
+       "containers until it is loaded, and \`hachiko gc\` runs by hand" >&2
 fi
 
-# The watch over free space and the CPU, every five minutes. The plist is a link, so
-# what it points at says nothing about the file launchd read at load, and a copy of
-# that is what a reload is decided against.
+# The watch over free space and the CPU, every five minutes.
 #
 # Nothing gates it, and nothing here builds it. A bot token it cannot resolve and a
 # herdr it cannot reach are lines in its log rather than reasons not to watch, and
 # the binary is the wrapper's to build on the first run after a change.
 hachiko_label=io.github.timche.hachiko
 hachiko_plist="$HOME/Library/LaunchAgents/$hachiko_label.plist"
-hachiko_loaded="$state/$hachiko_label.plist.loaded"
 
 if [ ! -f "$hachiko_plist" ]; then
   echo "$hachiko_plist is missing — mise links it from mise.toml" >&2
-else
-  hachiko_is_loaded=false
-  if launchctl print "gui/$uid/$hachiko_label" >/dev/null 2>&1; then
-    hachiko_is_loaded=true
-  fi
-
-  if [ "$hachiko_is_loaded" = true ] && ! cmp -s "$hachiko_plist" "$hachiko_loaded"; then
-    launchctl bootout "gui/$uid/$hachiko_label" || true
-    hachiko_is_loaded=false
-  fi
-
-  if [ "$hachiko_is_loaded" = true ]; then
-    echo "$hachiko_label is already loaded"
-  elif launchctl bootstrap "gui/$uid" "$hachiko_plist"; then
-    mkdir -p "$state" && cp "$hachiko_plist" "$hachiko_loaded"
-    echo "loaded $hachiko_label"
-  else
-    echo "could not load $hachiko_label — the gui/$uid domain needs a GUI session" \
-         "logged in on the Mac; until it is loaded nothing notices a process" \
-         "logging the disk full or burning a core, and hachiko runs by hand" >&2
-  fi
+elif ! load_agent "$hachiko_label" "$hachiko_plist"; then
+  echo "could not load $hachiko_label — the gui/$uid domain needs a GUI session" \
+       "logged in on the Mac; until it is loaded nothing notices a process" \
+       "logging the disk full or burning a core, and hachiko runs by hand" >&2
 fi
 
-# The half that listens for a reply in Discord, in the same shape and for the same
-# reasons. It is loaded whether or not the feature is configured: with no channel and
-# no user in ~/.config/hachiko/discord it says so once per start and exits, and the
-# plist's five-minute throttle is what makes that cost nothing. Loading it only when
-# configured would mean a reply that works on a Mac somebody ran install.sh on after
-# filling the file in and nowhere else.
+# The half that listens for a reply in Discord. It is loaded whether or not the
+# feature is configured: with no channel and no user in ~/.config/hachiko/discord it
+# says so once per start and exits, and the plist's five-minute throttle is what makes
+# that cost nothing. Loading it only when configured would mean a reply that works on
+# a Mac somebody ran install.sh on after filling the file in and nowhere else.
 listen_label=io.github.timche.hachiko-listen
 listen_plist="$HOME/Library/LaunchAgents/$listen_label.plist"
-listen_loaded="$state/$listen_label.plist.loaded"
 
 if [ ! -f "$listen_plist" ]; then
   echo "$listen_plist is missing — mise links it from mise.toml" >&2
-else
-  listen_is_loaded=false
-  if launchctl print "gui/$uid/$listen_label" >/dev/null 2>&1; then
-    listen_is_loaded=true
-  fi
-
-  if [ "$listen_is_loaded" = true ] && ! cmp -s "$listen_plist" "$listen_loaded"; then
-    launchctl bootout "gui/$uid/$listen_label" || true
-    listen_is_loaded=false
-  fi
-
-  if [ "$listen_is_loaded" = true ]; then
-    echo "$listen_label is already loaded"
-  elif launchctl bootstrap "gui/$uid" "$listen_plist"; then
-    mkdir -p "$state" && cp "$listen_plist" "$listen_loaded"
-    echo "loaded $listen_label"
-  else
-    echo "could not load $listen_label — the gui/$uid domain needs a GUI session" \
-         "logged in on the Mac; until it is loaded a reply in Discord reaches" \
-         "nobody and the on-call session is answered in herdr alone" >&2
-  fi
+elif ! load_agent "$listen_label" "$listen_plist"; then
+  echo "could not load $listen_label — the gui/$uid domain needs a GUI session" \
+       "logged in on the Mac; until it is loaded a reply in Discord reaches" \
+       "nobody and the on-call session is answered in herdr alone" >&2
 fi
 
 # The daemon that carries edits upstream: `hachiko sync`, which commits and pushes
@@ -519,40 +471,17 @@ fi
 # than restart-looping.
 sync_label=io.github.timche.hachiko-sync
 sync_plist="$HOME/Library/LaunchAgents/$sync_label.plist"
-sync_loaded="$state/$sync_label.plist.loaded"
-
-sync_ready=false
-if [ -d "$docs/.git" ]; then
-  sync_ready=true
-fi
 
 if [ ! -f "$sync_plist" ]; then
   echo "$sync_plist is missing — mise links it from mise.toml" >&2
-elif [ "$sync_ready" != true ]; then
+elif [ ! -d "$docs/.git" ]; then
   echo "$sync_label is not running — it watches $docs and refuses a config" \
        "naming a path that is not a git repository; clone it and re-run" \
        "install.sh" >&2
-else
-  sync_is_loaded=false
-  if launchctl print "gui/$uid/$sync_label" >/dev/null 2>&1; then
-    sync_is_loaded=true
-  fi
-
-  if [ "$sync_is_loaded" = true ] && ! cmp -s "$sync_plist" "$sync_loaded"; then
-    launchctl bootout "gui/$uid/$sync_label" || true
-    sync_is_loaded=false
-  fi
-
-  if [ "$sync_is_loaded" = true ]; then
-    echo "$sync_label is already loaded"
-  elif launchctl bootstrap "gui/$uid" "$sync_plist"; then
-    mkdir -p "$state" && cp "$sync_plist" "$sync_loaded"
-    echo "loaded $sync_label"
-  else
-    echo "could not load $sync_label — the gui/$uid domain needs a GUI session" \
-         "logged in on the Mac; until it is loaded nothing carries what a session" \
-         "writes in $docs upstream, and \`hachiko sync --once\` runs by hand" >&2
-  fi
+elif ! load_agent "$sync_label" "$sync_plist"; then
+  echo "could not load $sync_label — the gui/$uid domain needs a GUI session" \
+       "logged in on the Mac; until it is loaded nothing carries what a session" \
+       "writes in $docs upstream, and \`hachiko sync --once\` runs by hand" >&2
 fi
 
 # The launcher the herdr agent starts, and the process macOS holds responsible for

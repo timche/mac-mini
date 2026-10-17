@@ -229,6 +229,12 @@ func FromEnv() Config {
 		cache = filepath.Join(home, "Library", "Caches")
 	}
 
+	stateDir := envString("HACHIKO_STATE_DIR", filepath.Join(cache, "hachiko"))
+	host := os.Getenv("HACHIKO_HOST")
+	if host == "" {
+		host = machineName(stateDir)
+	}
+
 	// Beside the wrapper rather than beside the binary: the wrapper is what mise
 	// links into ~/.local/bin, and the env file is linked next to it, while the
 	// binary lives in a cache that holds nothing else.
@@ -274,7 +280,7 @@ func FromEnv() Config {
 		SwitchToken: envString("HACHIKO_SWITCH_TOKEN",
 			filepath.Join(home, ".config", "hachiko", "shibuya-token")),
 
-		StateDir: envString("HACHIKO_STATE_DIR", filepath.Join(cache, "hachiko")),
+		StateDir: stateDir,
 		WatchPlist: envString("HACHIKO_PLIST",
 			filepath.Join(home, "Library", "LaunchAgents", "io.github.timche.hachiko.plist")),
 
@@ -314,9 +320,7 @@ func FromEnv() Config {
 
 		PostKeep: time.Duration(envInt64("HACHIKO_POST_KEEP", 3*86400)) * time.Second,
 
-		// Fixed rather than the kernel hostname, which the router can rename: shibuya keys a
-		// Mac by this name, so a rename reads there as this Mac going offline.
-		Host:    envString("HACHIKO_HOST", "mac-mini"),
+		Host:    host,
 		Display: envString("HACHIKO_DISPLAY", "Mac mini"),
 	}
 }

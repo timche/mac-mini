@@ -157,7 +157,7 @@ func (s sweeper) sayCaughtUp(state *statedir.State, key string, now time.Time) {
 		About("", s.cfg.Host).
 		String()
 
-	if _, err := s.deps.Send(discord.Outgoing{Text: message, Thread: rec.Thread}); err != nil {
+	if _, err := s.deps.Send(discord.Outgoing{Text: message, Thread: rec.Thread, Outcome: true}); err != nil {
 		s.say("the message saying %s has caught up did not send and is left to the next check: %v", path, err)
 		return
 	}

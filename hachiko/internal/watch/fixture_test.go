@@ -138,6 +138,7 @@ type fixture struct {
 	promptErr error
 
 	sent         []string
+	outcomes     []bool
 	sendAttempts int
 	sendErr      error
 	truncated    []string
@@ -368,6 +369,7 @@ func (f *fixture) deps() Deps {
 				return "", f.sendErr
 			}
 			f.sent = append(f.sent, out.Text)
+			f.outcomes = append(f.outcomes, out.Outcome)
 			f.sentTo = append(f.sentTo, out.Thread)
 
 			// What the bot answers when a message opened a thread: an id of its own, which

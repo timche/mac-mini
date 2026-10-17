@@ -54,6 +54,7 @@ func TestACommitThatGoesUpInTheEndIsSaidToHaveCaughtUp(t *testing.T) {
 	harness.Equal(t, f.sentCount(), 2, "messages sent")
 	harness.Wants(t, f.lastSent(), "🟢 The repository whose commits were late has pushed them")
 	harness.Equal(t, f.sentTo[1], "thread-late /Users/x/.mac-mini", "where the clear went")
+	harness.Equal(t, f.outcomes[1], true, "whether the clear closed its post")
 }
 
 // The debounce is seconds, so a tree still dirty after ten minutes is not one waiting out a

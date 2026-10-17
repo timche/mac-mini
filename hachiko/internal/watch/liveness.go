@@ -264,7 +264,7 @@ func (s sweeper) sayAgentBack(state *statedir.State, now time.Time, a liveness, 
 		About("", s.cfg.Host).
 		String()
 
-	if _, err := s.deps.Send(discord.Outgoing{Text: message, Thread: state.Agent(a.Key).Thread}); err != nil {
+	if _, err := s.deps.Send(discord.Outgoing{Text: message, Thread: state.Agent(a.Key).Thread, Outcome: true}); err != nil {
 		s.say("the message saying %s is back did not send and is left to the next check: %v", a.Subject, err)
 		return
 	}
@@ -286,7 +286,7 @@ func (s sweeper) agentGone(state *statedir.State, a liveness) {
 
 	message := wording.Lead(wording.MarkerInfo, a.gone).About("", s.cfg.Host).String()
 
-	if _, err := s.deps.Send(discord.Outgoing{Text: message, Thread: state.Agent(a.Key).Thread}); err != nil {
+	if _, err := s.deps.Send(discord.Outgoing{Text: message, Thread: state.Agent(a.Key).Thread, Outcome: true}); err != nil {
 		s.say("the message saying %s has gone did not send and is left to the next check: %v", a.Subject, err)
 		return
 	}

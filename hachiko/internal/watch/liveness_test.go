@@ -273,6 +273,8 @@ func TestAListenerThatComesBackIsOneMoreLineInTheSameThread(t *testing.T) {
 	harness.Wants(t, out, "the Discord listener is running again")
 	harness.Wants(t, f.lastSent(), "🟢 The Discord listener is running again")
 	harness.Equal(t, f.sentTo[1], "thread-io.github.timche.hachiko-listen", "where the clear went")
+	harness.Equal(t, f.outcomes[0], false, "whether the alert closed its post")
+	harness.Equal(t, f.outcomes[1], true, "whether the clear closed its post")
 }
 
 // Answering from Discord ships off, and a listener that is off idles and writes no
@@ -302,6 +304,7 @@ func TestAListenerSwitchedOffClearsTheAlertOpenOnIt(t *testing.T) {
 	harness.Equal(t, f.sentCount(), 2, "messages sent")
 	harness.Wants(t, f.lastSent(), "ℹ️ Answering from Discord is switched off")
 	harness.Equal(t, f.sentTo[1], "thread-io.github.timche.hachiko-listen", "where the line went")
+	harness.Equal(t, f.outcomes[1], true, "whether the line closed its post")
 
 	// And nothing is left open about it, so turning it back on and stopping again is a fresh
 	// alert rather than one nobody hears about.

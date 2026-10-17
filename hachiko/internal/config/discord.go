@@ -13,6 +13,12 @@ import (
 type DiscordConfig struct {
 	ChannelID string
 	UserID    string
+
+	// Where the nightly update's summary goes, which is a plain text channel rather than
+	// the incident forum: what moved overnight is not an incident and has nothing to
+	// answer. Optional, and a Mac without one keeps the summary in hachiko's own log —
+	// anything that failed is still an incident in the forum.
+	UpdatesID string
 }
 
 // Whether a reply can be taken, which needs both: a channel with no account behind it
@@ -45,6 +51,8 @@ func readDiscordConfig(path string) DiscordConfig {
 			cfg.ChannelID = DiscordID(value)
 		case "user":
 			cfg.UserID = DiscordID(value)
+		case "updates":
+			cfg.UpdatesID = DiscordID(value)
 		}
 	}
 	return cfg

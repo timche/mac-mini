@@ -10,6 +10,10 @@
 # user:    the one account a reply is taken from. Everything else in the thread is ignored,
 #          the bot's own messages included, because a reply is an instruction to an agent
 #          with authority over this Mac.
+# updates: a plain text channel for the nightly update's summary of what moved, which is
+#          not an incident and has nothing to answer. Optional: without it the summary
+#          stays in hachiko's own log, and anything the update failed at is still an
+#          incident in the forum above.
 #
 # Both are snowflakes: enable Developer Mode in Discord and copy the id.
 #
@@ -23,3 +27,4 @@
 
 channel = 1556226410828275722
 user = 94004892942741504
+updates = 1561020044018847865

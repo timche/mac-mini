@@ -112,6 +112,18 @@ type Config struct {
 	GCPruneEvery time.Duration
 	GCPruneAge   string
 
+	// `hachiko update`, which is the one thing on this Mac that moves a version. Its own
+	// state directory and its own lock for the reason gc's are its own: an upgrade holds
+	// the lock across however long brew takes, and the five-minute check may not wait on
+	// it. The hour is local, since what it is for is the hours nobody is working.
+	UpdateStateDir string
+	UpdateLock     string
+	UpdateHour     int
+
+	// The oh-my-zsh clone mise.toml declares, which the update brings forward with a
+	// fast-forward pull.
+	OhMyZsh string
+
 	// The repositories `hachiko sync` keeps upstream, and the plist of the agent that does
 	// it. Its own state directory for the reason gc's is its own: what sync remembers about
 	// a paused repository and a failure it has posted is nothing the five-minute check reads
@@ -170,6 +182,11 @@ func (c Config) GCStamp() string { return filepath.Join(c.GCStateDir, "last-run"
 func (c Config) GCLabel() string {
 	return strings.TrimSuffix(filepath.Base(c.GCPlist), ".plist")
 }
+
+// When the last update that finished did so, derived rather than configured for the reason
+// the two below are: the stamp the update writes and the stamp the schedule reads cannot be
+// two paths.
+func (c Config) UpdateStamp() string { return filepath.Join(c.UpdateStateDir, "last-run") }
 
 // The same two for sync, derived for the same two reasons: the heartbeat sync writes and
 // the heartbeat the watch reads cannot be two paths, and the command a message tells Tim to
@@ -267,6 +284,11 @@ func FromEnv() Config {
 		GCPruneEvery:   time.Duration(envInt64("HACHIKO_GC_PRUNE_EVERY", 86400)) * time.Second,
 		GCPruneAge:     envString("HACHIKO_GC_PRUNE_AGE", "168h"),
 
+		UpdateStateDir: envString("HACHIKO_UPDATE_STATE_DIR", filepath.Join(cache, "hachiko-update")),
+		UpdateLock:     envString("HACHIKO_UPDATE_LOCK", filepath.Join(cache, "hachiko-update.lock")),
+		UpdateHour:     envHour("HACHIKO_UPDATE_HOUR", 4),
+		OhMyZsh:        envString("HACHIKO_OH_MY_ZSH", filepath.Join(home, ".oh-my-zsh")),
+
 		SyncConfig: envString("HACHIKO_SYNC_CONFIG",
 			filepath.Join(home, ".config", "hachiko", "sync")),
 		SyncStateDir: envString("HACHIKO_SYNC_STATE_DIR", filepath.Join(cache, "hachiko-sync")),
@@ -351,6 +373,16 @@ func envString(name, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// Midnight is an hour like any other, so zero cannot mean unset here the way it does for
+// every threshold below.
+func envHour(name string, fallback int) int {
+	v, err := strconv.Atoi(os.Getenv(name))
+	if err != nil || v < 0 || v > 23 {
+		return fallback
+	}
+	return v
 }
 
 func envInt64(name string, fallback int64) int64 {

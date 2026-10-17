@@ -11,9 +11,14 @@
 // sync` is the third, and the one that never finishes: it polls the repositories it is given
 // and commits and pushes what gets written in them, so a session's work publishes itself.
 //
+// `hachiko update` is the fourth, and the one thing on this Mac that moves a version: once a
+// night the five-minute check starts it, and it brings mise, the tools mise manages,
+// Homebrew's packages, herdr and oh-my-zsh forward and deals with what each of those leaves
+// behind.
+//
 // `hachiko status` is the one command here nothing on a timer runs: it is for a person or a
-// session in a terminal, and it says in one screen what the four of them are doing. It reads
-// and changes nothing at all.
+// session in a terminal, and it says in one screen what the others are doing. It reads and
+// changes nothing at all.
 //
 // Nothing in this file does any of it: it parses the command and hands it to the package
 // that owns it, which is what keeps a new one to one case and one import.
@@ -32,6 +37,7 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/session"
 	"github.com/timche/mac-mini/hachiko/internal/status"
 	"github.com/timche/mac-mini/hachiko/internal/sync"
+	"github.com/timche/mac-mini/hachiko/internal/update"
 	"github.com/timche/mac-mini/hachiko/internal/watch"
 )
 
@@ -39,6 +45,7 @@ const usage = `usage: hachiko [--dry-run | --test-alert]
        hachiko status
        hachiko gc [--dry-run]
        hachiko sync [--once | --dry-run]
+       hachiko update [--dry-run]
        hachiko notify [--outcome] <incident-id> <message-file>
        hachiko oncall <name> <brief-file>
        hachiko approval-request <incident-id> <action-file>
@@ -58,6 +65,11 @@ const usage = `usage: hachiko [--dry-run | --test-alert]
                      they change, until stopped; --once is one pass over every one of
                      them with the push delay ignored, and --dry-run says what the
                      daemon would commit and push and changes nothing
+  update             move this Mac's own tooling forward: mise and the tools it
+                     manages, Homebrew's packages, herdr, oh-my-zsh, and what
+                     each of those left to do afterwards; --dry-run says what
+                     would move and changes nothing. The five-minute check
+                     starts one a night, so this is the explicit "update now"
   notify             send a message about an incident to the channel Tim watches,
                      which is how the on-call session reports its findings;
                      --outcome marks the one that says the incident is resolved
@@ -122,6 +134,15 @@ func run(args []string) error {
 				return badUsage("sync takes --once or --dry-run, not both")
 			}
 			return sync.Run(cfg, once, dry)
+		case "update":
+			dry := false
+			for _, arg := range args[1:] {
+				if arg != "--dry-run" {
+					return badUsage("update takes --dry-run and nothing else")
+				}
+				dry = true
+			}
+			return update.Run(cfg, dry)
 		case "notify":
 			// A constant word and nothing of the incident's, so it is one of the few things
 			// here that may be an argument: ps showing it says only that a session said it had
@@ -173,7 +194,16 @@ func run(args []string) error {
 		}
 	}
 
-	return watch.Run(cfg, dry)
+	// The watch, and then the nightly update when it is owing. One agent rather than two,
+	// because an agent that fires once a day skips the day on a Mac that was asleep at the
+	// hour — and what the check starts is a process of its own, since an upgrade takes tens
+	// of minutes and the check has five. A watch that failed still gets its update started:
+	// the two are about different things.
+	err := watch.Run(cfg, dry)
+	if nightly := update.Nightly(cfg, dry); err == nil {
+		err = nightly
+	}
+	return err
 }
 
 // The flags the `op run` child is handed: a channel and a thread, which are ids in a URL

@@ -51,6 +51,11 @@ type Outgoing struct {
 	Thread     string
 	OpenThread string
 
+	// A channel other than the one every alert goes to, which is how the nightly update's
+	// summary reaches a text channel of its own. Empty means the configured channel, so
+	// nothing that alerts has to know there is more than one.
+	Channel string
+
 	// Whether this is the message that says the incident is over, which on a forum is the
 	// one that retags the post and closes it. A word rather than anything of the incident's,
 	// so it travels as an argument with the rest.
@@ -89,7 +94,7 @@ func ExecOP(op string, args []string) error {
 // something to send and not before. The thread the child opened comes back on its stdout,
 // which is the one thing it prints.
 func SendThroughOP(cfg config.Config, out Outgoing) (string, error) {
-	if cfg.Discord.ChannelID == "" {
+	if channelFor(cfg, out) == "" {
 		return "", errors.New(noChannel)
 	}
 
@@ -139,9 +144,17 @@ func SendThroughOP(cfg config.Config, out Outgoing) (string, error) {
 // The reference and never the value: what op resolves arrives in the child's
 // environment, and nothing about the token is in a command line ps shows to every process
 // on the machine.
+// Where a message goes: the channel it names, or the one every alert goes to.
+func channelFor(cfg config.Config, out Outgoing) string {
+	if out.Channel != "" {
+		return out.Channel
+	}
+	return cfg.Discord.ChannelID
+}
+
 func opArgs(cfg config.Config, self string, out Outgoing) []string {
 	args := append([]string{"op", "run"}, EnvFiles(cfg)...)
-	args = append(args, "--", self, "--send", "--channel", cfg.Discord.ChannelID)
+	args = append(args, "--", self, "--send", "--channel", channelFor(cfg, out))
 
 	if out.Thread != "" {
 		args = append(args, "--thread", out.Thread)

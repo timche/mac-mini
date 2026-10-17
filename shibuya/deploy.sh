@@ -1,65 +1,35 @@
 #!/bin/bash
 
-# Deploys shibuya, the dead man's switch hachiko checks in with, and does nothing at all
-# when its sources have not changed since the last deploy that worked.
-#
-# The hash is the whole point. install.sh calls this on every account install and an
-# install is run after every pull, so without it each one would spend an `op run` against
-# the service account's daily limit, a Cloudflare deploy, and an npm install — to upload
-# the same bundle. So a re-run with nothing to do touches neither 1Password nor the
-# network and says where it stands.
+# Deploys shibuya, the dead man's switch hachiko checks in with.
 #
 # This is the only thing that deploys the Worker: there is no release pipeline here and
-# nothing to publish, exactly as for the Go tools, and a deploy is a decision rather than
-# a timer. What it does not do is set the secrets — shibuya/secrets.sh is that, once, by
-# hand, because a token generated on the Mac is not in 1Password for a re-run to find.
+# nothing to publish, exactly as for the Go tools. claude.sh runs it on the way in, so a
+# fresh Mac has a switch rather than being reported offline a quarter of an hour after its
+# first sweep; every deploy after that is a decision somebody makes, which is why no
+# install runs it. What it does not do is set the secrets — shibuya/secrets.sh is that,
+# once, by hand, because a token generated on the Mac is not in 1Password for a re-run to
+# find.
 
 set -euo pipefail
 
-repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-dir="$repo/shibuya"
-state="${XDG_STATE_HOME:-$HOME/.local/state}/mac-mini"
-stamp="$state/shibuya.sha256"
-installed="$state/shibuya.package-lock.sha256"
-token_file="${SHIBUYA_TOKEN_FILE:-$HOME/.config/hachiko/shibuya-token}"
-
-force=false
-for arg in "$@"; do
-  case "$arg" in
-    --force) force=true ;;
-    *)
-      echo "usage: deploy.sh [--force]" >&2
-      exit 2
-      ;;
-  esac
-done
-
-# The contents and the names both, so a renamed or deleted source counts as a change. The
-# lockfile is in it because a wrangler or a vitest that moved is a different deploy, and
-# node_modules is not because npm's own record below answers for that.
-# Relative to shibuya/, because shasum prints the path it hashed and an absolute one would
-# make the same sources hash differently in a worktree than in the checkout.
-hash="$(
-  cd "$dir" &&
-    find src -type f 2>/dev/null | sort |
-    xargs shasum -a 256 2>/dev/null |
-    cat - <(shasum -a 256 wrangler.jsonc package.json package-lock.json tsconfig.json vitest.config.ts) |
-    shasum -a 256 | cut -d' ' -f1
-)"
-
-if [ "$force" = false ] && [ "$hash" = "$(cat "$stamp" 2>/dev/null)" ]; then
-  echo "shibuya is already deployed from these sources"
-  exit 0
+if [ "$#" -gt 0 ]; then
+  echo "usage: deploy.sh" >&2
+  exit 2
 fi
 
-# install.sh runs before op-token.sh on a fresh Mac, and op with no token and a terminal
-# offers to add a personal account instead of failing. claude.sh deploys again once the
-# token is stored.
-token_file="${OP_SERVICE_ACCOUNT_TOKEN_FILE:-$HOME/.config/op/service-account-token}"
-if [ -z "${OP_SERVICE_ACCOUNT_TOKEN:-}" ] && [ ! -f "$token_file" ]; then
-  echo "no 1Password service-account token yet, so shibuya was not deployed —" \
-       "claude.sh deploys it once one is stored"
-  exit 0
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+dir="$repo/shibuya"
+ping_token="${SHIBUYA_TOKEN_FILE:-$HOME/.config/hachiko/shibuya-token}"
+
+# op with no token and a terminal offers to add a personal account rather than failing, so
+# a Mac that has none is told instead of prompted at. claude.sh deploys once
+# signing-key.sh has stored one, and skips this script until then — which is also what
+# keeps CI from deploying.
+op_token="${OP_SERVICE_ACCOUNT_TOKEN_FILE:-$HOME/.config/op/service-account-token}"
+if [ -z "${OP_SERVICE_ACCOUNT_TOKEN:-}" ] && [ ! -f "$op_token" ]; then
+  echo "no 1Password service-account token, so shibuya cannot be deployed — run" \
+       "claude/signing-key.sh, which stores one" >&2
+  exit 1
 fi
 
 # mise's node, which is every project's here, asked about this checkout rather than about
@@ -87,21 +57,7 @@ export PATH
 
 cd "$dir"
 
-# `npm ci` deletes node_modules and installs it again from the lockfile, which is half a
-# minute this script has no reason to spend when the tree is already what the lockfile says.
-# What says it is: a hash of the lockfile written here after an install that worked.
-#
-# Not npm's own `node_modules/.package-lock.json`, which looks like the file to compare
-# against and is not — it is npm's resolved tree in a shape of its own, so it never equals
-# the lockfile and the comparison was an `npm ci` on every single run.
-lock_hash="$(shasum -a 256 package-lock.json | cut -d' ' -f1)"
-
-if [ ! -d node_modules ] || [ "$lock_hash" != "$(cat "$installed" 2>/dev/null)" ]; then
-  npm ci
-  mkdir -p "$state"
-  printf '%s\n' "$lock_hash" >"$installed"
-fi
-
+npm ci
 npm test
 
 # One --env-file, and the reference rather than the value: the API token reaches wrangler's
@@ -109,14 +65,12 @@ npm test
 # secrets.sh is what puts that in the Worker.
 op run --env-file "$dir/.env.op" -- npx wrangler deploy
 
-mkdir -p "$state"
-printf '%s\n' "$hash" >"$stamp"
 echo "deployed shibuya"
 
 # Said after the deploy rather than instead of it: a Worker with no PING_TOKEN set is one
 # that answers 401 to every check-in, and hachiko with no token file does not check in at
 # all, so a Mac that has never run secrets.sh has a switch that is deployed and deaf.
-if [ ! -f "$token_file" ]; then
-  echo "$token_file is missing, so nothing on this Mac can check in with shibuya —" \
+if [ ! -f "$ping_token" ]; then
+  echo "$ping_token is missing, so nothing on this Mac can check in with shibuya —" \
        "run shibuya/secrets.sh once to make the token and set the Worker's secrets" >&2
 fi

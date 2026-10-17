@@ -139,9 +139,9 @@ jobs:
       # shibuya, which needs no Mac: the tests run in workerd and would be happier on
       # ubuntu. They are here anyway, because this is the job that has mise's node — the
       # one every project on the Mac uses — and a second job would mean a second way to
-      # install node and a second place saying which version. install.sh calls deploy.sh,
-      # which runs these before it deploys, but reports rather than fails on a runner with
-      # no `op`, so without this step a broken Worker would land green.
+      # install node and a second place saying which version. Nothing in a run calls
+      # deploy.sh, which is what runs these before a real deploy, so without this step a
+      # broken Worker would land green.
       #
       # `tsc --noEmit` is in `npm test` as well as vitest: a Durable Object's whole
       # interface is a type, and the pool cannot run what does not compile.

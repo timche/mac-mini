@@ -71,16 +71,16 @@ signing_failed=0
 # the user.email out of the .gitconfig it links.
 "$repo/claude/signing-key.sh" || signing_failed=1
 
-# shibuya, the dead man's switch, after signing-key.sh rather than with install.sh's own
-# deploy at the top of this script: both steps here reach 1Password through `op run`, and
-# the service-account token they need is what signing-key.sh has just stored. A Mac that
-# never got this far is one hachiko cannot check in with, so shibuya reports it offline a
-# quarter of an hour after the first sweep — the switch has to be made on the way in.
+# shibuya, the dead man's switch, after signing-key.sh: both steps here reach 1Password
+# through `op run`, and the service-account token they need is what signing-key.sh has just
+# stored. A Mac that never got this far is one hachiko cannot check in with, so shibuya
+# reports it offline a quarter of an hour after the first sweep — the switch has to be made
+# on the way in. This is the only thing that deploys it on its own; every deploy after a
+# provision is run by hand.
 #
-# Reported rather than fatal, exactly as install.sh treats the same deploy: a Cloudflare
-# that is down or a service account with nothing left for the day is not a reason for the
-# account side to fail. Neither script prompts, so a provision with nobody watching
-# finishes either way, and deploy.sh does nothing at all when the sources have not moved.
+# Reported rather than fatal: a Cloudflare that is down or a service account with nothing
+# left for the day is not a reason for the account side to fail. Neither script prompts, so
+# a provision with nobody watching finishes either way.
 op_token_file="${OP_SERVICE_ACCOUNT_TOKEN_FILE:-$HOME/.config/op/service-account-token}"
 shibuya_token="${SHIBUYA_TOKEN_FILE:-$HOME/.config/hachiko/shibuya-token}"
 

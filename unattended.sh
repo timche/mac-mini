@@ -313,3 +313,26 @@ else
   echo >&2
   echo "  sudo mdutil -a -i off" >&2
 fi
+
+# Media analysis
+
+# Off, for the same reason as Spotlight: mediaanalysisd analyses photos and runs
+# on-device text embedding for search, on the CPU, for nobody on a headless Mac.
+# After a reboot it can hold two cores for hours.
+#
+# Disabled rather than booted out: the job is under System Integrity Protection,
+# which refuses a bootout, while `launchctl disable` only writes the account's
+# override and holds across reboots. A running copy is stopped by its pid, and
+# launchd does not start a disabled job again. A macOS update can enable it again,
+# which is why this runs on every pull.
+media_analysis="gui/$(id -u)/com.apple.mediaanalysisd"
+
+if launchctl print-disabled "gui/$(id -u)" 2>/dev/null |
+  grep -q '"com.apple.mediaanalysisd" => disabled'; then
+  echo "media analysis is off"
+elif launchctl disable "$media_analysis" 2>/dev/null; then
+  pkill -x mediaanalysisd 2>/dev/null || true
+  echo "media analysis is now off"
+else
+  echo "could not turn media analysis off" >&2
+fi

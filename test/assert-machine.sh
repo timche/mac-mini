@@ -366,6 +366,9 @@ fi
 check "Spotlight indexing is off" \
   'mdutil -s /System/Volumes/Data | grep -qi "indexing.*disabled"'
 
+check "media analysis is off" \
+  'launchctl print-disabled "gui/$(id -u)" | grep -q "\"com.apple.mediaanalysisd\" => disabled"'
+
 # Reading the system domain needs root, and a Mac being provisioned by hand should
 # not have this script sitting on a password prompt.
 if /usr/bin/sudo -n /usr/bin/true 2>/dev/null; then

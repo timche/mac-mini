@@ -401,9 +401,23 @@ check "the sudoers rule is a copy rather than a link" \
 # the three spellings, /private/tmp and /var/tmp both having /tmp inside them. A
 # bare ~ counts as well, which is why nothing in the helper's own output spells a
 # path that way.
-check "no action reaches into a path the account can write" \
-  '! grep -qE "NFSHomeDirectory|/Library/Logs|\\\$HOME|\\\$TMPDIR|/tmp|~/" \
-       "$helper_source"'
+#
+# reinstall_portless is cut out before the read, being the one named exception:
+# portless's daemon runs the account's own node and JavaScript as root by
+# portless's own design, so reinstalling it reaches paths the account writes and
+# opens nothing that is not open already. Everything outside that one function is
+# held to the rule.
+check "no action but the portless reinstall reaches into a path the account can write" \
+  '! sed "/^reinstall_portless() {\$/,/^}\$/d" "$helper_source" |
+       grep -qE "NFSHomeDirectory|/Library/Logs|\\\$HOME|\\\$TMPDIR|/tmp|~/"'
+
+# The TLDs the helper hands portless are the ones the account's shell tells every
+# client about, and the proxy serves what it was installed with — so a reinstall
+# with a list of its own would take a dev URL off the Mac.
+check "the helper's proxy TLDs are the ones home/.zshenv exports" \
+  'tlds="$(sed -n "s/^export PORTLESS_TLD=//p" "$root/home/.zshenv" | tr , " ")" &&
+   [ -n "$tlds" ] &&
+   "$helper_source" --list | grep -q "Proxy TLDs: $tlds"'
 
 # What the account can actually run, which is the whole point of the thing. -k so
 # the answer comes from the sudoers rule rather than from a password typed a
@@ -455,7 +469,19 @@ fi
 check "the helper is executable in the checkout" '[ -x "$helper_source" ]'
 check "the helper lists the actions and the daemons it allows" \
   '"$helper_source" --list | grep -q "restart-daemon" &&
-   "$helper_source" --list | grep -q "com.apple.dasd"'
+   "$helper_source" --list | grep -q "reinstall-portless" &&
+   "$helper_source" --list | grep -q "com.apple.dasd" &&
+   "$helper_source" --list | grep -q "sh.brew.tailscale"'
+
+# Nothing else records a run of the one passwordless rule, sudo's own log of an
+# allowed run reaching neither /var/log/system.log nor the unified log here, so a
+# privileged action that writes no line leaves none at all.
+check "every action records itself in the system log before it acts" \
+  'grep -q "log_action \"restart-daemon " "$helper_source" &&
+   grep -q "log_action flush-dns" "$helper_source" &&
+   grep -q "log_action reinstall-portless" "$helper_source"'
+check "the sudoers rule leaves that logging to the helper" \
+  '! grep -qE "^[^#]*log_allowed" "$rendered/sudoers"'
 check "the helper refuses no action at all" '! "$helper_source"'
 check "the helper refuses an action that is not on the list" \
   '! "$helper_source" uname'
@@ -469,6 +495,7 @@ check "the helper refuses restart-daemon with no name" \
 check "the helper refuses an argument the action does not take" \
   '! "$helper_source" restart-daemon dasd extra &&
    ! "$helper_source" flush-dns extra &&
+   ! "$helper_source" reinstall-portless extra &&
    ! "$helper_source" --list extra'
 # The action a session was told about and this file no longer has, which is worth
 # a case of its own: it has to be refused rather than quietly do nothing.
@@ -480,9 +507,10 @@ check "a dry run is no way past the allowlist" \
   '! CLAUDE_ROOT_DRY_RUN=1 "$helper_source" restart-daemon not-on-the-list &&
    ! CLAUDE_ROOT_DRY_RUN=1 "$helper_source" uname'
 check "an allowed action refuses rather than half-doing it without root" \
-  '! "$helper_source" flush-dns'
+  '! "$helper_source" flush-dns && ! "$helper_source" reinstall-portless'
 check "a dry run of an allowed action says what it would do and does nothing" \
-  'CLAUDE_ROOT_DRY_RUN=1 "$helper_source" restart-daemon dasd | grep -q "dry run"'
+  'CLAUDE_ROOT_DRY_RUN=1 "$helper_source" restart-daemon dasd | grep -q "dry run" &&
+   CLAUDE_ROOT_DRY_RUN=1 "$helper_source" reinstall-portless | grep -q "dry run"'
 
 # The helper runs on a PATH of its own rather than the caller's, since sudo here
 # sets no secure_path and the account's PATH leads with version-managed shims. A

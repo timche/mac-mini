@@ -18,12 +18,11 @@
 # because sudo ignores a drop-in that is anything else, and checked with
 # `visudo -cf` before it is moved into place: a sudoers file sudo cannot parse
 # takes sudo away from Tim as well.
+# No `Defaults!CLAUDE_ROOT log_allowed`, although this Mac's sudoers sets
+# !log_allowed and a passwordless rule is the one whose every use is worth reading
+# back: with that line in place, an allowed run of this command reaches neither
+# /var/log/system.log nor the unified log on this Mac. The helper writes a
+# `logger` line of its own instead.
 Cmnd_Alias CLAUDE_ROOT = /usr/local/libexec/claude-root
-
-# This Mac's sudoers sets !log_allowed, so nothing records a run that succeeded.
-# Scoped back on for this one command, since a passwordless rule is the one whose
-# every use is worth reading back. sudo logs to syslog's authpriv, which macOS
-# writes to /var/log/system.log rather than to the unified log.
-Defaults!CLAUDE_ROOT log_allowed
 
 __USER__ ALL=(root) NOPASSWD: CLAUDE_ROOT

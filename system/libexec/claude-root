@@ -33,12 +33,17 @@
 # as the account. An action that needs root needs it for a path only root can
 # write, and assert-machine.sh reads this file to say so.
 #
+# reinstall-portless is the one named exception to that second rule, and nothing
+# else here may follow it. portless's root daemon already runs the account's own
+# node and the account's own JavaScript as root, which is portless's design rather
+# than this repository's choice, so reinstalling it opens no route that is not open
+# already; what it buys is that a `mise up` which moves node or portless does not
+# leave every dev server on this Mac without a proxy until Tim is awake.
+# assert-machine.sh reads the rule off every other action and that one function
+# apart.
+#
 # Installed as a copy at /usr/local/libexec/claude-root, which is the path the
 # sudoers rule names, by root-helper.sh.
-#
-# Every allowed run is sudo's own log entry, in /var/log/system.log: the rule
-# turns log_allowed back on for this one command, against this Mac's
-# !log_allowed default.
 
 # No -e. An action here has a result worth reporting — an old pid and a new one,
 # which half of a flush failed — and an exit on the first non-zero would report
@@ -53,9 +58,22 @@ export PATH
 
 # One entry per daemon: the name a caller types, then the launchd label it stands
 # for. To allow another, add a line here and re-run root-helper.sh.
+#
+# Homebrew owns tailscale's label and has renamed it once already, so a rename
+# there is an edit here — the alternative, reading the label back from `brew
+# services`, would take the name out of this list and put it in a prefix the
+# account writes. Restarting it drops every tailnet connection, the SSH session a
+# person would be typing in among them, which is why the nightly update is what
+# calls it and a session should not.
 allowed_daemons=(
   "dasd com.apple.dasd"
+  "tailscale sh.brew.tailscale"
 )
+
+# The TLDs portless serves, which are PORTLESS_TLD in home/.zshenv. Spelled here
+# rather than read from the account's environment, so what root is asked to serve
+# is in the file Tim installs; assert-machine.sh fails when the two lists differ.
+portless_tlds=(localhost timche.dev)
 
 argv="$*"
 dry_run=false
@@ -77,6 +95,16 @@ require_root() {
     echo "  sudo /usr/local/libexec/claude-root $argv" >&2
     exit 77
   fi
+}
+
+# One line in the system log for each run that actually does something, written
+# after the action and its argument have been validated. sudoers asks sudo to log
+# an allowed run of this command and sudo records nothing on this Mac — neither
+# /var/log/system.log nor the unified log has the entry — so this is the only
+# trace a run leaves. It is a record and not evidence: logger is open to every
+# process, so the account can write the same line.
+log_action() {
+  logger -t claude-root "$*"
 }
 
 daemon_label() {
@@ -108,12 +136,16 @@ list() {
   echo "Actions:"
   echo "  restart-daemon <name>  restart one of the daemons below"
   echo "  flush-dns              flush the DNS cache and signal mDNSResponder"
+  echo "  reinstall-portless     install portless's proxy daemon again, on the"
+  echo "                         node and portless the account has now"
   echo "  --list                 this"
   echo
   echo "Daemons:"
   for entry in "${allowed_daemons[@]}"; do
     printf '  %-12s %s\n' "${entry%% *}" "${entry#* }"
   done
+  echo
+  echo "Proxy TLDs: ${portless_tlds[*]}"
   echo
   echo "Anything else is refused. To add a daemon, edit"
   echo "system/libexec/claude-root in the mac-mini checkout and re-run"
@@ -135,6 +167,7 @@ restart_daemon() {
   fi
 
   require_root "restart-daemon"
+  log_action "restart-daemon $name"
 
   if [ -z "$old" ]; then
     echo "claude-root: system/$label is not running, so there is nothing to" >&2
@@ -196,6 +229,7 @@ flush_dns() {
   fi
 
   require_root "flush-dns"
+  log_action flush-dns
 
   dscacheutil -flushcache || status=1
 
@@ -210,6 +244,63 @@ flush_dns() {
   fi
 
   return "$status"
+}
+
+reinstall_portless() {
+  local user home node cli tld
+  local args=()
+
+  for tld in "${portless_tlds[@]}"; do
+    args+=(--tld "$tld")
+  done
+
+  if [ "$dry_run" = true ]; then
+    echo "dry run: would install portless's proxy daemon again, with the" \
+         "account's own node and portless, serving ${args[*]}"
+    return 0
+  fi
+
+  require_root "reinstall-portless"
+  log_action reinstall-portless
+
+  # The account the Mac logs itself in as, read off the console rather than taken
+  # from the caller's environment, so what this installs is the proxy for the
+  # account whose dev servers it serves and not for whoever happened to call.
+  user="$(stat -f %Su /dev/console)"
+
+  if [ -z "$user" ] || [ "$user" = root ]; then
+    echo "claude-root: nobody is logged in at the console, so there is no" >&2
+    echo "account whose portless this would be." >&2
+    return 69
+  fi
+
+  # Asked of the account's own login shell, as the account, which is how
+  # install.sh asks it for the same kind of answer: mise decides which node and
+  # which portless are current, and a path written down here would be whichever
+  # version was current the day it was written. The last line of each, so that a
+  # profile with something to say does not become a path.
+  # shellcheck disable=SC2016 # the account's shell expands it, not this one
+  home="$(su -l "$user" -c 'printf "%s\n" "$HOME"' 2>/dev/null | tail -n 1)"
+  node="$(su -l "$user" -c 'mise which node' 2>/dev/null | tail -n 1)"
+  cli="$(su -l "$user" -c 'mise which portless' 2>/dev/null | tail -n 1)"
+
+  if [ ! -d "$home" ] || [ ! -x "$node" ] || [ ! -f "$cli" ]; then
+    echo "claude-root: $user's mise does not have both node and portless, so" >&2
+    echo "there is nothing to install the proxy from." >&2
+    return 69
+  fi
+
+  # node and the CLI file rather than the shim or the .bin link: a shim run as
+  # root resolves against root's own mise, and the link's shebang wants a node on
+  # PATH that this PATH deliberately does not have. HOME is the account's, since
+  # portless keeps its state, its CA and its routes under it and the clients read
+  # them there.
+  if ! env HOME="$home" "$node" "$cli" service install "${args[@]}"; then
+    echo "claude-root: portless would not install its daemon." >&2
+    return 69
+  fi
+
+  echo "installed portless's proxy daemon for $user, serving ${args[*]}"
 }
 
 # `--` is the caller's way of saying the rest is arguments. Nothing here takes a
@@ -239,6 +330,10 @@ case "$action" in
   flush-dns)
     [ $# -eq 0 ] || refuse "flush-dns takes no argument"
     flush_dns
+    ;;
+  reinstall-portless)
+    [ $# -eq 0 ] || refuse "reinstall-portless takes no argument"
+    reinstall_portless
     ;;
   *)
     refuse "not an allowed action: $action"

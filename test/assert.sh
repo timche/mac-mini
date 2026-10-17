@@ -370,21 +370,6 @@ check "an install that fails leaves the worktree added and says what to run" \
 
 # Auto-sync is one `hachiko sync` daemon watching every repository its config lists:
 # the project docs, and this repository's `home/.claude` alone. Its own wiring is checked
-# with the sync agent further down; what belongs here is that boswell, the daemon it
-# took over from, is gone.
-#
-# Two daemons committing one tree would each commit what the other wrote, so
-# boswell's agent goes before sync is loaded, and nothing here declares its plist,
-# its config or its formula any more.
-check "boswell is gone" \
-  '[ ! -e "$repo/home/Library/LaunchAgents/io.github.timche.boswell.plist" ] &&
-   [ ! -e "$repo/home/.config/boswell" ] &&
-   ! grep -q boswell "$repo/mise.toml" &&
-   ! grep -q boswell "$repo/Brewfile" &&
-   ! launchctl print "gui/$(id -u)/io.github.timche.boswell" &&
-   [ ! -e "$HOME/Library/LaunchAgents/io.github.timche.boswell.plist" ] &&
-   [ ! -e "$HOME/.config/boswell/config.toml" ] &&
-   ! command -v boswell'
 
 # Claude Code updates itself, which is why it is not in the tool list at all:
 # something that pinned it would have to turn the updater off, and then the pin
@@ -520,13 +505,6 @@ check "the worktree-info hook prints the tailnet URL for every TLD after the fir
 check "PORTLESS_TLD serves .localhost first and the tailnet name after it" \
   '[ "$(zsh -c "echo \$PORTLESS_TLD")" = "localhost,timche.dev" ]'
 
-# A proxy of this account's own would hold a second ~/.portless/proxy.port, which
-# is where every client looks, so the URLs would reach whichever of the two won.
-# Nothing here may declare one.
-check "no proxy agent is declared" \
-  '[ ! -e "$repo/home/Library/LaunchAgents/io.github.timche.portless.plist" ] &&
-   ! grep -q "io.github.timche.portless" "$repo/mise.toml" &&
-   ! grep -q "PORTLESS_PORT" "$repo/home/.zshenv"'
 
 check "the worktree-info hook prints the Electron profile rule" \
   'd="$(mktemp -d)" &&
@@ -759,16 +737,6 @@ check "the gc agent logs to ~/Library/Logs" \
   '[ "$(plutil -extract StandardErrorPath raw -o - "$gc_plist")" = \
      "$HOME/Library/Logs/hachiko-gc.log" ]'
 
-# Two agents on one ten-minute timer, each holding a lock the other knows nothing
-# about, would race over the same worktrees — so the shell script's agent and the
-# link to it go before the new one loads, and nothing here renders or declares
-# either any more.
-check "the sweep that hachiko gc replaced is gone" \
-  '[ ! -e "$repo/home/.local/bin/worktree-gc" ] &&
-   [ ! -e "$repo/home/Library/LaunchAgents/io.github.timche.worktree-gc.plist" ] &&
-   ! grep -q "io.github.timche.worktree-gc" "$repo/mise.toml" &&
-   ! grep -q "bin/worktree-gc" "$repo/mise.toml" &&
-   [ ! -e "$HOME/.local/bin/worktree-gc" ]'
 
 # `hachiko sync`, which commits and pushes the repositories its config lists. It is a
 # long-running agent rather than a timer, so the plist is the whole of what assert.sh
@@ -908,12 +876,6 @@ check "the Discord config is a live symlink naming a channel and a user" \
   '[ -L "$HOME/.config/hachiko/discord" ] && [ -e "$HOME/.config/hachiko/discord" ] &&
    grep -qE "^channel *= *[0-9]{17,20}$" "$HOME/.config/hachiko/discord" &&
    grep -qE "^user *= *[0-9]{17,20}$" "$HOME/.config/hachiko/discord"'
-
-# mise removes no link it no longer declares, so a second .env.op in ~/.local/bin is one an
-# older install left and install.sh takes back.
-check "there is no second .env.op beside the wrapper" \
-  '[ ! -e "$HOME/.local/bin/hachiko.discord.env.op" ] &&
-   [ ! -L "$HOME/.local/bin/hachiko.discord.env.op" ]'
 
 # shibuya, the half of the watch that is not on this Mac. Its own behaviour is `npm test` in
 # shibuya/, against the same wrangler config the deploy reads; what is left for this script

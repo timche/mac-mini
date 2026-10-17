@@ -28,9 +28,8 @@
 # Not fatal. Every step says what it could not do, and a Mac with no VM running is
 # still the machine the rest of this repo built.
 #
-# Safe to re-run: the settings are compared before they are set, the VM is
-# restarted only when something changed, and what colima left behind is removed
-# only where it is still there.
+# Safe to re-run: the settings are compared before they are set, and the VM is
+# restarted only when something changed.
 
 set -euo pipefail
 
@@ -43,59 +42,6 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if ! command -v brew >/dev/null 2>&1 && [ -x /opt/homebrew/bin/brew ]; then
   eval "$(/opt/homebrew/bin/brew shellenv)"
-fi
-
-# What colima left
-
-# Only where it is still there, so this is a no-op on every Mac but the one that
-# ran the old version of this script. The VM is deleted before the state directory
-# goes, because colima's delete is what tells its own lima layer to let go of the
-# VM rather than leaving a stopped one registered.
-if command -v colima >/dev/null 2>&1; then
-  case "$(brew services list | awk '$1 == "colima" { print $2 }')" in
-  started | scheduled | error)
-    echo "stopping the colima LaunchAgent OrbStack replaces"
-    brew services stop colima || true
-    ;;
-  esac
-
-  if colima list 2>/dev/null | grep -q .; then
-    echo "deleting the colima VM OrbStack replaces"
-    colima delete --force || true
-  fi
-fi
-
-if [ -d "$HOME/.colima" ]; then
-  echo "removing what colima kept in $HOME/.colima"
-  rm -rf "$HOME/.colima"
-fi
-
-# The plugin directory the old script wrote into docker's config. OrbStack puts its
-# compose and buildx plugins in ~/.docker/cli-plugins, which the CLI searches by
-# itself, and Homebrew's prefix no longer holds any — so the entry left there points
-# at nothing.
-docker_config="$HOME/.docker/config.json"
-stale_plugin_dir=/opt/homebrew/lib/docker/cli-plugins
-
-if [ -f "$docker_config" ] && jq -e . "$docker_config" >/dev/null 2>&1; then
-  # Merged rather than written: this is also the file docker keeps the current
-  # context in — OrbStack sets one — and whatever credential helper a registry
-  # login left behind.
-  merged="$(
-    jq --arg dir "$stale_plugin_dir" '
-      if (.cliPluginsExtraDirs // []) | index($dir) then
-        .cliPluginsExtraDirs -= [$dir]
-        | if (.cliPluginsExtraDirs | length) == 0 then del(.cliPluginsExtraDirs) else . end
-      else . end
-    ' "$docker_config"
-  )"
-
-  if [ "$merged" != "$(cat "$docker_config")" ]; then
-    tmp="$(mktemp "$docker_config.XXXXXX")"
-    printf '%s\n' "$merged" >"$tmp"
-    mv "$tmp" "$docker_config"
-    echo "docker's config no longer names Homebrew's empty plugin directory"
-  fi
 fi
 
 # The app

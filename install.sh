@@ -413,46 +413,6 @@ mkdir -p "$HOME/Library/Logs"
 # worktree root only when it makes the first worktree.
 mkdir -p "$HOME/.herdr/worktrees"
 
-# The shell script this sweep used to be, and the agent that ran it. Booted out
-# before the new one is loaded, because two agents on one ten-minute timer would
-# both take a lock the other does not know about and race over the same worktrees.
-# mise removes no link it no longer declares and no plist it no longer renders, so
-# both are this repository's to take back — the link only when it points into this
-# checkout or nowhere at all, which is the rule the portless link below follows.
-old_gc_label=io.github.timche.worktree-gc
-old_gc_plist="$HOME/Library/LaunchAgents/$old_gc_label.plist"
-
-if launchctl print "gui/$uid/$old_gc_label" >/dev/null 2>&1; then
-  if launchctl bootout "gui/$uid/$old_gc_label"; then
-    echo "removed $old_gc_label, the sweep hachiko gc took over"
-  else
-    echo "could not remove $old_gc_label — it sweeps the same worktrees" \
-         "$gc_label is about to, on the same timer; run: launchctl bootout" \
-         "gui/$uid/$old_gc_label" >&2
-  fi
-fi
-
-# Rendered rather than linked, so there is nothing to check about where it points.
-if [ -f "$old_gc_plist" ] && ! [ -L "$old_gc_plist" ]; then
-  rm "$old_gc_plist"
-  echo "removed $old_gc_plist, a plist this repo no longer renders"
-fi
-
-old_gc_link="$HOME/.local/bin/worktree-gc"
-old_gc_link_is_ours=false
-
-if [ -L "$old_gc_link" ]; then
-  case "$(readlink "$old_gc_link")" in
-    "$repo"/*) old_gc_link_is_ours=true ;;
-    *) [ -e "$old_gc_link" ] || old_gc_link_is_ours=true ;;
-  esac
-fi
-
-if [ "$old_gc_link_is_ours" = true ]; then
-  rm "$old_gc_link"
-  echo "removed $old_gc_link, a link this repo no longer makes"
-fi
-
 if [ ! -f "$gc_plist" ]; then
   echo "$gc_plist is missing — mise renders it from mise.toml" >&2
 else
@@ -475,25 +435,6 @@ else
          "logged in on the Mac; nothing will sweep a removed worktree's" \
          "containers until it is loaded, and \`hachiko gc\` runs by hand" >&2
   fi
-fi
-
-# The second .env.op the bot's secrets were in, now lines in hachiko.env.op beside it.
-# mise removes no link it no longer declares, so this one is this repository's to take
-# back — and only when it points into this checkout or nowhere at all, the rule every
-# reclaim here follows.
-old_discord_env="$HOME/.local/bin/hachiko.discord.env.op"
-old_discord_env_is_ours=false
-
-if [ -L "$old_discord_env" ]; then
-  case "$(readlink "$old_discord_env")" in
-    "$repo"/*) old_discord_env_is_ours=true ;;
-    *) [ -e "$old_discord_env" ] || old_discord_env_is_ours=true ;;
-  esac
-fi
-
-if [ "$old_discord_env_is_ours" = true ]; then
-  rm "$old_discord_env"
-  echo "removed $old_discord_env, a link this repo no longer makes"
 fi
 
 # The watch over free space and the CPU, every five minutes. The plist is a link, so
@@ -585,54 +526,6 @@ if [ -d "$docs/.git" ]; then
   sync_ready=true
 fi
 
-# boswell, the daemon `hachiko sync` took over from. Booted out before sync is
-# loaded, because two daemons committing one tree each commit what the other wrote.
-# mise removes no link it no longer declares, so its plist and its config are this
-# repository's to take back — each only when it points into this checkout or nowhere
-# at all, which is the rule the portless link below follows. It is this account's own
-# job and this account's own links, so no sudo.
-old_sync_label=io.github.timche.boswell
-
-if launchctl print "gui/$uid/$old_sync_label" >/dev/null 2>&1; then
-  if launchctl bootout "gui/$uid/$old_sync_label"; then
-    echo "removed $old_sync_label, the daemon hachiko sync took over"
-  else
-    echo "could not remove $old_sync_label — it commits and pushes the same" \
-         "repositories $sync_label does; run: launchctl bootout" \
-         "gui/$uid/$old_sync_label" >&2
-  fi
-fi
-
-for old_sync_path in "$HOME/Library/LaunchAgents/$old_sync_label.plist" \
-                     "$HOME/.config/boswell/config.toml"; do
-  old_sync_path_is_ours=false
-
-  if [ -L "$old_sync_path" ]; then
-    case "$(readlink "$old_sync_path")" in
-      "$repo"/*) old_sync_path_is_ours=true ;;
-      *) [ -e "$old_sync_path" ] || old_sync_path_is_ours=true ;;
-    esac
-  fi
-
-  if [ "$old_sync_path_is_ours" = true ]; then
-    rm "$old_sync_path"
-    echo "removed $old_sync_path, a link this repo no longer makes"
-  fi
-done
-
-rm -f "$state/$old_sync_label.plist.loaded"
-
-# Asked of Homebrew rather than run blind: `brew uninstall` fails on a formula that
-# is not installed, which on a fresh Mac is every Mac.
-if brew list --formula boswell >/dev/null 2>&1; then
-  if brew uninstall boswell; then
-    echo "uninstalled boswell, which nothing loads any more"
-  else
-    echo "could not uninstall boswell — nothing loads it, so it is only taking up" \
-         "space; run: brew uninstall boswell" >&2
-  fi
-fi
-
 if [ ! -f "$sync_plist" ]; then
   echo "$sync_plist is missing — mise links it from mise.toml" >&2
 elif [ "$sync_ready" != true ]; then
@@ -661,42 +554,6 @@ else
          "writes in $docs upstream, and \`hachiko sync --once\` runs by hand" >&2
   fi
 fi
-
-# The proxy agent this repo no longer makes, which ran portless as the account on
-# a port of its own. sh.portless.proxy holds 443, and an agent left loaded would
-# hold a second proxy while the two fight over ~/.portless/proxy.port, which is
-# where every client looks — so the URLs would reach whichever won. It is this
-# account's own job and this account's own link, so no sudo.
-portless_label=io.github.timche.portless
-portless_plist="$HOME/Library/LaunchAgents/$portless_label.plist"
-
-if launchctl print "gui/$uid/$portless_label" >/dev/null 2>&1; then
-  if launchctl bootout "gui/$uid/$portless_label"; then
-    echo "removed $portless_label, the proxy agent this repo no longer makes"
-  else
-    echo "could not remove $portless_label — it holds a proxy on the port the" \
-         "root daemon wants; run: launchctl bootout gui/$uid/$portless_label" >&2
-  fi
-fi
-
-# mise removes no link it no longer declares, so the one it used to make survives
-# every re-run. Taken back when it points into this checkout, or when it points
-# nowhere at all — a real file, or a live link to somewhere else, is somebody's
-# own.
-portless_link_is_ours=false
-if [ -L "$portless_plist" ]; then
-  case "$(readlink "$portless_plist")" in
-    "$repo"/*) portless_link_is_ours=true ;;
-    *) [ -e "$portless_plist" ] || portless_link_is_ours=true ;;
-  esac
-fi
-
-if [ "$portless_link_is_ours" = true ]; then
-  rm "$portless_plist"
-  echo "removed $portless_plist, a link this repo no longer makes"
-fi
-
-rm -f "$state/$portless_label.plist.loaded"
 
 # The launcher the herdr agent starts, and the process macOS holds responsible for
 # the privacy grants every session depends on: launchd makes a job's own process

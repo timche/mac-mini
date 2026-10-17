@@ -32,8 +32,7 @@
 # Safe to re-run: the daemon is started only where `brew services` has not already
 # registered it in the system domain, the prefs are written only where they differ
 # from what is asked for here, and the login is only offered when there is nobody
-# logged in yet. A run that does have to restart the daemon says so first, since
-# that drops every tailnet connection to this Mac.
+# logged in yet.
 
 set -euo pipefail
 
@@ -45,31 +44,9 @@ fi
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 console=https://login.tailscale.com/admin
 
-# The daemon this replaced: a copy of Homebrew's binaries in /usr/local/bin under
-# a LaunchDaemon of this repo's own. A Mac still on it is migrated below.
-retired_label=io.github.timche.tailscaled
-retired_plist="/Library/LaunchDaemons/$retired_label.plist"
-retired_bin=/usr/local/bin
-
 if ! command -v brew >/dev/null 2>&1 && [ -x /opt/homebrew/bin/brew ]; then
   eval "$(/opt/homebrew/bin/brew shellenv)"
 fi
-
-# The LAN
-
-# The address on that same interface, which is the one that still answers sshd
-# when the tailnet is down — including while this script is restarting the daemon
-# the tailnet runs on.
-lan_address() {
-  local iface
-
-  iface="$(route -n get default 2>/dev/null | awk '/interface:/ { print $2; exit }')"
-  if [ -z "$iface" ]; then
-    return 0
-  fi
-
-  ipconfig getifaddr "$iface" 2>/dev/null || true
-}
 
 # The daemon
 
@@ -78,7 +55,6 @@ lan_address() {
 # GUI session.
 brew_bin="$(command -v brew || true)"
 brew_prefix="$(brew --prefix tailscale 2>/dev/null || true)"
-brew_cellar="$(brew --cellar tailscale 2>/dev/null || true)"
 
 if [ -z "$brew_bin" ] || [ -z "$brew_prefix" ] ||
    [ ! -x "$brew_prefix/bin/tailscaled" ]; then
@@ -112,99 +88,11 @@ if [ -f "$label_plist" ]; then
   registered=true
 fi
 
-retired=false
-if [ -e "$retired_plist" ]; then
-  retired=true
-fi
-
-# A first install on a Mac with no daemon of either kind does not bounce the
-# tunnel: there is nothing running to drop.
-if [ "$retired" = true ]; then
-  echo
-  echo "tailscaled has to be restarted, which drops every tailnet connection to"
-  echo "this Mac — including an SSH session that came in over it. The LAN's sshd"
-  echo "is unaffected:"
-  echo "  ssh $(id -un)@$(lan_address)"
-  echo
-
-  # Only where there is a terminal to answer at. Unattended it goes ahead: a run
-  # that stopped here would leave this Mac on a daemon this repo no longer
-  # installs, which is worse than a bounce nobody is watching.
-  if [ -t 0 ]; then
-    reply=""
-    printf 'Restart tailscaled now? [y/N] '
-    read -r reply || reply=""
-
-    case "$reply" in
-      y | Y | yes | Yes) ;;
-      *)
-        echo
-        echo "Nothing changed. Run $repo/tailscale.sh again from the LAN."
-        exit 0
-        ;;
-    esac
-  else
-    echo "No terminal to confirm at, so it goes ahead."
-  fi
-fi
-
-# One of the copies the retired daemon ran, rather than anything else that has
-# landed at this path: a root-owned regular file whose bytes are a tailscale
-# binary Homebrew built. A standalone Tailscale.app puts a symlink here instead,
-# and a file that matches nothing in the Cellar is somebody else's.
-retired_copy() {
-  local name="$1" path="$retired_bin/$1" candidate
-
-  [ -n "$brew_cellar" ] || return 1
-  [ -f "$path" ] && [ ! -L "$path" ] || return 1
-  [ "$(stat -f '%Su' "$path" 2>/dev/null)" = root ] || return 1
-
-  for candidate in "$brew_cellar"/*/bin/"$name"; do
-    [ -f "$candidate" ] || continue
-    cmp -s "$candidate" "$path" && return 0
-  done
-
-  return 1
-}
-
-if [ "$retired" = true ]; then
-  sudo launchctl bootout "system/$retired_label" || true
-
-  if ! sudo rm -f "$retired_plist"; then
-    echo "warning: could not remove $retired_plist, so nothing was started over" >&2
-    echo "it — two tailscaled cannot share one tunnel. Remove it and run" >&2
-    echo "$repo/tailscale.sh again." >&2
-    exit 0
-  fi
-
-  for name in tailscaled tailscale; do
-    if retired_copy "$name"; then
-      if sudo rm -f "$retired_bin/$name"; then
-        echo "removed the retired copy $retired_bin/$name"
-      else
-        echo "warning: could not remove $retired_bin/$name, which nothing here" >&2
-        echo "runs any more." >&2
-      fi
-    elif [ -e "$retired_bin/$name" ]; then
-      echo "note: $retired_bin/$name is not one of the copies this replaced, so"
-      echo "it was left alone. Nothing here runs it."
-    fi
-  done
-fi
-
-if [ "$retired" = true ] || [ "$registered" = false ]; then
-  # `restart` where the service is already registered, which is Homebrew's way of
-  # replacing a plist and the process under it in one step; `start` is the first
-  # install.
-  action=start
-  if [ "$registered" = true ]; then
-    action=restart
-  fi
-
-  if ! sudo "$brew_bin" services "$action" tailscale; then
-    echo "warning: 'sudo brew services $action tailscale' did not take, so this" >&2
-    echo "Mac has no tailscaled. Run it again, or $repo/tailscale.sh, from the" >&2
-    echo "LAN." >&2
+if [ "$registered" = false ]; then
+  # A first install, with nothing running to drop.
+  if ! sudo "$brew_bin" services start tailscale; then
+    echo "warning: 'sudo brew services start tailscale' did not take, so this" >&2
+    echo "Mac has no tailscaled. Run it again, or $repo/tailscale.sh." >&2
     exit 0
   fi
 

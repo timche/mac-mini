@@ -41,13 +41,6 @@ helper=/usr/local/libexec/claude-root
 helper_dir=/usr/local/libexec
 sudoers_file=/etc/sudoers.d/claude-root
 
-# An earlier shape of the helper capped the machine's logs, and installed a
-# newsyslog config here to do it with. Both are gone: a root newsyslog aimed at
-# paths in $HOME is a root write the account aims wherever it likes, which is the
-# same hole the log action itself was. Taken back out rather than left, so that a
-# Mac which ran that version converges on this one.
-retired_newsyslog=/etc/newsyslog.d/mac-mini.conf
-
 if [ "$(/usr/bin/uname -s)" != Darwin ]; then
   echo "root-helper.sh is macOS only" >&2
   exit 1
@@ -433,16 +426,6 @@ echo "The root helper:"
 # at the path it names.
 install_copy "$helper_bytes" "$helper" 0755
 install_copy "$sudoers_bytes" "$sudoers_file" 0440
-
-if [ -e "$retired_newsyslog" ]; then
-  if /usr/bin/sudo /bin/rm -f "$retired_newsyslog"; then
-    echo "  removed    $retired_newsyslog (the log action it served is gone)"
-    changed=true
-  else
-    echo "warning: could not remove $retired_newsyslog, which a root newsyslog" >&2
-    echo "still reads every half hour against paths the account can write." >&2
-  fi
-fi
 
 echo
 

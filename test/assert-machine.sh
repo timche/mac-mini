@@ -75,8 +75,7 @@ check "the tailscale CLI answers" 'tailscale version'
 # once already and names the plist it installs after it.
 tailscale_daemon="$(brew services info tailscale --json 2>/dev/null |
   jq -r '.[0].service_name // empty')"
-retired_daemon=io.github.timche.tailscaled
-export tailscale_daemon retired_daemon
+export tailscale_daemon
 
 # `brew services start` installs the plist and `brew services stop` takes it back
 # out, so its presence in the boot path is what says the daemon is registered to
@@ -84,17 +83,12 @@ export tailscale_daemon retired_daemon
 check "brew services registered tailscaled as a system daemon" \
   '[ -n "$tailscale_daemon" ] &&
    [ -f "/Library/LaunchDaemons/$tailscale_daemon.plist" ]'
-check "the daemon this replaced is gone" \
-  '[ ! -e "/Library/LaunchDaemons/$retired_daemon.plist" ]'
 
 # The daemon is in the system domain, which needs root to read — and a Mac being
 # provisioned by hand should not meet a password prompt inside a test.
 if /usr/bin/sudo -n /usr/bin/true 2>/dev/null; then
   check "tailscaled is a loaded system daemon" \
     '/usr/bin/sudo -n /bin/launchctl print "system/$tailscale_daemon"'
-  # Two tailscaled cannot share one tunnel.
-  check "the daemon this replaced is not loaded" \
-    '! /usr/bin/sudo -n /bin/launchctl print "system/$retired_daemon"'
 else
   echo "  --    sudo wants a password, so tailscaled's daemon was not checked"
 fi
@@ -128,16 +122,6 @@ check "the orb CLI answers"   'command -v orb'
 # is told to have.
 check "no colima or Homebrew docker is declared any more" \
   '! grep -qE "^brew \"(colima|docker|docker-buildx|docker-compose)\"" "$root/Brewfile"'
-check "no colima VM state is left behind" '[ ! -d "$HOME/.colima" ]'
-
-# The plugin directory the old script wrote into docker's config, which points at
-# nothing now that Homebrew's docker formulae are gone. OrbStack's plugins are in
-# ~/.docker/cli-plugins, which the CLI searches by itself.
-check "docker's config names no Homebrew plugin directory" \
-  '[ ! -f "$HOME/.docker/config.json" ] ||
-   ! jq -e ".cliPluginsExtraDirs // [] |
-            index(\"/opt/homebrew/lib/docker/cli-plugins\")" \
-       "$HOME/.docker/config.json"'
 
 # The VM's shape, which is the machine's rather than a number in the script. The
 # arithmetic is spelled out again instead of sourced, because what this asserts is
@@ -371,13 +355,7 @@ check "sshd_config includes the drop-in directory" \
 helper=/usr/local/libexec/claude-root
 helper_source="$root/system/libexec/claude-root"
 sudoers_file=/etc/sudoers.d/claude-root
-
-# An earlier shape of the helper capped the machine's logs and installed a
-# newsyslog config to do it with. A root newsyslog aimed at paths the account can
-# write is the same hole the log action was, so the installer takes the file back
-# out and this is what says it did.
-retired_newsyslog=/etc/newsyslog.d/mac-mini.conf
-export helper helper_source sudoers_file retired_newsyslog
+export helper helper_source sudoers_file
 
 # The one file the installer renders is compared against the same rendering rather
 # than against the source, which carries the account name as a placeholder because
@@ -428,8 +406,6 @@ check "the sudoers rule belongs to root and only root may read it" \
   '[ "$(stat -f "%Su %Lp" "$sudoers_file")" = "root 440" ]'
 check "the sudoers rule is a copy rather than a link" \
   '[ -f "$sudoers_file" ] && [ ! -L "$sudoers_file" ]'
-
-check "the retired newsyslog config is gone" '[ ! -e "$retired_newsyslog" ]'
 
 # No action may touch a path the account can write, which is the rule a log-capping
 # action here broke: the account replaces the file with a symlink and a root copy,

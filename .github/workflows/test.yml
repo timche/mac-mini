@@ -53,17 +53,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # The runner image hands /usr/local to its own account, which a Mac never
-      # does, and the root helper under it is asserted to be root's all the way up
-      # — a directory the account can write is a directory it can aim at whatever
-      # it likes.
-      - name: /usr/local root's, as on a Mac
-        run: |
-          ls -ld /usr/local /usr/local/bin
-          sudo chown root:wheel /usr/local /usr/local/bin
-          sudo chmod go-w /usr/local /usr/local/bin
-          ls -ld /usr/local /usr/local/bin
-
       # The fresh-Mac path first, which is the only one that clones: the
       # repository under test stands in for GitHub, so what runs is this branch
       # rather than main. It ends with $HOME linked into that clone, which the

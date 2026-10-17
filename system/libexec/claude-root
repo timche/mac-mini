@@ -33,52 +33,23 @@
 # as the account. An action that needs root needs it for a path only root can
 # write, and assert-machine.sh reads this file to say so.
 #
-# Installed as a copy at /usr/local/libexec/claude-root, root-owned under
-# root-owned directories, and never a symlink into the checkout: the account can
-# write the checkout, so a link would hand any session on this Mac root. Same
-# reasoning as the sshd drop-in, and the same answer.
+# Installed as a copy at /usr/local/libexec/claude-root, which is the path the
+# sudoers rule names, by root-helper.sh.
 #
-# Every invocation goes to the unified log through `logger -t claude-root`,
-# allowed and refused alike, with the account that asked. Nothing is written to a
-# file the account could edit afterwards.
+# Every allowed run is sudo's own log entry, in /var/log/system.log: the rule
+# turns log_allowed back on for this one command, against this Mac's
+# !log_allowed default.
 
 # No -e. An action here has a result worth reporting — an old pid and a new one,
 # which half of a flush failed — and an exit on the first non-zero would report
 # none of it.
 set -uo pipefail
 
-# sudo resets most of the environment, but not all of it, and this is also
-# runnable by any other route. A root script that inherits DYLD_INSERT_LIBRARIES,
-# IFS or a PATH of somebody else's choosing is a root script somebody else is
-# steering, so the first thing it does is re-exec itself with an environment this
-# file wrote: the four variables below and nothing else. CLAUDE_ROOT_DRY_RUN is
-# carried because it only ever makes an action do less, never more, and because
-# it cannot reach here through sudo at all — sudoers grants no SETENV.
-if [ "${CLAUDE_ROOT_SANITIZED:-}" != 1 ]; then
-  # Absolute before the PATH goes, since the re-exec names the file rather than
-  # trusting whatever the new PATH would find under the same name. Builtins only:
-  # dirname and basename are commands, and the PATH this was handed is exactly
-  # what is not to be relied on.
-  case "$0" in
-    /*) self="$0" ;;
-    */*) self="$(cd "${0%/*}" && pwd)/${0##*/}" ;;
-    *)
-      # A bare name could only be resolved by asking the PATH this was handed,
-      # which is the one thing the re-exec exists to stop trusting. The sudoers
-      # rule names an absolute path and that is how it is run.
-      echo "claude-root: run it by its path," >&2
-      echo "/usr/local/libexec/claude-root, rather than by name." >&2
-      exit 64
-      ;;
-  esac
-
-  exec /usr/bin/env -i \
-    CLAUDE_ROOT_SANITIZED=1 \
-    CLAUDE_ROOT_DRY_RUN="${CLAUDE_ROOT_DRY_RUN:-}" \
-    PATH=/usr/bin:/bin:/usr/sbin:/sbin \
-    SUDO_USER="${SUDO_USER:-}" \
-    /bin/bash "$self" "$@"
-fi
+# Named rather than inherited, so that the commands below are the system's
+# wherever this was started from: sudo here sets no secure_path, and the calling
+# account's PATH leads with directories full of version-managed shims.
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+export PATH
 
 # One entry per daemon: the name a caller types, then the launchd label it stands
 # for. To allow another, add a line here and re-run root-helper.sh.
@@ -86,49 +57,11 @@ allowed_daemons=(
   "dasd com.apple.dasd"
 )
 
-# A session chooses what it asks for, and a control character in it is a second
-# audit line somebody else wrote — or, in a terminal reading the log back, an
-# escape sequence it acts on. Nothing any action takes could legitimately contain
-# one, so they go before anything is logged or echoed.
-#
-# A whitelist of printable ASCII rather than a list of controls to chase: an
-# action and a daemon name are ASCII by construction, so anything else is either
-# a control character or something no audit line needs. Which also catches the C1
-# controls, where a deny list would not — U+0080 to U+009F arrive as the two
-# bytes 0xC2 0x80-0x9F, one character to a tr reading UTF-8 and so outside any
-# range written in ASCII. LC_ALL=C is what makes tr work on bytes; `env -i` above
-# has already left this in the C locale, and it is named here rather than relied
-# on.
-printable() {
-  LC_ALL=C printf '%s' "$1" | LC_ALL=C tr -cd '\040-\176'
-}
-
-caller="${SUDO_USER:-$(id -un)}"
-argv="$(printable "$*")"
+argv="$*"
 dry_run=false
 [ "${CLAUDE_ROOT_DRY_RUN:-}" = 1 ] && dry_run=true
 
-# The one place anything reaches the log, so that no call site can forget the
-# stripping above.
-#
-# The name is in the message as well as in the tag because the unified log keeps
-# none of the tag: a `logger -t claude-root` record carries the message and
-# /usr/bin/logger as the process, and no subsystem, category or sender to tell it
-# from every other logger call on the machine. So the message is the only field
-# there is to search, and
-#
-#   log show --predicate 'eventMessage beginswith "claude-root:"' --last 1d
-#
-# is what reads the audit trail back. The tag stays for anything reading syslog
-# rather than the unified log.
-audit() {
-  logger -t claude-root "$(printable "claude-root: $caller: $*")"
-}
-
-# Refusals are logged too, and with what was asked for: a session that tried
-# something outside the list is the thing worth being able to read back later.
 refuse() {
-  audit "refused [${argv:-no action}]: $1"
   echo "claude-root: $1" >&2
   echo "claude-root --list says what it allows. Anything else is a command for" >&2
   echo "Tim to run." >&2
@@ -191,14 +124,13 @@ restart_daemon() {
   local name="$1" label old new current waited refusal
 
   if ! label="$(daemon_label "$name")"; then
-    refuse "not an allowed daemon: $(printable "$name")"
+    refuse "not an allowed daemon: $name"
   fi
 
   old="$(daemon_pid "$label")"
 
   if [ "$dry_run" = true ]; then
     echo "dry run: would restart system/$label (pid ${old:-none})"
-    audit "restart-daemon $name: dry run"
     return 0
   fi
 
@@ -207,7 +139,6 @@ restart_daemon() {
   if [ -z "$old" ]; then
     echo "claude-root: system/$label is not running, so there is nothing to" >&2
     echo "restart." >&2
-    audit "restart-daemon $name: not running"
     return 69
   fi
 
@@ -248,13 +179,11 @@ restart_daemon() {
 
   if [ -n "$new" ] && [ "$new" != "$old" ]; then
     echo "restarted $label: pid $old is now $new"
-    audit "restart-daemon $name: pid $old -> $new"
     return 0
   fi
 
   echo "claude-root: $label has not come back with a new pid in five seconds;" >&2
   echo "it is still pid ${new:-none}." >&2
-  audit "restart-daemon $name: no new pid (was $old, now ${new:-none})"
   return 69
 }
 
@@ -263,7 +192,6 @@ flush_dns() {
 
   if [ "$dry_run" = true ]; then
     echo "dry run: would flush the DNS cache and signal mDNSResponder"
-    audit "flush-dns: dry run"
     return 0
   fi
 
@@ -277,10 +205,8 @@ flush_dns() {
 
   if [ "$status" -eq 0 ]; then
     echo "flushed the DNS cache and signalled mDNSResponder"
-    audit "flush-dns: done"
   else
     echo "claude-root: the DNS flush did not fully succeed." >&2
-    audit "flush-dns: finished with errors"
   fi
 
   return "$status"
@@ -304,7 +230,6 @@ shift
 case "$action" in
   --list | list)
     [ $# -eq 0 ] || refuse "--list takes no argument"
-    audit "--list"
     list
     ;;
   restart-daemon)
@@ -316,6 +241,6 @@ case "$action" in
     flush_dns
     ;;
   *)
-    refuse "not an allowed action: $(printable "$action")"
+    refuse "not an allowed action: $action"
     ;;
 esac

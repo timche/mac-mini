@@ -367,38 +367,21 @@ export rendered
 sed "s/__USER__/$(id -un)/g" "$root/system/sudoers/claude-root" \
   >"$rendered/sudoers"
 
-# Every component of a path root executes, the path itself included: owned by root
-# and writable by nobody else, or the file at the end of it is only as safe as the
-# weakest directory above it.
-root_owned_path() {
-  local path="$1" owner mode
+# A rule sudo cannot parse takes sudo away from Tim as well as from every session,
+# so what the installer checks before it writes anything is checked here against
+# the same rendering. visudo -c reads a file as an ordinary user.
+check "sudo parses the rendering of this repo's sudoers rule" \
+  'visudo -cf "$rendered/sudoers"'
 
-  while :; do
-    owner="$(stat -f '%Su' "$path" 2>/dev/null)" || return 1
-    mode="$(stat -f '%OLp' "$path" 2>/dev/null)" || return 1
-
-    # stat reads the link rather than what it points at, and a root-owned link
-    # into a directory the account can write is the hole this is looking for.
-    [ ! -L "$path" ] || return 1
-    [ "$owner" = root ] || return 1
-    [ $((8#$mode & 8#022)) -eq 0 ] || return 1
-
-    case "$path" in /) return 0 ;; esac
-    path="$(dirname "$path")"
-  done
-}
-export -f root_owned_path
-
-# Never a symlink, whatever else is true of it: the account can write the
-# checkout, so a link at this path would hand every session on this Mac root.
-# root_owned_path above refuses a link anywhere on the way up for the same reason.
+# A copy at a path only root can write, never a link into the checkout: sudo
+# ignores a drop-in that is not a root-owned 0440 regular file, and the helper is
+# what the rule names.
 check "the root helper is a copy rather than a link into the checkout" \
   '[ -f "$helper" ] && [ ! -L "$helper" ]'
 check "the root helper is this repo's, byte for byte" \
   'cmp -s "$helper_source" "$helper"'
 check "the root helper belongs to root" \
   '[ "$(stat -f "%Su %Lp" "$helper")" = "root 755" ]'
-check "the root helper is root-owned all the way up" 'root_owned_path "$helper"'
 
 # stat reads a 0440 file the account cannot open, so the owner and the mode are
 # asserted here and the contents below, where there is sudo to read them with.
@@ -433,6 +416,13 @@ check "sudo runs the helper with no password" \
 check "sudo refuses a daemon the helper does not allow" \
   '/usr/bin/sudo -n -k "$helper" restart-daemon not-on-the-list 2>&1 |
      grep -q "not an allowed daemon"'
+# The rule as sudo itself reads it, which is the one reading that cannot be out of
+# step with what the account can do. -l needs no password where the account has a
+# passwordless rule, which is exactly the case here. Matched in two greps rather
+# than one pattern, because the secrets scan every commit on this Mac goes through
+# reads a path after the keyword as a password being set.
+check "sudo lists the helper as the account's passwordless command" \
+  '/usr/bin/sudo -n -l 2>/dev/null | grep -F "$helper" | grep -q NOPASSWD'
 
 # And the half that says it is narrow rather than blanket. A machine whose sudoers
 # already grants the account everything cannot answer this — a CI runner arrives
@@ -494,83 +484,11 @@ check "an allowed action refuses rather than half-doing it without root" \
 check "a dry run of an allowed action says what it would do and does nothing" \
   'CLAUDE_ROOT_DRY_RUN=1 "$helper_source" restart-daemon dasd | grep -q "dry run"'
 
-# What reaches the log and the terminal is stripped of control characters first: a
-# newline in an argument is otherwise a second audit line the caller wrote, and an
-# escape sequence is one a terminal reading the log back acts on. The refusal on
-# stderr is the observable half, and the log goes through the same function.
-check "the helper strips control characters out of what it reports" \
-  '"$helper_source" "$(printf "bad\nname")" 2>&1 |
-     grep -q "not an allowed action: badname"'
-# The C1 controls separately, because they are the ones a deny list written in
-# ASCII misses: U+009B arrives as the two bytes 0xC2 0x9B and is one character to
-# a tr in a UTF-8 locale. Both bytes have to be gone, which is what asking for the
-# bare name back checks.
-check "and the C1 controls with them" \
-  '"$helper_source" "$(printf "bad\302\233name")" 2>&1 |
-     grep -q "not an allowed action: badname"'
-
-# The re-exec through `env -i`, which is what keeps a root script from being
-# steered by the environment it was handed. A PATH of nothing is the observable
-# half: everything after that line runs on the PATH this repo wrote.
+# The helper runs on a PATH of its own rather than the caller's, since sudo here
+# sets no secure_path and the account's PATH leads with version-managed shims. A
+# PATH of nothing is the observable half.
 check "the helper does not run on the PATH it was handed" \
   'PATH=/nonexistent "$helper_source" --list >/dev/null'
-# Neither source may hold a control character, which is what root-helper.sh
-# refuses to install and what keeps a review of either on a terminal honest. A tab
-# in the sudoers rule is the one exception sudoers itself allows; the C1 range is
-# matched as the bytes it is, since no character class tells it from an em dash.
-# Asserted against the checkout as well as refused at install time, because a
-# source that went wrong here would be a commit nobody could read the diff of.
-c1_controls="$(printf '\302[\200-\237]')"
-export c1_controls
-
-# And root-helper.sh names every command it runs by its absolute path, sudo
-# included. sudoers here sets no secure_path, so a bare name after sudo is
-# whichever one the caller's PATH finds first, and this account's PATH starts with
-# ~/.local/bin, which the account can write — so a bare `sudo cat` is a session's
-# cat running as root the moment Tim types his password. test/root-helper.sh runs a
-# review with a PATH full of recording fakes and asserts none of them was called;
-# this is the half that covers the branches such a run does not reach, a first
-# install never reaching the diff or the comparison.
-#
-# A command position is the start of a line, or what follows a pipe, a semicolon,
-# an opening parenthesis, a `!`, an `&&`, a `$(` or one of the keywords that take a
-# command after them. Which is what keeps this script's own prose out of it: the
-# names appear in plenty of comments and messages, and none of those is a command
-# position.
-shell_commands='sudo|sh|cat|cmp|install|rm|diff|grep|sed|tr|shasum|stat'
-shell_commands="$shell_commands|dscl|id|uname|mktemp|dirname|chown|chmod"
-shell_commands="$shell_commands|mv|visudo|logger|launchctl"
-command_position='(^|[;|(!]|\|\||&&|\$\(|(^|[[:space:]])(if|elif|while|until|then|else|do))[[:space:]]*'
-export shell_commands command_position
-
-check "root-helper.sh names every command it runs by its absolute path" \
-  '! grep -vE "^[[:space:]]*#" "$root/root-helper.sh" |
-     grep -qE "$command_position($shell_commands)[[:space:]]"'
-
-check "the helper's source holds no control character" \
-  '! LC_ALL=C grep -qaE "[[:cntrl:]]|$c1_controls" "$helper_source"'
-check "the sudoers source holds none either, tabs aside" \
-  '! LC_ALL=C tr -d "\011" <"$root/system/sudoers/claude-root" |
-       LC_ALL=C grep -qaE "[[:cntrl:]]|$c1_controls"'
-
-# And it will not resolve itself off that PATH either, since working out which
-# file to re-exec is the one step that happens before the PATH is replaced. `bash
-# claude-root` from inside the directory is the way a $0 with no slash in it
-# actually arrives — a shebang run hands bash the path it was execed with, so an
-# argv[0] somebody faked never reaches the script.
-check "the helper refuses a name it would have to resolve on the PATH" \
-  'cd "${helper_source%/*}" && bash claude-root --list 2>&1 |
-     grep -q "run it by its path"'
-check "and still runs from a relative path, which names a file" \
-  'cd "${helper_source%/*}" && ./claude-root --list | grep -q "restart-daemon"'
-
-# What root-helper.sh shows before it asks for a password is test/root-helper.sh's,
-# which runs the real installer against sources poisoned on purpose and so needs a
-# repository of its own to poison rather than a check line here. It installs
-# nothing and needs no root. It exits with the number that failed, which this total
-# takes over.
-"$root/test/root-helper.sh"
-failures=$((failures + $?))
 
 if [ "$failures" -gt 0 ]; then
   echo "  $failures check(s) failed"

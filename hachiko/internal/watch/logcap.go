@@ -12,50 +12,27 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 )
 
-// How one log is capped, which is decided by who holds it open and not by anything about the
-// file. A rename-and-recreate is what newsyslog does, and against a writer that holds the
-// descriptor it is worse than doing nothing: the writer goes on appending to the archive and
-// the empty file left at the path never grows enough to be rotated again. So a log with a
-// long-running writer behind it is copied and then emptied in place instead, and one whose
-// writer reopens the path every run is renamed, which has no window at all.
-type capHow int
-
-const (
-	capCopy capHow = iota
-	capRename
-)
-
-type cappedLog struct {
-	path string
-	how  capHow
-}
-
 // The whole of what may be capped, by exact path and never by pattern: each of these is this
-// machine's own log, named by a plist or a wrapper in this repository, and the classification
-// is which of those writes it and how. Anything not on the list is somebody's — a log under a
-// worktree sits beside a build somebody is waiting on — and the free-space thresholds are
-// what catch one of those.
-func cappedLogs(cfg config.Config) []cappedLog {
+// machine's own log, named by a plist or a wrapper in this repository. Anything not on the
+// list is somebody's — a log under a worktree sits beside a build somebody is waiting on —
+// and the free-space thresholds are what catch one of those.
+//
+// Every one of them is held open by the shell in its plist, which opened it with `>>` and
+// keeps it for the length of a run: the herdr server and the two hachiko agents that never
+// finish one, and the two sweeps for as long as each takes. So each is copied and then
+// emptied in place rather than renamed out from under its writer, which is what newsyslog
+// does and which against a held descriptor is worse than doing nothing — the writer goes on
+// appending to the archive and the empty file left at the path never grows enough to be
+// rotated again.
+func cappedLogs(cfg config.Config) []string {
 	under := func(name string) string { return filepath.Join(cfg.LogsRoot, name) }
 
-	return []cappedLog{
-		// Held open for the life of the Mac: the herdr server and the two hachiko agents that
-		// never finish a run, each opened with `>>` by the shell in its plist.
-		{path: under("herdr.log"), how: capCopy},
-		{path: under("hachiko-sync.log"), how: capCopy},
-		{path: under("hachiko-listen.log"), how: capCopy},
-
-		// This sweep's own stdout, which its plist opens with `>>` for each five-minute run.
-		// Between runs there is nothing to orphan and a rename would be safe, but the process
-		// doing the capping is the one holding it: a rename would send the rest of this
-		// sweep's lines to the archive, the line saying it had capped anything among them.
-		{path: under("hachiko.log"), how: capCopy},
-
-		// The one that is genuinely reopened: launchd opens it itself from the gc agent's
-		// StandardOutPath, once per ten-minute run, and the sweep exits between them. A
-		// rename during a run that is still going costs that run's remaining lines to the
-		// archive, which is where rotation always leaves the most recent ones.
-		{path: under("hachiko-gc.log"), how: capRename},
+	return []string{
+		under("herdr.log"),
+		under("hachiko-sync.log"),
+		under("hachiko-listen.log"),
+		under("hachiko.log"),
+		under("hachiko-gc.log"),
 	}
 }
 
@@ -63,68 +40,64 @@ func cappedLogs(cfg config.Config) []cappedLog {
 // status` prints each one's size against the cap, and a second list there would be a screen
 // that leaves out the log the drift is in.
 func CappedLogPaths(cfg config.Config) []string {
-	paths := make([]string, 0, len(cappedLogs(cfg)))
-	for _, log := range cappedLogs(cfg) {
-		paths = append(paths, log.path)
-	}
-	return paths
+	return cappedLogs(cfg)
 }
 
 // One stat per file, which is the whole cost on a Mac with nothing to cap — every sweep but
 // a handful. No Discord either way: a log this bounds is hygiene rather than news, and a
 // message every time herdr's log filled would be a message nobody can act on.
 func (s sweeper) capLogs(state *statedir.State) {
-	for _, log := range cappedLogs(s.cfg) {
-		s.capLog(state, log)
+	for _, path := range cappedLogs(s.cfg) {
+		s.capLog(state, path)
 	}
 }
 
-func (s sweeper) capLog(state *statedir.State, log cappedLog) {
+func (s sweeper) capLog(state *statedir.State, path string) {
 	// Lstat and not Stat. These are account-owned paths and hachiko runs as the account, so
 	// there is no privilege to be had through one of them — but a link at either path is
 	// still a write going somewhere nobody asked for, and the cheap refusal is not to look
 	// through it in the first place.
-	info, err := os.Lstat(log.path)
+	info, err := os.Lstat(path)
 	if err != nil {
-		s.capFine(state, log.path)
+		s.capFine(state, path)
 		return
 	}
 
 	kb := info.Size() / 1024
-	kept := log.path + ".0"
+	kept := path + ".0"
 
 	switch {
 	case info.Mode()&os.ModeSymlink != 0:
-		s.capTrouble(state, log.path, "%s is a symlink, so nothing of it was capped", log.path)
+		s.capTrouble(state, path, "%s is a symlink, so nothing of it was capped", path)
 		return
 	case !info.Mode().IsRegular():
-		s.capFine(state, log.path)
+		s.capFine(state, path)
 		return
 	case kb <= s.cfg.LogCapKB:
-		s.capFine(state, log.path)
+		s.capFine(state, path)
 		return
 	}
 
-	// Every path a cap writes, each of which a link could be waiting at: the generation,
-	// which a rename replaces, and the file a copy fills before it becomes one.
-	for _, beside := range log.writes(kept) {
+	// Every path a cap writes, each of which a link could be waiting at: the generation, and
+	// the file the copy fills before it becomes one.
+	for _, beside := range []string{kept, kept + ".tmp"} {
 		if was, err := os.Lstat(beside); err == nil && was.Mode()&os.ModeSymlink != 0 {
-			s.capTrouble(state, log.path, "%s is a symlink, so %s was not capped", beside, log.path)
+			s.capTrouble(state, path, "%s is a symlink, so %s was not capped", beside, path)
 			return
 		}
 	}
 
 	if s.dry {
-		s.say("would cap %s at %s MB, keeping what is there now as %s", log.path, mbStr(kb), kept)
+		s.say("would cap %s at %s MB, keeping what is there now as %s", path, mbStr(kb), kept)
 		return
 	}
 
-	if err := log.cap(kept); err != nil {
-		s.capTrouble(state, log.path, "%s is %s MB and could not be capped: %v", log.path, mbStr(kb), err)
+	if err := copyAndTruncate(path, kept); err != nil {
+		s.capTrouble(state, path, "%s is %s MB and could not be capped: %v", path, mbStr(kb), err)
 		return
 	}
-	s.capFine(state, log.path)
-	s.say("capped %s at %s MB; what was there is in %s", log.path, mbStr(kb), kept)
+	s.capFine(state, path)
+	s.say("capped %s at %s MB; what was there is in %s", path, mbStr(kb), kept)
 }
 
 // Said once per log and not again until the log is capped or is nothing to complain about.
@@ -164,20 +137,7 @@ func (s sweeper) capFine(state *statedir.State, path string) {
 
 // One generation kept, replacing whatever was there: two of them bound a log at twice the
 // threshold, and the one before this is the half of a runaway an incident is usually in.
-func (l cappedLog) cap(kept string) error {
-	if l.how == capRename {
-		return os.Rename(l.path, kept)
-	}
-	return copyAndTruncate(l.path, kept)
-}
-
-func (l cappedLog) writes(kept string) []string {
-	if l.how == capRename {
-		return []string{kept}
-	}
-	return []string{kept, kept + ".tmp"}
-}
-
+//
 // The single descriptor is the whole of the safety at the source: the file that is read is
 // the file that is emptied, so a link swapped in between the two cannot be what gets emptied,
 // and O_NOFOLLOW is what refuses one swapped in between the Lstat above and this.

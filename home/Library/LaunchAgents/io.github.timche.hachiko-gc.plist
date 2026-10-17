@@ -1,46 +1,38 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Rendered by mise from the [dotfiles] entry in mise.toml, and the one plist
-     here that is: launchd reads WatchPaths below itself rather than handing it to
-     anything that could expand a $HOME, so this one path has to arrive absolute.
-     Every other agent here leaves its paths to a shell and is a plain symlink. -->
+<!-- Symlinked into ~/Library/LaunchAgents from the [dotfiles] entry in mise.toml,
+     which launchd accepts: it resolves the link when the job is bootstrapped and
+     reads the file behind it.
+
+     launchd expands neither ~ nor $HOME in a plist — a $HOME in StandardOutPath is
+     an EX_CONFIG failure at load with nothing anywhere naming the key that was
+     wrong — but it does hand a gui-domain agent a HOME. So the PATH and the log
+     both move into a shell, which is the one thing here that can expand one, and
+     this file needs no rendering to name no account. -->
 <plist version="1.0">
 <dict>
   <key>Label</key>
   <string>io.github.timche.hachiko-gc</string>
+  <!-- launchd hands a job almost no PATH. ~/.local/bin first, for the hachiko
+       wrapper itself and for the mise that rebuilds the binary when the sources have
+       changed; Homebrew's prefix for docker and for the op CLI behind the op wrapper,
+       /usr/local/bin for a docker Docker Desktop put there; the system directories
+       for git, ps and lsof. exec, so this job's own process is the sweep. -->
   <key>ProgramArguments</key>
   <array>
-    <string>{{ env.HOME }}/.local/bin/hachiko</string>
-    <string>gc</string>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>export PATH="$HOME/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"; exec "$HOME/.local/bin/hachiko" gc &gt;&gt;"$HOME/Library/Logs/hachiko-gc.log" 2&gt;&amp;1</string>
   </array>
   <!-- A sweep on load catches everything a machine lost while it was off. -->
   <key>RunAtLoad</key>
   <true/>
-  <!-- The backstop, and for most removals the only thing that fires: WatchPaths
-       is not recursive, so a worktree removed inside ~/.herdr/worktrees/<repo>/
-       is invisible to it, and Claude Code's worktree roots are per repository at
-       <repo>/.claude/worktrees/, which no single path watches. Ten minutes is
-       long enough to be free and short enough that a compose project holding a
+  <!-- The timer is the whole of the trigger, since no removal hands anything a hook.
+       A WatchPaths on ~/.herdr/worktrees would catch almost nothing: it is not
+       recursive, and a worktree lives two levels down at <repo>/<branch>. Ten minutes
+       is long enough to be free and short enough that a compose project holding a
        port is gone before the next session wants it. -->
   <key>StartInterval</key>
   <integer>600</integer>
-  <key>WatchPaths</key>
-  <array>
-    <string>{{ env.HOME }}/.herdr/worktrees</string>
-  </array>
-  <!-- launchd hands a job almost no PATH. ~/.local/bin first, for the hachiko
-       wrapper itself, for the mise that rebuilds the binary when the sources have
-       changed, and for the op that signs 1Password in; Homebrew's prefix for
-       docker and the op CLI behind that wrapper, /usr/local/bin for a docker
-       Docker Desktop put there; the system directories for git, ps and lsof. -->
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>PATH</key>
-    <string>{{ env.HOME }}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
-  </dict>
-  <key>StandardOutPath</key>
-  <string>{{ env.HOME }}/Library/Logs/hachiko-gc.log</string>
-  <key>StandardErrorPath</key>
-  <string>{{ env.HOME }}/Library/Logs/hachiko-gc.log</string>
 </dict>
 </plist>

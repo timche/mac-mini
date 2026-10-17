@@ -404,9 +404,9 @@ check "no auto-sync hook is left in settings.json" \
    ! grep -qE "git-sync|dotfiles-sync" "$HOME/.claude/settings.json"'
 
 # Nothing under home/ spells a home directory out, and mise.toml is in it because
-# the one plist launchd reads a path out of itself is rendered from there. The
-# account differs between this Mac and a runner, and a path written for one is a
-# hook that never fires for the other, silently. The synced skills are the
+# a dotfile entry there could render one in. The account differs between this Mac
+# and a runner, and a path written for one is a hook that never fires for the
+# other, silently. The synced skills are the
 # account's claude.ai copies rather than this repo's, and gitignored.
 check "no absolute home paths under home/ or in mise.toml" \
   '[ -d "$repo/home" ] && [ -f "$repo/mise.toml" ] &&
@@ -707,35 +707,36 @@ check "macOS holds the launcher responsible for the herdr it starts under launch
    grep -q "responsible_path=$d/launcher$" "$d/out"'
 
 # The sweep is on a timer rather than on a session, so the agent is the whole of
-# its wiring: an unrendered or invalid plist is a job launchd rejects at load
-# with nothing in it to say why. Not reachable on a runner with no GUI session,
-# so this reads the file rather than loading the job.
+# its wiring: an invalid plist is a job launchd rejects at load with nothing in
+# it to say why. Not reachable on a runner with no GUI session, so this reads the
+# file rather than loading the job.
 export gc_plist="$HOME/Library/LaunchAgents/io.github.timche.hachiko-gc.plist"
 
-check "the sweep's LaunchAgent is rendered" '[ -f "$gc_plist" ]'
-check "the gc agent is a valid plist" 'plutil -lint "$gc_plist"'
-check "the gc agent has the home directory filled in" \
-  '[ -f "$gc_plist" ] && ! grep -q "{{" "$gc_plist"'
-check "the gc agent runs hachiko gc" \
-  '[ "$(plutil -extract ProgramArguments.0 raw -o - "$gc_plist")" = \
-     "$HOME/.local/bin/hachiko" ] &&
-   [ "$(plutil -extract ProgramArguments.1 raw -o - "$gc_plist")" = gc ]'
+check "the gc agent is a live symlink and a valid plist" \
+  '[ -L "$gc_plist" ] && [ -e "$gc_plist" ] && plutil -lint "$gc_plist" &&
+   [ "$(plutil -extract Label raw "$gc_plist")" = io.github.timche.hachiko-gc ]'
+# launchd expands neither ~ nor $HOME in a plist, so every path this job needs
+# belongs to a shell — the one thing it hands a HOME to. No WatchPaths either,
+# which is the one key that would have to arrive absolute: it is not recursive,
+# so a worktree two levels under the root would be invisible to it, and the
+# interval is what fires on a removal.
+check "the gc agent runs hachiko gc through a shell and logs to ~/Library/Logs" \
+  '[ "$(plutil -extract ProgramArguments.0 raw -o - "$gc_plist")" = "/bin/sh" ] &&
+   [ "$(plutil -extract ProgramArguments.1 raw -o - "$gc_plist")" = "-c" ] &&
+   plutil -extract ProgramArguments.2 raw -o - "$gc_plist" |
+     grep -qF "exec \"\$HOME/.local/bin/hachiko\" gc >>\"\$HOME/Library/Logs/hachiko-gc.log\"" &&
+   ! plutil -extract StandardOutPath raw -o - "$gc_plist" &&
+   ! plutil -extract StandardErrorPath raw -o - "$gc_plist" &&
+   ! plutil -extract EnvironmentVariables xml1 -o - "$gc_plist" &&
+   ! plutil -extract WatchPaths xml1 -o - "$gc_plist"'
 check "the gc agent sweeps at load" \
   'plutil -extract RunAtLoad xml1 -o - "$gc_plist" | grep -q "<true/>"'
-# The interval does most of the work: WatchPaths is not recursive, so a
-# worktree removed a level below the root it watches is invisible to it.
 check "the gc agent sweeps every ten minutes" \
   '[ "$(plutil -extract StartInterval raw -o - "$gc_plist")" = 600 ]'
-check "the gc agent watches the herdr worktree root" \
-  '[ "$(plutil -extract WatchPaths.0 raw -o - "$gc_plist")" = \
-     "$HOME/.herdr/worktrees" ]'
 # launchd hands a job almost no PATH, and this one shells out to docker.
 check "the gc agent's PATH reaches docker" \
-  'plutil -extract EnvironmentVariables.PATH raw -o - "$gc_plist" |
-     grep -q "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:"'
-check "the gc agent logs to ~/Library/Logs" \
-  '[ "$(plutil -extract StandardErrorPath raw -o - "$gc_plist")" = \
-     "$HOME/Library/Logs/hachiko-gc.log" ]'
+  'plutil -extract ProgramArguments.2 raw -o - "$gc_plist" |
+     grep -qF "export PATH=\"\$HOME/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:"'
 
 
 # `hachiko sync`, which commits and pushes the repositories its config lists. It is a

@@ -57,11 +57,11 @@ go = "1.27"
 # plist leaves every path it needs to a shell that expands $HOME for itself.
 "~/Library/LaunchAgents/io.github.timche.herdr.plist" = { source = "home/Library/LaunchAgents/io.github.timche.herdr.plist", mode = "symlink" }
 
-# The sweep that follows a removed worktree, and the one plist still rendered rather
-# than linked: launchd reads WatchPaths itself and expands no $HOME in it, so that
-# path has to arrive already absolute. It runs `hachiko gc`, so the wrapper below is
-# the whole of what it needs installed.
-"~/Library/LaunchAgents/io.github.timche.hachiko-gc.plist" = { source = "home/Library/LaunchAgents/io.github.timche.hachiko-gc.plist", mode = "template" }
+# The sweep that follows a removed worktree, linked like the agents above it: it runs
+# on a timer alone, so there is no WatchPaths and so no path launchd would have to be
+# handed absolute. It runs `hachiko gc`, so the wrapper below is the whole of what it
+# needs installed.
+"~/Library/LaunchAgents/io.github.timche.hachiko-gc.plist" = { source = "home/Library/LaunchAgents/io.github.timche.hachiko-gc.plist", mode = "symlink" }
 
 # The watch over free space and the CPU, with its secrets' references beside it: the
 # wrapper resolves its .env.op from its own directory, so the two are linked together

@@ -408,20 +408,11 @@ load_agent() {  # label plist
 # Claude Code's WorktreeRemove does not fire for a git worktree. Nothing gates it
 # the way `hachiko sync` is gated on the docs clone — it has nothing to wait for,
 # and a machine with no worktrees gives it nothing to do.
-#
-# launchd keeps the copy of the plist it read at load, so one the bootstrap
-# re-rendered reaches a job that is already loaded only through a bootout and a
-# fresh bootstrap.
-#
-# WatchPaths wants the path to exist when the job loads, and herdr creates its
-# worktree root only when it makes the first worktree.
-mkdir -p "$HOME/.herdr/worktrees"
-
 gc_label=io.github.timche.hachiko-gc
 gc_plist="$HOME/Library/LaunchAgents/$gc_label.plist"
 
 if [ ! -f "$gc_plist" ]; then
-  echo "$gc_plist is missing — mise renders it from mise.toml" >&2
+  echo "$gc_plist is missing — mise links it from mise.toml" >&2
 elif ! load_agent "$gc_label" "$gc_plist"; then
   echo "could not load $gc_label — the gui/$uid domain needs a GUI session" \
        "logged in on the Mac; nothing will sweep a removed worktree's" \

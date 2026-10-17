@@ -95,18 +95,18 @@ func TestAHeldOpenLogIsCopiedAndThenEmptiedUnderItsWriter(t *testing.T) {
 	}
 }
 
-// launchd opens this one itself, once per run of a job that exits between them, so a rename
-// orphans nothing and has no window at all.
-func TestAReopenedLogIsRenamed(t *testing.T) {
+// The sweep's own log, which its plist holds open with `>>` for the length of a run: a
+// rename would send the rest of that run's lines to the archive, the line saying it had
+// capped anything among them.
+func TestTheSweepsOwnLogIsCappedInPlace(t *testing.T) {
 	f := newFixture(t)
 	path := logFile(t, f, "hachiko-gc.log", 2*logCapKB)
+	appendingTo(t, path)
 
 	harness.Wants(t, f.sweep(), "capped "+path)
 
 	harness.Equal(t, sizeOf(t, path+".0"), int64(2*logCapKB*1024), "bytes in the generation kept")
-	if _, err := os.Stat(path); err == nil {
-		t.Error("a renamed log was left behind at its own path")
-	}
+	harness.Equal(t, sizeOf(t, path), int64(0), "the size of the log after the cap")
 }
 
 // One generation and no more, so a log on this list is bounded at twice the threshold rather

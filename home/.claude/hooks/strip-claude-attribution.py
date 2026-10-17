@@ -16,6 +16,14 @@ ATTRIBUTION = re.compile(
     re.IGNORECASE,
 )
 GH = re.compile(r"(?:^|[\s;&|(])gh\s")
+# Refused outright: --no-verify skips the commit-msg and pre-push hooks that keep
+# attribution out, and a repository's own pre-commit with them. On commit, -n is the
+# same flag; on push it is --dry-run. A permissions deny rule matches only a command
+# that starts with `git push`, which `git -C <dir> push` and a `cd … &&` chain are not.
+NO_VERIFY = re.compile(
+    r"\bgit\b[^;&|\n]*\s(?:push|commit)\b[^;&|\n]*\s--no-verify\b"
+    r"|\bgit\b[^;&|\n]*\scommit\b[^;&|\n]*\s-[a-zA-Z]*n[a-zA-Z]*\b"
+)
 BODY_FILE_FLAGS = ("--body-file", "-F", "--input")
 
 
@@ -44,6 +52,15 @@ def main():
     event = json.load(sys.stdin)
     tool_input = event.get("tool_input") or {}
     command = tool_input.get("command") or ""
+    if NO_VERIFY.search(command):
+        print(json.dumps({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": "Skipping git hooks (--no-verify, or -n on commit) is not allowed: they keep Claude's attribution off commits and GitHub, and run the repository's own checks. Run it without the flag and fix what a hook reports.",
+            }
+        }))
+        return
     if not GH.search(command):
         return
 

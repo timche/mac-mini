@@ -751,9 +751,10 @@ func nonEmpty(items ...string) []string {
 	return keep
 }
 
-// Sections joined by single newlines, with nothing for the ones there was nothing to say
-// about: a message is never a form with blanks in it.
-func joinBlocks(blocks ...string) string { return strings.Join(nonEmpty(blocks...), "\n") }
+// Sections with a blank line between them, and nothing for the ones there was nothing to
+// say about: a message is never a form with blanks in it, and two findings that run
+// together are two nobody reads to the end of.
+func joinBlocks(blocks ...string) string { return strings.Join(nonEmpty(blocks...), "\n\n") }
 
 // The order the alert goes out in: the session first, so the message can name the
 // tab it is waiting in, then one line from hachiko. The brief carries the incident

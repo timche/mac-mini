@@ -71,6 +71,8 @@ it("puts a value in a code span whatever backticks are in it", () => {
   expect(code("")).toBe("");
 });
 
+// One blank line between every part of it, the way hachiko's own sender writes one: Discord
+// renders consecutive lines as one block of text.
 it("renders a message as a headline, its detail, what to do and the machine", () => {
   const text = render({
     marker: markers.down,
@@ -87,10 +89,9 @@ it("renders a message as a headline, its detail, what to do and the machine", ()
     [
       "🔴 Mac mini has gone quiet — no check-in for 15 minutes",
       "**Last check-in:** at 17:20",
-      "",
       "Check that the Mac is powered up and on the network.",
       "-# tims-mac-mini · hachiko build 1a2b3c4d5e6f",
-    ].join("\n"),
+    ].join("\n\n"),
   );
 });
 

@@ -42,26 +42,26 @@ const TZ = "Europe/London";
 // Discord's own cap on a forum post's name.
 const TITLE_LIMIT = 100;
 
+// A blank line between every part of it, the way hachiko's own sender writes one: Discord
+// renders consecutive lines as one block of text, so a lead and three labelled lines run
+// together into a wall on the phone this is read on.
 export function render(message: Message): string {
-  const lines = [`${message.marker} ${message.lead}`];
+  const blocks = [`${message.marker} ${message.lead}`];
 
   for (const detail of message.details ?? []) {
     if (detail.value !== "") {
-      lines.push(`**${detail.label}:** ${detail.value}`);
+      blocks.push(`**${detail.label}:** ${detail.value}`);
     }
   }
 
   if (message.action !== undefined && message.action !== "") {
-    lines.push("", message.action);
+    blocks.push(message.action);
   }
   if (message.machine !== undefined && message.machine !== "") {
-    if (message.action === undefined || message.action === "") {
-      lines.push("");
-    }
-    lines.push(`-# ${message.machine}`);
+    blocks.push(`-# ${message.machine}`);
   }
 
-  return lines.join("\n");
+  return blocks.join("\n\n");
 }
 
 // A forum post's name, which is the whole of what a notification and a channel list show.

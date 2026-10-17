@@ -95,9 +95,10 @@ func TestACodeSpanCannotBeBrokenOutOf(t *testing.T) {
 	}
 }
 
-// Nothing a message is built from leaves a blank line in it, and the only one there is
-// comes before the action line.
-func TestAMessageHasOneBlankLineAndNoTrailingOne(t *testing.T) {
+// One blank line between the parts of a message and never two, since Discord renders
+// consecutive lines as one block of text and a message of four findings has to be read on a
+// phone. Inside a part nothing is spaced: a label keeps its own list.
+func TestAMessageHasOneBlankLineBetweenItsPartsAndNoTrailingOne(t *testing.T) {
 	m := Lead(MarkerDisk, "Disk filling: devbackend.log is growing fast").
 		Field(LabelFreeSpace, "500 GB").
 		Bullets(LabelGrowing, []string{"`/private/tmp/devbackend.log` — 4.3 GB"}).
@@ -105,11 +106,14 @@ func TestAMessageHasOneBlankLineAndNoTrailingOne(t *testing.T) {
 		About("disk-1700000000", "mac-mini")
 
 	harness.Equal(t, m.String(), "💾 Disk filling: devbackend.log is growing fast\n"+
+		"\n"+
 		"**Free space:** 500 GB\n"+
+		"\n"+
 		"**Growing fast:**\n"+
 		"- `/private/tmp/devbackend.log` — 4.3 GB\n"+
 		"\n"+
 		"Attach in herdr.\n"+
+		"\n"+
 		"-# Incident disk-1700000000 · mac-mini", "a whole message")
 
 	// A field with nothing to say about it is no line at all, and a message with nothing
@@ -119,7 +123,7 @@ func TestAMessageHasOneBlankLineAndNoTrailingOne(t *testing.T) {
 		Field(LabelWhy, "").
 		About("", "mac-mini")
 
-	harness.Equal(t, bare.String(), "ℹ️ Test alert from hachiko — nothing is wrong\n"+
+	harness.Equal(t, bare.String(), "ℹ️ Test alert from hachiko — nothing is wrong\n\n"+
 		"**Free space:** 790 GB\n\n-# mac-mini", "a message with nothing to do about it")
 
 	harness.Equal(t, strings.HasSuffix(m.String(), "\n"), false, "a trailing newline")

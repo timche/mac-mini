@@ -116,21 +116,21 @@ func (m *Message) About(incident, host string) *Message {
 	return m
 }
 
+// A blank line between every part of it, which is what makes a message with four findings
+// in it readable on a phone: Discord renders consecutive lines as one block of text, so a
+// lead, two labelled fields and a list run together into a wall. Inside a part nothing is
+// spaced — a label keeps its own list, and a bullet keeps its continuation line — so the
+// blank lines are exactly the seams between one finding and the next.
 func (m *Message) String() string {
 	out := append([]string{m.lead}, m.blocks...)
 
-	var tail []string
 	if m.action != "" {
-		tail = append(tail, m.action)
+		out = append(out, m.action)
 	}
 	if m.subtext != "" {
-		tail = append(tail, m.subtext)
+		out = append(out, m.subtext)
 	}
-	if len(tail) > 0 {
-		out = append(out, "")
-		out = append(out, tail...)
-	}
-	return strings.Join(out, "\n")
+	return strings.Join(out, "\n\n")
 }
 
 // Several findings of one kind: the label on its own line and one bullet each, since a

@@ -225,7 +225,7 @@ func TestTheCapDropsTheSubtextFirst(t *testing.T) {
 		t.Fatalf("the message under test is only %d characters", len(full))
 	}
 
-	harness.Equal(t, capMessage(full), build(pad).String()+"\n"+truncatedTail, "what the cap kept")
+	harness.Equal(t, capMessage(full), build(pad).String()+"\n\n"+truncatedTail, "what the cap kept")
 }
 
 // One line longer than the whole budget is a session's own report rather than anything

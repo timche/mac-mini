@@ -358,7 +358,7 @@ func capMessage(message string) string {
 		room -= len(line) + 1
 	}
 
-	return strings.TrimRight(strings.Join(kept, "\n"), "\n") + "\n" + truncatedTail
+	return strings.TrimRight(strings.Join(kept, "\n"), "\n") + "\n\n" + truncatedTail
 }
 
 func redact(text, token string) string { return logs.Redact(text, token, "the bot token") }

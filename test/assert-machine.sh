@@ -173,6 +173,8 @@ else
   echo "        itself — so docker itself was not checked"
 fi
 
+check "Rosetta runs x86_64 binaries" '/usr/bin/arch -x86_64 /usr/bin/true'
+
 # Xcode is xcode.sh's, which machine.sh only runs where there is a terminal to
 # type an Apple ID at — so on a runner it is the workflow that calls it, and what
 # can be asserted is the half that installs nothing. The download itself is

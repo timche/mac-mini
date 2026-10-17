@@ -38,7 +38,7 @@ And in the Tailscale admin console: add an `ssh` rule for whoever should reach t
 
 ## The machine
 
-`machine.sh` installs Homebrew and the `Brewfile`'s packages, turns Remote Login on if it is off, brings tailscale up as a system daemon serving Tailscale SSH, puts docker on the Mac as OrbStack, hardens sshd down to keys only, no root, one user, installs the one [root helper](#the-root-helper) a session may run under sudo, and — only where there is a terminal to type an Apple ID at — installs Xcode.
+`machine.sh` installs Homebrew and the `Brewfile`'s packages, turns Remote Login on if it is off, brings tailscale up as a system daemon serving Tailscale SSH, puts docker on the Mac as OrbStack, installs Rosetta for the x86_64 tools a Windows build of an Electron app runs, hardens sshd down to keys only, no root, one user, installs the one [root helper](#the-root-helper) a session may run under sudo, and — only where there is a terminal to type an Apple ID at — installs Xcode.
 
 Every package is the `Brewfile` at the repo root, applied with `brew bundle --no-upgrade`: by `bootstrap-system.sh` here, and by `install.sh` in the account phase, one declarative list for both. `--no-upgrade` because this Mac is re-run in place over the very sshd and tailnet a run touches; `brew bundle upgrade` is the deliberate version of that. A failed package is not fatal — the exception is `gh`, `jq` and `op`, which `bootstrap-system.sh` stops on, since nothing after it works at all without them.
 
@@ -176,6 +176,8 @@ The VM, its disk, its images and its volumes are all under `~/.orbstack`. `orb c
 ## Xcode
 
 `xcode.sh` installs the full Xcode, which this Mac needs for signing builds of an Electron app with a Developer ID certificate — the command line tools Homebrew brought are enough to compile but not the whole toolchain electron-builder reaches for. It is the one step of the machine `machine.sh` will not do unattended: Apple hands nobody an Xcode without an Apple ID, a 2FA code typed in while it is still valid, and the account password for the privileged end of the install. `machine.sh` runs it when there is a terminal and lists it under what is left when there is not.
+
+`rosetta.sh` is the other machine step a Developer ID build leans on, and it needs nothing typed: `softwareupdate --install-rosetta --agree-to-license` under the sudo `machine.sh` already holds, so running `machine.sh` is what agrees to Apple's Rosetta licence. It asks an x86_64 `true` whether Rosetta runs rather than `pkgutil`, where `RosettaLinux` is the Linux VMs' and translates nothing on the Mac.
 
 ```sh
 ~/.mac-mini/xcode.sh

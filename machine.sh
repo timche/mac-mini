@@ -46,6 +46,10 @@ fi
 "$repo/tailscale.sh"
 "$repo/docker.sh"
 
+# Not fatal: a Mac that cannot run x86_64 tools is still reachable and still
+# everything else here, and the footer below says it is left to do.
+"$repo/rosetta.sh" || true
+
 # Last of the steps that decide how this Mac is reached, because it is the one
 # that turns password logins off. With no authorized_keys yet it asks for a key to
 # paste, and skips itself when none is given rather than locking you out of a
@@ -100,6 +104,11 @@ fi
 if [ ! -x /usr/local/libexec/claude-root ]; then
   echo "  - $repo/root-helper.sh — a session still has no sudo of its own, so"
   echo "    every root command waits for you."
+fi
+
+if ! /usr/bin/arch -x86_64 /usr/bin/true 2>/dev/null; then
+  echo "  - $repo/rosetta.sh — Rosetta, which meru's Windows build runs its x86_64"
+  echo "    tools under. Installing it agrees to Apple's Rosetta licence."
 fi
 
 if [ "$xcode_left" = true ]; then

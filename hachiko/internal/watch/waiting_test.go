@@ -402,10 +402,10 @@ func TestAMarkerKeepsTheOptionAnEarlierReportNamed(t *testing.T) {
 	dir := t.TempDir()
 	store := statedir.Store{Dir: dir}
 
-	if err := store.MarkReported("disk-1700000300", "stop pid 4242", false); err != nil {
+	if err := store.MarkReported("disk-1700000300", "stop pid 4242", false, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.MarkReported("disk-1700000300", "", false); err != nil {
+	if err := store.MarkReported("disk-1700000300", "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	harness.Equal(t, store.ReportedFallback("disk-1700000300"), "stop pid 4242", "the option read back")
@@ -413,20 +413,30 @@ func TestAMarkerKeepsTheOptionAnEarlierReportNamed(t *testing.T) {
 
 	// A later report that does name one has changed its mind, which is allowed: what is not
 	// allowed is a message that says nothing about it erasing what the last one said.
-	if err := store.MarkReported("disk-1700000300", "empty the log instead", false); err != nil {
+	if err := store.MarkReported("disk-1700000300", "empty the log instead", false, false); err != nil {
 		t.Fatal(err)
 	}
 	harness.Equal(t, store.ReportedFallback("disk-1700000300"), "empty the log instead", "the option after it changed its mind")
 
 	// And --outcome sticks, whatever is sent after it: the incident is resolved or it is not.
-	if err := store.MarkReported("disk-1700000300", "", true); err != nil {
+	if err := store.MarkReported("disk-1700000300", "", true, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.MarkReported("disk-1700000300", "", false); err != nil {
+	if err := store.MarkReported("disk-1700000300", "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	harness.Equal(t, store.ReportedOutcome("disk-1700000300"), true, "whether the outcome survives a later report")
 	harness.Equal(t, store.ReportedFallback("disk-1700000300"), "empty the log instead", "the option after four reports")
+
+	// And so does the attempt, for the same reason: it is a thing that happened rather than
+	// a field of the last message.
+	if err := store.MarkReported("disk-1700000300", "", false, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkReported("disk-1700000300", "", false, false); err != nil {
+		t.Fatal(err)
+	}
+	harness.Equal(t, store.ReportedAttempt("disk-1700000300"), true, "whether the attempt survives a later report")
 }
 
 // The session depends on herdr and on Tim not having closed the tab, and a wait that
@@ -900,6 +910,78 @@ func TestANewIncidentWhileTheAgentWaitsCancelsTheQuestionAndKeepsTheClock(t *tes
 	// as having been answered.
 	harness.Equal(t, f.at(600+remindAt+600).sweep(), "", "the log while the agent works on the new brief")
 	harness.Equal(t, len(f.state().Waiting), 1, "waits still being counted")
+}
+
+// One attempt per incident, and the record of it is hachiko's: the session says it is about
+// to fix something, and from then on every prompt about that incident — a question asked
+// again, the handover — says the attempt is spent rather than reading as a fresh licence.
+func TestTheOneAttemptIsRecordedAndNoLaterPromptHandsAnother(t *testing.T) {
+	f := waiting(t)
+	incident := f.state().Waiting["disk"].Incident
+
+	f.notifyAttempt(incident)
+	out := f.at(900).sweep()
+	harness.Wants(t, out, "is making its one attempt at fixing "+incident)
+	harness.Equal(t, f.state().Waiting["disk"].Attempted, true, "whether the attempt is recorded")
+
+	// Said once. The marker goes with the next sweep that consumes the report, and the fact
+	// has to outlive it.
+	harness.Lacks(t, f.at(1200).sweep(), "its one attempt")
+
+	// The question goes stale, and the prompt that asks again says so.
+	f.grow("tmp/worker.log", 11*mb)
+	f.at(1500).sweep()
+	harness.Wants(t, f.lastInterrupt(), "Your one attempt at fixing this incident is spent")
+
+	// And so does the handover, which hands over the autonomy in the standing orders and
+	// not a second attempt.
+	f.at(600 + remindAt).sweep()
+	f.at(600 + warnAt).sweep()
+	harness.Wants(t, f.at(600+handoverAt).sweep(), "handed the decision on "+incident)
+	harness.Wants(t, f.lastInterrupt(), "Your one attempt at fixing this incident is spent")
+}
+
+// The commonest shape of all: the session says what it is about to try in the same message as
+// its first report, so the marker recording the attempt is the one a sweep consumes and
+// deletes. Read before it goes, or the attempt is recorded nowhere and the next prompt hands
+// the session another.
+func TestAnAttemptSaidInTheFirstReportIsStillRecorded(t *testing.T) {
+	f := newFixture(t)
+	f.cfg.GrowthKB = 64
+	f.keepGrowing, f.keepKB = "tmp/worker.log", 128
+
+	f.grow("tmp/worker.log", 3*mb)
+	f.at(0).sweep()
+	f.grow("tmp/worker.log", 4*mb)
+	f.at(300).sweep()
+
+	incident := f.onlyPendingID()
+	if err := f.store.MarkReported(incident, "empty the log", false, true); err != nil {
+		t.Fatal(err)
+	}
+
+	f.blocks("disk")
+	out := f.at(600).sweep()
+
+	harness.Wants(t, out, "is making its one attempt at fixing "+incident)
+	w := f.state().Waiting["disk"]
+	harness.Equal(t, w.Attempted, true, "whether the attempt in the first report is recorded")
+	harness.Equal(t, w.Default, "empty the log", "the option the same report named")
+}
+
+// A fresh incident of the same kind is a fresh fault with a fresh reading behind it, and the
+// fix that did not hold is one of the things the session now knows about it. Including when
+// the marker the session left under the superseded incident is still on disk, which is read
+// as a report on the new one: the option in it carries over and the attempt does not.
+func TestANewIncidentGivesTheSessionItsAttemptBack(t *testing.T) {
+	f := waiting(t)
+	f.notifyAttempt(f.state().Waiting["disk"].Incident)
+	f.at(900).sweep()
+
+	f.freeGB = 90
+	f.at(1200).sweep()
+
+	harness.Equal(t, f.state().Waiting["disk"].Attempted, false, "whether the attempt carried over")
 }
 
 func TestANewWriterWhileTheAgentWaitsCancelsTheQuestion(t *testing.T) {

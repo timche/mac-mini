@@ -635,7 +635,7 @@ func (f *fixture) sentCount() int { return len(f.sent) }
 // lock and cannot wait on a sweep holding one.
 func (f *fixture) notify(incident string) {
 	f.t.Helper()
-	if err := f.store.MarkReported(incident, "", false); err != nil {
+	if err := f.store.MarkReported(incident, "", false, false); err != nil {
 		f.t.Fatal(err)
 	}
 }
@@ -644,7 +644,7 @@ func (f *fixture) notify(incident string) {
 // if nobody answers its question.
 func (f *fixture) notifyWithFallback(incident, fallback string) {
 	f.t.Helper()
-	if err := f.store.MarkReported(incident, fallback, false); err != nil {
+	if err := f.store.MarkReported(incident, fallback, false, false); err != nil {
 		f.t.Fatal(err)
 	}
 }
@@ -653,7 +653,15 @@ func (f *fixture) notifyWithFallback(incident, fallback string) {
 // kind that ends the wait.
 func (f *fixture) notifyOutcome(incident string) {
 	f.t.Helper()
-	if err := f.store.MarkReported(incident, "", true); err != nil {
+	if err := f.store.MarkReported(incident, "", true, false); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+// The message it sends before its one fix, which is what records that the attempt happened.
+func (f *fixture) notifyAttempt(incident string) {
+	f.t.Helper()
+	if err := f.store.MarkReported(incident, "", false, true); err != nil {
 		f.t.Fatal(err)
 	}
 }

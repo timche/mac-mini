@@ -150,6 +150,17 @@ func (s sweeper) chaseAnswers(state *statedir.State, now time.Time, reading nowR
 	for _, kind := range statedir.SortedKeys(state.Waiting) {
 		w := state.Waiting[kind]
 
+		// Before anything that could end the wait or consume the marker, and whatever the
+		// agent turns out to be doing: the session says it is about to make its one attempt
+		// and then makes it, which is as likely to happen before its first question as after
+		// one, and every branch below is a prompt that must not read as a second attempt.
+		if !w.Attempted && s.store.ReportedAttempt(w.Incident) {
+			w.Attempted = true
+			state.Waiting[kind] = w
+			s.say("the %s on-call agent is making its one attempt at fixing %s, so nothing hands it another",
+				kind, w.Incident)
+		}
+
 		status, err := s.deps.AgentStatus(kind)
 		if err != nil {
 			if next, keep := s.unreachable(state, now, kind, w, reading, err); keep {
@@ -506,6 +517,17 @@ func (s sweeper) sayNoOutcome(state *statedir.State, kind string, w statedir.Wai
 	return true
 }
 
+// What every prompt that hands the session something has to say once its one fix-first
+// attempt has been made: a reminder, a question asked again and a handover all arrive as new
+// instructions about the same incident, and the first of them to read as permission to try
+// again is what gets a machine nobody is looking at fixed twice.
+func attemptSpent(w statedir.Waiting) string {
+	if !w.Attempted {
+		return ""
+	}
+	return " Your one attempt at fixing this incident is spent, so nothing in this prompt hands you another: whatever you do from here is under the limits this prompt names."
+}
+
 // The handover itself: the question goes, and the session is told to decide. Nothing of
 // hachiko's own goes to the channel here — the session's own message is what says what
 // it did and why, and two messages about one decision would be one too many.
@@ -513,13 +535,13 @@ func (s sweeper) handOver(state *statedir.State, now time.Time, kind string, w s
 	waited := now.Sub(time.Unix(w.Since, 0))
 
 	promptLead := fmt.Sprintf(`Tim has not answered for %s, so the autonomy in your standing orders is handed over to you now. Re-check the situation from scratch first — the numbers below are this minute's, not the ones you asked about — then pick and carry out the least destructive option that resolves it, inside the limits those orders give you. Spawn the oncall-partner agent with your proposed action first and act only if it agrees. Verify it worked, send one message with what you did, why, which limit allowed it and what the partner said, write the incident note, and stop.`,
-		wording.DurationPhrase(waited))
+		wording.DurationPhrase(waited)) + attemptSpent(w)
 
 	if worse != "" {
 		promptLead = fmt.Sprintf(`The incident is getting worse rapidly: %s. Tim has not answered for %s, and the three-hour handover would come too late, so the autonomy in your standing orders is handed over to you now, early.
 
 Re-check the situation from scratch — the numbers below are this minute's — and judge it yourself. If you agree that waiting costs more than acting, pick and carry out the least destructive option that resolves it, inside the limits those orders give you, with the oncall-partner agent's agreement first. If you judge instead that it is about to stop by itself or that acting costs more than the fault does, ask again with fresh options. Either way send one message saying which you chose and why.`,
-			worse, wording.DurationPhrase(waited))
+			worse, wording.DurationPhrase(waited)) + attemptSpent(w)
 	}
 
 	// Early marks itself and the two messages it makes pointless, and leaves the deadline
@@ -627,11 +649,11 @@ func (s sweeper) refresh(now time.Time, kind string, w statedir.Waiting, reading
 	// which writer is in the fenced data below it, where a name chosen by whatever filled
 	// the disk belongs.
 	promptLead := fmt.Sprintf(`The incident changed while you were waiting, so your question has been cancelled: %s. What changed is named in the data below, with this minute's numbers. Re-check the situation and ask again with options that fit what it is now. Tim has been waiting %s and the handover at %s is still counted from the first question, not from this one, so say in your question what you would do if he does not answer.`,
-		changed.why, wording.DurationPhrase(waited), wording.DurationPhrase(s.cfg.HandoverAfter))
+		changed.why, wording.DurationPhrase(waited), wording.DurationPhrase(s.cfg.HandoverAfter)) + attemptSpent(w)
 
 	if !blocked {
 		promptLead = fmt.Sprintf(`The incident changed while nobody was answering: %s. You have no question up, so nothing of yours was cancelled. What changed is named in the data below, with this minute's numbers. Ask again with options that fit what it is now. Tim has been waiting %s and the handover at %s is still counted from the first question, not from this one, so say in your question what you would do if he does not answer.`,
-			changed.why, wording.DurationPhrase(waited), wording.DurationPhrase(s.cfg.HandoverAfter))
+			changed.why, wording.DurationPhrase(waited), wording.DurationPhrase(s.cfg.HandoverAfter)) + attemptSpent(w)
 	}
 
 	// An incident that has stopped by itself is not an incident to ask fresh options about:
@@ -644,7 +666,7 @@ func (s sweeper) refresh(now time.Time, kind string, w statedir.Waiting, reading
 			cancelled = "Your question has been cancelled, since its options are about something that has stopped."
 		}
 		promptLead = fmt.Sprintf(`What fired this incident is no longer firing, by this minute's reading. %s Check for yourself whether it has really resolved — read the processes, the file and the free space again rather than taking that reading for it. If it has, send one message with `+"`hachiko notify --outcome <incident> <file>`"+` saying what happened and that it stopped by itself, write the incident note, and stop. If it has not, ask again with options that fit what it is now. Tim has been waiting %s.`,
-			cancelled, wording.DurationPhrase(waited))
+			cancelled, wording.DurationPhrase(waited)) + attemptSpent(w)
 	}
 
 	escSent, err := s.hand(kind, blocked, promptLead, changed.detail+"\n\n"+s.handoverData(w, reading))

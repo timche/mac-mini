@@ -851,6 +851,11 @@ func (s sweeper) expectAQuestion(state *statedir.State, now time.Time, kind, inc
 		w.Incident, w.Opened = incident, now.Unix()
 		w.Steps, w.Default, w.Asked = nil, "", statedir.Asked{}
 
+		// One attempt per incident, and this is another incident: a disk that filled again
+		// after the agent emptied a log is a fresh fault with a fresh reading behind it, and
+		// the fix that did not hold is one of the things the session now knows.
+		w.Attempted = false
+
 		// Both of these are one check's half of a two-check judgement about the incident that
 		// has just been superseded: that it is about to fill the disk, and that it has stopped
 		// by itself. Neither carries over, least of all the second — a writer that stopped and
@@ -979,6 +984,24 @@ func (s sweeper) rememberFallback(state *statedir.State, incident, fallback stri
 	}
 }
 
+// And the same for the attempt, taken before the marker goes. The session's first report is
+// also where it says what it is about to try, so that one message carries both flags as often
+// as not — and this is the one marker a sweep consumes and deletes, which would have left the
+// attempt recorded nowhere and the next prompt handing it another.
+func (s sweeper) rememberAttempt(state *statedir.State, incident string, attempt bool) {
+	if !attempt {
+		return
+	}
+
+	kind := statedir.KindOf(incident)
+	if w, ok := state.Waiting[kind]; ok && w.Incident == incident && !w.Attempted {
+		w.Attempted = true
+		state.Waiting[kind] = w
+		s.say("the %s on-call agent is making its one attempt at fixing %s, so nothing hands it another",
+			kind, incident)
+	}
+}
+
 // The guarantee behind the session: it needs herdr, a Claude login and usage left,
 // and a watch that only ever spoke through it would be silent exactly when that
 // chain broke.
@@ -998,6 +1021,13 @@ func (s sweeper) chaseLateReports(state *statedir.State, now time.Time) {
 			// goes: the session is about to ask its question, and this is what it said it
 			// would do if nobody answered it.
 			s.rememberFallback(state, id, s.store.ReportedFallback(from))
+
+			// The attempt only where the marker is this incident's own, which the fallback
+			// deliberately is not: an option the session named under the incident this one
+			// superseded is still the option it would take, where an attempt it made against
+			// that incident is spent against that incident. A fresh one has a fresh reading
+			// behind it and gets its own attempt, which is what expectAQuestion resets.
+			s.rememberAttempt(state, id, from == id && s.store.ReportedAttempt(from))
 			delete(state.Pending, id)
 			s.store.ClearReported(from)
 			s.store.ClearReported(id)

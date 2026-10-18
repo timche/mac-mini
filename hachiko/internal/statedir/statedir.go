@@ -296,6 +296,13 @@ type Waiting struct {
 	// what the warning quotes rather than guessing at.
 	Default string `json:"default,omitempty"`
 
+	// Whether the session has made its one fix-first attempt on this incident. Taken off the
+	// marker `hachiko notify --attempt` leaves and kept here, since the marker goes as soon as
+	// a sweep has consumed the report it came with: what this is for is the prompts after it —
+	// a reminder, a question asked again, a handover, a reply from Tim — none of which may read
+	// as a second attempt. One attempt per incident, so it goes with the incident.
+	Attempted bool `json:"attempted,omitempty"`
+
 	Asked Asked `json:"asked,omitempty"`
 }
 
@@ -533,15 +540,16 @@ func (st Store) reportedDir() string { return filepath.Join(st.Dir, "reported") 
 // the writer: the sweep is the only thing that edits state, and this is the one fact
 // it needs from outside.
 //
-// The file holds the two things about the report the next sweep has a use for and nothing
+// The file holds the three things about the report the next sweep has a use for and nothing
 // else of it, the report itself having already gone to the channel: the option the agent
-// would fall back on, and whether this was the message that said the incident is resolved.
+// would fall back on, whether this was the message that said the incident is resolved, and
+// whether it is the message that goes out before the session's one fix-first attempt.
 //
 // A session sends more than two messages — its analysis, the same question posted into the
 // Discord thread, an update when the situation moves — so a marker merges with the one
 // already there rather than replacing it. Overwriting lost the fallback option every time
 // a later message happened not to repeat it, and the warning then had nothing to quote.
-func (st Store) MarkReported(incident, fallback string, outcome bool) error {
+func (st Store) MarkReported(incident, fallback string, outcome, attempt bool) error {
 	if !incidentID.MatchString(incident) {
 		return fmt.Errorf("%q is not an incident id", incident)
 	}
@@ -554,10 +562,14 @@ func (st Store) MarkReported(incident, fallback string, outcome bool) error {
 		fallback = was.fallback
 	}
 	outcome = outcome || was.outcome
+	attempt = attempt || was.attempt
 
 	body := "fallback: " + strings.ReplaceAll(fallback, "\n", " ") + "\n"
 	if outcome {
 		body = "outcome\n" + body
+	}
+	if attempt {
+		body = "attempt\n" + body
 	}
 	return os.WriteFile(filepath.Join(st.reportedDir(), incident), []byte(body), 0o644)
 }
@@ -565,6 +577,7 @@ func (st Store) MarkReported(incident, fallback string, outcome bool) error {
 type report struct {
 	fallback string
 	outcome  bool
+	attempt  bool
 }
 
 // A marker written before this format existed is one line of fallback with no key on it,
@@ -584,6 +597,8 @@ func (st Store) readReport(incident string) report {
 		switch {
 		case line == "outcome":
 			out.outcome = true
+		case line == "attempt":
+			out.attempt = true
 		case strings.HasPrefix(line, "fallback:"):
 			out.fallback = strings.TrimSpace(strings.TrimPrefix(line, "fallback:"))
 		case line != "" && out.fallback == "":
@@ -599,6 +614,12 @@ func (st Store) ReportedFallback(incident string) string { return st.readReport(
 // report as one ended it on the question the session had just posted into Discord, which is
 // the one message the orders on that path require it to send.
 func (st Store) ReportedOutcome(incident string) bool { return st.readReport(incident).outcome }
+
+// Whether the session has said it is about to make its one fix-first attempt. Read off the
+// marker and then kept in the wait, because the marker goes the moment a sweep consumes the
+// report it came with and the fact has to outlive it: what it is there to stop is a later
+// prompt about the same incident reading as a second attempt.
+func (st Store) ReportedAttempt(incident string) bool { return st.readReport(incident).attempt }
 
 func (st Store) Reported(incident string) bool {
 	if !incidentID.MatchString(incident) {

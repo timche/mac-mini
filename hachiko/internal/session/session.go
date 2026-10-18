@@ -20,7 +20,7 @@ import (
 // The on-call session's own way to reach the channel, and the only one it has: it is
 // never handed the URL. The message arrives as a file so that it is not in the
 // arguments of a process the whole machine can read either.
-func Notify(cfg config.Config, incident, messageFile string, outcome bool) error {
+func Notify(cfg config.Config, incident, messageFile string, outcome, attempt bool) error {
 	message, err := os.ReadFile(messageFile)
 	if err != nil {
 		return fmt.Errorf("cannot read the message at %s", messageFile)
@@ -49,7 +49,7 @@ func Notify(cfg config.Config, incident, messageFile string, outcome bool) error
 	// across a herdr call and an `op run`, and an on-call session told to report in
 	// under five minutes has none of them to spend waiting. The next sweep is what
 	// clears the incident, and it looks here first.
-	if err := store.MarkReported(incident, FallbackOption(string(message)), outcome); err != nil {
+	if err := store.MarkReported(incident, FallbackOption(string(message)), outcome, attempt); err != nil {
 		log.Say("the report on %s was sent, but it was not recorded, so the raw details may follow it: %v",
 			incident, err)
 		return nil
@@ -57,6 +57,14 @@ func Notify(cfg config.Config, incident, messageFile string, outcome bool) error
 
 	if outcome {
 		log.Say("the on-call session reported the outcome of %s", incident)
+		return nil
+	}
+
+	// The line that says the one attempt is spent, said here rather than only when the next
+	// sweep reads the marker: the message went out before the change, and a run that fails
+	// halfway through the fix leaves this as the only record that anything was tried.
+	if attempt {
+		log.Say("the on-call session is making its one attempt at fixing %s", incident)
 		return nil
 	}
 

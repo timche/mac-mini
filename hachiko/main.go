@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
@@ -48,7 +49,7 @@ const usage = `usage: hachiko [--dry-run | --test-alert]
        hachiko gc [--dry-run]
        hachiko sync [--once | --dry-run]
        hachiko update [--dry-run]
-       hachiko notify [--outcome] <incident-id> <message-file>
+       hachiko notify [--outcome | --attempt] <incident-id> <message-file>
        hachiko oncall <name> <brief-file>
        hachiko approval-request <incident-id> <action-file>
        hachiko listen
@@ -74,7 +75,9 @@ const usage = `usage: hachiko [--dry-run | --test-alert]
                      starts one a night, so this is the explicit "update now"
   notify             send a message about an incident to the channel Tim watches,
                      which is how the on-call session reports its findings;
-                     --outcome marks the one that says the incident is resolved
+                     --outcome marks the one that says the incident is resolved,
+                     and --attempt the one it sends before its single fix, which
+                     is what records that the attempt happened
   oncall             open a Claude Code session in herdr to work an incident, and
                      print the label of the tab it is waiting in
   approval-request   register the one action an on-call session is asking Tim to
@@ -146,17 +149,25 @@ func run(args []string) error {
 			}
 			return update.Run(cfg, dry)
 		case "notify":
-			// A constant word and nothing of the incident's, so it is one of the few things
-			// here that may be an argument: ps showing it says only that a session said it had
-			// finished.
-			rest, outcome := args[1:], false
-			if len(rest) > 0 && rest[0] == "--outcome" {
-				rest, outcome = rest[1:], true
+			// Constant words and nothing of the incident's, so they are among the few things
+			// here that may be arguments: ps showing one says only that a session said it had
+			// finished, or that it was about to try something.
+			rest, outcome, attempt := args[1:], false, false
+			for len(rest) > 0 && strings.HasPrefix(rest[0], "--") {
+				switch rest[0] {
+				case "--outcome":
+					outcome = true
+				case "--attempt":
+					attempt = true
+				default:
+					return badUsage("notify takes --outcome and --attempt and no other option")
+				}
+				rest = rest[1:]
 			}
 			if len(rest) != 2 {
-				return badUsage("notify takes an incident id and a file, after an optional --outcome")
+				return badUsage("notify takes an incident id and a file, after an optional --outcome or --attempt")
 			}
-			return session.Notify(cfg, rest[0], rest[1], outcome)
+			return session.Notify(cfg, rest[0], rest[1], outcome, attempt)
 		case "oncall":
 			if len(args) != 3 {
 				return badUsage("oncall takes a name and a file")

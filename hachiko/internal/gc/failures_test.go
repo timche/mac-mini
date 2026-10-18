@@ -45,6 +45,9 @@ func TestAFailureThatClearsIsOneMoreLineInTheSameThread(t *testing.T) {
 
 	harness.Equal(t, len(f.sent), 2, "messages sent")
 	harness.Equal(t, f.sent[1].Thread, "thread-1", "the thread the clear went into")
+	// Which is what closes the post and gets it deleted three days later, rather than leaving
+	// a cleared failure open in the forum for ever.
+	harness.Equal(t, f.sent[1].Outcome, true, "the clear as the incident's outcome")
 	harness.Wants(t, f.lastSent(), "🟢 A removed worktree's containers are gone now")
 	harness.Wants(t, f.lastSent(), "**Failing since:** 1 hour 5 minutes")
 

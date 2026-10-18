@@ -149,7 +149,10 @@ func (s *sweeper) sayCleared(state *State, key string, now time.Time) {
 		About("", s.cfg.Host).
 		String()
 
-	if _, err := s.deps.Send(discord.Outgoing{Text: message, Thread: rec.Thread}); err != nil {
+	// The outcome of this failure and not merely another line in its thread, which is what
+	// retags the post Resolved and closes it — and so what the forum sweep deletes it by three
+	// days later. Without it a failure that cleared months ago is still an open post.
+	if _, err := s.deps.Send(discord.Outgoing{Text: message, Thread: rec.Thread, Outcome: true}); err != nil {
 		s.say("the message saying this is over did not send and is left to the next sweep: %v", err)
 		return
 	}

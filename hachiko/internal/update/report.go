@@ -192,7 +192,10 @@ func (u *updater) sayCleared(state *State, step string, now time.Time) {
 		About("", u.cfg.Host).
 		String()
 
-	if _, err := u.deps.Send(discord.Outgoing{Text: message, Thread: rec.Thread}); err != nil {
+	// The outcome of this failure and not merely another line in its thread, which is what
+	// retags the post Resolved and closes it — and so what the forum sweep deletes it by three
+	// days later. Without it a step that came back weeks ago is still an open post.
+	if _, err := u.deps.Send(discord.Outgoing{Text: message, Thread: rec.Thread, Outcome: true}); err != nil {
 		u.say("the message saying this is over did not send and is left to the next update: %v", err)
 		return
 	}

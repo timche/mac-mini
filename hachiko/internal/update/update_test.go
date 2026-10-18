@@ -414,6 +414,9 @@ func TestAFailingStepIsSaidOnceAndThenCleared(t *testing.T) {
 	harness.Equal(t, len(cleared), 1, "messages on the night it worked")
 	harness.Wants(t, cleared[0].Text, "🟢 The nightly update can update herdr again")
 	harness.Equal(t, cleared[0].Thread, "thread-"+stepHerdr, "the thread it cleared into")
+	// Which is what closes the post and gets it deleted three days later, rather than leaving
+	// a step that came back open in the forum for ever.
+	harness.Equal(t, cleared[0].Outcome, true, "the clear as the incident's outcome")
 }
 
 // A failure nobody has heard about is not a failure already reported.

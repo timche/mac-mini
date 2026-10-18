@@ -1110,7 +1110,7 @@ hachiko_limits_in_step() {
 SIGTERM first and SIGKILL only if it is still there ten seconds later
 *.log, *.out, *.err, *.output or *.log.N
 a database or a docker volume
-restarting herdr, the Mac or a launchd service other than through that one root-helper command
+restarting herdr, the Mac or a launchd job other than through that one root-helper command
 the root helper's restart-daemon command for the busy daemon, exactly as the incident data gives it after **You can run:**
 unless that process is itself the one causing the incident
 is not a licence to empty a folder

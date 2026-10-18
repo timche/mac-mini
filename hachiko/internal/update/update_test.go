@@ -432,3 +432,12 @@ func TestAFailureThatCouldNotBeSentIsSaidAgain(t *testing.T) {
 
 	harness.Equal(t, len(b.incidents()), 1, "incidents on the second night")
 }
+
+func TestACommandsOutputHasBothStreamsInIt(t *testing.T) {
+	for range 20 {
+		out := run(Command{Name: "sh", Args: []string{"-c", "echo out; echo err >&2"}, Timeout: quick})
+		harness.Wants(t, out.Text, "out")
+		harness.Wants(t, out.Text, "err")
+		harness.Equal(t, out.Stdout, "out\n", "stdout")
+	}
+}

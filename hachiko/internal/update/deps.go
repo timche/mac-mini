@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -78,7 +79,8 @@ func run(cmd Command) Output {
 	exe.Dir = cmd.Dir
 	exe.Env = cmd.Env
 
-	var stdout, both bytes.Buffer
+	var stdout bytes.Buffer
+	var both lockedBuffer
 	exe.Stdout = io.MultiWriter(&stdout, &both)
 	exe.Stderr = &both
 
@@ -88,6 +90,26 @@ func run(cmd Command) Output {
 		text = err.Error()
 	}
 	return Output{OK: err == nil, Stdout: stdout.String(), Text: text}
+}
+
+// exec copies stdout and stderr on a goroutine each, and both reach this one: a plain
+// bytes.Buffer written from two at once came back empty, which is how "Already up to date"
+// went missing from git's output.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 // The binary rather than the wrapper, which would rebuild and test the whole module before

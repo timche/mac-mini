@@ -3,7 +3,9 @@ package statedir
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -92,6 +94,57 @@ func TestALockOlderThanTheIntervalIsTakenOver(t *testing.T) {
 	}
 }
 
+// A lock is held by a process rather than for a span of time. An interrupted `hachiko
+// update` left one behind and the next run refused for the two hours its age rule had left,
+// with nothing holding anything.
+func TestALockWhosePidHasGoneIsTakenOverAtOnce(t *testing.T) {
+	store := Store{Dir: filepath.Join(t.TempDir(), "hachiko")}
+
+	if _, _, err := store.Acquire(5*time.Minute, base); err != nil {
+		t.Fatalf("the first check could not take the lock: %v", err)
+	}
+
+	// A process that has run and been waited for, so the pid is one nothing answers to.
+	done := exec.Command("/usr/bin/true")
+	if err := done.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.Dir, "lock", "pid"), []byte(strconv.Itoa(done.Process.Pid)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, takenFrom, err := store.Acquire(5*time.Minute, base.Add(time.Second))
+	if err != nil {
+		t.Fatalf("a lock whose holder is gone was not taken over: %v", err)
+	}
+	if !strings.Contains(takenFrom, "no longer running") {
+		t.Errorf("taking over the lock of a process that has gone said %q", takenFrom)
+	}
+}
+
+// Pids are reused, so a pid that answers may be somebody else's process entirely and the
+// age rule is the only thing that catches one. A pid nothing can be read from is the same
+// case: it says nothing about whether anybody is holding the lock.
+func TestALockWithNoReadablePidKeepsTheAgeRule(t *testing.T) {
+	store := Store{Dir: filepath.Join(t.TempDir(), "hachiko")}
+
+	if _, _, err := store.Acquire(5*time.Minute, base); err != nil {
+		t.Fatalf("the first check could not take the lock: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(store.Dir, "lock", "pid"), []byte("not a pid"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := store.Acquire(5*time.Minute, base.Add(time.Second)); !errors.Is(err, ErrLockHeld) {
+		t.Errorf("a lock with an unreadable pid saw %v rather than a held lock", err)
+	}
+	if _, takenFrom, err := store.Acquire(5*time.Minute, base.Add(6*time.Minute)); err != nil {
+		t.Errorf("a stale lock with an unreadable pid was not taken over: %v", err)
+	} else if takenFrom != "an earlier check" {
+		t.Errorf("a lock with an unreadable pid named %q as its holder", takenFrom)
+	}
+}
+
 // A sweep slow enough to have its lock taken over must not then delete the lock of the
 // check that took it, or a third would run beside both.
 func TestReleasingALockSomebodyElseNowHoldsDoesNothing(t *testing.T) {
@@ -103,7 +156,9 @@ func TestReleasingALockSomebodyElseNowHoldsDoesNothing(t *testing.T) {
 	}
 
 	// The takeover, as another process: the pid in the lock is no longer the slow one's.
-	if err := os.WriteFile(filepath.Join(store.Dir, "lock", "pid"), []byte("999999"), 0o644); err != nil {
+	// A pid that is still running, since a lock whose holder has gone is taken over at
+	// once however new it is, and what this is about is a lock somebody else holds.
+	if err := os.WriteFile(filepath.Join(store.Dir, "lock", "pid"), []byte(strconv.Itoa(os.Getppid())), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

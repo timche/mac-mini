@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/wording"
@@ -434,13 +435,10 @@ func LockDir(dir string, stale time.Duration, now time.Time, unknown string) (*L
 	if statErr != nil {
 		return nil, "", statErr
 	}
-	if now.Sub(info.ModTime()) <= stale {
-		return nil, "", ErrLockHeld
-	}
 
-	owner := unknown
-	if pid, err := os.ReadFile(filepath.Join(dir, "pid")); err == nil && len(pid) > 0 {
-		owner = strings.TrimSpace(string(pid))
+	owner, gone := holder(dir, unknown)
+	if !gone && now.Sub(info.ModTime()) <= stale {
+		return nil, "", ErrLockHeld
 	}
 
 	if err := os.RemoveAll(dir); err != nil {
@@ -452,6 +450,34 @@ func LockDir(dir string, stale time.Duration, now time.Time, unknown string) (*L
 		return nil, "", err
 	}
 	return lock, owner, nil
+}
+
+// Who the lock says is holding it, and whether that process has gone. A lock is held by a
+// process rather than for a span of time, and the age rule is only the stand-in for asking
+// the process — so a holder that is not running has abandoned it however new the lock is. An
+// interrupted `hachiko update` left one behind, and the next night's run refused for the two
+// hours its age rule had left to go, with nothing holding anything.
+//
+// The age rule stays for every lock whose holder still looks alive, which includes one whose
+// pid cannot be read at all: pids are reused, so a pid that answers may be somebody else's
+// process entirely, and the span is the only thing that catches that. Only ESRCH is gone —
+// EPERM is a process this account may not signal, which is a process.
+func holder(dir, unknown string) (owner string, gone bool) {
+	pid, err := os.ReadFile(filepath.Join(dir, "pid"))
+	if err != nil || len(pid) == 0 {
+		return unknown, false
+	}
+
+	owner = strings.TrimSpace(string(pid))
+	n, err := strconv.Atoi(owner)
+	if err != nil || n <= 0 {
+		return unknown, false
+	}
+
+	if err := syscall.Kill(n, 0); !errors.Is(err, syscall.ESRCH) {
+		return owner, false
+	}
+	return owner + ", which is no longer running", true
 }
 
 func tryLock(dir string, now time.Time) (*Lock, error) {

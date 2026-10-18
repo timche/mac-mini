@@ -1,6 +1,6 @@
 [settings]
 lockfile = true
-minimum_release_age = "0"
+minimum_release_age = "0d"
 
 # Language runtimes, and the npm packages that run on the node beside them.
 # Every other CLI tool is Homebrew's, in the Brewfile at the repo root; mise and

@@ -486,6 +486,14 @@ check "the on-call guard is wired to PreToolUse for Bash and the file tools" \
           .matcher | test(\"Bash\") and test(\"Edit\") and test(\"Write\")" \
      "$HOME/.claude/settings.json"'
 
+# The command as settings.json spells it, run the way Claude Code runs a hook: a session
+# hachiko did not open never starts python at all, and one it did is refused when the
+# guard cannot start, since only exit 2 stops a call and anything else lets it through.
+check "the wired on-call guard skips python unmarked and refuses when it cannot run" \
+  'wired=$(jq -r ".hooks.PreToolUse[].hooks[].command | select(contains(\"oncall-guard.py\"))" "$HOME/.claude/settings.json") &&
+   echo "{}" | env -u HACHIKO_ONCALL_SESSION PATH=/nonexistent /bin/sh -c "$wired" &&
+   { echo "{}" | HACHIKO_ONCALL_SESSION=update PATH=/nonexistent /bin/sh -c "$wired" 2>/dev/null; [ $? -eq 2 ]; }'
+
 # The one sudo an on-call session has is the root helper, and the daemon has to be
 # one the installed helper itself names — read out of that file, so a helper of this
 # test's own is what it is read out of here.

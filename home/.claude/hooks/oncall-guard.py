@@ -209,8 +209,8 @@ def check_sudo(args, cwd):
     # than listed here, since the list that decides is the one sudoers reaches.
     if not args or os.path.normpath(os.path.expanduser(args[0])) != os.path.normpath(HELPER):
         deny("The never list for an on-call session allows no sudo but the root helper's own "
-             "restart-daemon and reinstall-portless. Put the command to Tim instead, or ask "
-             "him to approve it with his code.")
+             "restart-daemon and reinstall-portless, and no approval code changes that. Put the "
+             "exact command to Tim for him to run himself.")
 
     action = args[1:]
     if action[:1] == ["reinstall-portless"] and len(action) == 1:

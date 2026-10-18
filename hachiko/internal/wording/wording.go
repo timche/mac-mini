@@ -82,6 +82,17 @@ func (m *Message) Field(label, value string) *Message {
 	return m
 }
 
+// What a command printed, under its label as a fenced block rather than an inline span: a
+// tool's error is read line by line, and a span runs a stack trace into one wrapped line.
+func (m *Message) Output(label, text string) *Message {
+	block := CodeBlock(text, OutputLimit)
+	if block == "" {
+		return m
+	}
+	m.blocks = append(m.blocks, "**"+label+":**\n"+block)
+	return m
+}
+
 func (m *Message) Bullets(label string, items []string) *Message {
 	return m.Block(Section(label, items))
 }

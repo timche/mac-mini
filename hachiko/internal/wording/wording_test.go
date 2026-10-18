@@ -98,6 +98,25 @@ func TestACodeSpanCannotBeBrokenOutOf(t *testing.T) {
 // One blank line between the parts of a message and never two, since Discord renders
 // consecutive lines as one block of text and a message of four findings has to be read on a
 // phone. Inside a part nothing is spaced: a label keeps its own list.
+func TestACommandsOutputKeepsItsLinesAndCannotEndItsBlock(t *testing.T) {
+	block := CodeBlock("\nmise ERROR one\r\n\x1b[31mmise ERROR two\n``` **bold**\n\n", OutputLimit)
+
+	harness.Equal(t, block, "```\nmise ERROR one\n [31mmise ERROR two\n`\u200b`\u200b` **bold**\n```", "block")
+	harness.Equal(t, strings.Count(block, "```"), 2, "fences")
+}
+
+func TestAnEmptyOutputIsNoField(t *testing.T) {
+	harness.Equal(t, Lead(MarkerInfo, "lead").Output("Said", " \n\t\n").String(), "ℹ️ lead", "message")
+}
+
+func TestALongOutputIsClippedInsideItsBlock(t *testing.T) {
+	block := CodeBlock(strings.Repeat("x", OutputLimit*2), OutputLimit)
+
+	if !strings.HasSuffix(block, "...\n```") || len(block) > OutputLimit+20 {
+		t.Fatalf("not clipped inside the fence: %d bytes ending %q", len(block), block[len(block)-10:])
+	}
+}
+
 func TestAMessageHasOneBlankLineBetweenItsPartsAndNoTrailingOne(t *testing.T) {
 	m := Lead(MarkerDisk, "Disk filling: devbackend.log is growing fast").
 		Field(LabelFreeSpace, "500 GB").

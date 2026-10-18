@@ -181,15 +181,13 @@ func TestTheListingsAreCapped(t *testing.T) {
 }
 
 // git's own output goes in an inline code span, and a newline ends one whatever the fence is.
-func TestGitsOutputIsOneLineInTheMessage(t *testing.T) {
+func TestGitsOutputKeepsItsLinesInABlock(t *testing.T) {
 	f := Failure{Kind: failedPush, Subject: "/tmp/x", Remote: "origin",
 		Detail: "hint: Updates were rejected\nhint: because the remote has work"}
 
-	message := f.message("mac-mini", base, base)
-	for _, line := range strings.Split(message, "\n") {
-		if strings.Count(line, "`")%2 != 0 {
-			t.Fatalf("a line leaves a code span open: %q", line)
-		}
+	want := "**What it said:**\n```\nhint: Updates were rejected\nhint: because the remote has work\n```"
+	if message := f.message("mac-mini", base, base); !strings.Contains(message, want) {
+		t.Fatalf("git's output is not a block of its own lines:\n%s", message)
 	}
 }
 

@@ -32,10 +32,6 @@ const (
 	labelSince       = "Failing since"
 )
 
-// How much of git's own output a message carries. Discord takes 2,000 characters and a
-// rebase that conflicted in forty files would be the whole of it.
-const detailLimit = 600
-
 // Failure is one thing a pass could not do. Kind and Subject together are its identity: a
 // repository whose push will not land is one message for as long as it will not, however
 // many passes that takes.
@@ -164,7 +160,7 @@ func (f Failure) message(host string, since, now time.Time) string {
 	return wording.Lead(wording.MarkerDegraded, failSentence(f.Kind)).
 		Field(labelRepo, wording.CodeSpan(short(f.Subject))).
 		Field(labelRemote, wording.CodeSpan(short(f.Remote))).
-		Field(labelSaid, wording.CodeSpan(quote(f.Detail))).
+		Output(labelSaid, f.Detail).
 		Field(labelUnpushed, listed(f.Unpushed)).
 		Field(labelUncommitted, listed(f.Uncommitted)).
 		Field(labelSince, wording.DurationPhrase(now.Sub(since))).
@@ -250,9 +246,5 @@ func listed(lines []string) string {
 	}
 	return strings.Join(items, ", ") + rest
 }
-
-// git's own output on one line and cut: it goes in an inline code span, and a newline ends
-// one whatever the fence is.
-func quote(text string) string { return wording.Safe(oneLine(text), detailLimit) }
 
 func short(s string) string { return wording.Safe(s, wording.PathLimit) }

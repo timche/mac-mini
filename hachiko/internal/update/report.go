@@ -208,7 +208,7 @@ func (f Failure) message(host string, since, now time.Time) string {
 
 	return wording.Lead(wording.MarkerDegraded, "The nightly update could not "+phraseFor(f.Step)).
 		Field(labelStep, wording.CodeSpan(f.Step)).
-		Field(labelSaid, wording.CodeSpan(wording.Safe(oneLine(f.Detail), wording.ArgsLimit))).
+		Output(labelSaid, f.Detail).
 		Field(labelSince, wording.DurationPhrase(now.Sub(since))).
 		Can(action).
 		About("", host).

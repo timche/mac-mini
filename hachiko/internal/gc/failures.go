@@ -179,7 +179,7 @@ func (f Failure) message(host string, since, now time.Time) string {
 		m.Field(labelWorktree, wording.CodeSpan(short(f.Worktree))+" — already gone")
 	}
 	if f.Kind != failedKill && f.Detail != "" {
-		m.Field(labelSaid, wording.CodeSpan(short(f.Detail)))
+		m.Output(labelSaid, f.Detail)
 	}
 
 	return m.Field(labelSince, wording.DurationPhrase(now.Sub(since))).

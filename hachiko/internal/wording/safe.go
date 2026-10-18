@@ -16,6 +16,9 @@ const (
 
 	// An account name, which is the one of these macOS itself keeps short.
 	UserLimit = 64
+
+	// A command's own output, which has a block of its own and so more of the message.
+	OutputLimit = 600
 )
 
 // A byte count, because what the limits are protecting is Discord's own and a prompt's own,
@@ -53,6 +56,34 @@ func Safe(s string, max int) string {
 		}
 	}
 	return Clip(strings.TrimSpace(string(clean)), max)
+}
+
+// The same for a fenced block, which keeps its line breaks: inside a fence a newline is
+// only a line, so the one thing that could end the block early is a run of backticks, and
+// a zero-width space between every two of them leaves none.
+func CodeBlock(s string, max int) string {
+	clean := make([]rune, 0, len(s))
+	for _, r := range s {
+		if r == '\n' || r == '\t' || (r >= 0x20 && r != 0x7f) {
+			clean = append(clean, r)
+		} else {
+			clean = append(clean, ' ')
+		}
+	}
+
+	lines := strings.Split(string(clean), "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(line, " \t")
+	}
+	body := Clip(strings.Trim(strings.Join(lines, "\n"), "\n"), max)
+	if strings.TrimSpace(body) == "" {
+		return ""
+	}
+
+	for strings.Contains(body, "``") {
+		body = strings.ReplaceAll(body, "``", "`\u200b`")
+	}
+	return "```\n" + body + "\n```"
 }
 
 // A reply is at most this long by the time it reaches the agent. It is Tim's own text

@@ -317,6 +317,50 @@ func TestTheOpeningPromptCarriesTheAutonomyLimits(t *testing.T) {
 	}
 }
 
+// A session on the nightly update is for the diagnosis and nothing else: there is nothing to
+// kill, nothing to empty, and nothing on this Mac may retry a step on its own — so the
+// machine's own autonomy is not offered to it at all.
+func TestTheUpdatePromptOffersNoAutonomyAtAll(t *testing.T) {
+	herdr := &harness.Herdr{HasWorkspace: true}
+	o, _, _ := newOncaller(t, herdr)
+
+	if _, err := o.Open("update", "brief"); err != nil {
+		t.Fatal(err)
+	}
+
+	prompt := herdr.Prompt()
+	for _, want := range []string{
+		"The nightly update could not finish a step",
+		// What there is to read, which is a log, some code and the tools themselves.
+		"~/Library/Logs/hachiko.log",
+		"hachiko/internal/update",
+		"root cause",
+		"two to four concrete resolution options",
+		"Take no action at all until he has picked one",
+		"nothing that moves a version",
+		"`hachiko update --dry-run`",
+		"Both work from this pane",
+		"There is no autonomy on one of these and no handover",
+		"Never, whatever he picks",
+		"⚠️ a step that failed or a deadline coming",
+	} {
+		harness.Wants(t, prompt, want)
+	}
+
+	// None of the disk's and the CPU's own authority, which is what an update incident would
+	// have no use for and no business being offered.
+	for _, unwanted := range []string{
+		"SIGTERM first and SIGKILL",
+		"empty or delete files under /private/tmp",
+		"restart-daemon command for the busy daemon",
+		"getting worse rapidly",
+		"💾 disk filling",
+		"🔥 a process using a lot of CPU",
+	} {
+		harness.Lacks(t, prompt, unwanted)
+	}
+}
+
 // The data block is the one part of the prompt whatever filled the disk chose, so it
 // is fenced with a marker this prompt alone knows, the orders come before it and a
 // reminder after it, and nothing inside can spell the end of it.

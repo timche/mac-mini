@@ -2,6 +2,7 @@ package update
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/discord"
@@ -20,12 +21,24 @@ const (
 )
 
 // Failure is one step the update could not finish. The step is its identity — one that
-// fails every night is one message for as long as it does — and the action is what Tim can
+// fails every night is one incident for as long as it does — and the action is what Tim can
 // do about it, which only the step itself knows.
 type Failure struct {
 	Step   string
 	Detail string
 	Action string
+}
+
+// What the five-minute check is handed about it. The action is filled in here rather than
+// where the message is written, so that the one step with nothing specific to suggest still
+// says what there is to say about it.
+func (f Failure) handed(since int64) Handed {
+	action := f.Action
+	if action == "" {
+		action = "**Needs you:** nothing here tries it again before tomorrow night. " +
+			"The step is " + wording.CodeSpan(f.Step) + " in `hachiko update`."
+	}
+	return Handed{Step: f.Step, Phrase: phraseFor(f.Step), Detail: f.Detail, Since: since, Action: action}
 }
 
 // What the log says about it, which is one line and carries no markdown.
@@ -62,10 +75,16 @@ func phraseFor(step string) string {
 	}
 }
 
-// The summary to the channel Tim reads for this, and one incident per failed step in the
-// forum every other alert goes to. Two channels because they are two things: what moved
-// overnight is news nobody answers, and a step that will fail again tomorrow night is an
-// incident.
+// The summary to the channel Tim reads for this, and what is failing left for the five-minute
+// check to raise in the forum every other alert goes to. Two channels because they are two
+// things: what moved overnight is news nobody answers, and a step that will fail again
+// tomorrow night is an incident with an on-call session on it.
+//
+// Nothing about a failed step is posted from here, which is the whole point of the hand-off:
+// one incident is one post, and everything an incident is talked about in — the post and its
+// thread, the session, Tim's reply out of Discord, the raw details if nobody reports, the
+// reminders — is the check's. The line saying a step works again is the exception, because
+// this is the only thing that ever knows it does.
 func (u *updater) report(state *State, now time.Time) {
 	u.summary(now)
 
@@ -74,13 +93,45 @@ func (u *updater) report(state *State, now time.Time) {
 		going[f.Step] = f
 	}
 
-	for _, step := range statedir.SortedKeys(going) {
-		u.sayFailure(state, going[step], now)
-	}
-	for _, step := range statedir.SortedKeys(state.Posted) {
+	raised := u.hand.Raised()
+	for _, step := range statedir.SortedKeys(state.Failing) {
 		if _, still := going[step]; !still {
-			u.sayCleared(state, step, now)
+			u.sayCleared(state, step, now, raised[step])
 		}
+	}
+
+	var fresh []string
+	for _, step := range statedir.SortedKeys(going) {
+		if _, known := state.Failing[step]; known {
+			continue
+		}
+		if state.Failing == nil {
+			state.Failing = map[string]Failing{}
+		}
+		state.Failing[step] = Failing{Since: now.Unix()}
+		fresh = append(fresh, step)
+	}
+	if len(fresh) > 0 {
+		u.say("left %s for the five-minute check to raise as an incident: %s",
+			wording.CountOf(int64(len(fresh)), "step", "steps"), strings.Join(fresh, ", "))
+	}
+
+	// Whole, and whether or not anything changed tonight: what it says is which steps are
+	// failing, so one still in it is one the check has already raised and one gone from it is
+	// one nobody is waiting on any more.
+	handed := make([]Handed, 0, len(state.Failing))
+	for _, step := range statedir.SortedKeys(state.Failing) {
+		// A step that works again but whose message did not send stays on the hand-off, so the
+		// check goes on waiting on its incident until Tim has heard that it is over. There is
+		// nothing a command said about it tonight, because tonight it worked.
+		f, still := going[step]
+		if !still {
+			f = Failure{Step: step}
+		}
+		handed = append(handed, f.handed(state.Failing[step].Since))
+	}
+	if err := u.hand.SetFailing(handed); err != nil {
+		u.say("what is failing could not be left for the five-minute check, so nothing is raised about it until the next update: %v", err)
 	}
 }
 
@@ -136,84 +187,68 @@ func summarySentence(moved, failed int) string {
 	return sentence
 }
 
-// One message per failing step while it keeps failing, and a line in the same thread when
-// it stops. Not one a night: a cleanup that meets a root-owned keg every night is a
-// notification Tim turns off, and then the next one is one he never sees.
-func (u *updater) sayFailure(state *State, f Failure, now time.Time) {
-	was, known := state.Posted[f.Step]
-
-	// A send that failed is a failure nobody has heard about, so the next night says it
-	// again rather than treating the record as a message that went out.
-	if known && was.Sent {
-		return
-	}
-
-	rec := Posted{Step: f.Step, Since: now.Unix(), Detail: f.Detail}
-	if known {
-		rec.Since, rec.Thread = was.Since, was.Thread
-	}
-
-	out := discord.Outgoing{
-		Text:   f.message(u.cfg.Host, time.Unix(rec.Since, 0), now),
-		Thread: rec.Thread,
-	}
-	if rec.Thread == "" {
-		out.OpenThread = f.Step
-	}
-
-	thread, err := u.deps.Send(out)
-	if err != nil {
-		u.say("the message about this did not send and is left to the next update: %v", err)
-	} else {
-		rec.Sent = true
-		if thread != "" {
-			rec.Thread = thread
-		}
-	}
-
-	if state.Posted == nil {
-		state.Posted = map[string]Posted{}
-	}
-	state.Posted[f.Step] = rec
-}
-
-func (u *updater) sayCleared(state *State, step string, now time.Time) {
-	rec := state.Posted[step]
-
-	// Nobody was ever told, so there is nothing to tell them is over.
-	if !rec.Sent {
-		delete(state.Posted, step)
+// The one message about a failed step this still sends: the line saying it works again,
+// into the thread of the post the check opened about it, and marked as that incident's
+// outcome — which is what retags the post Resolved and closes it, and so what the forum
+// sweep deletes it by three days later. Without that flag a step that came back weeks ago
+// is still an open post.
+func (u *updater) sayCleared(state *State, step string, now time.Time, raised Raised) {
+	// Nobody was ever told: no check has raised it yet, which is a step that failed and came
+	// back inside five minutes. There is nothing to tell them is over.
+	if raised.Incident == "" {
+		delete(state.Failing, step)
 		return
 	}
 
 	message := wording.Lead(wording.MarkerRecovered, "The nightly update can "+phraseFor(step)+" again").
 		Field(labelStep, wording.CodeSpan(step)).
-		Field(labelSince, wording.DurationPhrase(now.Sub(time.Unix(rec.Since, 0)))).
-		About("", u.cfg.Host).
+		Field(labelSince, wording.DurationPhrase(now.Sub(time.Unix(state.Failing[step].Since, 0)))).
+		About(raised.Incident, u.cfg.Host).
 		String()
 
-	// The outcome of this failure and not merely another line in its thread, which is what
-	// retags the post Resolved and closes it — and so what the forum sweep deletes it by three
-	// days later. Without it a step that came back weeks ago is still an open post.
-	if _, err := u.deps.Send(discord.Outgoing{Text: message, Thread: rec.Thread, Outcome: true}); err != nil {
+	if _, err := u.deps.Send(discord.Outgoing{Text: message, Thread: raised.Thread, Outcome: true}); err != nil {
 		u.say("the message saying this is over did not send and is left to the next update: %v", err)
 		return
 	}
-	delete(state.Posted, step)
+	u.say("the nightly update can %s again", phraseFor(step))
+	delete(state.Failing, step)
 }
 
-func (f Failure) message(host string, since, now time.Time) string {
-	action := f.Action
-	if action == "" {
-		action = "**Needs you:** nothing here tries it again before tomorrow night. " +
-			"The step is " + wording.CodeSpan(f.Step) + " in `hachiko update`."
+// What a post about these steps opens with, which is also its title in the forum: one step by
+// what it could not do, and several by how many there were, since four phrases do not fit in
+// a title and each of them is named in the detail under it.
+func Lead(failed []Handed) string {
+	if len(failed) == 1 {
+		return "The nightly update could not " + failed[0].Phrase
 	}
+	return "The nightly update failed " + wording.CountOf(int64(len(failed)), "step", "steps")
+}
 
-	return wording.Lead(wording.MarkerDegraded, "The nightly update could not "+phraseFor(f.Step)).
-		Field(labelStep, wording.CodeSpan(f.Step)).
-		Output(labelSaid, f.Detail).
-		Field(labelSince, wording.DurationPhrase(now.Sub(since))).
-		Can(action).
-		About("", host).
-		String()
+// What goes under it: one group per step, each saying which step, what the command said, how
+// long it has been failing and the one thing Tim can do about it. Written here rather than
+// where the post is sent because the words for a step are the update's own — the check knows
+// a step by its name and nothing else.
+func Details(failed []Handed, now time.Time) string {
+	var groups []string
+
+	for _, h := range failed {
+		step := wording.CodeSpan(wording.Safe(h.Step, wording.NameLimit))
+		// Only where there are several, since with one the lead has already said it.
+		if len(failed) > 1 {
+			step += " — could not " + h.Phrase
+		}
+
+		group := []string{"**" + labelStep + ":** " + step}
+		if said := wording.CodeBlock(h.Detail, wording.OutputLimit); said != "" {
+			group = append(group, "**"+labelSaid+":**\n"+said)
+		}
+		group = append(group, "**"+labelSince+":** "+
+			wording.DurationPhrase(now.Sub(time.Unix(h.Since, 0))))
+		if h.Action != "" {
+			group = append(group, h.Action)
+		}
+
+		groups = append(groups, strings.Join(group, "\n\n"))
+	}
+	return strings.Join(groups, "\n\n")
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/process"
 	"github.com/timche/mac-mini/hachiko/internal/shibuya"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
+	"github.com/timche/mac-mini/hachiko/internal/update"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -65,6 +66,14 @@ type Deps struct {
 	// otherwise report each agent as stopped for as long as the Mac was.
 	Booted func() time.Time
 
+	// What the nightly update is failing on, which incident each of those steps has already
+	// been raised as, and the writing back of that. Two files of hachiko's own rather than
+	// either tool's state, because the update holds a lock for however long brew takes and
+	// this check may not wait on it.
+	UpdateFailing   func() []update.Handed
+	UpdateRaised    func() map[string]update.Raised
+	SetUpdateRaised func(raised map[string]update.Raised) error
+
 	// Opens the on-call session and answers with where it is and whether the brief
 	// reached it, which is what the message about to go out has to say.
 	Oncall func(name, brief string) (oncall.Session, error)
@@ -110,6 +119,8 @@ func realDeps(cfg config.Config) Deps {
 	// another one is not truncated in its name.
 	device, _ := deviceOf(cfg.Home)
 
+	hand := update.Handoff{Dir: cfg.UpdateStateDir, WatchDir: cfg.StateDir}
+
 	return Deps{
 		Now:    now,
 		Log:    os.Stdout,
@@ -143,6 +154,10 @@ func realDeps(cfg config.Config) Deps {
 
 		ListenLastBeat: func() (time.Time, bool) { return listenLastBeat(cfg) },
 		Booted:         booted,
+
+		UpdateFailing:   hand.Failing,
+		UpdateRaised:    hand.Raised,
+		SetUpdateRaised: hand.SetRaised,
 
 		Oncall: func(name, brief string) (oncall.Session, error) {
 			return oncall.Oncaller{Cfg: cfg, Herdr: oncall.HerdrCLI, Now: now, Log: log}.Open(name, brief)

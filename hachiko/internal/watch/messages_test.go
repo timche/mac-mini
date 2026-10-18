@@ -238,6 +238,59 @@ var messageKinds = []messageKind{{
 		return f.lastSent()
 	},
 }, {
+	name:   "nightly-update-one-step",
+	marker: wording.MarkerDegraded,
+	wants: []string{
+		"⚠️ The nightly update could not upgrade the tools mise manages",
+		"**Step:** `mise up`",
+		"**Failing since:** less than a minute",
+		"**Needs you:** nothing here tries it again before tomorrow night.",
+		"An agent is looking into it — attach in herdr: workspace `.mac-mini`, tab `update-0000`. Details to follow.",
+	},
+	render: func(t *testing.T) string {
+		f := failingUpdate(t)
+		f.at(0).sweep()
+		return f.lastSent()
+	},
+}, {
+	name:   "nightly-update-several-steps",
+	marker: wording.MarkerDegraded,
+	wants: []string{
+		"⚠️ The nightly update failed 2 steps",
+		"**Step:** `brew cleanup` — could not clear what Homebrew replaced",
+		"**Step:** `mise up` — could not upgrade the tools mise manages",
+	},
+	render: func(t *testing.T) string {
+		f := failingUpdate(t)
+		f.updateFailing = append(f.updateFailing,
+			handed("brew cleanup", "clear what Homebrew replaced",
+				"Permission denied @ apply2files - /opt/homebrew/Cellar/tailscale/1.104.1/bin/tailscaled",
+				"**You can run:** `sudo rm -rf /opt/homebrew/Cellar/tailscale/1.104.1` — it is root's because `sudo brew services` ran out of it.",
+				f.now))
+		f.at(0).sweep()
+		return f.lastSent()
+	},
+}, {
+	name:   "nightly-update-nobody-answered",
+	marker: wording.MarkerDegraded,
+	wants: []string{
+		"⚠️ No answer on the nightly update, and nothing retries it",
+		"**Why:** Nothing here moves a version on its own",
+		"**Waiting:** 33 minutes",
+		"**If no answer:** leave it to tomorrow night's run",
+		"Answer in herdr: workspace `.mac-mini`, tab `update-0000`.",
+	},
+	render: func(t *testing.T) string {
+		f := failingUpdate(t)
+		f.at(0).sweep()
+		f.notifyWithFallback(f.onlyPendingID(), "leave it to tomorrow night's run")
+		f.blocks("update")
+		f.at(300).sweep()
+		f.at(300 + remindAt).sweep()
+		f.at(300 + warnAt).sweep()
+		return f.lastSent()
+	},
+}, {
 	name:   "no-report-from-the-agent",
 	marker: wording.MarkerDegraded,
 	wants: []string{

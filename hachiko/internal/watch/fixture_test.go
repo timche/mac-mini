@@ -18,6 +18,7 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/process"
 	"github.com/timche/mac-mini/hachiko/internal/shibuya"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
+	"github.com/timche/mac-mini/hachiko/internal/update"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -115,6 +116,13 @@ type fixture struct {
 
 	// When the Mac last started, which is long before any stamp unless a test pins it.
 	booted time.Time
+
+	// What the nightly update has left behind: the steps it is failing on, and which incident
+	// each has been raised as — the second being written back by the check itself, so a test
+	// reads it to see that a step is raised once and no more.
+	updateFailing   []update.Handed
+	updateRaised    map[string]update.Raised
+	updateRaisedErr error
 
 	oncallName    string
 	oncallBrief   string
@@ -295,6 +303,22 @@ func (f *fixture) deps() Deps {
 
 		ListenLastBeat: func() (time.Time, bool) { return f.lastListenBeat(), f.listenBeating },
 		Booted:         func() time.Time { return f.booted },
+
+		UpdateFailing: func() []update.Handed { return f.updateFailing },
+		UpdateRaised: func() map[string]update.Raised {
+			raised := map[string]update.Raised{}
+			for step, was := range f.updateRaised {
+				raised[step] = was
+			}
+			return raised
+		},
+		SetUpdateRaised: func(raised map[string]update.Raised) error {
+			if f.updateRaisedErr != nil {
+				return f.updateRaisedErr
+			}
+			f.updateRaised = raised
+			return nil
+		},
 
 		Oncall: func(name, brief string) (oncall.Session, error) {
 			f.oncallCalls++

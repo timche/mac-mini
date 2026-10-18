@@ -59,6 +59,7 @@ func newBox(t *testing.T) *box {
 			RootHelper:     "/usr/local/libexec/claude-root",
 			UpdateStateDir: filepath.Join(dir, "state"),
 			UpdateLock:     filepath.Join(dir, "lock"),
+			StateDir:       filepath.Join(dir, "watch"),
 			UpdateHour:     4,
 			Host:           "mac-mini",
 			Discord:        config.DiscordConfig{ChannelID: "incidents", UserID: "tim", UpdatesID: "updates"},
@@ -138,11 +139,32 @@ func (b *box) deps() Deps {
 func (b *box) update(dry bool) *updater {
 	b.t.Helper()
 
-	u := &updater{cfg: b.cfg, deps: b.deps(), store: Store{Dir: b.cfg.UpdateStateDir}, dry: dry}
+	u := &updater{cfg: b.cfg, deps: b.deps(), store: Store{Dir: b.cfg.UpdateStateDir},
+		hand: b.hand(), dry: dry}
 	if err := u.run(); err != nil {
 		b.t.Fatalf("the update failed: %v", err)
 	}
 	return u
+}
+
+func (b *box) hand() Handoff {
+	return Handoff{Dir: b.cfg.UpdateStateDir, WatchDir: b.cfg.StateDir}
+}
+
+// What the update left for the five-minute check, which is the whole of what it says about a
+// failed step now that it posts nothing about one.
+func (b *box) failing() []Handed { return b.hand().Failing() }
+
+// And the check's half of it: the incident it raised a step as and the thread of the post it
+// opened, which is where the line saying the step works again has to go.
+func (b *box) raised(step, incident, thread string) {
+	b.t.Helper()
+
+	raised := b.hand().Raised()
+	raised[step] = Raised{Incident: incident, Thread: thread}
+	if err := b.hand().SetRaised(raised); err != nil {
+		b.t.Fatal(err)
+	}
 }
 
 func (b *box) ran(line string) bool {

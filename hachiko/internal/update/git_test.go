@@ -104,10 +104,13 @@ func TestAPushThatIsRefusedIsAnIncident(t *testing.T) {
 
 	b.update(false)
 
-	incidents := b.incidents()
-	harness.Equal(t, len(incidents), 1, "incidents")
-	harness.Wants(t, incidents[0].Text, "could not publish the lockfiles mise rewrote")
-	harness.Wants(t, incidents[0].Text, "git -C ~/.mac-mini push")
+	failing := b.failing()
+	harness.Equal(t, len(failing), 1, "steps left for the check")
+	harness.Equal(t, failing[0].Step, stepLockfiles, "the step")
+	harness.Equal(t, failing[0].Phrase, "publish the lockfiles mise rewrote", "the phrase")
+	harness.Wants(t, failing[0].Detail, "! [rejected] main -> main (fetch first)")
+	harness.Wants(t, failing[0].Action, "git -C ~/.mac-mini push")
+	harness.Equal(t, len(b.incidents()), 0, "messages about it from the update itself")
 }
 
 func TestTheCommitSubjectNamesWhatMoved(t *testing.T) {

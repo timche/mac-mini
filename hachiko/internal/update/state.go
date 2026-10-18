@@ -11,30 +11,19 @@ import (
 	"time"
 )
 
-// State is what the update remembers between nights: which steps it has already said are
-// failing, so one that keeps failing is one message rather than one a night, and the line
-// saying it works again lands under it.
+// State is what the update remembers between nights: which steps are failing and since when.
+// A step that keeps failing is one incident rather than one a night, and the line saying it
+// works again can say how long it was down.
 type State struct {
-	Posted map[string]Posted `json:"posted,omitempty"`
+	Failing map[string]Failing `json:"failing,omitempty"`
 }
 
-type Posted struct {
-	Step  string `json:"step"`
-	Since int64  `json:"since"`
-
-	// The thread the message opened, so the line saying the step works again goes under the
-	// one that said it did not.
-	Thread string `json:"thread,omitempty"`
-
-	// What the command said. Kept because the message may have to be sent again on a later
-	// night, and a failure with nothing of the command's words in it is a failure nobody can
-	// act on.
-	Detail string `json:"detail,omitempty"`
-
-	// Whether the message left the machine. A send that failed is recorded all the same, and
-	// the next night says it again rather than treating a failure nobody has heard about as
-	// one already reported.
-	Sent bool `json:"sent,omitempty"`
+// Failing is one step the update could not do, keyed by the step's own name. When it first
+// could not, and nothing else: what the command said is this run's reading rather than
+// something to remember, and which incident the five-minute check raised it as is the check's
+// to write down.
+type Failing struct {
+	Since int64 `json:"since"`
 }
 
 type Store struct{ Dir string }
@@ -67,14 +56,14 @@ func (st Store) Save(state *State) error {
 	if err != nil {
 		return err
 	}
-	return st.write("state-*.json", st.path(), data)
+	return writeWhole(st.path(), "state-*.json", data)
 }
 
 // When an update last ran to the end, which is the whole of what the schedule decides by. A
 // file of its own rather than a field of the state, because what is read is a modification
 // time and nothing has to parse it.
 func (st Store) Stamp(now time.Time) error {
-	return st.write("last-run-*", filepath.Join(st.Dir, "last-run"),
+	return writeWhole(filepath.Join(st.Dir, "last-run"), "last-run-*",
 		[]byte(strconv.FormatInt(now.Unix(), 10)+"\n"))
 }
 
@@ -97,13 +86,15 @@ func LastRun(path string) time.Time {
 }
 
 // Written whole and moved into place, so a run killed mid-write leaves the last finished
-// file rather than half of this one.
-func (st Store) write(pattern, path string, data []byte) error {
-	if err := os.MkdirAll(st.Dir, 0o755); err != nil {
+// file rather than half of this one. Shared with the hand-off, which the five-minute check
+// reads while an update is still going.
+func writeWhole(path, pattern string, data []byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 
-	tmp, err := os.CreateTemp(st.Dir, pattern)
+	tmp, err := os.CreateTemp(dir, pattern)
 	if err != nil {
 		return err
 	}

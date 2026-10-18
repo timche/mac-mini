@@ -160,6 +160,8 @@ func (s sweeper) run() error {
 				wording.DurationPhrase(s.cfg.PostKeep))
 		}
 
+		s.updates(state, now)
+
 		// Said rather than sent: a dry run that checked in would tell shibuya this Mac is
 		// being watched on a run that watched nothing.
 		if reasons := sweepFaults(corrupt, disk, cpu); len(reasons) > 0 {
@@ -186,6 +188,11 @@ func (s sweeper) run() error {
 		raised = s.raise(state, now, fmt.Sprintf("%s-%d", kind, now.Unix()), alert,
 			free < s.cfg.CriticalKB || truncated)
 	}
+
+	// After the disk and the CPU, which are the halves with a deadline on them, and before
+	// everything that chases an answer, so a step raised this minute is one the wait below
+	// starts counting from.
+	s.updates(state, now)
 
 	// Whether what fired an open incident is still firing. A reading where it is not is the
 	// other half of what the session needs: without it a daemon that stops spinning by

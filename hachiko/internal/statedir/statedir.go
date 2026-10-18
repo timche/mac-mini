@@ -482,6 +482,13 @@ func (l *Lock) Release() {
 	l.pid = 0
 }
 
+// KindUpdate is the one kind of incident with no reading of the machine behind it: a step
+// the nightly update could not do. Named here because the kind is the join between the id a
+// check mints, the agent it opens and the orders that agent is given, and because what is
+// true of this one is true nowhere else — nothing measures a failed step every five minutes,
+// nothing here may retry it, and so there is no authority over it to hand anybody.
+const KindUpdate = "update"
+
 // KindOf is which watch an incident came from, which is the half of its id before the
 // time: there is one on-call agent per kind, and so one question at a time per kind.
 func KindOf(incident string) string {

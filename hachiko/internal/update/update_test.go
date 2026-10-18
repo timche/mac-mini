@@ -255,11 +255,11 @@ func TestAProxyReinstallThatFailsIsAnIncident(t *testing.T) {
 
 	b.update(false)
 
-	incidents := b.incidents()
-	harness.Equal(t, len(incidents), 1, "incidents")
-	harness.Wants(t, incidents[0].Text, "could not put portless's proxy daemon back")
-	harness.Wants(t, incidents[0].Text, "sudo: a password is required")
-	harness.Wants(t, incidents[0].Text, "portless service install")
+	failing := b.failing()
+	harness.Equal(t, len(failing), 1, "steps left for the check")
+	harness.Equal(t, failing[0].Phrase, "put portless's proxy daemon back", "the phrase")
+	harness.Wants(t, failing[0].Detail, "sudo: a password is required")
+	harness.Wants(t, failing[0].Action, "portless service install")
 }
 
 // launchd reads tailscale's plist once and the plist names the opt symlink, so the daemon
@@ -276,7 +276,7 @@ func TestTailscaledIsRestartedOnlyWhenItsFormulaMoved(t *testing.T) {
 		b.update(false)
 
 		harness.Equal(t, b.ran(restart), true, "restarted")
-		harness.Equal(t, len(b.incidents()), 0, "incidents")
+		harness.Equal(t, len(b.failing()), 0, "steps left for the check")
 		harness.Wants(t, b.summary(), "tailscaled was restarted")
 	})
 
@@ -297,11 +297,12 @@ func TestTailscaledIsRestartedOnlyWhenItsFormulaMoved(t *testing.T) {
 
 		b.update(false)
 
-		incidents := b.incidents()
-		harness.Equal(t, len(incidents), 1, "incidents")
-		harness.Wants(t, incidents[0].Text, "could not restart tailscaled after its upgrade")
-		harness.Wants(t, incidents[0].Text, "sudo brew services restart tailscale")
-		harness.Wants(t, incidents[0].Text, "from the LAN")
+		failing := b.failing()
+		harness.Equal(t, len(failing), 1, "steps left for the check")
+		harness.Equal(t, failing[0].Phrase, "restart tailscaled after its upgrade", "the phrase")
+		harness.Wants(t, failing[0].Detail, "rather than Running")
+		harness.Wants(t, failing[0].Action, "sudo brew services restart tailscale")
+		harness.Wants(t, failing[0].Action, "from the LAN")
 	})
 }
 
@@ -317,10 +318,10 @@ func TestACleanupThatFailsNamesTheKeg(t *testing.T) {
 
 	b.update(false)
 
-	incidents := b.incidents()
-	harness.Equal(t, len(incidents), 1, "incidents")
-	harness.Wants(t, incidents[0].Text, "could not clear what Homebrew replaced")
-	harness.Wants(t, incidents[0].Text, "sudo rm -rf /opt/homebrew/Cellar/tailscale/1.104.1")
+	failing := b.failing()
+	harness.Equal(t, len(failing), 1, "steps left for the check")
+	harness.Equal(t, failing[0].Phrase, "clear what Homebrew replaced", "the phrase")
+	harness.Wants(t, failing[0].Action, "sudo rm -rf /opt/homebrew/Cellar/tailscale/1.104.1")
 }
 
 func TestHerdrIsUpdatedWithoutRestartingTheServer(t *testing.T) {
@@ -389,23 +390,47 @@ Software Update found the following new or updated software:
 	}
 }
 
-// A step that keeps failing is one message for as long as it does, and the line saying it
-// works again goes under that one.
-func TestAFailingStepIsSaidOnceAndThenCleared(t *testing.T) {
+// The hand-off carries the whole of what a message about a step needs, the one line for Tim
+// included — the check knows a step by its name and nothing else.
+func TestAHandoffCarriesTheLineForTimEvenWithNothingToSuggest(t *testing.T) {
+	b := newBox(t)
+	b.current()
+	b.fails(miseUpGlobal, "mise ERR failed to install node@24.22.0")
+
+	b.update(false)
+
+	failing := b.failing()
+	harness.Equal(t, len(failing), 1, "steps left for the check")
+	harness.Equal(t, failing[0].Step, stepMiseTools, "the step")
+	harness.Equal(t, failing[0].Phrase, "upgrade the tools mise manages", "the phrase")
+	harness.Equal(t, failing[0].Since, b.now.Unix(), "when it started failing")
+	harness.Wants(t, failing[0].Detail, "mise ERR failed to install node@24.22.0")
+	harness.Wants(t, failing[0].Action, "**Needs you:** nothing here tries it again before tomorrow night.")
+	harness.Wants(t, failing[0].Action, "The step is `mise up` in `hachiko update`.")
+}
+
+// A step that keeps failing stays one entry in the hand-off, and the line saying it works
+// again goes into the thread of the post the check opened about it.
+func TestAFailingStepIsHandedOnOnceAndThenCleared(t *testing.T) {
 	b := newBox(t)
 	b.current()
 	b.fails("herdr update", "herdr: the release could not be downloaded")
 
 	b.update(false)
-	harness.Equal(t, len(b.incidents()), 1, "incidents on the first night")
-	harness.Wants(t, b.incidents()[0].OpenThread, stepHerdr)
+	harness.Wants(t, b.log.String(), "left 1 step for the five-minute check to raise as an incident: "+stepHerdr)
+	harness.Equal(t, len(b.incidents()), 0, "messages from the update itself")
 
-	b.sent = nil
+	since := b.failing()[0].Since
+	b.raised(stepHerdr, "update-1", "thread-1")
+
+	// Still failing a night later, and still one entry with the clock running from the first
+	// night rather than this one — so the check has nothing new to raise.
 	b.now = b.now.Add(24 * time.Hour)
 	b.update(false)
-	harness.Equal(t, len(b.incidents()), 0, "incidents on the second night")
+	harness.Equal(t, len(b.failing()), 1, "steps left for the check")
+	harness.Equal(t, b.failing()[0].Since, since, "when it started failing")
+	harness.Equal(t, len(b.incidents()), 0, "messages from the update itself")
 
-	b.sent = nil
 	b.now = b.now.Add(24 * time.Hour)
 	delete(b.answers, "herdr update")
 	b.update(false)
@@ -413,27 +438,79 @@ func TestAFailingStepIsSaidOnceAndThenCleared(t *testing.T) {
 	cleared := b.incidents()
 	harness.Equal(t, len(cleared), 1, "messages on the night it worked")
 	harness.Wants(t, cleared[0].Text, "🟢 The nightly update can update herdr again")
-	harness.Equal(t, cleared[0].Thread, "thread-"+stepHerdr, "the thread it cleared into")
+	harness.Equal(t, cleared[0].Thread, "thread-1", "the thread it cleared into")
 	// Which is what closes the post and gets it deleted three days later, rather than leaving
 	// a step that came back open in the forum for ever.
 	harness.Equal(t, cleared[0].Outcome, true, "the clear as the incident's outcome")
+
+	// And gone from the hand-off, which is how the check knows there is nobody left to wait
+	// for on that incident.
+	harness.Equal(t, len(b.failing()), 0, "steps left for the check")
 }
 
-// A failure nobody has heard about is not a failure already reported.
-func TestAFailureThatCouldNotBeSentIsSaidAgain(t *testing.T) {
+// A clear that did not send is a step nobody has heard is over, so it stays on the hand-off
+// and the next night says it again.
+func TestAClearThatCouldNotBeSentIsSaidAgain(t *testing.T) {
 	b := newBox(t)
 	b.current()
 	b.fails("herdr update", "herdr: the release could not be downloaded")
-	b.sendErr = errors.New("Discord answered 500")
 
 	b.update(false)
+	b.raised(stepHerdr, "update-1", "thread-1")
+
+	b.now = b.now.Add(24 * time.Hour)
+	delete(b.answers, "herdr update")
+	b.sendErr = errors.New("Discord answered 500")
+	b.update(false)
+
 	harness.Wants(t, b.log.String(), "did not send and is left to the next update")
+	harness.Equal(t, len(b.failing()), 1, "steps left for the check")
 
 	b.sent, b.sendErr = nil, nil
 	b.now = b.now.Add(24 * time.Hour)
 	b.update(false)
 
-	harness.Equal(t, len(b.incidents()), 1, "incidents on the second night")
+	harness.Equal(t, len(b.incidents()), 1, "messages on the night after")
+	harness.Equal(t, len(b.failing()), 0, "steps left for the check")
+}
+
+// A step that failed and worked again before any check had raised it is one nobody was ever
+// told about, so there is nothing to tell them is over.
+func TestAStepNobodyHeardAboutClearsInSilence(t *testing.T) {
+	b := newBox(t)
+	b.current()
+	b.fails("herdr update", "herdr: the release could not be downloaded")
+	b.update(false)
+
+	b.now = b.now.Add(24 * time.Hour)
+	delete(b.answers, "herdr update")
+	b.update(false)
+
+	harness.Equal(t, len(b.incidents()), 0, "messages sent")
+	harness.Equal(t, len(b.failing()), 0, "steps left for the check")
+}
+
+// A hand-off that could not be written is a failure nothing will ever raise, so the next
+// night writes the whole of what is failing again rather than assuming it arrived.
+func TestAHandoffThatCouldNotBeWrittenIsWrittenAgain(t *testing.T) {
+	b := newBox(t)
+	b.current()
+	b.fails("herdr update", "herdr: the release could not be downloaded")
+
+	// A file where the directory has to go, which is what a write that cannot happen looks
+	// like from here.
+	harness.WriteFile(t, b.cfg.UpdateStateDir, "")
+
+	b.update(false)
+	harness.Wants(t, b.log.String(), "could not be left for the five-minute check")
+
+	if err := os.Remove(b.cfg.UpdateStateDir); err != nil {
+		t.Fatal(err)
+	}
+	b.now = b.now.Add(24 * time.Hour)
+	b.update(false)
+
+	harness.Equal(t, len(b.failing()), 1, "steps left for the check")
 }
 
 func TestACommandsOutputHasBothStreamsInIt(t *testing.T) {

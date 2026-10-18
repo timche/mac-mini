@@ -88,6 +88,7 @@ func Run(cfg config.Config, dry bool) error {
 		cfg:   cfg,
 		deps:  realDeps(cfg),
 		store: Store{Dir: cfg.UpdateStateDir},
+		hand:  Handoff{Dir: cfg.UpdateStateDir, WatchDir: cfg.StateDir},
 		dry:   dry,
 	}).run()
 }
@@ -96,10 +97,11 @@ type updater struct {
 	cfg   config.Config
 	deps  Deps
 	store Store
+	hand  Handoff
 	dry   bool
 
 	// What moved and what else is worth a line, which together are the summary, and what
-	// could not be done, which is an incident each.
+	// could not be done, which the next five-minute check raises as an incident.
 	moved    []Move
 	notes    []string
 	failures []Failure

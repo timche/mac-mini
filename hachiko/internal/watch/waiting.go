@@ -54,6 +54,30 @@ const escAttempts = 3
 // that asked at twelve minutes had its whole timeline thrown away when this was ten.
 const questionBound = time.Hour
 
+// Whether hachiko's own five-minute reading is what an incident of this kind is about. The
+// disk and the CPU are measured on every check, so a question about one goes stale as the
+// numbers move, a projection can say the volume will be gone before Tim wakes, and the
+// authority to act on either is worth handing over at three hours.
+//
+// A step the nightly update could not do is none of that. Nothing here measures it, so there
+// is nothing for a question to go stale against and nothing to project; and nothing here may
+// retry it, since retrying a step is moving a version with nobody watching, which is the one
+// thing this Mac does only on a schedule Tim set. So an update incident goes straight to the
+// clock, and the clock ends at the warning: what resolves it is Tim picking a fix, or
+// tomorrow night's run.
+func measured(kind string) bool { return kind != statedir.KindUpdate }
+
+// What is left once a wait has ended with nothing done. The next check raises a disk or a CPU
+// incident again the moment it fires again; nothing raises a failed update step a second
+// time, the check having already said it once and the step still being recorded as raised, so
+// what is left there is tomorrow night's run.
+func orElse(kind string) string {
+	if measured(kind) {
+		return "leave it to the next check to raise it again"
+	}
+	return "leave it to tomorrow night's run, which tries the step again"
+}
+
 // What this check measured, which every reminder and every handover carries instead of
 // the numbers the question was asked with: an answer to a three-hour-old question is
 // about a machine that has moved on.
@@ -108,6 +132,16 @@ func (r nowReading) numbers() string {
 		now += fmt.Sprintf(", under the %d GB mark", r.level)
 	}
 	return joinBlocks(now, r.sections)
+}
+
+// The same, for an incident of a kind this check has a reading of. A failed update step has
+// none: free space says nothing about it and nothing about it has moved since the post went
+// up, so a message about one carries its lead and the thread it is already in.
+func (r nowReading) numbersOn(kind string) string {
+	if !measured(kind) {
+		return ""
+	}
+	return r.numbers()
 }
 
 // One `herdr agent get` per kind and no more, because there is one on-call agent per
@@ -286,7 +320,10 @@ func (s sweeper) escalate(state *statedir.State, now time.Time, kind string, w s
 	// Read on every check whatever the agent is doing, and before the grace below, because a
 	// disk that will be full before he wakes does not wait for a tool call to finish — and
 	// because the rule it answers is two checks in a row, which skipping a check breaks.
-	w, worse := s.worsening(w, reading, waited, now)
+	worse := ""
+	if measured(kind) {
+		w, worse = s.worsening(w, reading, waited, now)
+	}
 
 	// The grace the clock gives work in flight. Everything below is either a message to Tim
 	// about a question the agent has already asked or a prompt on top of what it is doing,
@@ -303,35 +340,42 @@ func (s sweeper) escalate(state *statedir.State, now time.Time, kind string, w s
 	// not esc and go on either way.
 	escSpent := blocked && w.Escs >= escAttempts
 
-	// Before anything on the clock, and the one change that outlives a handover already
-	// made: what fired the incident has stopped by itself. The authority to kill a process
-	// is no use against one that has already stopped, a reminder about options is the wrong
-	// message, and a session that was handed the decision and asked again is still the only
-	// thing that can verify this and close — which is why this one is not gated on the
-	// handover not having happened, as every other change is.
-	w, clear := s.clearing(w, reading, now, kind)
-	if clear.happened() && !escSpent {
-		return s.refresh(now, kind, w, reading, clear, blocked)
-	}
+	// Everything from here to the clock is about an incident this check is measuring: a
+	// question going stale as the numbers move, a trigger that has stopped by itself, a disk
+	// about to fill, and the authority to act on any of them. An update incident has none of
+	// it and goes straight to the reminder.
+	if measured(kind) {
+		// Before anything on the clock, and the one change that outlives a handover already
+		// made: what fired the incident has stopped by itself. The authority to kill a process
+		// is no use against one that has already stopped, a reminder about options is the wrong
+		// message, and a session that was handed the decision and asked again is still the only
+		// thing that can verify this and close — which is why this one is not gated on the
+		// handover not having happened, as every other change is.
+		var clear change
+		w, clear = s.clearing(w, reading, now, kind)
+		if clear.happened() && !escSpent {
+			return s.refresh(now, kind, w, reading, clear, blocked)
+		}
 
-	changed := materialChange(w, reading)
+		changed := materialChange(w, reading)
 
-	// An early handover is a step of its own and not the deadline's. Recorded as the
-	// deadline's, a session that was handed the decision early and judged that waiting was
-	// safe had its three hours quietly cancelled: it re-asked, and the deadline that was the
-	// whole point of the clock never came.
-	if worse != "" && !handed && !statedir.Contains(w.Steps, stepEarly) && !escSpent {
-		return s.handOver(state, now, kind, w, reading, worse, blocked)
-	}
-	if waited >= s.cfg.HandoverAfter && !handed && !escSpent {
-		return s.handOver(state, now, kind, w, reading, "", blocked)
-	}
-	if handed {
-		return w
-	}
+		// An early handover is a step of its own and not the deadline's. Recorded as the
+		// deadline's, a session that was handed the decision early and judged that waiting was
+		// safe had its three hours quietly cancelled: it re-asked, and the deadline that was the
+		// whole point of the clock never came.
+		if worse != "" && !handed && !statedir.Contains(w.Steps, stepEarly) && !escSpent {
+			return s.handOver(state, now, kind, w, reading, worse, blocked)
+		}
+		if waited >= s.cfg.HandoverAfter && !handed && !escSpent {
+			return s.handOver(state, now, kind, w, reading, "", blocked)
+		}
+		if handed {
+			return w
+		}
 
-	if changed.happened() && !escSpent {
-		return s.refresh(now, kind, w, reading, changed, blocked)
+		if changed.happened() && !escSpent {
+			return s.refresh(now, kind, w, reading, changed, blocked)
+		}
 	}
 
 	switch {
@@ -344,9 +388,11 @@ func (s sweeper) escalate(state *statedir.State, now time.Time, kind string, w s
 }
 
 func (s sweeper) remind(state *statedir.State, w statedir.Waiting, reading nowReading, waited time.Duration) statedir.Waiting {
+	kind := statedir.KindOf(w.Incident)
+
 	message := wording.Lead(wording.MarkerDegraded, fmt.Sprintf("Still no answer on %s after %s",
-		wording.IncidentWords(statedir.KindOf(w.Incident)), wording.DurationPhrase(waited))).
-		Block(reading.numbers()).
+		wording.IncidentWords(kind), wording.DurationPhrase(waited))).
+		Block(reading.numbersOn(kind)).
 		Can(wording.AnswerAction(s.cfg, w.Tab)).
 		About(w.Incident, s.cfg.Host).
 		String()
@@ -362,22 +408,41 @@ func (s sweeper) remind(state *statedir.State, w statedir.Waiting, reading nowRe
 // a session's own option is read out of its report: anything that folded it into a
 // sentence would hand Tim an option chosen by whatever filled the disk.
 func (s sweeper) warn(state *statedir.State, w statedir.Waiting, reading nowReading, waited time.Duration) statedir.Waiting {
+	kind := statedir.KindOf(w.Incident)
+
 	fallback := w.Default
 	if fallback == "" {
 		fallback = "the agent named no fallback option, so it will decide when it re-checks"
+		if !measured(kind) {
+			fallback = "the agent named no fallback option, and nothing here retries a step on its own"
+		}
 	}
 
-	message := wording.Lead(wording.MarkerDegraded, fmt.Sprintf("No answer on %s — the agent decides in %s",
-		wording.IncidentWords(statedir.KindOf(w.Incident)), wording.DurationPhrase(s.cfg.HandoverAfter-s.cfg.WarnAfter))).
-		Field(wording.LabelWaiting, wording.DurationPhrase(waited)).
+	m := wording.Lead(wording.MarkerDegraded, fmt.Sprintf("No answer on %s — the agent decides in %s",
+		wording.IncidentWords(kind), wording.DurationPhrase(s.cfg.HandoverAfter-s.cfg.WarnAfter)))
+
+	// Nothing decides in a quarter of an hour on an update incident, because nothing is
+	// handed over on one: the last word hachiko has about it is that it stays failing until he
+	// picks a fix, which is what this says instead.
+	if !measured(kind) {
+		m = wording.Lead(wording.MarkerDegraded,
+			fmt.Sprintf("No answer on %s, and nothing retries it", wording.IncidentWords(kind))).
+			Field(wording.LabelWhy, "Nothing here moves a version on its own, so the step stays "+
+				"failing until you pick a fix or tomorrow night's run clears it.")
+	}
+
+	message := m.Field(wording.LabelWaiting, wording.DurationPhrase(waited)).
 		Field(wording.LabelFallback, fallback).
-		Block(reading.numbers()).
+		Block(reading.numbersOn(kind)).
 		Can(wording.AnswerAction(s.cfg, w.Tab)).
 		About(w.Incident, s.cfg.Host).
 		String()
 
-	return s.step(state, w, stepWarn, message,
-		fmt.Sprintf("warned that %s is %s from the handover", w.Incident, hmStr(s.cfg.HandoverAfter-waited)))
+	said := fmt.Sprintf("warned that %s is %s from the handover", w.Incident, hmStr(s.cfg.HandoverAfter-waited))
+	if !measured(kind) {
+		said = fmt.Sprintf("said in the channel that nothing retries %s and nobody has answered", w.Incident)
+	}
+	return s.step(state, w, stepWarn, message, said)
 }
 
 // A step is done only once the message has actually left the machine, and the steps
@@ -413,7 +478,7 @@ func (s sweeper) sayHandoverStuck(state *statedir.State, kind string, w statedir
 
 	message := wording.Lead(wording.MarkerDown, fmt.Sprintf("The decision on %s reached no agent", wording.IncidentWords(kind))).
 		Field(wording.LabelWhy, why).
-		Block(reading.numbers()).
+		Block(reading.numbersOn(kind)).
 		Can("Nothing has acted on it, and hachiko tries again every five minutes. "+
 			wording.AnswerAction(s.cfg, w.Tab)).
 		About(w.Incident, s.cfg.Host).
@@ -428,9 +493,9 @@ func (s sweeper) sayHandoverStuck(state *statedir.State, kind string, w statedir
 func (s sweeper) sayNoOutcome(state *statedir.State, kind string, w statedir.Waiting, reading nowReading, why string) bool {
 	message := wording.Lead(wording.MarkerDegraded, fmt.Sprintf("No outcome reported on %s", wording.IncidentWords(kind))).
 		Field(wording.LabelWhy, why).
-		Block(reading.numbers()).
+		Block(reading.numbersOn(kind)).
 		Can("hachiko has stopped waiting and does not know whether anything was done. Check herdr: "+
-			wording.HerdrWhere(s.cfg, w.Tab)+", or leave it to the next check to raise it again.").
+			wording.HerdrWhere(s.cfg, w.Tab)+", or "+orElse(kind)+".").
 		About(w.Incident, s.cfg.Host).
 		String()
 
@@ -657,8 +722,8 @@ func (s sweeper) unreachable(state *statedir.State, now time.Time, kind string, 
 
 	message := wording.Lead(wording.MarkerDown, fmt.Sprintf("Cannot reach the on-call session on %s", wording.IncidentWords(kind))).
 		Field(wording.LabelWhy, fmt.Sprintf("herdr has not answered for %s", wording.DurationPhrase(down))).
-		Block(reading.numbers()).
-		Can("Nothing is being worked and nothing can be handed to it. Open a session on it yourself, or leave it to the next check to raise it again.").
+		Block(reading.numbersOn(kind)).
+		Can("Nothing is being worked and nothing can be handed to it. Open a session on it yourself, or "+orElse(kind)+".").
 		About(w.Incident, s.cfg.Host).
 		String()
 
@@ -703,11 +768,18 @@ func (s sweeper) noAgent(state *statedir.State, now time.Time, kind string, w st
 		return
 	}
 
-	message := wording.Lead(wording.MarkerDown, fmt.Sprintf("No answer on %s, and no agent left to decide", wording.IncidentWords(kind))).
+	// Nothing was ever going to decide an update incident, so what has been lost with the
+	// session is the diagnosis rather than the deciding.
+	lead := fmt.Sprintf("No answer on %s, and no agent left to decide", wording.IncidentWords(kind))
+	if !measured(kind) {
+		lead = fmt.Sprintf("No answer on %s, and no session left on it", wording.IncidentWords(kind))
+	}
+
+	message := wording.Lead(wording.MarkerDown, lead).
 		Field(wording.LabelWaiting, wording.DurationPhrase(waited)).
 		Field(wording.LabelWhy, "the session is closed, so nothing was done about it").
-		Block(reading.numbers()).
-		Can("Open a session on it yourself, or leave it to the next check to raise it again.").
+		Block(reading.numbersOn(kind)).
+		Can("Open a session on it yourself, or "+orElse(kind)+".").
 		About(w.Incident, s.cfg.Host).
 		String()
 

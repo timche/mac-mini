@@ -64,38 +64,18 @@ var messageKinds = []struct {
 		},
 	},
 	{
-		name:   "a step that failed",
-		marker: wording.MarkerDegraded,
-		wants: []string{
-			"could not clear what Homebrew replaced",
-			"**Step:**", "**What it said:**", "**Failing since:**",
-			"sudo rm -rf /opt/homebrew/Cellar/tailscale/1.104.1",
-		},
-		render: func(t *testing.T) string {
-			b := newBox(t)
-			b.current()
-			b.moveBrew("tailscale", "1.104.1", "1.106.0")
-			b.says("tailscale status --json", `{"BackendState":"Running"}`)
-			b.fails("brew cleanup",
-				"Permission denied @ apply2files - /opt/homebrew/Cellar/tailscale/1.104.1/bin/tailscaled")
-			b.update(false)
-
-			incidents := b.incidents()
-			if len(incidents) != 1 {
-				t.Fatalf("%d incidents", len(incidents))
-			}
-			return incidents[0].Text
-		},
-	},
-	{
 		name:   "a step that works again",
 		marker: wording.MarkerRecovered,
-		wants:  []string{"can update herdr again", "**Step:**", "**Failing since:**"},
+		wants:  []string{"can update herdr again", "**Step:**", "**Failing since:**", "Incident update-1"},
 		render: func(t *testing.T) string {
 			b := newBox(t)
 			b.current()
 			b.fails("herdr update", "herdr: the release could not be downloaded")
 			b.update(false)
+
+			// What the five-minute check wrote back after raising it, which is the whole of how
+			// the update knows where to say the step works again.
+			b.raised(stepHerdr, "update-1", "thread-1")
 
 			b.sent = nil
 			b.now = b.now.Add(26 * time.Hour)

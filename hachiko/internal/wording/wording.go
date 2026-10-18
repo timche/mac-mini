@@ -334,12 +334,16 @@ func PlainTitle(s string) string {
 
 // What to call an incident in a lead. The id itself is machine detail and goes in the
 // subtext line, since nothing Tim does with a message needs it.
+// The kinds are spelled here rather than taken from statedir, which reads its own safe
+// strings out of this package.
 func IncidentWords(kind string) string {
 	switch kind {
 	case "cpu":
 		return "the CPU incident"
 	case "disk":
 		return "the disk incident"
+	case "update":
+		return "the nightly update"
 	default:
 		return "the " + Safe(kind, NameLimit) + " incident"
 	}

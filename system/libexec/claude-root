@@ -247,7 +247,7 @@ flush_dns() {
 }
 
 reinstall_portless() {
-  local user home node cli tld
+  local user home node where cli tld
   local args=()
 
   for tld in "${portless_tlds[@]}"; do
@@ -282,19 +282,32 @@ reinstall_portless() {
   # shellcheck disable=SC2016 # the account's shell expands it, not this one
   home="$(su -l "$user" -c 'printf "%s\n" "$HOME"' 2>/dev/null | tail -n 1)"
   node="$(su -l "$user" -c 'mise which node' 2>/dev/null | tail -n 1)"
-  cli="$(su -l "$user" -c 'mise which portless' 2>/dev/null | tail -n 1)"
+  where="$(su -l "$user" -c 'mise where npm:portless' 2>/dev/null | tail -n 1)"
 
-  if [ ! -d "$home" ] || [ ! -x "$node" ] || [ ! -f "$cli" ]; then
+  # The CLI file the package's own bin names, rather than what `mise which`
+  # answers: that is mise's shim, or under mise's aube installs a shell script
+  # in .bin, neither of which node can run, and a shim run as root resolves
+  # against root's own mise.
+  cli=""
+  if [ -x "$node" ] && [ -f "$where/node_modules/portless/package.json" ]; then
+    # shellcheck disable=SC2016 # node's template literal, not a shell expansion
+    cli="$("$node" -e '
+      const dir = process.argv[1], pkg = require(`${dir}/package.json`);
+      const bin = typeof pkg.bin === "string" ? pkg.bin : pkg.bin && pkg.bin.portless;
+      if (bin) console.log(require("path").resolve(dir, bin));
+    ' "$where/node_modules/portless" 2>/dev/null)"
+  fi
+
+  if [ ! -d "$home" ] || [ ! -x "$node" ] || [ -z "$cli" ] || [ ! -f "$cli" ]; then
     echo "claude-root: $user's mise does not have both node and portless, so" >&2
     echo "there is nothing to install the proxy from." >&2
     return 69
   fi
 
-  # node and the CLI file rather than the shim or the .bin link: a shim run as
-  # root resolves against root's own mise, and the link's shebang wants a node on
-  # PATH that this PATH deliberately does not have. HOME is the account's, since
-  # portless keeps its state, its CA and its routes under it and the clients read
-  # them there.
+  # node and the CLI file rather than the .bin link, whose shebang wants a node
+  # on PATH that this PATH deliberately does not have. HOME is the account's,
+  # since portless keeps its state, its CA and its routes under it and the
+  # clients read them there.
   if ! env HOME="$home" "$node" "$cli" service install "${args[@]}"; then
     echo "claude-root: portless would not install its daemon." >&2
     return 69

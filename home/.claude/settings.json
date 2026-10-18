@@ -30,7 +30,7 @@
         ]
       },
       {
-        "matcher": "^(Bash|Edit|Write|NotebookEdit)$",
+        "matcher": "^(Bash|Edit|MultiEdit|Write|NotebookEdit)$",
         "hooks": [
           {
             "type": "command",

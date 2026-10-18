@@ -499,21 +499,42 @@ check "the on-call guard allows the root helper's restart-daemon and no other su
    HACHIKO_ROOT_HELPER="$helper" refused Bash "sudo kill 4242"'
 
 # A log file in the three roots and in a project's own log folder, and nothing else:
-# a tmp folder holds a build somebody is waiting on as readily as a log.
+# a tmp folder holds a build somebody is waiting on as readily as a log. ~/Library/Caches
+# is not one of the roots, obvious as it looks for freeing space: hachiko's own state
+# directory and the binary the wrapper builds are in it.
 check "the on-call guard allows a log emptied and refuses anything else deleted" \
   'guard Bash "rm -f /private/tmp/worker.log" &&
    guard Bash "rm $HOME/Library/Logs/hachiko.log.0" &&
    guard Bash "truncate -s 0 $HOME/projects/x/logs/app.log" &&
+   guard Bash "find $HOME/projects/x/logs -name \"*.log\" -delete" &&
    refused Bash "rm -rf $HOME/projects/x" &&
    refused Bash "rm $HOME/projects/x/src/index.ts" &&
+   refused Bash "rm -rf $HOME/Library/Caches/hachiko" &&
    refused Bash "echo /x | xargs rm -rf" &&
    refused Bash "rm -rf \$SOMEWHERE"'
+
+# "Empty or delete" is what the limits say, and a redirect over a file that is already
+# there empties it. One pointed at a file that is not there yet is a write, and so is
+# one inside this machine's own checkout, where the session may be making the fix.
+check "the on-call guard refuses a file emptied by a redirect" \
+  'refused Bash ": > /etc/hosts" &&
+   guard Bash ": > /private/tmp/worker.log" &&
+   guard Bash "echo x > $HOME/projects/x/no-such-file-xyz.txt" &&
+   guard Bash "cat > $repo/hachiko/internal/update/steps.go"'
+
+# The shapes the same command hides in: a login shell, an environment of its own, and a
+# command whose arguments arrive on stdin.
+check "the on-call guard reads a command inside another command" \
+  'refused Bash "bash -lc \"sudo -n true\"" &&
+   refused Bash "env -i sudo rm -rf /var/db" &&
+   refused Bash "sh -c \"git push --force origin main\""'
 
 # A commit on main is the one fix in this checkout an update incident may push, and
 # the rest of git is Tim'"'"'s: a force-push, a branch deleted, a push anywhere else.
 check "the on-call guard allows a push to this repository's main and nothing further" \
   'guard Bash "git push origin main" &&
    guard Bash "git revert --no-edit abc1234" &&
+   guard Bash "git -C $HOME/.herdr/worktrees/$(basename "${MAC_MINI_DIR:-$HOME/.mac-mini}")/fix-x push origin main" &&
    refused Bash "git push --force-with-lease origin main" &&
    refused Bash "git push origin +main" &&
    refused Bash "git push origin HEAD:other" &&
@@ -526,13 +547,16 @@ check "the on-call guard refuses an edit to the configuration every session load
   'refused Edit "$HOME/.claude/settings.json" &&
    refused Edit "$repo/home/.claude/agents/oncall-partner.md" &&
    refused Bash "echo x > $HOME/.claude/settings.json" &&
+   refused Bash "sed -i \"\" s/opus/sonnet/ $HOME/.claude/settings.json" &&
    guard Edit "$repo/hachiko/internal/update/steps.go" &&
-   guard Bash "cat $HOME/.claude/settings.json"'
+   guard Bash "cat $HOME/.claude/settings.json" &&
+   guard Bash "cat $HOME/.claude/settings.json > /private/tmp/copy.json"'
 
 check "the on-call guard refuses what would take every other session with it" \
   'refused Bash "pkill -f claude" &&
    refused Bash "killall herdr" &&
    refused Bash "herdr server restart" &&
+   refused Bash "herdr tab close w1:t2" &&
    refused Bash "launchctl kickstart -k gui/501/io.github.timche.herdr" &&
    refused Bash "shutdown -h now" &&
    refused Bash "op read op://dev/hachiko-discord/token" &&

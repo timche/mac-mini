@@ -43,13 +43,18 @@ SCRATCH = os.environ.get("CLAUDE_CODE_TMPDIR") or os.path.join(HOME, ".cache", "
 
 # The three roots the standing orders let a session empty, plus the one the shell's own
 # temporary files are in. Everything else holds somebody's work.
+#
+# ~/Library/Caches is deliberately not among them, although it looks like the obvious place
+# to free a gigabyte: hachiko's own state directory is in it, and so is the binary the
+# wrapper builds, so an `rm -rf` there takes the record of this session's own attempt, the
+# thread its messages go into, the sweep's lock and the stamp that says the night's update
+# has run.
 DELETE_ROOTS = [
     "/private/tmp",
     "/private/var/folders",
     "/var/folders",
     SCRATCH,
     os.path.join(HOME, "Library", "Logs"),
-    os.path.join(HOME, "Library", "Caches"),
 ]
 if os.environ.get("TMPDIR"):
     DELETE_ROOTS.append(os.environ["TMPDIR"])
@@ -70,15 +75,22 @@ LOG_DIRS = {"log", "logs", "tmp", "temp"}
 CONFIG_DIRS = [os.path.join(HOME, ".claude")]
 CONFIG_PATH = re.compile(r"(^|/)home/\.claude(/|$)")
 
-# Prefixes a command hides behind, which the real command follows.
+# Where herdr keeps this repository's worktrees, which are outside the checkout and are
+# where the orders have the session make its fix.
+HERDR_WORKTREES = os.path.join(HOME, ".herdr", "worktrees", os.path.basename(MACHINE))
+
+# Prefixes a command hides behind, which the real command follows, with their own flags: the
+# command in `env -i sudo rm -rf /` is the sudo.
 PREFIXES = {"command", "builtin", "exec", "nohup", "nice", "stdbuf", "time", "env"}
 
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
 
+# `sed -i` is the likeliest shape of all for changing one line of a configuration file from a
+# shell, so it belongs here however much of sed is a reader.
 WRITERS = {
     "tee", "cp", "mv", "rm", "rmdir", "unlink", "install", "ln", "truncate", "chmod",
     "chown", "touch", "dd", "mkdir", "rsync", "patch", "ed", "shred", "python3", "python",
-    "node", "perl", "ruby", "bun",
+    "node", "perl", "ruby", "bun", "sed", "gsed", "awk", "sponge", "plutil", "defaults",
 }
 
 DELETERS = {"rm", "rmdir", "unlink", "shred", "srm", "truncate"}
@@ -151,15 +163,19 @@ def segments(command):
 
 
 # An assignment or a prefix in front of the command is the shell's and not the command's, so
-# `FOO=bar sudo rm -rf /` has to read as the sudo it is.
+# `FOO=bar sudo rm -rf /` has to read as the sudo it is. A prefix's own flags go with it,
+# which is what `env -i sudo …` is.
 def words(segment):
-    rest = list(segment)
+    rest, prefixed = list(segment), False
     while rest:
         head = rest[0]
         if "=" in head and not head.startswith("=") and "/" not in head.split("=")[0]:
-            rest = rest[1:]
+            rest, prefixed = rest[1:], True
             continue
         if os.path.basename(head) in PREFIXES:
+            rest, prefixed = rest[1:], True
+            continue
+        if prefixed and head.startswith("-"):
             rest = rest[1:]
             continue
         break
@@ -253,7 +269,10 @@ def check_git(args, cwd):
     if verb != "push":
         return
 
-    if not under(where, MACHINE):
+    # The checkout, and the worktrees of it that are not inside it: Claude Code puts its own
+    # under the repository, herdr puts its under ~/.herdr/worktrees/<repo>, and the fix the
+    # orders describe is made in either.
+    if not under(where, MACHINE) and not under(where, HERDR_WORKTREES):
         deny("An on-call session pushes to this machine's own repository and to nothing else. "
              "Put the change to Tim instead.")
 
@@ -296,22 +315,52 @@ def check_delete(args, cwd):
                  "never list for an on-call session." % token)
         if not deletable(path):
             deny("An on-call session deletes under /private/tmp, the Claude Code scratch "
-                 "directory, ~/Library/Logs and ~/Library/Caches, and in a project's own log or "
-                 "tmp folder only the files whose name says they are a log. %s is none of "
-                 "those, so it is somebody's work: say in the thread what you would delete and "
-                 "wait for Tim." % token)
+                 "directory and ~/Library/Logs, and in a project's own log or tmp folder only "
+                 "the files whose name says they are a log. %s is none of those, so it is "
+                 "somebody's work: say in the thread what you would delete and wait for "
+                 "Tim." % token)
+
+
+# What a redirect in a segment is pointed at, which is the token after each of them.
+def redirect_targets(segment, cwd):
+    return [resolve(token, cwd)
+            for before, token in zip(segment, segment[1:])
+            if before in WRITE_REDIRECTS]
 
 
 def check_config_writes(segment, args, verb, cwd):
-    writing = os.path.basename(verb) in WRITERS or any(
-        token in WRITE_REDIRECTS for token in segment)
-    if not writing:
-        return
-    for _, path in paths_of(args, cwd) + [(None, resolve(t, cwd)) for t in segment]:
+    # A writing command is judged on all of its arguments, since which of them it writes to
+    # differs per command. A redirect is judged on what it points at alone: `cat
+    # ~/.claude/settings.json > /private/tmp/copy` reads that file, and refusing an ordinary
+    # diagnostic would cost an incident its reading.
+    if os.path.basename(verb) in WRITERS:
+        suspect = [path for _, path in paths_of(args, cwd)]
+        suspect += [resolve(token, cwd) for token in segment]
+    else:
+        suspect = redirect_targets(segment, cwd)
+
+    for path in suspect:
         if path is not None and is_config(path):
             deny("Nothing on this Mac edits ~/.claude or home/.claude from an on-call session: "
                  "it is every session's configuration, including this one's permissions, and "
                  "hachiko sync publishes it within minutes. Put the change to Tim.")
+
+
+# A redirect over a file that is already there is an erase, and "empty or delete" is what the
+# limits are written in terms of: `: > x` and `rm x` cost the same thing. One pointed at a
+# file that does not exist yet is a write, so a message file and an incident note go through,
+# and so does anything inside this machine's own checkout — where what the session may be
+# doing is the fix, and a heredoc over a file it is editing is not an erase of anybody's data.
+def check_erase(segment, cwd):
+    for path in redirect_targets(segment, cwd):
+        if path is None or not os.path.exists(path) or os.path.isdir(path):
+            continue
+        if deletable(path) or under(path, MACHINE) or under(path, HERDR_WORKTREES):
+            continue
+        deny("This empties a file that is there, which the limits count as deleting it: an "
+             "on-call session empties files under /private/tmp, the Claude Code scratch "
+             "directory and ~/Library/Logs, and a project's own log files. Say in the thread "
+             "what you would empty and wait for Tim.")
 
 
 def check_segment(segment, cwd, depth=0):
@@ -338,9 +387,11 @@ def check_segment(segment, cwd, depth=0):
              "session, bar the root helper's own restart-daemon. Say which job it is and leave "
              "it to Tim.")
 
-    if name == "herdr" and rest[:1] == ["server"]:
-        deny("Restarting herdr ends every session on this Mac, this one included, and is on the "
-             "never list.")
+    # The server is every session on this Mac; a tab or a pane is one of them, and closing
+    # one takes whatever that session was doing with it.
+    if name == "herdr" and (rest[:1] == ["server"] or rest[1:2] == ["close"]):
+        deny("Restarting herdr ends every session on this Mac, this one included, and closing "
+             "a tab or a pane ends somebody's. Both are on the never list.")
 
     if name in ("kill", "pkill", "killall", "skill"):
         check_kill(rest)
@@ -350,14 +401,24 @@ def check_segment(segment, cwd, depth=0):
 
     # find's paths come before its first expression, and everything after one is a test
     # rather than a path — `-name '*.log'` read as a path refuses a command that deletes
-    # nothing of the kind.
+    # nothing of the kind. What it would delete is the pattern under the root, which is the
+    # same thing `rm dir/*.log` asks about: a log folder with thousands of files in it is
+    # exactly where find gets reached for, and that one is inside the limits.
     if name == "find" and ("-delete" in rest or "-exec" in rest or "-execdir" in rest):
         roots = []
         for arg in rest:
             if arg.startswith("-"):
                 break
             roots.append(arg)
-        check_delete(roots, cwd)
+
+        patterns = [rest[i + 1] for i, arg in enumerate(rest)
+                    if arg in ("-name", "-iname") and i + 1 < len(rest)]
+
+        if patterns:
+            check_delete([os.path.join(root, pattern)
+                          for root in roots for pattern in patterns], cwd)
+        else:
+            check_delete(roots, cwd)
 
     if name == "git":
         check_git(rest, cwd)
@@ -375,12 +436,14 @@ def check_segment(segment, cwd, depth=0):
             check_segment(tail, cwd, depth)
 
     check_config_writes(segment, rest, verb, cwd)
+    check_erase(segment, cwd)
 
     # One level into a shell of its own, since `bash -c "sudo ..."` is the same command in
-    # another shape. Deeper than that is a script on disk, which nothing here reads.
+    # another shape, and `-lc` is that shape with one letter in front. Deeper than that is a
+    # script on disk, which nothing here reads.
     if name in SHELLS and depth == 0:
         for i, arg in enumerate(rest):
-            if arg == "-c" and i + 1 < len(rest):
+            if re.fullmatch(r"-[a-zA-Z]*c", arg) and i + 1 < len(rest):
                 check_command(rest[i + 1], cwd, depth + 1)
 
 

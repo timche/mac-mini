@@ -181,7 +181,10 @@ func (s sweeper) run() error {
 
 	raised := false
 	if newIncident {
-		raised = s.raise(state, now, kind, alert, free, truncated)
+		// Free space already critical, or a file this emptied: either way Tim needs the whole
+		// of it now rather than when an agent has finished reading.
+		raised = s.raise(state, now, fmt.Sprintf("%s-%d", kind, now.Unix()), alert,
+			free < s.cfg.CriticalKB || truncated)
 	}
 
 	// Whether what fired an open incident is still firing. A reading where it is not is the
@@ -760,8 +763,16 @@ func joinBlocks(blocks ...string) string { return strings.Join(nonEmpty(blocks..
 // tab it is waiting in, then one line from hachiko. The brief carries the incident
 // id and the one command that reaches the channel, because the session is never
 // handed the bot token itself.
-func (s sweeper) raise(state *statedir.State, now time.Time, kind string, alert alertText, free int64, truncated bool) bool {
-	incident := fmt.Sprintf("%s-%d", kind, now.Unix())
+//
+// The id arrives already minted, because the half of the check that raised it is the half
+// that has to write down which incident it was: the kind and the time are the whole of an id
+// and the kind is the half of it everything below reads back.
+//
+// Urgent is what the message to Tim carries: the whole of the detail now rather than when an
+// agent has finished reading it, since a short form is only worth sending where somebody is
+// going to read the rest for him.
+func (s sweeper) raise(state *statedir.State, now time.Time, incident string, alert alertText, urgent bool) bool {
+	kind := statedir.KindOf(incident)
 
 	session, err := s.deps.Oncall(kind, s.brief(incident, alert.brief()))
 	if err != nil {
@@ -769,11 +780,10 @@ func (s sweeper) raise(state *statedir.State, now time.Time, kind string, alert 
 		session = oncall.Session{}
 	}
 
-	// Urgent is free space already critical, or a file this truncated: either way Tim
-	// needs the whole of it now rather than when an agent has finished reading. So is a
-	// session the brief never reached, since nothing is going to read it for him.
+	// A session the brief never reached is urgent whatever fired, since nothing is going to
+	// read it for him.
 	blocks := alert.short
-	if free < s.cfg.CriticalKB || truncated || !session.Delivered {
+	if urgent || !session.Delivered {
 		blocks = alert.full
 	}
 

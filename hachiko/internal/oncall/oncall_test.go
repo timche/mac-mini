@@ -341,7 +341,7 @@ func TestTheUpdatePromptOffersNoAutonomyAtAll(t *testing.T) {
 		"`hachiko update --dry-run`",
 		"Both work from this pane",
 		"There is no autonomy on one of these and no handover",
-		"Never, whatever he picks",
+		"Never on his pick alone, only once he has approved that one action with his code",
 		"⚠️ a step that failed or a deadline coming",
 	} {
 		harness.Wants(t, prompt, want)

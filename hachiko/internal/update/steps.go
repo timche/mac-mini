@@ -3,6 +3,7 @@ package update
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -362,7 +363,9 @@ func (u *updater) herdr() {
 		return
 	}
 
-	if out := u.deps.Run(Command{Name: "herdr", Args: []string{"update"}, Timeout: selfUpdate}); !out.OK {
+	if out := u.deps.Run(Command{
+		Name: "herdr", Args: []string{"update"}, Timeout: selfUpdate, Env: outsideHerdr(os.Environ()),
+	}); !out.OK {
 		u.failed(Failure{Step: stepHerdr, Detail: out.Text})
 		return
 	}
@@ -373,6 +376,19 @@ func (u *updater) herdr() {
 		u.note("the herdr server is still on " + wording.CodeSpan(before) +
 			" and takes the new binary at its next restart, since restarting it now would end every session")
 	}
+}
+
+// herdr refuses to update from inside one of its own panes, which is where an update somebody
+// starts by hand runs. It is no safer from launchd, where the nightly one runs: the server is
+// left alone either way.
+func outsideHerdr(env []string) []string {
+	var kept []string
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, "HERDR_") {
+			kept = append(kept, kv)
+		}
+	}
+	return kept
 }
 
 func (u *updater) herdrVersion() string {

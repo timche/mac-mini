@@ -340,6 +340,32 @@ func TestHerdrIsUpdatedWithoutRestartingTheServer(t *testing.T) {
 	}
 }
 
+func TestHerdrIsUpdatedAsThoughFromOutsideHerdr(t *testing.T) {
+	t.Setenv("HERDR_ENV", "1")
+	t.Setenv("HERDR_PANE_ID", "w1:p1")
+	t.Setenv("HACHIKO_KEPT", "yes")
+
+	b := newBox(t)
+	b.current()
+	b.update(false)
+
+	var found bool
+	for _, cmd := range b.run {
+		if cmd.line() != "herdr update" {
+			continue
+		}
+		found = true
+		env := strings.Join(cmd.Env, "\n")
+		if strings.Contains(env, "HERDR_") {
+			t.Errorf("herdr update was handed herdr's own environment: %q", env)
+		}
+		harness.Wants(t, env, "HACHIKO_KEPT=yes")
+	}
+	if !found {
+		t.Fatal("herdr update was never run")
+	}
+}
+
 func TestAMacOSUpdateIsSaidAndNotInstalled(t *testing.T) {
 	b := newBox(t)
 	b.current()

@@ -23,6 +23,9 @@ type Command struct {
 	Args    []string
 	Dir     string
 	Timeout time.Duration
+
+	// The whole environment the command gets, when it is not to inherit this process's.
+	Env []string
 }
 
 func (c Command) line() string { return strings.TrimSpace(c.Name + " " + strings.Join(c.Args, " ")) }
@@ -73,6 +76,7 @@ func run(cmd Command) Output {
 
 	exe := exec.CommandContext(ctx, cmd.Name, cmd.Args...)
 	exe.Dir = cmd.Dir
+	exe.Env = cmd.Env
 
 	var stdout, both bytes.Buffer
 	exe.Stdout = io.MultiWriter(&stdout, &both)

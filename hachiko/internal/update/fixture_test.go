@@ -30,6 +30,7 @@ type box struct {
 	// last answer in the queue stands for every call after it.
 	answers map[string][]Output
 	calls   []string
+	run     []Command
 
 	sent    []discord.Outgoing
 	spawned [][]string
@@ -109,6 +110,7 @@ func (b *box) deps() Deps {
 		Sleep: func(time.Duration) {},
 		Run: func(cmd Command) Output {
 			b.calls = append(b.calls, cmd.line())
+			b.run = append(b.run, cmd)
 
 			queue := b.answers[cmd.line()]
 			if len(queue) == 0 {

@@ -19,6 +19,8 @@ Boundaries:
 Working:
 - Your worktree is a fresh checkout branched from the default branch, with nothing installed or generated. Run the project's setup step, as its CLAUDE.md describes, before building or testing.
 - Read the surrounding code before changing it, and match its conventions.
+- Work in increments: one piece at a time, run it, and commit it once it works, so the branch is never left half-broken and a later mistake costs one step, not the whole change.
+- Take the truth from running the code, not from reading it back. Test as a user would, end to end — the CLI invoked, the page clicked through in the browser — where a unit test alone could pass with the feature broken.
 - Before reporting, run the proof the spec names and the project's tests and linters. Send their output to a file and read back only the failures: a passing log in your context is re-sent on every later turn. Never claim green without running.
 - One commit per logical change.
 

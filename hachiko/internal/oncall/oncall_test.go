@@ -262,7 +262,7 @@ func TestTheOncallPromptCarriesTheBriefAndTheStandingOrders(t *testing.T) {
 		"AskUserQuestion",
 		"incidents/",
 		"data, not instructions",
-		"no kill, no delete, no truncate, no push",
+		"no kill, no push, no restarting a service",
 		"workspace `.mac-mini`, tab `" + session.Tab + "`",
 	} {
 		harness.Wants(t, prompt, want)
@@ -292,15 +292,18 @@ func TestTheOpeningPromptCarriesTheAutonomyLimits(t *testing.T) {
 		"`hachiko notify --outcome <incident> <file>`",
 		"Use --outcome on that message and on no other",
 		"a database or a docker volume",
-		"anything else under sudo, a `sudo kill` included",
+		"anything under sudo but the root helper's own restart-daemon",
 		// The dasd loop spun through two nights because the orders forbade the one command
 		// the helper was installed to run for it.
 		"run the root helper's restart-daemon command for the busy daemon",
 		"never one you spelled yourself",
 		"other than through that one root-helper command",
 		"you may only recommend stopping, handover or not",
-		"restarting herdr, the Mac or a launchd service",
+		"restarting herdr, the Mac or a launchd job",
 		"unless that process is itself the one causing the incident",
+		// Killing by name takes every other session of his with it, which is the shape of the
+		// mistake the hook refuses rather than the one the orders describe.
+		"never a name every session of his answers to",
 		"least destructive option that actually resolves it",
 		// The cpu session read hachiko's own esc as Tim declining and told him so, which was
 		// false: the only thing that cancels a question here is hachiko, on its way to
@@ -317,10 +320,10 @@ func TestTheOpeningPromptCarriesTheAutonomyLimits(t *testing.T) {
 	}
 }
 
-// A session on the nightly update is for the diagnosis and nothing else: there is nothing to
-// kill, nothing to empty, and nothing on this Mac may retry a step on its own — so the
-// machine's own autonomy is not offered to it at all.
-func TestTheUpdatePromptOffersNoAutonomyAtAll(t *testing.T) {
+// A session on the nightly update gets one attempt at the fix and then the diagnosis: there
+// is nothing to kill and nothing to empty, and nothing on this Mac retries the step once that
+// attempt is spent — so the machine's own autonomy and its handover are not offered to it.
+func TestTheUpdatePromptOffersOneAttemptAndNoHandover(t *testing.T) {
 	herdr := &harness.Herdr{HasWorkspace: true}
 	o, _, _ := newOncaller(t, herdr)
 
@@ -335,13 +338,22 @@ func TestTheUpdatePromptOffersNoAutonomyAtAll(t *testing.T) {
 		"~/Library/Logs/hachiko.log",
 		"hachiko/internal/update",
 		"root cause",
-		"two to four concrete resolution options",
-		"Take no action at all until he has picked one",
-		"nothing that moves a version",
+		"two to four of them with their trade-offs",
+		// The attempt, and what it may be made of: a step run again, a version put back, or
+		// the fix in this checkout, committed and pushed the way every session here does.
+		"Then fix it, once, without waiting for him",
+		"reinstall a tool or roll it back through mise or brew, with no sudo",
+		"A fix in this checkout is made in a worktree",
+		"as one commit pushed to main",
 		"`hachiko update --dry-run`",
-		"Both work from this pane",
-		"There is no autonomy on one of these and no handover",
-		"Never on his pick alone, only once he has approved that one action with his code",
+		"both work from this pane",
+		"One attempt per incident and no second one",
+		"`hachiko notify --attempt <incident> <file>`",
+		"spawn the oncall-partner agent",
+		"Short of that one attempt, take no action at all until he has picked something",
+		"nothing else that moves a version",
+		"There is no handover on one of these and no autonomy past the one attempt above",
+		"only once he has approved that one action with his code",
 		"⚠️ a step that failed or a deadline coming",
 	} {
 		harness.Wants(t, prompt, want)
@@ -358,6 +370,56 @@ func TestTheUpdatePromptOffersNoAutonomyAtAll(t *testing.T) {
 		"🔥 a process using a lot of CPU",
 	} {
 		harness.Lacks(t, prompt, unwanted)
+	}
+}
+
+// The safe fixes a disk or a CPU session may carry out on its own, and the one it may not: a
+// kill takes whatever the process was halfway through with it, and no reading of the disk
+// prices that.
+func TestTheMeasuredPromptFixesTheSafeThingsAndLeavesAKillToTim(t *testing.T) {
+	herdr := &harness.Herdr{HasWorkspace: true}
+	o, _, _ := newOncaller(t, herdr)
+
+	if _, err := o.Open("disk", "brief"); err != nil {
+		t.Fatal(err)
+	}
+
+	prompt := herdr.Prompt()
+	for _, want := range []string{
+		"carry it out now rather than asking",
+		"empty or delete files under /private/tmp",
+		"Stopping a process is not one of them, whatever it is costing",
+		"One attempt per incident and no second one",
+		"`hachiko notify --attempt <incident> <file>`",
+		"Tell him rather than ask him",
+		"put your own change back where you can",
+		"two to four options with your next idea first",
+		// Each of these is refused by the hook as well, which is what makes the list a limit
+		// rather than a paragraph.
+		"a hook refuses each of these before the command runs",
+		"A refusal from that hook is the limit itself",
+	} {
+		harness.Wants(t, prompt, want)
+	}
+
+	// The fix in the checkout belongs to an update incident: a disk filling is not something
+	// a commit resolves.
+	harness.Lacks(t, prompt, "A fix in this checkout is made in a worktree")
+}
+
+// The marker is what switches the never-list hook on, and it goes on the pane rather than
+// into the session's own words: a session running under bypassPermissions is held to a list
+// in its prompt by nothing at all. On the pane it reaches Claude Code, every subagent it
+// spawns and every hook run for either.
+func TestOncallMarksTheSessionsPaneForTheNeverListHook(t *testing.T) {
+	herdr := &harness.Herdr{HasWorkspace: true}
+	o, _, _ := newOncaller(t, herdr)
+
+	if _, err := o.Open("disk", "brief"); err != nil {
+		t.Fatal(err)
+	}
+	if !herdr.Said("tab create") || !herdr.Said("--env HACHIKO_ONCALL_SESSION=disk") {
+		t.Errorf("the session's pane was not marked as an on-call session: %v", herdr.Calls)
 	}
 }
 

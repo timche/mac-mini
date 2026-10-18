@@ -448,6 +448,36 @@ func TestAFailingStepIsHandedOnOnceAndThenCleared(t *testing.T) {
 	harness.Equal(t, len(b.failing()), 0, "steps left for the check")
 }
 
+// Two steps raised as one incident share its post, so the first to work again says so in the
+// thread and leaves it open, and the last one closes it.
+func TestOnlyTheLastStepUnderAnIncidentClosesItsPost(t *testing.T) {
+	b := newBox(t)
+	b.current()
+	b.fails("herdr update", "herdr: the release could not be downloaded")
+	b.fails("git -C "+home+"/.oh-my-zsh pull --ff-only", "fatal: not possible to fast-forward")
+
+	b.update(false)
+	b.raised(stepHerdr, "update-1", "thread-1")
+	b.raised(stepOhMyZsh, "update-1", "thread-1")
+
+	b.now = b.now.Add(24 * time.Hour)
+	delete(b.answers, "herdr update")
+	b.update(false)
+
+	first := b.incidents()
+	harness.Equal(t, len(first), 1, "messages on the night one worked")
+	harness.Equal(t, first[0].Outcome, false, "a clear with a sibling still failing as the outcome")
+
+	b.sent = nil
+	b.now = b.now.Add(24 * time.Hour)
+	b.says("git -C "+home+"/.oh-my-zsh pull --ff-only", "Already up to date.")
+	b.update(false)
+
+	last := b.incidents()
+	harness.Equal(t, len(last), 1, "messages on the night the other worked")
+	harness.Equal(t, last[0].Outcome, true, "the last clear as the outcome")
+}
+
 // A clear that did not send is a step nobody has heard is over, so it stays on the hand-off
 // and the next night says it again.
 func TestAClearThatCouldNotBeSentIsSaidAgain(t *testing.T) {

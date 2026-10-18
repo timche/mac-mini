@@ -149,7 +149,7 @@ func (d *daemon) sayCleared(state *State, key string, now time.Time) {
 		About("", d.cfg.Host).
 		String()
 
-	if _, err := d.deps.Send(discord.Outgoing{Text: message, Thread: rec.Thread}); err != nil {
+	if _, err := d.deps.Send(discord.Outgoing{Text: message, Thread: rec.Thread, Outcome: true}); err != nil {
 		d.say("the message saying this is over did not send and is left to the next pass: %v", err)
 		return
 	}

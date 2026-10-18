@@ -93,10 +93,21 @@ func (u *updater) report(state *State, now time.Time) {
 		going[f.Step] = f
 	}
 
+	// One night's failures are one incident, so a step that works again closes the post only
+	// when it is the last one under it: an outcome archives the thread and retags it Resolved,
+	// and a sibling still failing would be left under a post that says it is over.
 	raised := u.hand.Raised()
+	open := map[string]int{}
+	for step, was := range raised {
+		if _, failing := state.Failing[step]; failing {
+			open[was.Incident]++
+		}
+	}
 	for _, step := range statedir.SortedKeys(state.Failing) {
 		if _, still := going[step]; !still {
-			u.sayCleared(state, step, now, raised[step])
+			was := raised[step]
+			open[was.Incident]--
+			u.sayCleared(state, step, now, was, open[was.Incident] == 0)
 		}
 	}
 
@@ -192,7 +203,7 @@ func summarySentence(moved, failed int) string {
 // outcome — which is what retags the post Resolved and closes it, and so what the forum
 // sweep deletes it by three days later. Without that flag a step that came back weeks ago
 // is still an open post.
-func (u *updater) sayCleared(state *State, step string, now time.Time, raised Raised) {
+func (u *updater) sayCleared(state *State, step string, now time.Time, raised Raised, last bool) {
 	// Nobody was ever told: no check has raised it yet, which is a step that failed and came
 	// back inside five minutes. There is nothing to tell them is over.
 	if raised.Incident == "" {
@@ -206,7 +217,7 @@ func (u *updater) sayCleared(state *State, step string, now time.Time, raised Ra
 		About(raised.Incident, u.cfg.Host).
 		String()
 
-	if _, err := u.deps.Send(discord.Outgoing{Text: message, Thread: raised.Thread, Outcome: true}); err != nil {
+	if _, err := u.deps.Send(discord.Outgoing{Text: message, Thread: raised.Thread, Outcome: last}); err != nil {
 		u.say("the message saying this is over did not send and is left to the next update: %v", err)
 		return
 	}

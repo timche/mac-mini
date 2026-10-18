@@ -87,6 +87,9 @@ func TestAFailureThatClearsIsSaidInTheSameThread(t *testing.T) {
 	if !strings.Contains(cleared.Text, "pushing again") {
 		t.Errorf("message: %s", cleared.Text)
 	}
+	if !cleared.Outcome {
+		t.Error("the clear was not sent as the outcome, so the post stays open")
+	}
 	if !strings.Contains(cleared.Text, "10 minutes") {
 		t.Errorf("the clear did not say how long it had been failing: %s", cleared.Text)
 	}

@@ -445,6 +445,106 @@ check "the scripts the hooks call are executable" \
    [ -x "$HOME/.claude/hooks/project-docs.sh" ] &&
    [ -x "$HOME/.claude/hooks/worktree-info.sh" ]'
 
+# The never list an on-call session is held to. hachiko opens those sessions with
+# bypassPermissions and lets them fix one thing before anybody has read what they
+# decided to do, so the list is a PreToolUse hook rather than a paragraph in a
+# prompt. Everything here is one tool call's worth of JSON on its stdin, which is
+# the whole of what the hook reads; what cannot be checked from here is that Claude
+# Code runs it at all, which is `claude -p` and a marker.
+#
+# Exit 2 is the documented refusal, and it is the one that stops the call before the
+# permission rules — which in one of these sessions allow everything — are read.
+guard() {
+  jq -nc --arg cwd "${3:-$repo}" --arg tool "$1" --arg value "$2" \
+    '{session_id:"t",cwd:$cwd,hook_event_name:"PreToolUse",tool_name:$tool,
+      tool_input:(if $tool == "Bash" then {command:$value} else {file_path:$value} end),
+      permission_mode:"bypassPermissions"}' |
+    HACHIKO_ONCALL_SESSION=update python3 "$HOME/.claude/hooks/oncall-guard.py"
+}
+export -f guard
+
+refused() { guard "$@"; [ $? -eq 2 ]; }
+export -f refused
+
+# Every other session on this Mac goes through the same hook, and a guard that cost
+# them a tool call, a second of latency or one false refusal would be a worse fault
+# than the one it is there for. Unmarked, it exits before it reads its own stdin.
+unmarked() {
+  jq -nc --arg cwd "$repo" --arg value "$1" \
+    '{session_id:"t",cwd:$cwd,hook_event_name:"PreToolUse",tool_name:"Bash",
+      tool_input:{command:$value},permission_mode:"default"}' |
+    python3 "$HOME/.claude/hooks/oncall-guard.py"
+}
+export -f unmarked
+
+check "the on-call guard is a no-op in a session hachiko did not open" \
+  'unmarked "sudo rm -rf /" && unmarked "git push --force origin main" &&
+   [ -z "$(unmarked "op read op://dev/x/y" 2>&1)" ]'
+
+check "the on-call guard is wired to PreToolUse for Bash and the file tools" \
+  'jq -e ".hooks.PreToolUse[] | select(.hooks[].command | contains(\"oncall-guard.py\")) |
+          .matcher | test(\"Bash\") and test(\"Edit\") and test(\"Write\")" \
+     "$HOME/.claude/settings.json"'
+
+# The one sudo an on-call session has is the root helper, and the daemon has to be
+# one the installed helper itself names — read out of that file, so a helper of this
+# test's own is what it is read out of here.
+check "the on-call guard allows the root helper's restart-daemon and no other sudo" \
+  'helper="$(mktemp)" &&
+   printf "allowed_daemons=(\n  \"dasd com.apple.dasd\"\n)\n" >"$helper" &&
+   HACHIKO_ROOT_HELPER="$helper" guard Bash "sudo $helper restart-daemon dasd" &&
+   HACHIKO_ROOT_HELPER="$helper" refused Bash "sudo $helper restart-daemon sshd" &&
+   HACHIKO_ROOT_HELPER="$helper" refused Bash "sudo $helper flush-dns" &&
+   HACHIKO_ROOT_HELPER="$helper" refused Bash "sudo -n true" &&
+   HACHIKO_ROOT_HELPER="$helper" refused Bash "sudo kill 4242"'
+
+# A log file in the three roots and in a project's own log folder, and nothing else:
+# a tmp folder holds a build somebody is waiting on as readily as a log.
+check "the on-call guard allows a log emptied and refuses anything else deleted" \
+  'guard Bash "rm -f /private/tmp/worker.log" &&
+   guard Bash "rm $HOME/Library/Logs/hachiko.log.0" &&
+   guard Bash "truncate -s 0 $HOME/projects/x/logs/app.log" &&
+   refused Bash "rm -rf $HOME/projects/x" &&
+   refused Bash "rm $HOME/projects/x/src/index.ts" &&
+   refused Bash "echo /x | xargs rm -rf" &&
+   refused Bash "rm -rf \$SOMEWHERE"'
+
+# A commit on main is the one fix in this checkout an update incident may push, and
+# the rest of git is Tim'"'"'s: a force-push, a branch deleted, a push anywhere else.
+check "the on-call guard allows a push to this repository's main and nothing further" \
+  'guard Bash "git push origin main" &&
+   guard Bash "git revert --no-edit abc1234" &&
+   refused Bash "git push --force-with-lease origin main" &&
+   refused Bash "git push origin +main" &&
+   refused Bash "git push origin HEAD:other" &&
+   refused Bash "git branch -D worktree-agent-x" &&
+   refused Bash "git push origin main" "$HOME/projects/x"'
+
+# ~/.claude is every session on this Mac, this one'"'"'s own permissions included, and
+# `hachiko sync` publishes an edit to it within minutes.
+check "the on-call guard refuses an edit to the configuration every session loads" \
+  'refused Edit "$HOME/.claude/settings.json" &&
+   refused Edit "$repo/home/.claude/agents/oncall-partner.md" &&
+   refused Bash "echo x > $HOME/.claude/settings.json" &&
+   guard Edit "$repo/hachiko/internal/update/steps.go" &&
+   guard Bash "cat $HOME/.claude/settings.json"'
+
+check "the on-call guard refuses what would take every other session with it" \
+  'refused Bash "pkill -f claude" &&
+   refused Bash "killall herdr" &&
+   refused Bash "herdr server restart" &&
+   refused Bash "launchctl kickstart -k gui/501/io.github.timche.herdr" &&
+   refused Bash "shutdown -h now" &&
+   refused Bash "op read op://dev/hachiko-discord/token" &&
+   guard Bash "kill -TERM 4242"'
+
+# A hook that cannot read its own input in one of these sessions refuses, since
+# nobody is awake to look at what it could not read.
+check "the on-call guard refuses a call it cannot read rather than allowing it" \
+  'printf "not json" |
+     HACHIKO_ONCALL_SESSION=update python3 "$HOME/.claude/hooks/oncall-guard.py"
+   [ $? -eq 2 ]'
+
 # Worktree isolation. A fixture repository with a linked worktree, built per
 # check rather than once, because the checks below are independent of each other.
 worktree_fixture() {

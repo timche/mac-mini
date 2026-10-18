@@ -21,15 +21,34 @@ func stubTailnet(t *testing.T, name string, err error) {
 // while the tailnet answers, and the name has to outlive a tailscale that stops answering.
 func TestTheHostIsTheTailnetsNameAndOutlivesTailscale(t *testing.T) {
 	dir := t.TempDir()
+	load := func() Config {
+		name, tailnet := machineName(dir)
+		return Config{StateDir: dir, Host: name, hostFromTailnet: tailnet}
+	}
 
 	stubTailnet(t, "studio", nil)
-	harness.Equal(t, machineName(dir), "studio", "the tailnet's name")
+	cfg := load()
+	harness.Equal(t, cfg.Host, "studio", "the tailnet's name")
+	if err := cfg.RememberHost(); err != nil {
+		t.Fatal(err)
+	}
 
 	stubTailnet(t, "", errors.New("logged out"))
-	harness.Equal(t, machineName(dir), "studio", "the last name the tailnet gave")
+	harness.Equal(t, load().Host, "studio", "the last name the tailnet gave")
 
 	stubTailnet(t, "studio-2", nil)
-	harness.Equal(t, machineName(dir), "studio-2", "a name changed in the admin console")
+	harness.Equal(t, load().Host, "studio-2", "a name changed in the admin console")
+}
+
+// Every command loads its config, and `hachiko status` and the dry runs write nothing.
+func TestLoadingTheHostWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	stubTailnet(t, "studio", nil)
+
+	machineName(dir)
+	if entries, _ := os.ReadDir(dir); len(entries) > 0 {
+		t.Fatalf("loading the host wrote %d file(s)", len(entries))
+	}
 }
 
 func TestAMacNeverOnATailnetIsItsHostname(t *testing.T) {
@@ -37,7 +56,8 @@ func TestAMacNeverOnATailnetIsItsHostname(t *testing.T) {
 	host, _ := os.Hostname()
 	host, _, _ = strings.Cut(host, ".")
 
-	harness.Equal(t, machineName(filepath.Join(t.TempDir(), "missing")), host, "the kernel hostname")
+	name, _ := machineName(filepath.Join(t.TempDir(), "missing"))
+	harness.Equal(t, name, host, "the kernel hostname")
 }
 
 func TestHachikoHostOverridesTheTailnet(t *testing.T) {

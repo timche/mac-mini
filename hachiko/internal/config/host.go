@@ -33,22 +33,35 @@ var tailnetName = func() (string, error) {
 
 // The last name the tailnet gave is kept, so a sweep while tailscale is down or logged out
 // still checks in as the same Mac. The kernel hostname is for a Mac never on a tailnet.
-func machineName(stateDir string) string {
-	saved := filepath.Join(stateDir, "host")
+//
+// Read here and written only by RememberHost, because every command loads its config and
+// `hachiko status` and the dry runs may write nothing.
+func machineName(stateDir string) (name string, tailnet bool) {
 	if name, err := tailnetName(); err == nil && name != "" {
-		if old, _ := os.ReadFile(saved); strings.TrimSpace(string(old)) != name {
-			if os.MkdirAll(stateDir, 0o755) == nil {
-				_ = os.WriteFile(saved, []byte(name+"\n"), 0o644)
-			}
-		}
-		return name
+		return name, true
 	}
-	if old, err := os.ReadFile(saved); err == nil {
+	if old, err := os.ReadFile(filepath.Join(stateDir, "host")); err == nil {
 		if name := strings.TrimSpace(string(old)); name != "" {
-			return name
+			return name, false
 		}
 	}
 	host, _ := os.Hostname()
 	host, _, _ = strings.Cut(host, ".")
-	return host
+	return host, false
+}
+
+// Keeps the name the tailnet gave this time for a sweep that cannot ask it, and is called
+// by the check, which is the one thing that checks in under it.
+func (c Config) RememberHost() error {
+	if !c.hostFromTailnet {
+		return nil
+	}
+	saved := filepath.Join(c.StateDir, "host")
+	if old, _ := os.ReadFile(saved); strings.TrimSpace(string(old)) == c.Host {
+		return nil
+	}
+	if err := os.MkdirAll(c.StateDir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(saved, []byte(c.Host+"\n"), 0o644)
 }

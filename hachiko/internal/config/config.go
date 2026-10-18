@@ -159,7 +159,8 @@ type Config struct {
 	// leaves every post where it is.
 	PostKeep time.Duration
 
-	Host string
+	Host            string
+	hostFromTailnet bool
 
 	// What to call this Mac in a message somebody else writes. shibuya posts about a Mac it
 	// cannot reach and has only the check-in to go by, so the name goes with the check-in;
@@ -231,8 +232,9 @@ func FromEnv() Config {
 
 	stateDir := envString("HACHIKO_STATE_DIR", filepath.Join(cache, "hachiko"))
 	host := os.Getenv("HACHIKO_HOST")
+	hostFromTailnet := false
 	if host == "" {
-		host = machineName(stateDir)
+		host, hostFromTailnet = machineName(stateDir)
 	}
 
 	// Beside the wrapper rather than beside the binary: the wrapper is what mise
@@ -320,8 +322,9 @@ func FromEnv() Config {
 
 		PostKeep: time.Duration(envInt64("HACHIKO_POST_KEEP", 3*86400)) * time.Second,
 
-		Host:    host,
-		Display: envString("HACHIKO_DISPLAY", "Mac mini"),
+		Host:            host,
+		hostFromTailnet: hostFromTailnet,
+		Display:         envString("HACHIKO_DISPLAY", "Mac mini"),
 	}
 }
 

@@ -214,6 +214,12 @@ func run(args []string) error {
 	// hour — and what the check starts is a process of its own, since an upgrade takes tens
 	// of minutes and the check has five. A watch that failed still gets its update started:
 	// the two are about different things.
+	if !dry {
+		if err := cfg.RememberHost(); err != nil {
+			fmt.Fprintf(os.Stderr, "hachiko: the tailnet's name for this Mac could not be kept, so a check while tailscale is down falls back to the hostname: %v\n", err)
+		}
+	}
+
 	err := watch.Run(cfg, dry)
 	if nightly := update.Nightly(cfg, dry); err == nil {
 		err = nightly

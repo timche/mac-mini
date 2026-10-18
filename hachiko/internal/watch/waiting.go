@@ -60,11 +60,11 @@ const questionBound = time.Hour
 // authority to act on either is worth handing over at three hours.
 //
 // A step the nightly update could not do is none of that. Nothing here measures it, so there
-// is nothing for a question to go stale against and nothing to project; and nothing here may
-// retry it, since retrying a step is moving a version with nobody watching, which is the one
-// thing this Mac does only on a schedule Tim set. So an update incident goes straight to the
-// clock, and the clock ends at the warning: what resolves it is Tim picking a fix, or
-// tomorrow night's run.
+// is nothing for a question to go stale against and nothing to project; and the one retry it
+// gets is the session's own attempt, made in the first minutes with the partner's agreement
+// and recorded, rather than anything this hands over at an hour of the morning. So an update
+// incident goes straight to the clock, and the clock ends at the warning: what resolves it is
+// that attempt, Tim picking a fix, or tomorrow night's run.
 func measured(kind string) bool { return kind != statedir.KindUpdate }
 
 // What is left once a wait has ended with nothing done. The next check raises a disk or a CPU

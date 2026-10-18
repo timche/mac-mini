@@ -399,6 +399,14 @@ If what he is asking for is on the never list, do not do it on the strength of t
 		lead += fmt.Sprintf("\n\nHis reply is the single number %s, which is option %s of the question you asked.", option[1], option[1])
 	}
 
+	// A reply is the one prompt an update session ever gets after its own attempt, nothing
+	// handing that kind a decision at any hour — so without this line the record of the
+	// attempt reaches the session nowhere at all. His answer is still his answer: what it
+	// takes away is a second attempt of the session's own, not the thing he picked.
+	if w, ok := state.Waiting[statedir.KindOf(incident)]; ok && w.Incident == incident && w.Attempted {
+		lead += "\n\nYour one attempt at fixing this incident is spent, so what you carry out now is what he has picked and nothing of your own."
+	}
+
 	if err := l.handTo(incident, lead, wording.Clip(text, wording.ReplyLimit)); err != nil {
 		l.log.Say("Tim's reply on %s did not reach the on-call session: %v", incident, err)
 		l.sayInThread(thread, "That did not reach the agent: "+err.Error())
@@ -407,7 +415,6 @@ If what he is asking for is on the never list, do not do it on the strength of t
 
 	l.log.Say("Tim's reply on %s was handed to the on-call session", incident)
 	l.acknowledge(thread, messageID)
-	_ = state
 }
 
 // The code is checked here and the secret stays here. The agent is told that an action it

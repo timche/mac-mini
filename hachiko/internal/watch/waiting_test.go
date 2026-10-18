@@ -941,6 +941,31 @@ func TestTheOneAttemptIsRecordedAndNoLaterPromptHandsAnother(t *testing.T) {
 	harness.Wants(t, f.lastInterrupt(), "Your one attempt at fixing this incident is spent")
 }
 
+// Report, fix, check and close inside one five-minute interval is the fix-first path working,
+// and the sweep that consumes the first report used to delete the outcome marker along with
+// it: the wait then ran on over an incident that was over, the post stayed open, and nothing
+// anywhere said an outcome had arrived.
+func TestAnOutcomeThatArrivesWithTheFirstReportEndsTheWait(t *testing.T) {
+	f := newFixture(t)
+	f.cfg.GrowthKB = 64
+	f.keepGrowing, f.keepKB = "tmp/worker.log", 128
+
+	f.grow("tmp/worker.log", 3*mb)
+	f.at(0).sweep()
+	f.grow("tmp/worker.log", 4*mb)
+	f.at(300).sweep()
+
+	incident := f.onlyPendingID()
+	f.notifyAttempt(incident)
+	f.notifyOutcome(incident)
+
+	out := f.at(600).sweep()
+
+	harness.Wants(t, out, "reported the outcome of "+incident)
+	harness.Equal(t, len(f.state().Pending), 0, "reports still owing")
+	harness.Equal(t, len(f.state().Waiting), 0, "waits still being counted")
+}
+
 // The commonest shape of all: the session says what it is about to try in the same message as
 // its first report, so the marker recording the attempt is the one a sweep consumes and
 // deletes. Read before it goes, or the attempt is recorded nowhere and the next prompt hands

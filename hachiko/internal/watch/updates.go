@@ -17,10 +17,11 @@ import (
 // its thread, `hachiko notify`, Tim's reply out of Discord, the raw details if nothing
 // reports, the reminders.
 //
-// The one thing that is different is that there is nothing to hand over. A disk filling can
-// be measured every five minutes and acted on; a failed step cannot be measured at all and
-// may not be retried by anything here, since retrying it is moving a version with nobody
-// watching. See measured in waiting.go for what that takes out of the clock.
+// The one thing that is different is that there is nothing to hand over. A disk filling can be
+// measured every five minutes and acted on; a failed step cannot be measured at all, and the
+// one retry it gets is the session's own single attempt in the first minutes rather than
+// anything this hands over hours later. See measured in waiting.go for what that takes out of
+// the clock.
 func (s sweeper) updates(state *statedir.State, now time.Time) {
 	failing := s.deps.UpdateFailing()
 	raised := s.deps.UpdateRaised()

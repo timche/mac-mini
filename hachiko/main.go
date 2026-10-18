@@ -49,7 +49,7 @@ const usage = `usage: hachiko [--dry-run | --test-alert]
        hachiko gc [--dry-run]
        hachiko sync [--once | --dry-run]
        hachiko update [--dry-run]
-       hachiko notify [--outcome | --attempt] <incident-id> <message-file>
+       hachiko notify [--outcome] [--attempt] <incident-id> <message-file>
        hachiko oncall <name> <brief-file>
        hachiko approval-request <incident-id> <action-file>
        hachiko listen

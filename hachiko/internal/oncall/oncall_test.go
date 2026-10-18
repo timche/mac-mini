@@ -290,7 +290,7 @@ func TestTheOpeningPromptCarriesTheAutonomyLimits(t *testing.T) {
 		"*.log, *.out, *.err, *.output or *.log.N",
 		`"A project's log folder" is not a licence to empty a folder`,
 		"`hachiko notify --outcome <incident> <file>`",
-		"Use --outcome on that message and on no other",
+		"Use --outcome on a message that says the incident is resolved and on no other",
 		"a database or a docker volume",
 		"anything under sudo but the root helper's own restart-daemon",
 		// The dasd loop spun through two nights because the orders forbade the one command
@@ -394,6 +394,9 @@ func TestTheMeasuredPromptFixesTheSafeThingsAndLeavesAKillToTim(t *testing.T) {
 		"Tell him rather than ask him",
 		"put your own change back where you can",
 		"two to four options with your next idea first",
+		// The message that closes a fix-first incident is the outcome like any other, or
+		// nothing ends the wait and the post stays open.
+		"that second message is the outcome: send it as `hachiko notify --outcome <incident> <file>`",
 		// Each of these is refused by the hook as well, which is what makes the list a limit
 		// rather than a paragraph.
 		"a hook refuses each of these before the command runs",

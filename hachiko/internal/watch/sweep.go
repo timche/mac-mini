@@ -1027,10 +1027,23 @@ func (s sweeper) chaseLateReports(state *statedir.State, now time.Time) {
 			// superseded is still the option it would take, where an attempt it made against
 			// that incident is spent against that incident. A fresh one has a fresh reading
 			// behind it and gets its own attempt, which is what expectAQuestion resets.
+			if from != id && s.store.ReportedAttempt(from) {
+				s.say("the attempt the %s on-call agent reported was against %s, which %s superseded, so this incident keeps its own",
+					statedir.KindOf(id), from, id)
+			}
 			s.rememberAttempt(state, id, from == id && s.store.ReportedAttempt(from))
 			delete(state.Pending, id)
-			s.store.ClearReported(from)
-			s.store.ClearReported(id)
+
+			// Unless the same message was the outcome, which chaseAnswers reads straight after
+			// this and only while the marker is there. A session that fixes what it found,
+			// verifies it and closes inside one five-minute interval is the fix-first path
+			// working exactly as intended, and clearing the marker here left the wait running
+			// on an incident that was over, the post unresolved and nothing in the log saying
+			// an outcome had arrived.
+			if !s.store.ReportedOutcome(from) {
+				s.store.ClearReported(from)
+				s.store.ClearReported(id)
+			}
 			continue
 		}
 

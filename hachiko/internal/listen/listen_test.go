@@ -187,6 +187,41 @@ func TestAReplyFromTimCancelsTheQuestionAndReachesTheAgent(t *testing.T) {
 	harness.Equal(t, len(f.posted), 0, "messages posted back")
 }
 
+// His reply is the one prompt a session on the nightly update ever gets after its own one
+// attempt, nothing handing that kind a decision at any hour. So it is the only place the
+// record of that attempt can reach it — and it takes away a second attempt of the session's
+// own rather than anything he has picked.
+func TestAReplyTellsASessionThatHasFixedSomethingThatItsAttemptIsSpent(t *testing.T) {
+	f := newListener(t)
+
+	state := &statedir.State{
+		Threads: map[string]string{diskIncident: threadID},
+		Waiting: map[string]statedir.Waiting{
+			"disk": {Incident: diskIncident, Attempted: true},
+		},
+	}
+	if err := f.l.store.Save(state); err != nil {
+		t.Fatal(err)
+	}
+
+	f.says("300000000000000001", "empty the other log too")
+	f.pass()
+
+	prompt := f.herdr.Prompt()
+	harness.Wants(t, prompt, "Your one attempt at fixing this incident is spent")
+	harness.Wants(t, prompt, "what you carry out now is what he has picked")
+	harness.Wants(t, prompt, "it is an instruction from him")
+}
+
+// And nothing of the kind where no attempt has been made, which is most of them.
+func TestAReplySaysNothingAboutAnAttemptThatWasNeverMade(t *testing.T) {
+	f := newListener(t)
+	f.says("300000000000000001", "stop the worker")
+	f.pass()
+
+	harness.Lacks(t, f.herdr.Prompt(), "attempt at fixing this incident is spent")
+}
+
 // Answering from a phone is typing one character, so a bare number is the option he picked.
 func TestABareNumberIsReadAsTheOptionHePicked(t *testing.T) {
 	f := newListener(t)

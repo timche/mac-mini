@@ -23,6 +23,8 @@ Take the truth from running the code, never from reading it back. Test the way a
 
 Before reporting, run the proof the spec names and the project's tests and linters. Send their output to a file and read back only the failures, because a passing log left in your context is re-sent on every later turn. Never report green without having run it.
 
+Last, read your full diff against the spec: every point of done is covered, and nothing outside the spec changed. Running proves the change works; only this proves it is the change that was asked for, and a gap the evaluator finds instead costs the one fix round.
+
 ## Boundaries
 
 - The spec is the contract. If it is ambiguous, or cannot work as written, stop and report the problem and what you would do instead. Never settle scope or design yourself.

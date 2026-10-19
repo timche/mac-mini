@@ -36,7 +36,7 @@ Give each implementer a self-contained spec: what is wrong or wanted, every deci
 
 Send each branch to the `reviewer` with the spec and the implementer's worktree path. A verdict of ship counts only with the proof's output behind it.
 
-Findings go back to the implementer that did the work, continued so it keeps its context, and the reviewer re-reviews with its earlier findings in hand. Allow three rounds. If findings survive the third, stop: the approach likely needs rethinking, and that goes to Tim as a decision with your recommendation, never shipped past.
+Findings go back to the implementer that did the work, continued so it keeps its context, and the reviewer re-reviews with its earlier findings in hand. Allow three rounds. If findings survive the third, stop: the approach likely needs rethinking, and that goes to Tim as a decision with your recommendation, never shipped past. If he picks a different approach, a fresh implementer builds it from the revised plan; the old one's context is about the approach just rejected.
 
 ## Ship
 

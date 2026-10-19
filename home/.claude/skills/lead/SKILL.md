@@ -30,7 +30,7 @@ Tim confirms the plan before any code is written. A mechanical task whose reques
 
 ## Build
 
-Give each implementer a self-contained spec: what is wrong or wanted, every decision from the plan, what done looks like, and the proof. Split independent pieces across parallel implementers along file boundaries, since they cannot see each other's work. Start an implementer on a bug fix in existing code at high effort; everything else runs at its default.
+Give each implementer a self-contained spec: what is wrong or wanted, every decision from the plan, what done looks like, and the proof. Split independent pieces across parallel implementers along file boundaries, since they cannot see each other's work. Start an implementer on a bug fix in existing code at high effort; everything else runs at its default. For a non-trivial change, the spec asks the implementer to run `/simplify` before its final checks; a small or mechanical one leaves it out.
 
 ## Verify
 

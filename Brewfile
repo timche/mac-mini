@@ -62,12 +62,7 @@ brew "tuicr"
 brew "zoxide"
 
 # The secrets scan .gitconfig runs before every commit in every repository here,
-# `hachiko sync`'s included. Published from a tap of its own, and `trusted: true`
-# because Homebrew refuses to load a formula from a third-party tap it has no trust
-# entry for: naming one fully qualified on the command line is consent, a bare
-# `brew` line in a Brewfile is not, and brew bundle writes the trust entry from this
-# option before it loads anything. An older Homebrew with no trust store ignores it.
-tap "timche/tap", trusted: true
+# `hachiko sync`'s included.
 brew "betterleaks"
 
 # The browser sessions drive.

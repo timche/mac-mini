@@ -154,8 +154,7 @@ done
 
 # Read off the repo rather than the machine: the rule is that mise carries the
 # language runtimes and the Brewfile carries the Homebrew packages, and a `brew:`
-# entry creeping back into mise.toml is how that stops being true. betterleaks is
-# the one that proves the tap, which mise's bootstrap cannot fetch from at all.
+# entry creeping back into mise.toml is how that stops being true.
 check "mise.toml declares no Homebrew package" \
   '! grep -qE "^\"brew(-cask)?:" "$repo/mise.toml"'
 

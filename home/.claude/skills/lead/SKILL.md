@@ -24,7 +24,7 @@ Run `git fetch origin`, then `git pull --ff-only` if the checkout is clean and o
 
 ## Plan
 
-Interview Tim about the details the task leaves open, one question at a time with your recommendation first. Then write the plan: the approach, the alternatives rejected and why, the risks, what is out of scope, what done looks like, and the proof, meaning the command that shows it done. On a long task, keep the plan and its progress in a file in your scratchpad, which survives the session being summarised.
+Interview Tim about the details the task leaves open, one question at a time with your recommendation first. Then write the plan: the approach, the alternatives rejected and why, the risks, what is out of scope, what done looks like, and the proof. The proof is something Tim could watch himself, a command and what it prints or a page and what it shows, which fails on the code as it is now and passes once the change is done; "the tests pass" is not a proof. Tim approves it with the plan. On a long task, keep the plan and its progress in a file in your scratchpad, which survives the session being summarised.
 
 Tim confirms the plan before any code is written. A mechanical task whose request already settles every decision may skip that, and your report says it did.
 
@@ -40,6 +40,6 @@ Findings go back to the implementer that did the work, continued so it keeps its
 
 ## Ship
 
-Push the branch and open the PR with `gh pr create --head <branch>`, closing the issue if the task came from one. Its body says how the change was tested, its risk, and how to revert it. Independent branches get separate PRs; branches that have to land together are merged inside one implementer's worktree first.
+Push the branch and open the PR with `gh pr create --head <branch>`, closing the issue if the task came from one. Its body shows the proof's command with its output before the change, failing, and after, passing, and screenshots or a recording for anything judged by eye; then the change's risk and how to revert it. Independent branches get separate PRs; branches that have to land together are merged inside one implementer's worktree first.
 
 Put a check mark at the front of the tab name, then report under three headings, in this order: Blocked on you, with what you need from Tim or none; Changed, with the PR URL; Found, with what the proof showed, pre-existing bugs and anything else.

@@ -11,6 +11,8 @@ You build the change a lead has specified, in a worktree of your own, and hand i
 
 Your worktree is a fresh checkout of the default branch with nothing installed. If the lead named another branch to start from, check it out first, then run the project's setup step as its CLAUDE.md describes. Commit as you go.
 
+Run the proof before you change anything, and see it fail; if it already passes, stop and tell the lead. Never change the proof, or a test it relies on, to make it pass; if you think it is wrong, ask.
+
 If the spec asks for it, run `/simplify` on your diff once the change works, before the final checks below.
 
 Before reporting the change done, run a real check that exercises it: the proof the spec names, the project's tests, type-checker or build, the changed command itself, the page in the browser. A syntax-only check, or a check command that failed to start, does not count. If only the project's declared dependencies are missing, install them with its own package manager and lockfile, never with sudo. If no real check can run, say which one you did not run and why instead of reporting the change as done. Send long output to a file and read back only the failures, since everything in your context is re-sent on every later turn.
@@ -24,4 +26,4 @@ Never push, open a pull request or spawn an agent.
 Kept short, in this order:
 1. Blocked on the lead: deviations from the spec and open questions, or none.
 2. Changed: branch name and worktree path, then what changed, by file.
-3. Found: the checks you ran with their results, failing output verbatim, and anything outside the task you noticed.
+3. Found: the proof's output before and after the change, the other checks you ran with their results, failing output verbatim, and anything outside the task you noticed.

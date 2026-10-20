@@ -3,8 +3,10 @@ package state
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // Blocked is what the listener knows of a session waiting on Tim: how many polls in a row
@@ -16,6 +18,10 @@ type Blocked struct {
 
 type BlockedStore struct{ Path string }
 
+// ErrCorrupt is a file that would not parse and has been moved aside: what it held is lost,
+// which costs at most one more ping, and the next load starts fresh.
+var ErrCorrupt = errors.New("the waiting sessions file did not parse, so it was moved aside and starts fresh")
+
 func (s BlockedStore) Load() (map[string]Blocked, error) {
 	body, err := os.ReadFile(s.Path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -26,7 +32,8 @@ func (s BlockedStore) Load() (map[string]Blocked, error) {
 	}
 	out := map[string]Blocked{}
 	if err := json.Unmarshal(body, &out); err != nil {
-		return nil, err
+		os.Rename(s.Path, fmt.Sprintf("%s.corrupt-%d", s.Path, time.Now().Unix()))
+		return map[string]Blocked{}, ErrCorrupt
 	}
 	return out, nil
 }

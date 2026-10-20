@@ -29,7 +29,10 @@ func (h *Handler) WatchBlocked() {
 		return
 	}
 	seen, err := h.Blocked.Load()
-	if err != nil {
+	switch {
+	case errors.Is(err, state.ErrCorrupt):
+		h.Log.Error("what is known of waiting sessions was corrupt", "error", err)
+	case err != nil:
 		h.Log.Error("what is known of waiting sessions could not be read", "error", err)
 		return
 	}

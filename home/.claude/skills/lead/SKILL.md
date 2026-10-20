@@ -18,7 +18,7 @@ If one is missing, stop and tell Tim rather than substitute a built-in agent or 
 
 ## Understand
 
-If `HERDR_ENV` is `1`, name the tab for the task in two to four kebab-case words with `herdr tab rename "$HERDR_TAB_ID" "<name>"`, and rename it when the scope moves. A task given as an issue number or URL is read with `gh issue view`.
+If `HERDR_ENV` is `1`, name the tab for the task in two to four kebab-case words with `herdr tab rename "$HERDR_TAB_ID" "<name>"`, and rename it when the scope moves, unless `MOCHI_THREAD` is set: mochi named that tab after its Discord thread. A task given as an issue number or URL is read with `gh issue view`.
 
 Run `git fetch origin`, then `git pull --ff-only` if the checkout is clean and on the default branch. Investigate until you know what the change touches and what could break, and read what `$PROJECT_DOCS_DIR/<repo>` has already decided about it.
 

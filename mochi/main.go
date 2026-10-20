@@ -136,7 +136,7 @@ func run(args []string) error {
 
 // REST alone, with no gateway: a post or a page of history is a request or two.
 func rest() (chat.API, error) {
-	token := os.Getenv(listen.TokenVar)
+	token := os.Getenv(op.TokenVar)
 	if token == "" {
 		return nil, errors.New("the bot token did not resolve")
 	}

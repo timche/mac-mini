@@ -19,8 +19,6 @@ import (
 )
 
 const (
-	TokenVar = "MOCHI_DISCORD_BOT_TOKEN"
-
 	// launchd starts the agent again five minutes after every exit, and every start is an
 	// `op run` against the service account's daily limit. A token that will not resolve, or
 	// one Discord refuses, is not going to fix itself in five minutes, so a start that meets
@@ -53,7 +51,7 @@ func Run(cfg config.Config, log *slog.Logger) error {
 // The inner half, under `op run`. It returns only when the wrapper has built a new binary
 // behind it, or when it could not connect at all.
 func Serve(cfg config.Config, log *slog.Logger) error {
-	token := os.Getenv(TokenVar)
+	token := os.Getenv(op.TokenVar)
 	if token == "" {
 		log.Error("the bot token did not resolve, so mochi is not listening", "retry", retryAfter.String())
 		time.Sleep(retryAfter)

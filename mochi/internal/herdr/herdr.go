@@ -9,11 +9,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/timche/mac-mini/mochi/internal/fence"
+	"github.com/timche/mac-mini/mochi/internal/op"
 )
 
 // Starting Claude Code is the longest call, and herdr is given 20 of these 30 seconds for
@@ -35,6 +37,7 @@ func CLI(args ...string) ([]byte, error) {
 
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, "herdr", args...)
+	cmd.Env = op.Scrub(os.Environ())
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
 

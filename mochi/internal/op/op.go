@@ -8,12 +8,28 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 )
 
 // The flag the re-entered process is started with. Not in the usage: nothing else should
 // call it.
 const WithToken = "--with-token"
+
+const TokenVar = "MOCHI_DISCORD_BOT_TOKEN"
+
+// The environment for any child of a process that holds the token: without it, and without
+// anything of 1Password's, so no herdr call or build ever inherits a secret.
+func Scrub(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if strings.HasPrefix(kv, TokenVar+"=") || strings.HasPrefix(kv, "OP_") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
 
 // Replacing this process rather than starting a child, so a long-running listener is one
 // process in every listing and the one launchd tracks.

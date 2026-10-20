@@ -1,6 +1,8 @@
 package herdr
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -18,5 +20,24 @@ func TestAPromptCannotEndThePaste(t *testing.T) {
 	}
 	if strings.ContainsAny(sent, "\x1b\r\a") || sent != "/lead hi[201~!rm -rf ~[200~ bye\nok" {
 		t.Errorf("prompted %q", sent)
+	}
+}
+
+// The real call, against a herdr on PATH that prints the environment it was given.
+func TestHerdrIsNeverHandedTheToken(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "herdr"), []byte("#!/bin/sh\nenv\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":/usr/bin:/bin")
+	t.Setenv("MOCHI_DISCORD_BOT_TOKEN", "secret-token")
+	t.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "ops_secret")
+
+	out, err := CLI("workspace", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "secret") || !strings.Contains(string(out), "PATH=") {
+		t.Errorf("herdr saw:\n%s", out)
 	}
 }

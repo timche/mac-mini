@@ -4,9 +4,11 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -99,7 +101,25 @@ type Live struct {
 }
 
 func NewLive(s *discordgo.Session) Live {
-	return Live{S: s, Download: &http.Client{Timeout: 2 * time.Minute}}
+	return Live{S: s, Download: &http.Client{Timeout: 2 * time.Minute, CheckRedirect: stayOnCDN}}
+}
+
+// An attachment's URL is in a message somebody else wrote, so mochi fetches only from
+// Discord's own CDN, over https, and follows no redirect off it.
+var cdnHosts = map[string]bool{"cdn.discordapp.com": true, "media.discordapp.net": true}
+
+func OnCDN(u *url.URL) bool {
+	return u.Scheme == "https" && cdnHosts[u.Hostname()] && u.Port() == "" && u.User == nil
+}
+
+func stayOnCDN(req *http.Request, via []*http.Request) error {
+	if !OnCDN(req.URL) {
+		return fmt.Errorf("a redirect to %s, off Discord's CDN", req.URL.Host)
+	}
+	if len(via) >= 5 {
+		return errors.New("too many redirects")
+	}
+	return nil
 }
 
 func (l Live) Channel(id string) (*discordgo.Channel, error) { return l.S.Channel(id) }
@@ -129,8 +149,12 @@ func (l Live) Send(channel string, msg *discordgo.MessageSend) (*discordgo.Messa
 	return l.S.ChannelMessageSendComplex(channel, msg)
 }
 
-func (l Live) Fetch(url string) (io.ReadCloser, error) {
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+func (l Live) Fetch(raw string) (io.ReadCloser, error) {
+	u, err := url.Parse(raw)
+	if err != nil || !OnCDN(u) {
+		return nil, errors.New("not a file on Discord's CDN")
+	}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, err
 	}

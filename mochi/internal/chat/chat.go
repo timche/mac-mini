@@ -67,11 +67,8 @@ type API interface {
 	Fetch(url string) (io.ReadCloser, error)
 }
 
-const (
-	Eyes  = "👀"
-	Check = "✅"
-	Cross = "❌"
-)
+// What mochi shows on Tim's message while it handles it, and takes back after.
+const Eyes = "👀"
 
 // Every post mochi makes pings nobody: it quotes moderators' names and Tim's own mention
 // back, and a session posting findings is not a reason to wake a server.

@@ -15,11 +15,11 @@ func TestAnAnswerInTheSessionEndsTheWait(t *testing.T) {
 	f, thread := startedSession(t)
 	f.event(thread, event.Ask, 0)
 	f.consume()
-	f.shows(thread, mark.Asking)
+	f.inState(thread, mark.Asking)
 
 	f.event(thread, event.Heard, 0)
 	f.consume()
-	f.shows(thread, mark.Running)
+	f.inState(thread, mark.Running)
 
 	f.event(thread, event.Stop, 0)
 	f.consume()
@@ -39,7 +39,7 @@ func TestAnAnswerLeavesWhatTheSessionSetSince(t *testing.T) {
 
 		f.event(thread, event.Heard, 0)
 		f.consume()
-		f.shows(thread, emoji)
+		f.inState(thread, emoji)
 	}
 }
 

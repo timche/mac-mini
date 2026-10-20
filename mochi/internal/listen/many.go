@@ -147,8 +147,7 @@ func (h *Handler) splitInto(ch *discordgo.Channel, n int) (string, string) {
 // reply to Tim listing them.
 func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *discordgo.Message, replied *discordgo.Message, instruction, into string, forum bool, tasks []split.Task, set *gather.Set) {
 	o := opener{mention: m, replied: replied, instruction: instruction}
-	lines, failed := make([]string, 0, len(tasks)), 0
-	var started []string
+	lines := make([]string, 0, len(tasks))
 
 	for i, task := range tasks {
 		var thread *discordgo.Channel
@@ -165,7 +164,6 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 		if err != nil {
 			h.Log.Error("a thread could not be opened for a task", "task", i+1, "error", h.redact(err))
 			lines = append(lines, "❌ "+plain(task.Title)+": the thread could not be opened.")
-			failed++
 			continue
 		}
 
@@ -177,26 +175,15 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 			h.say(thread.ID, "❌ "+sentence(err.Error()))
 			h.Marks.Failed(thread.ID)
 			lines = append(lines, fmt.Sprintf("❌ <#%s> %s: %s.", thread.ID, plain(task.Title), strings.TrimSuffix(err.Error(), ".")))
-			failed++
 			continue
 		}
 
-		// The thread's first post stands for its session: ⏳ while it works, ✅ when it is done.
-		// A forum post's first post is the announcement it was made with, under its own id.
-		ack := &discordgo.Message{ID: thread.ID}
 		if !forum {
-			ack, err = h.announce(thread.ID, o, "This thread covers: "+plain(task.Title))
-		}
-		if err != nil {
-			h.Log.Error("could not post in the thread", "thread", thread.ID, "error", h.redact(err))
-		} else {
-			session.Origin = state.Ref{Channel: thread.ID, Message: ack.ID}
-			if err := h.Store.Put(session); err != nil {
-				h.Log.Error("the session's first post was not recorded", "thread", thread.ID, "error", h.redact(err))
+			if _, err := h.announce(thread.ID, o, "This thread covers: "+plain(task.Title)); err != nil {
+				h.Log.Error("could not post in the thread", "thread", thread.ID, "error", h.redact(err))
 			}
 		}
-		h.Marks.Started(thread.ID, session.Origin)
-		started = append(started, thread.ID)
+		h.Marks.Started(thread.ID)
 		lines = append(lines, fmt.Sprintf("<#%s> %s", thread.ID, plain(task.Title)))
 	}
 
@@ -205,9 +192,4 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 	if _, err := h.API.Send(m.ChannelID, reply); err != nil {
 		h.Log.Error("the list of sessions could not be posted", "error", h.redact(err))
 	}
-	if failed > 0 {
-		h.Marks.Set(ref(m), mark.Failed)
-		return
-	}
-	h.Marks.Group(ref(m), started)
 }

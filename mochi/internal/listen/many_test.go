@@ -107,7 +107,7 @@ func TestASplitIntoThreeOpensThreeThreadsAndTabsAndOneReply(t *testing.T) {
 	if ref := f.api.Sent[len(f.api.Sent)-1].Msg.Reference; ref == nil || ref.MessageID != m.ID {
 		t.Error("the list is not a reply to Tim's message")
 	}
-	if !f.api.ReactedWith(m.ID, "👀") || !f.api.ReactedWith(m.ID, "⏳") || f.api.ReactedWith(m.ID, "❌") {
+	if !f.seenOnly(m.ID) {
 		t.Errorf("reactions = %v", f.api.Reactions)
 	}
 	f.quiet()
@@ -136,7 +136,7 @@ func TestAStartThatFailsIsNamedInTheReplyAndCrossed(t *testing.T) {
 	if len(reply) != 1 || strings.Count(reply[0], "❌") != 2 || !strings.Contains(reply[0], "Map stats: the session could not be started") {
 		t.Errorf("reply = %q", reply)
 	}
-	if !f.api.ReactedWith(m.ID, "❌") || f.api.ReactedWith(m.ID, "⏳") {
+	if !f.seenOnly(m.ID) {
 		t.Errorf("reactions = %v", f.api.Reactions)
 	}
 }
@@ -167,7 +167,7 @@ func TestAClassifierThatFailsIsOneSessionAsBefore(t *testing.T) {
 		if posts := f.sentTo(m.ID); len(posts) != 1 || head(posts[0]) != startedPost(m.ID) {
 			t.Errorf("%s: posts = %q", name, posts)
 		}
-		if len(f.sentTo(channel)) != 0 || !f.api.ReactedWith(m.ID, "⏳") {
+		if len(f.sentTo(channel)) != 0 || len(f.herdr.called("agent start")) == 0 {
 			t.Errorf("%s: something else was said", name)
 		}
 	}
@@ -188,7 +188,7 @@ func TestMoreThanFiveTasksIsRefused(t *testing.T) {
 	if reply := f.sentTo(channel); len(reply) != 1 || reply[0] != "❌ That is 6 tasks, and mochi starts at most 5 from one message." {
 		t.Errorf("reply = %q", reply)
 	}
-	if !f.api.ReactedWith(m.ID, "❌") {
+	if !f.seenOnly(m.ID) {
 		t.Error("no ❌")
 	}
 }

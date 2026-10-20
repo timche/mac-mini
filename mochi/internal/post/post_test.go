@@ -214,24 +214,29 @@ func TestATypeRefilesAPostWithNoText(t *testing.T) {
 	}
 }
 
-// A post with a state puts the session in it; one without leaves it as it is.
+// A post with a state puts the session in it, and its name with it; one without leaves both.
 func TestAPostsStateReachesTheSession(t *testing.T) {
 	api, store := fixture(t)
 	marks := &mark.Marker{API: api, Path: filepath.Join(t.TempDir(), "marks.json"), Now: time.Now, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	origin := state.Ref{Channel: "c", Message: "m1"}
-	marks.Started(thread, origin)
+	marks.Named(thread, "Overlay", "⏳ Overlay")
+	marks.Started(thread)
+	shows := func(want string) {
+		t.Helper()
+		if got, _ := marks.Session(thread); got != want || api.Channels[thread].Name != want+" Overlay" {
+			t.Errorf("state %q, name %q, want %q", got, api.Channels[thread].Name, want)
+		}
+	}
 
 	Send(api, store, marks, repeek, thread, Post{Text: "a note"})
-	if got := api.Showing("m1"); len(got) != 1 || got[0] != "⏳" {
-		t.Errorf("a plain post changed the state: %v", got)
+	if got, _ := marks.Session(thread); got != mark.Running {
+		t.Errorf("a plain post changed the state: %q", got)
 	}
 	Send(api, store, marks, repeek, thread, Post{Text: "Ready for review.", Settles: mark.Asking})
-	if got := api.Showing("m1"); len(got) != 1 || got[0] != "❓" {
-		t.Errorf("after --review: %v", got)
-	}
+	shows(mark.Asking)
 	Send(api, store, marks, repeek, thread, Post{Text: "Merged.", Settles: mark.Finished})
-	if got := api.Showing("m1"); len(got) != 1 || got[0] != "✅" {
-		t.Errorf("after --done: %v", got)
+	shows(mark.Finished)
+	if len(api.Reactions) != 0 {
+		t.Errorf("a post reacted: %v", api.Reactions)
 	}
 }
 

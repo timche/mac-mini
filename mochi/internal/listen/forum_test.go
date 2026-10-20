@@ -73,13 +73,13 @@ func TestAMentionInAChannelOpensAForumPost(t *testing.T) {
 		t.Error("the reply's link shows a preview")
 	}
 	rec := f.record(p)
-	if rec.Source != channel || rec.LastMention != m.ID || rec.Origin.Message != m.ID || rec.Agent != "mochi-"+p {
+	if rec.Source != channel || rec.LastMention != m.ID || rec.Agent != "mochi-"+p {
 		t.Errorf("record = %+v", rec)
 	}
 	if !strings.Contains(onlyPrompt(t, f.herdr, "mochi-"+p), "have a look") {
 		t.Error("the session was not handed Tim's words")
 	}
-	f.shows(m.ID, mark.Running)
+	f.seenOnly(m.ID)
 	f.quiet()
 }
 
@@ -213,9 +213,7 @@ func TestASplitOpensAPostPerTask(t *testing.T) {
 		t.Errorf("replies = %q", replies)
 	}
 	for i := 1; i <= 2; i++ {
-		if rec := f.record(postID(i)); rec.Origin.Channel != postID(i) || rec.Origin.Message != postID(i) {
-			t.Errorf("post %d's origin = %+v", i, rec.Origin)
-		}
+		f.shows(postID(i))
 		if posts := f.sentTo(postID(i)); len(posts) != 1 || head(posts[0]) != startedPost(m.ID) {
 			t.Errorf("post %d messages = %q", i, posts)
 		}
@@ -283,7 +281,7 @@ func TestAPostThatCannotBeOpenedFailsWithAReason(t *testing.T) {
 	f.api.ThreadErr = errors.New("missing access")
 	m := f.mention(channel, 1, tim, "look at this", nil)
 	f.h.Handle(m)
-	if !f.api.ReactedWith(m.ID, "❌") || len(f.herdr.called("agent start")) != 0 {
+	if !f.seenOnly(m.ID) || len(f.herdr.called("agent start")) != 0 {
 		t.Error("no ❌, or a session started anyway")
 	}
 	if replies := f.sentTo(channel); len(replies) != 1 || !strings.Contains(replies[0], "❌ A post could not be opened for this.") {

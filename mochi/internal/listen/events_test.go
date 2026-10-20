@@ -84,7 +84,7 @@ func TestAStopOrAQuestionPingsTimOnce(t *testing.T) {
 		if am == nil || len(am.Parse) != 0 || !reflect.DeepEqual(am.Users, []string{tim.ID}) || am.RepliedUser {
 			t.Errorf("%s: allowed mentions = %+v", kind, am)
 		}
-		f.shows(thread, mark.Asking)
+		f.inState(thread, mark.Asking)
 		if f.api.Channels[thread].Name != "❓ research" {
 			t.Errorf("%s: thread = %q", kind, f.api.Channels[thread].Name)
 		}
@@ -108,7 +108,7 @@ func TestNoSecondPingUntilTimHasSaidSomething(t *testing.T) {
 
 	// His follow-up reaches the session; the next time it waits, he is pinged again.
 	f.h.Handle(f.mention(thread, 5, tim, "go with b", nil))
-	f.shows(thread, mark.Running)
+	f.inState(thread, mark.Running)
 	f.event(thread, event.Stop, 0)
 	f.consume()
 	if f.pings(thread) != 2 {
@@ -126,7 +126,7 @@ func TestDoneIsQuietAndReviewIsNot(t *testing.T) {
 	if f.pings(thread) != 0 {
 		t.Error("a done session pinged")
 	}
-	f.shows(thread, mark.Finished)
+	f.inState(thread, mark.Finished)
 
 	f2, review := startedSession(t)
 	f2.h.Marks.Settled(review, mark.Asking)
@@ -145,7 +145,7 @@ func TestAStopWithWorkInFlightIsNotAWait(t *testing.T) {
 	if f.pings(thread) != 0 {
 		t.Error("pinged while work was still running")
 	}
-	f.shows(thread, mark.Running)
+	f.inState(thread, mark.Running)
 }
 
 // An event from a thread mochi keeps no session for is dropped.
@@ -231,7 +231,7 @@ func TestAHeardInsideTheGraceCancelsThePing(t *testing.T) {
 	if f.pings(thread) != 0 {
 		t.Errorf("pings = %d", f.pings(thread))
 	}
-	f.shows(thread, mark.Running)
+	f.inState(thread, mark.Running)
 	if w := f.waits()[thread]; w.Pending || w.Asked {
 		t.Errorf("wait = %+v", w)
 	}
@@ -245,14 +245,14 @@ func TestThePingWaitsOutTheGrace(t *testing.T) {
 	if f.pings(thread) != 0 {
 		t.Error("pinged inside the grace")
 	}
-	f.shows(thread, mark.Running)
+	f.inState(thread, mark.Running)
 
 	f.at(f.h.Now().Add(pingGrace + time.Second))
 	f.h.ConsumeEvents()
 	if f.pings(thread) != 1 {
 		t.Errorf("pings = %d after the grace", f.pings(thread))
 	}
-	f.shows(thread, mark.Asking)
+	f.inState(thread, mark.Asking)
 }
 
 // Whether Tim has been pinged outlives a restart.

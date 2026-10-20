@@ -48,7 +48,7 @@ type Handler struct {
 	// The questions asked and not yet answered.
 	Pending state.PendingStore
 
-	// What each message's reaction and each thread's name say about its session.
+	// Each session's state, and the name of the thread or post mochi made for it.
 	Marks mark.Marker
 
 	// Which sessions are waiting on Tim, and whether he has been told since his last word.
@@ -114,6 +114,11 @@ func (h *Handler) Handle(m *discordgo.Message) {
 		return
 	}
 
+	// 👀 for as long as the mention is being handled, and no reaction after: the reply, the
+	// question or the session's name says where it went.
+	h.react(m.ChannelID, m.ID)
+	defer h.unreact(m.ChannelID, m.ID)
+
 	ch, err := h.API.Channel(m.ChannelID)
 	if err != nil {
 		h.fail(m, "", "the channel could not be read", err)
@@ -126,7 +131,6 @@ func (h *Handler) Handle(m *discordgo.Message) {
 		return
 	}
 
-	h.Marks.Set(ref(m), mark.Seen)
 	if found {
 		h.relay(server, ch, rec, m, instruction)
 		return
@@ -311,10 +315,10 @@ func (h *Handler) begin(server config.Server, ch *discordgo.Channel, m *discordg
 		h.follow(thread)
 	}
 
-	session := state.Session{Thread: thread, Source: ch.ID, Guild: m.GuildID, LastMention: m.ID, Origin: ref(m)}
+	session := state.Session{Thread: thread, Source: ch.ID, Guild: m.GuildID, LastMention: m.ID}
 	text := opening(ch, m, thread, instruction, set, h.files(thread, set), "", "")
 	if err := h.start(server, &session, name, text); err != nil {
-		h.Marks.Failed(thread, ref(m))
+		h.Marks.Failed(thread)
 		h.fail(m, thread, err.Error(), nil)
 		return
 	}
@@ -329,7 +333,7 @@ func (h *Handler) begin(server config.Server, ch *discordgo.Channel, m *discordg
 	if alone != "" {
 		h.say(thread, alone)
 	}
-	h.Marks.Started(thread, ref(m))
+	h.Marks.Started(thread)
 	h.heard(thread)
 }
 
@@ -342,16 +346,16 @@ func (h *Handler) openPost(server config.Server, ch *discordgo.Channel, m *disco
 	}
 	thread := post.ID
 
-	session := state.Session{Thread: thread, Source: ch.ID, Guild: m.GuildID, LastMention: m.ID, Origin: ref(m)}
+	session := state.Session{Thread: thread, Source: ch.ID, Guild: m.GuildID, LastMention: m.ID}
 	text := opening(ch, m, thread, instruction, set, h.files(thread, set), "", "")
 	err = h.start(server, &session, name, text)
 	h.moved(m, name, thread)
 	if err != nil {
-		h.Marks.Failed(thread, ref(m))
+		h.Marks.Failed(thread)
 		h.fail(m, thread, err.Error(), nil)
 		return
 	}
-	h.Marks.Started(thread, ref(m))
+	h.Marks.Started(thread)
 	h.heard(thread)
 }
 
@@ -408,7 +412,7 @@ func (h *Handler) relay(server config.Server, ch *discordgo.Channel, rec state.S
 	if err := h.Store.Put(rec); err != nil {
 		h.Log.Error("the relay was delivered but not recorded", "thread", rec.Thread, "error", h.redact(err))
 	}
-	h.Marks.Started(rec.Thread, ref(m), rec.Origin)
+	h.Marks.Started(rec.Thread)
 	h.heard(rec.Thread)
 }
 
@@ -425,13 +429,13 @@ func (h *Handler) restart(server config.Server, ch *discordgo.Channel, rec state
 	note := "The session that was working on this thread has gone, so this is a new one: the thread so far is the context."
 	text := opening(ch, m, rec.Thread, instruction, set, h.files(rec.Thread, set), note, "")
 	if err := h.start(server, &rec, mark.Title(ch.Name), text); err != nil {
-		h.Marks.Failed(rec.Thread, ref(m))
+		h.Marks.Failed(rec.Thread)
 		h.fail(m, rec.Thread, err.Error(), nil)
 		return
 	}
 
 	h.say(rec.Thread, "The previous session ended, so a new one started.")
-	h.Marks.Started(rec.Thread, ref(m), rec.Origin)
+	h.Marks.Started(rec.Thread)
 	h.heard(rec.Thread)
 }
 
@@ -522,7 +526,6 @@ func (h *Handler) files(thread string, set *gather.Set) gather.Files {
 // Tim's message when there is not.
 func (h *Handler) fail(m *discordgo.Message, thread, reason string, err error) {
 	h.Log.Error(reason, "message", m.ID, "error", h.redact(err))
-	h.Marks.Set(ref(m), mark.Failed)
 
 	line := chat.Quiet("❌ " + sentence(reason))
 	target := thread
@@ -556,8 +559,16 @@ func sentence(text string) string {
 	return string(r)
 }
 
-func ref(m *discordgo.Message) state.Ref {
-	return state.Ref{Channel: m.ChannelID, Message: m.ID}
+func (h *Handler) react(channel, message string) {
+	if err := h.API.React(channel, message, chat.Eyes); err != nil {
+		h.Log.Warn("could not react", "message", message, "error", h.redact(err))
+	}
+}
+
+func (h *Handler) unreact(channel, message string) {
+	if err := h.API.Unreact(channel, message, chat.Eyes); err != nil {
+		h.Log.Warn("a reaction could not be taken back", "message", message, "error", h.redact(err))
+	}
 }
 
 func (h *Handler) redact(err error) string { return chat.Redact(err, h.Token) }
@@ -588,7 +599,7 @@ func (h *Handler) Prune(keep time.Duration) {
 		delete(all, thread)
 		h.Log.Info("forgot a finished session and its attachments", "thread", thread, "agent", rec.Agent)
 	}
-	h.Marks.Prune(func(thread string) bool { _, ok := all[thread]; return ok }, keep)
+	h.Marks.Prune(func(thread string) bool { _, ok := all[thread]; return ok })
 }
 
 var unslug = regexp.MustCompile(`[^a-z0-9]+`)

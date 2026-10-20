@@ -38,8 +38,8 @@ EOF
 
 `--file` attaches an image or a video, up to ten, at most 10 MB each.
 
-- `--review` is a post that needs an answer from Tim or the team — a result ready for review, or a product question: the thread and his message show ❓.
-- `--done` is for a task complete with nothing left for Tim, such as after he said to merge and it merged: they show ✅.
+- `--review` is a post that needs an answer from Tim or the team — a result ready for review, or a product question: the thread's name shows ❓.
+- `--done` is for a task complete with nothing left for Tim, such as after he said to merge and it merged: the name shows ✅.
 - `--close` goes with `--done`, and only when the task is complete and you have cleaned up with nothing left open — no uncommitted change, open pull request, running process or question for Tim. mochi then closes this tab a minute later if Tim last reached you from Discord. Otherwise post `--done` alone and say here what is still open.
 - A post with neither flag is an update about the product that needs no answer, and changes neither. Post no more than that needs: no progress chatter.
 - Whenever you stop or ask Tim something here, mochi tells him in the thread that the session is waiting on him; there is nothing to post for that.

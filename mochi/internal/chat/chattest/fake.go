@@ -326,12 +326,3 @@ func (f *Fake) Fetch(url string) (io.ReadCloser, error) {
 	}
 	return io.NopCloser(bytes.NewReader(body)), nil
 }
-
-func (f *Fake) ReactedWith(message, emoji string) bool {
-	for _, r := range f.Reactions {
-		if r == message+" "+emoji {
-			return true
-		}
-	}
-	return false
-}

@@ -1,7 +1,7 @@
-// Package mark is how a mochi session's state shows in Discord: one reaction of mochi's on
-// each message it is about, and the same state at the front of the session thread's name.
-// The listener and `mochi post --finished` both change it, from different processes, so it
-// lives in one file taken under a lock.
+// Package mark is how a mochi session's state shows in Discord: an emoji at the front of the
+// name of the thread or forum post mochi made for it, and a forum post's tag for its kind of
+// work. The listener and `mochi post` both change it, from different processes, so it lives
+// in one file taken under a lock.
 package mark
 
 import (
@@ -19,13 +19,11 @@ import (
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/split"
-	"github.com/timche/mac-mini/mochi/internal/state"
 )
 
-// 👀 picked up, ⏳ a session working, ❓ waiting on Tim — a question to answer or a result to
-// review — ✅ done with nothing left for him, ❌ failed.
+// ⏳ a session working, ❓ waiting on Tim — a question to answer or a result to review — ✅
+// done with nothing left for him, ❌ failed.
 const (
-	Seen     = "👀"
 	Running  = "⏳"
 	Asking   = "❓"
 	Finished = "✅"
@@ -65,14 +63,6 @@ type Marker struct {
 	Log  *slog.Logger
 }
 
-// Group is several sessions from one mention. Its reaction is ⏳ while any of them works, ❓
-// when none does and one waits on Tim, and ✅ once all are done.
-type Group struct {
-	Mention state.Ref         `json:"mention"`
-	Threads []string          `json:"threads"`
-	State   map[string]string `json:"state"`
-}
-
 // Name is a session thread's name: the title, the state wanted at its front, what Discord
 // has now, and the renames that count against the limit. Only the latest wanted name is ever
 // sent, so states that came and went while a rename had to wait are never shown.
@@ -102,15 +92,7 @@ func (n *Name) pending() bool {
 }
 
 type marks struct {
-	Shown   map[string]string      `json:"shown"`
-	Running map[string][]state.Ref `json:"running"`
-	Groups  map[string]*Group      `json:"groups"`
-	Names   map[string]*Name       `json:"names"`
-
-	// Every message a session's state was shown on, by thread, so forgetting the session
-	// forgets them too; and when each reaction was last set, for the ones no session holds.
-	Threads map[string][]state.Ref `json:"threads"`
-	At      map[string]int64       `json:"at"`
+	Names map[string]*Name `json:"names"`
 
 	// Each session's state, and how many times it has been set, so a change made by somebody
 	// else since can be told apart from one's own.
@@ -122,8 +104,6 @@ func (m *marks) set(thread, emoji string) {
 	m.State[thread] = emoji
 	m.Seq[thread]++
 }
-
-func key(r state.Ref) string { return r.Channel + "/" + r.Message }
 
 // The emoji at the front of a session thread's name, and the title after it.
 func ThreadName(emoji, title string) string {
@@ -143,27 +123,6 @@ func Title(name string) string {
 		}
 	}
 	return name
-}
-
-// Set shows one reaction on a message, taking back whichever of mochi's it showed before.
-func (k Marker) Set(ref state.Ref, emoji string) {
-	k.update(func(m *marks) { k.react(m, ref, emoji) })
-}
-
-// Clear takes mochi's reaction off a message, leaving none: a question that expired is not
-// waiting on anybody.
-func (k Marker) Clear(ref state.Ref) {
-	k.update(func(m *marks) {
-		was := m.Shown[key(ref)]
-		if was == "" {
-			return
-		}
-		if err := k.API.Unreact(ref.Channel, ref.Message, was); err != nil {
-			k.Log.Warn("a reaction could not be taken back", "emoji", was, "error", err)
-			return
-		}
-		delete(m.Shown, key(ref))
-	})
 }
 
 // A thread mochi just made, under the name it gave it. Only these carry the state in their
@@ -206,53 +165,15 @@ func (k Marker) Typed(thread, typ string) error {
 	return err
 }
 
-// A session is working: each message it is about shows ⏳ until the session says it waits on
-// Tim or is done, and so do its thread's name and a group it belongs to.
-func (k Marker) Started(thread string, refs ...state.Ref) {
-	k.update(func(m *marks) {
-		for _, ref := range refs {
-			if ref.Message == "" {
-				continue
-			}
-			k.react(m, ref, Running)
-			if !contains(m.Running[thread], ref) {
-				m.Running[thread] = append(m.Running[thread], ref)
-			}
-			if !contains(m.Threads[thread], ref) {
-				m.Threads[thread] = append(m.Threads[thread], ref)
-			}
-		}
-		k.want(m, thread, Running)
-		k.groups(m, thread, Running)
-		m.set(thread, Running)
-	})
-}
+// A session is working, waits on Tim (❓) or is done (✅), or could not start (❌): its state,
+// and the name of its thread when mochi made it.
+func (k Marker) Started(thread string) { k.Settled(thread, Running) }
 
-// A session that could not start: its messages and its thread show ❌.
-func (k Marker) Failed(thread string, refs ...state.Ref) {
-	k.update(func(m *marks) {
-		for _, ref := range refs {
-			k.react(m, ref, Failed)
-		}
-		delete(m.Running, thread)
-		k.want(m, thread, Failed)
-		m.set(thread, Failed)
-	})
-}
+func (k Marker) Failed(thread string) { k.Settled(thread, Failed) }
 
-// The session posted that it waits on Tim (❓) or is done (✅): what it was working on shows
-// that. Done is the end of those messages, and a later follow-up starts its own; a review
-// keeps them, for the done that may follow it.
 func (k Marker) Settled(thread, emoji string) {
 	k.update(func(m *marks) {
-		for _, ref := range m.Running[thread] {
-			k.react(m, ref, emoji)
-		}
-		if emoji == Finished {
-			delete(m.Running, thread)
-		}
 		k.want(m, thread, emoji)
-		k.groups(m, thread, emoji)
 		m.set(thread, emoji)
 	})
 }
@@ -264,39 +185,6 @@ func (k Marker) Session(thread string) (string, int) {
 	var seq int
 	k.update(func(m *marks) { shown, seq = m.State[thread], m.Seq[thread] })
 	return shown, seq
-}
-
-// Several sessions from one mention, all started: the mention shows ⏳ while any works.
-func (k Marker) Group(mention state.Ref, threads []string) {
-	k.update(func(m *marks) {
-		g := &Group{Mention: mention, Threads: threads, State: map[string]string{}}
-		for _, t := range threads {
-			g.State[t] = Running
-		}
-		m.Groups[key(mention)] = g
-		k.react(m, mention, Running)
-	})
-}
-
-func (k Marker) groups(m *marks, thread, emoji string) {
-	for _, g := range m.Groups {
-		if _, in := g.State[thread]; !in {
-			continue
-		}
-		g.State[thread] = emoji
-		shown := Finished
-		for _, t := range g.Threads {
-			switch g.State[t] {
-			case Running:
-				shown = Running
-			case Asking:
-				if shown != Running {
-					shown = Asking
-				}
-			}
-		}
-		k.react(m, g.Mention, shown)
-	}
 }
 
 // Renames whose wait is over, with whatever state is wanted now, and done posts whose time to
@@ -326,87 +214,18 @@ func (k Marker) archive(thread string, n *Name) {
 	k.Log.Info("archived a post done for three days", "thread", thread)
 }
 
-func (k Marker) react(m *marks, ref state.Ref, emoji string) {
-	was := m.Shown[key(ref)]
-	if was == emoji {
-		return
-	}
-	if was != "" {
-		if err := k.API.Unreact(ref.Channel, ref.Message, was); err != nil {
-			k.Log.Warn("a reaction could not be taken back", "emoji", was, "error", err)
-		}
-	}
-	if err := k.API.React(ref.Channel, ref.Message, emoji); err != nil {
-		k.Log.Warn("could not react", "emoji", emoji, "error", err)
-		return
-	}
-	m.Shown[key(ref)] = emoji
-	m.At[key(ref)] = k.Now().Unix()
-}
-
-// Prune forgets the sessions whose record is gone, with the messages they were shown on, and
-// any other reaction nobody has touched for keep. The reactions stay on Discord; only
-// mochi's memory of them goes.
-func (k Marker) Prune(alive func(thread string) bool, keep time.Duration) {
+// Prune forgets the sessions whose record is gone.
+func (k Marker) Prune(alive func(thread string) bool) {
 	k.update(func(m *marks) {
-		forget := func(ref state.Ref) {
-			delete(m.Shown, key(ref))
-			delete(m.At, key(ref))
-		}
-		var gone []string
-		for _, threads := range []map[string][]state.Ref{m.Running, m.Threads} {
-			for t := range threads {
-				if !alive(t) {
-					gone = append(gone, t)
-				}
-			}
-		}
 		for t := range m.Names {
 			if !alive(t) {
-				gone = append(gone, t)
+				delete(m.Names, t)
 			}
 		}
-		for _, t := range gone {
-			for _, ref := range m.Threads[t] {
-				forget(ref)
-			}
-			delete(m.Threads, t)
-			delete(m.Running, t)
-			delete(m.Names, t)
-			delete(m.State, t)
-			delete(m.Seq, t)
-		}
-
-		for gk, g := range m.Groups {
-			var still []string
-			for _, t := range g.Threads {
-				if alive(t) {
-					still = append(still, t)
-				} else {
-					delete(g.State, t)
-				}
-			}
-			g.Threads = still
-			if len(still) == 0 {
-				forget(g.Mention)
-				delete(m.Groups, gk)
-			}
-		}
-
-		held := map[string]bool{}
-		for _, refs := range m.Threads {
-			for _, ref := range refs {
-				held[key(ref)] = true
-			}
-		}
-		for _, g := range m.Groups {
-			held[key(g.Mention)] = true
-		}
-		now := k.Now().Unix()
-		for k2 := range m.Shown {
-			if !held[k2] && now-m.At[k2] > int64(keep/time.Second) {
-				delete(m.Shown, k2)
-				delete(m.At, k2)
+		for t := range m.State {
+			if !alive(t) {
+				delete(m.State, t)
+				delete(m.Seq, t)
 			}
 		}
 	})
@@ -520,23 +339,8 @@ func (k Marker) update(fn func(*marks)) {
 			m = &marks{}
 		}
 	}
-	if m.Shown == nil {
-		m.Shown = map[string]string{}
-	}
-	if m.Running == nil {
-		m.Running = map[string][]state.Ref{}
-	}
-	if m.Groups == nil {
-		m.Groups = map[string]*Group{}
-	}
 	if m.Names == nil {
 		m.Names = map[string]*Name{}
-	}
-	if m.Threads == nil {
-		m.Threads = map[string][]state.Ref{}
-	}
-	if m.At == nil {
-		m.At = map[string]int64{}
 	}
 	if m.State == nil {
 		m.State = map[string]string{}
@@ -564,13 +368,4 @@ func (k Marker) update(fn func(*marks)) {
 	if err := os.Rename(tmp, k.Path); err != nil {
 		k.Log.Error("the marks could not be put in place", "error", err)
 	}
-}
-
-func contains(refs []state.Ref, ref state.Ref) bool {
-	for _, r := range refs {
-		if r == ref {
-			return true
-		}
-	}
-	return false
 }

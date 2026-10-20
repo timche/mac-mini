@@ -77,7 +77,7 @@ func TestAnUnclearMentionIsAQuestionWithAButtonPerAnswer(t *testing.T) {
 	if len([]rune(b[0].Label)) > 80 || b[0].Disabled {
 		t.Errorf("label %q", b[0].Label)
 	}
-	if !f.api.ReactedWith(m.ID, "👀") || f.api.ReactedWith(m.ID, "⏳") {
+	if !f.seenOnly(m.ID) {
 		t.Errorf("reactions = %v", f.api.Reactions)
 	}
 	if len(f.pending()) != 1 {
@@ -87,7 +87,7 @@ func TestAnUnclearMentionIsAQuestionWithAButtonPerAnswer(t *testing.T) {
 }
 
 func TestTimPressingSeparateStartsOneSessionPerItem(t *testing.T) {
-	f, m, _ := askFixture(t, abc)
+	f, _, _ := askFixture(t, abc)
 	b := buttonsOf(t, f.api.Sent[0].Msg.Components)
 
 	press(f, tim, b[0].CustomID)
@@ -106,7 +106,7 @@ func TestTimPressingSeparateStartsOneSessionPerItem(t *testing.T) {
 	if len(f.api.Standalone) != 3 || len(f.herdr.called("tab create")) != 3 {
 		t.Errorf("threads %v", f.api.Standalone)
 	}
-	if !f.api.ReactedWith(m.ID, "⏳") || len(f.pending()) != 0 {
+	if len(f.herdr.called("agent start")) == 0 || len(f.pending()) != 0 {
 		t.Error("the answer was not finished")
 	}
 }
@@ -124,7 +124,7 @@ func TestTimPressingOneStartsOneSessionNamedForTheWhole(t *testing.T) {
 	if got := strings.TrimSpace(between(t, prompt, "INSTRUCTION FROM TIM")); got != "take a look at the three suggestions" {
 		t.Errorf("instruction = %q", got)
 	}
-	if *f.api.Edits[0].Content != question+" 1 session." || !f.api.ReactedWith(m.ID, "⏳") {
+	if *f.api.Edits[0].Content != question+" 1 session." || len(f.herdr.called("agent start")) == 0 {
 		t.Error("the answer was not shown or finished")
 	}
 }
@@ -224,7 +224,7 @@ func TestALatePressIsExpiredRatherThanStarted(t *testing.T) {
 
 // The question outlives the process that asked it.
 func TestAnAnswerIsTakenAfterARestart(t *testing.T) {
-	f, m, _ := askFixture(t, abc)
+	f, _, _ := askFixture(t, abc)
 	b := buttonsOf(t, f.api.Sent[0].Msg.Components)
 
 	restarted := &Handler{
@@ -238,7 +238,7 @@ func TestAnAnswerIsTakenAfterARestart(t *testing.T) {
 
 	press(f, tim, b[0].CustomID)
 
-	if len(f.api.Standalone) != 3 || !f.api.ReactedWith(m.ID, "⏳") {
+	if len(f.api.Standalone) != 3 || len(f.herdr.called("agent start")) == 0 {
 		t.Errorf("after a restart: %v", f.api.Standalone)
 	}
 }

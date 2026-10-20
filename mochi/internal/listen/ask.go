@@ -10,7 +10,6 @@ import (
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/fence"
-	"github.com/timche/mac-mini/mochi/internal/mark"
 	"github.com/timche/mac-mini/mochi/internal/split"
 	"github.com/timche/mac-mini/mochi/internal/state"
 )
@@ -43,7 +42,6 @@ func (h *Handler) ask(m *discordgo.Message, instruction string, answer split.Ans
 		return
 	}
 	p.Question = posted.ID
-	h.Marks.Set(ref(m), mark.Asking)
 	if err := h.Pending.Put(p); err != nil {
 		h.closeQuestion(p, question+" This question could not be kept, so mention mochi again.")
 		h.fail(m, "", "the question could not be kept", err)
@@ -222,7 +220,6 @@ func (h *Handler) ExpirePending() {
 
 func (h *Handler) expire(p state.Pending) {
 	h.closeQuestion(p, question+" This question expired, so mention mochi again.")
-	h.Marks.Clear(state.Ref{Channel: p.Channel, Message: p.Mention})
 	if err := h.Pending.Remove(p.Nonce); err != nil {
 		h.Log.Error("an expired question could not be forgotten", "error", err)
 	}

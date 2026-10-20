@@ -327,7 +327,7 @@ func TestAReplyToAnOldMessageStartsALeadSessionWithTheDiscussion(t *testing.T) {
 
 	f.h.Handle(m)
 
-	if !f.api.ReactedWith(m.ID, "👀") || !f.api.ReactedWith(m.ID, "⏳") || f.api.ReactedWith(m.ID, "❌") {
+	if !f.seenOnly(m.ID) {
 		t.Errorf("reactions = %v", f.api.Reactions)
 	}
 	if len(f.api.Threads) != 1 || f.api.Threads[0] != m.ID+" ⏳ QOL: a) average elo per team b) map stats" {
@@ -458,9 +458,10 @@ func TestAMentionInASessionThreadIsRelayedWithOthersMessages(t *testing.T) {
 	if strings.Count(relay, "----- END DISCORD CONTEXT") != 1 {
 		t.Error("a moderator's message closed the fence")
 	}
-	if !f.api.ReactedWith(follow.ID, "⏳") || f.record(thread).LastMention != follow.ID {
-		t.Error("the relay was not acknowledged or recorded")
+	if f.record(thread).LastMention != follow.ID {
+		t.Error("the relay was not recorded")
 	}
+	f.shows(follow.ID)
 
 	// The next relay starts after this mention, not the first.
 	f.api.Post(thread, 7, maker, "d) too")
@@ -542,10 +543,8 @@ func TestAFollowUpAnswersTheQuestionASessionIsWaitingOn(t *testing.T) {
 	if !strings.HasPrefix(brief, skillAgain+"\n\nTim answered in Discord instead of the question") || !strings.Contains(brief, "go with b)") {
 		t.Errorf("brief = %q", brief)
 	}
-	if f.api.ReactedWith(follow.ID, "❌") {
-		t.Error("❌ on an answer that was delivered")
-	}
-	f.shows(first.ID, mark.Running)
+	f.seenOnly(follow.ID)
+	f.inState(first.ID, mark.Running)
 	if f.record(first.ID).LastMention != follow.ID {
 		t.Error("the answer did not move the window on")
 	}
@@ -585,9 +584,7 @@ func TestAQuestionThatWillNotCancelFailsWithAReason(t *testing.T) {
 	follow := f.mention(first.ID, 2, tim, "also b)", nil)
 	f.h.Handle(follow)
 
-	if !f.api.ReactedWith(follow.ID, "❌") {
-		t.Error("no ❌")
-	}
+	f.shows(follow.ID)
 	posts := f.sentTo(first.ID)
 	if !strings.Contains(posts[len(posts)-1], "❌ The session is waiting on a question and would not take this as the answer.") {
 		t.Errorf("posts = %q", posts)
@@ -622,7 +619,7 @@ func TestAHerdrFailureIsACrossAndAReason(t *testing.T) {
 
 	f.h.Handle(m)
 
-	if !f.api.ReactedWith(m.ID, "❌") || f.api.ReactedWith(m.ID, "⏳") {
+	if !f.seenOnly(m.ID) {
 		t.Errorf("reactions = %v", f.api.Reactions)
 	}
 	posts := f.sentTo(m.ID)

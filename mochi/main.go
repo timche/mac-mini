@@ -14,6 +14,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -176,7 +177,12 @@ func run(args []string) error {
 				return nil, fmt.Errorf("this session is running in a checkout of %s rather than %s, so it can attach no file", got, want)
 			}
 			server, _ := cfg.Server(guild)
-			return []string{root, scratch(cfg.Home, root), scratch(cfg.Home, server.Repo)}, nil
+			// The account's own home, not the session's HOME, which it could set to anywhere.
+			me, err := user.Current()
+			if err != nil {
+				return nil, err
+			}
+			return []string{root, scratch(me.HomeDir, root), scratch(me.HomeDir, server.Repo)}, nil
 		}
 		p.Leaks = leaks.CLI
 		if err := post.Send(api, state.Store{Path: cfg.StatePath()}, marks, repos, thread, p); err != nil {
@@ -228,8 +234,8 @@ var unslug = regexp.MustCompile(`[^A-Za-z0-9]`)
 
 // Claude Code's scratch folder for a project, where this account's .zshenv points
 // CLAUDE_CODE_TMPDIR: under the user's id, the project's path with every character but a letter
-// or a digit made a dash. From HOME rather than the variable, which the session could set to
-// anywhere.
+// or a digit made a dash. From the account's home rather than the variable, which the session
+// could set to anywhere.
 func scratch(home, project string) string {
 	return filepath.Join(home, ".cache", "claude-tmp", fmt.Sprintf("claude-%d", os.Getuid()), unslug.ReplaceAllString(project, "-"))
 }

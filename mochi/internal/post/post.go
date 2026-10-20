@@ -3,8 +3,11 @@
 package post
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -228,8 +231,8 @@ func scan(run leaks.Runner, bases []string, text string, files []string) error {
 // Names a secret is kept under, matched on a file's own name in any case.
 var (
 	secretPrefixes = []string{".env", "id_", "credentials"}
-	secretSuffixes = []string{".pem", ".key", ".p12", ".pfx", ".keystore"}
-	secretNames    = []string{".npmrc", ".netrc", ".pgpass", ".git-credentials"}
+	secretSuffixes = []string{".pem", ".key", ".p12", ".pfx", ".keystore", ".kdbx", ".p8", ".tfstate"}
+	secretNames    = []string{".npmrc", ".netrc", ".pgpass", ".git-credentials", ".pypirc", ".htpasswd"}
 )
 
 // A file with a secret's name, or one linked under another name somewhere else, is not posted.
@@ -260,9 +263,46 @@ func plainFile(path string) error {
 	return nil
 }
 
+// isMedia is a file whose extension says image or video and whose first bytes agree, so a key
+// renamed to .png is not taken for a screenshot and goes through every rule and the scan.
 func isMedia(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
-	return imageExt[ext] || videoExt[ext]
+	if !imageExt[ext] && !videoExt[ext] {
+		return false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	head := make([]byte, 512)
+	n, _ := io.ReadFull(f, head)
+	return mediaBytes(head[:n])
+}
+
+// What Go's sniffer knows, and the signatures of the formats it does not: ISO media (mp4, mov,
+// m4v, heic, avif), Matroska and WebM, AVI, ASF (wmv), Ogg, TIFF, and SVG's markup.
+func mediaBytes(head []byte) bool {
+	kind := http.DetectContentType(head)
+	switch {
+	case strings.HasPrefix(kind, "image/"), strings.HasPrefix(kind, "video/"):
+		return true
+	case len(head) >= 12 && string(head[4:8]) == "ftyp":
+		return true
+	case bytes.HasPrefix(head, []byte{0x1A, 0x45, 0xDF, 0xA3}):
+		return true
+	case len(head) >= 12 && string(head[:4]) == "RIFF" && string(head[8:12]) == "AVI ":
+		return true
+	case bytes.HasPrefix(head, []byte{0x30, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11}):
+		return true
+	case bytes.HasPrefix(head, []byte("OggS")):
+		return true
+	case bytes.HasPrefix(head, []byte("II*\x00")), bytes.HasPrefix(head, []byte("MM\x00*")):
+		return true
+	case bytes.Contains(bytes.ToLower(head), []byte("<svg")):
+		return true
+	}
+	return false
 }
 
 // The folder of bases a path is inside, or why it is not posted.

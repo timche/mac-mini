@@ -495,17 +495,21 @@ func TestSecretLookingAndIgnoredFilesAreNotPosted(t *testing.T) {
 	}
 	roots := Roots(func(string) ([]string, error) { return []string{checkout}, nil })
 
-	for _, ok := range []string{write("local/after.png"), write("local/build.zip"), write("docs/notes.txt")} {
+	png := filepath.Join(checkout, "local", "after.png")
+	os.WriteFile(png, []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"), 0o644)
+	for _, ok := range []string{png, write("local/build.zip"), write("docs/notes.txt")} {
 		if err := Send(api, store, nil, repeek, thread, Post{Text: "x", Files: []string{ok}, Roots: roots}); err != nil {
 			t.Errorf("%s: %v", ok, err)
 		}
 	}
+	fakeShot := write("local/shot.png") // an extension that lies is no screenshot
 	hard := write("docs/twice.txt")
 	os.Link(hard, filepath.Join(checkout, "docs", "again.txt"))
 	for _, bad := range []string{
 		write(".env"), write(".env.local"), write("certs/server.PEM"), write("deploy.key"), write("store.p12"), write("a.pfx"),
 		write("keys/id_ed25519"), write(".npmrc"), write(".netrc"), write(".pgpass"), write("aws/credentials"), write("release.keystore"),
 		write(".git-credentials"), write("local/settings.json"), hard,
+		fakeShot, write(".pypirc"), write(".htpasswd"), write("vault.kdbx"), write("AuthKey.p8"), write("infra/terraform.tfstate"),
 	} {
 		err := Send(api, store, nil, repeek, thread, Post{Text: "x", Files: []string{bad}, Roots: roots})
 		if err == nil || !strings.Contains(err.Error(), "not posted") {
@@ -561,7 +565,7 @@ func TestTheSecretScanStandsBeforeAPost(t *testing.T) {
 	build := filepath.Join(checkout, "build.zip")
 	os.WriteFile(build, []byte("zip"), 0o644)
 	shot := filepath.Join(checkout, "after.png")
-	os.WriteFile(shot, []byte("png"), 0o644)
+	os.WriteFile(shot, []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"), 0o644)
 	roots := Roots(func(string) ([]string, error) { return []string{checkout}, nil })
 
 	var scanned []string
@@ -599,5 +603,31 @@ func TestTheSecretScanStandsBeforeAPost(t *testing.T) {
 	}
 	if len(api.Sent) != 1 {
 		t.Errorf("%d posts, want 1", len(api.Sent))
+	}
+}
+
+// A file is media when its first bytes say so, not its name: every format mochi takes as an
+// image or a video is recognised, and a key named .png is not.
+func TestMediaIsKnownByItsBytes(t *testing.T) {
+	dir := t.TempDir()
+	for name, head := range map[string]string{
+		"a.png": "\x89PNG\r\n\x1a\n", "a.jpg": "\xff\xd8\xff\xe0", "a.gif": "GIF89a", "a.webp": "RIFF\x00\x00\x00\x00WEBPVP8 ",
+		"a.mp4": "\x00\x00\x00\x18ftypmp42", "a.mov": "\x00\x00\x00\x14ftypqt  ", "a.heic": "\x00\x00\x00\x18ftypheic", "a.avif": "\x00\x00\x00\x1cftypavif",
+		"a.mkv": "\x1a\x45\xdf\xa3", "a.webm": "\x1a\x45\xdf\xa3", "a.avi": "RIFF\x00\x00\x00\x00AVI LIST", "a.ogv": "OggS\x00",
+		"a.tiff": "II*\x00", "a.svg": "<?xml version=\"1.0\"?><svg xmlns=\"http://www.w3.org/2000/svg\">",
+		"a.wmv": "\x30\x26\xb2\x75\x8e\x66\xcf\x11",
+	} {
+		p := filepath.Join(dir, name)
+		os.WriteFile(p, []byte(head), 0o644)
+		if !isMedia(p) {
+			t.Errorf("%s is not taken for media", name)
+		}
+	}
+	for name, body := range map[string]string{"key.png": "-----BEGIN OPENSSH PRIVATE KEY-----", "notes.mov": "just text", "a.txt": "\x89PNG\r\n\x1a\n"} {
+		p := filepath.Join(dir, name)
+		os.WriteFile(p, []byte(body), 0o644)
+		if isMedia(p) {
+			t.Errorf("%s is taken for media", name)
+		}
 	}
 }

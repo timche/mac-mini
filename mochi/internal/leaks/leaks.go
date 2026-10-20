@@ -26,16 +26,29 @@ type Runner func(ctx context.Context, args []string, stdin io.Reader) (stdout []
 // The variables that would point betterleaks at a configuration the session chose.
 var configVars = []string{"BETTERLEAKS_CONFIG", "GITLEAKS_CONFIG", "BETTERLEAKS_CONFIG_TOML", "GITLEAKS_CONFIG_TOML"}
 
+// Where Homebrew installs it, and nowhere a session's PATH could point instead.
+var Locations = []string{"/opt/homebrew/bin/betterleaks", "/usr/local/bin/betterleaks"}
+
+func binary() (string, error) {
+	for _, path := range Locations {
+		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
+			return path, nil
+		}
+	}
+	return "", fmt.Errorf("betterleaks is not in %s", strings.Join(Locations, " or "))
+}
+
 func CLI(ctx context.Context, args []string, stdin io.Reader) ([]byte, int, error) {
-	if _, err := exec.LookPath("betterleaks"); err != nil {
-		return nil, 0, errors.New("betterleaks is not on PATH")
+	bin, err := binary()
+	if err != nil {
+		return nil, 0, err
 	}
 	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, "betterleaks", args...)
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Env = scrub(op.Scrub(os.Environ()))
 	cmd.Stdin = stdin
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
+	err = cmd.Run()
 	var exit *exec.ExitError
 	switch {
 	case ctx.Err() != nil:

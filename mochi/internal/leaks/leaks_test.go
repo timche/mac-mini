@@ -7,7 +7,6 @@ import (
 	"io"
 	"math/rand"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -50,7 +49,10 @@ func TestTheScanFailsClosed(t *testing.T) {
 // another do not reach betterleaks.
 func TestTheConfigIsTheProjectsAndNoVariableOverridesIt(t *testing.T) {
 	var got []string
-	run := func(_ context.Context, args []string, _ io.Reader) ([]byte, int, error) { got = args; return []byte("[]"), 0, nil }
+	run := func(_ context.Context, args []string, _ io.Reader) ([]byte, int, error) {
+		got = args
+		return []byte("[]"), 0, nil
+	}
 	Scanner{Run: run, Config: "/repo/.gitleaks.toml"}.File("/repo/a.zip")
 	if strings.Join(got, " ") != "dir --no-banner --redact --report-format json --report-path - --config /repo/.gitleaks.toml /repo/a.zip" {
 		t.Errorf("args = %q", got)
@@ -64,8 +66,8 @@ func TestTheConfigIsTheProjectsAndNoVariableOverridesIt(t *testing.T) {
 // A key shaped like AWS's, made at run time so the repository's own scan never sees one, is
 // found in a file and inside a zip, with the secret redacted.
 func TestTheRealScannerFindsAKeyInAFileAndAZip(t *testing.T) {
-	if _, err := exec.LookPath("betterleaks"); err != nil {
-		t.Skip("no betterleaks on PATH")
+	if _, err := binary(); err != nil {
+		t.Skip(err)
 	}
 	r := rand.New(rand.NewSource(7))
 	pick := func(set string, n int) string {
@@ -107,5 +109,19 @@ func TestTheRealScannerFindsAKeyInAFileAndAZip(t *testing.T) {
 	}
 	if found, err := s.Text(body); err != nil || len(found) == 0 {
 		t.Errorf("text with a key: %+v, %v", found, err)
+	}
+}
+
+// betterleaks is taken from where Homebrew puts it, never from PATH.
+func TestBetterleaksIsNotTakenFromPath(t *testing.T) {
+	dir := t.TempDir()
+	fakeBin := filepath.Join(dir, "betterleaks")
+	os.WriteFile(fakeBin, []byte("#!/bin/sh\necho '[]'\n"), 0o755)
+	t.Setenv("PATH", dir)
+	was := Locations
+	Locations = []string{filepath.Join(dir, "nowhere")}
+	defer func() { Locations = was }()
+	if _, _, err := CLI(context.Background(), []string{"stdin"}, strings.NewReader("x")); err == nil || !strings.Contains(err.Error(), "betterleaks is not in") {
+		t.Errorf("a betterleaks on PATH was run: %v", err)
 	}
 }

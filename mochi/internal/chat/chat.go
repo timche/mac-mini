@@ -160,9 +160,25 @@ func (l Live) Unreact(channel, message, emoji string) error {
 	return l.S.MessageReactionRemove(channel, message, emoji, "@me")
 }
 
+// Gone says Discord no longer has the channel, a thread somebody deleted: nothing sent to it
+// will ever land.
+func Gone(err error) bool {
+	var rest *discordgo.RESTError
+	switch {
+	case errors.Is(err, ErrUnknownChannel):
+		return true
+	case errors.As(err, &rest) && rest.Message != nil && rest.Message.Code == discordgo.ErrCodeUnknownChannel:
+		return true
+	case errors.As(err, &rest) && rest.Response != nil && rest.Response.StatusCode == http.StatusNotFound:
+		return true
+	}
+	return false
+}
+
 var (
-	ErrRateLimited = errors.New("Discord asked to wait before renaming again")
-	ErrForbidden   = errors.New("the thread is not mochi's to rename")
+	ErrUnknownChannel = errors.New("Discord has no such channel")
+	ErrRateLimited    = errors.New("Discord asked to wait before renaming again")
+	ErrForbidden      = errors.New("the thread is not mochi's to rename")
 )
 
 // Without discordgo's own retry, which would wait out a ten-minute rename limit inside the

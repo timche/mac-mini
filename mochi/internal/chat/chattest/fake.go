@@ -50,6 +50,8 @@ type Fake struct {
 	DuringRoles func()
 
 	ThreadErr  error
+	SendErr    map[string]error
+	Tries      map[string]int
 	next       int
 	newThreads int
 }
@@ -60,6 +62,8 @@ func New() *Fake {
 		Msgs:      map[string][]*discordgo.Message{},
 		Files:     map[string][]byte{},
 		RenameErr: map[string]error{},
+		SendErr:   map[string]error{},
+		Tries:     map[string]int{},
 	}
 }
 
@@ -216,6 +220,10 @@ func (f *Fake) NewThread(channel, name string) (*discordgo.Channel, error) {
 }
 
 func (f *Fake) Send(channel string, msg *discordgo.MessageSend) (*discordgo.Message, error) {
+	f.Tries[channel]++
+	if err := f.SendErr[channel]; err != nil {
+		return nil, err
+	}
 	files := map[string]string{}
 	for _, file := range msg.Files {
 		body, _ := io.ReadAll(file.Reader)

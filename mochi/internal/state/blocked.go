@@ -18,6 +18,12 @@ type Blocked struct {
 	// The session record's Updated when herdr last said its agent was gone; it is not asked
 	// again until the record changes, as it does when a follow-up starts a new session.
 	Gone int64 `json:"gone,omitempty"`
+
+	// A ping that did not land is tried again at RetryAt, after a wait that doubles; one
+	// Discord says has no thread to land in is never tried again.
+	Backoff int64 `json:"backoff,omitempty"`
+	RetryAt int64 `json:"retry_at,omitempty"`
+	Dead    bool  `json:"dead,omitempty"`
 }
 
 type BlockedStore struct{ Path string }

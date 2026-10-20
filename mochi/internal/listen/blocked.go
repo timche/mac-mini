@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 
+	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/herdr"
 	"github.com/timche/mac-mini/mochi/internal/mark"
 	"github.com/timche/mac-mini/mochi/internal/state"
@@ -15,6 +17,12 @@ import (
 // A session counts as waiting on Tim after this many polls in a row find it so, so a
 // question answered in seconds pings nobody.
 const blockedPolls = 2
+
+// A ping that fails waits this long before the next try, doubling up to the most.
+const (
+	pingBackoff    = 30 * time.Second
+	pingBackoffMax = time.Hour
+)
 
 // WatchBlocked runs every half minute: a session that has stopped on a question or a
 // permission is one Tim has to answer in the session, and he is told once per episode, in
@@ -66,17 +74,30 @@ func (h *Handler) WatchBlocked() {
 			if b.Pinged {
 				h.Marks.Settled(thread, mark.Running)
 			}
-			delete(seen, thread)
+			if b.Dead {
+				seen[thread] = state.Blocked{Dead: true}
+			} else {
+				delete(seen, thread)
+			}
 			continue
 		}
 		// Counted only as far as it decides anything, so a long wait is one write, not one a poll.
 		if b.Polls < blockedPolls {
 			b.Polls++
 		}
-		if b.Polls >= blockedPolls && !b.Pinged {
-			b.Pinged = h.ping(thread)
-			if b.Pinged {
+		if b.Polls >= blockedPolls && !b.Pinged && !b.Dead && h.Now().Unix() >= b.RetryAt {
+			err := h.ping(thread)
+			switch {
+			case err == nil:
+				b.Pinged, b.Backoff, b.RetryAt = true, 0, 0
 				h.Marks.Settled(thread, mark.Asking)
+			case chat.Gone(err):
+				b.Dead = true
+				h.Log.Warn("the thread of a session waiting on Tim is gone, so it is pinged no more", "thread", thread)
+			default:
+				wait := time.Duration(b.Backoff) * time.Second * 2
+				wait = max(pingBackoff, min(wait, pingBackoffMax))
+				b.Backoff, b.RetryAt = int64(wait/time.Second), h.Now().Add(wait).Unix()
 			}
 		}
 		seen[thread] = b
@@ -112,7 +133,7 @@ func (h *Handler) loadWaits() (map[string]state.Session, map[string]state.Blocke
 }
 
 // Tim alone may be pinged, and only here.
-func (h *Handler) ping(thread string) bool {
+func (h *Handler) ping(thread string) error {
 	msg := &discordgo.MessageSend{
 		Content: fmt.Sprintf("<@%s> the session is waiting on you — pick an option in the session.", h.Cfg.User),
 		AllowedMentions: &discordgo.MessageAllowedMentions{
@@ -120,9 +141,9 @@ func (h *Handler) ping(thread string) bool {
 			Users: []string{h.Cfg.User},
 		},
 	}
-	if _, err := h.API.Send(thread, msg); err != nil {
+	_, err := h.API.Send(thread, msg)
+	if err != nil {
 		h.Log.Error("Tim could not be told a session waits on him", "thread", thread, "error", h.redact(err))
-		return false
 	}
-	return true
+	return err
 }

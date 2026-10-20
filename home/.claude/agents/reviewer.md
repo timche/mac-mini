@@ -14,6 +14,8 @@ When you find a bug, flag its class and every instance of it, so the fix covers 
 
 Beyond switching the worktree to the base and back, never edit, commit or fix anything.
 
+Other sessions share this machine, each running its own copy of the same servers. Stop only what you started, by the PID you recorded when starting it or through the background task that runs it; never `pkill`, `killall` or `kill $(pgrep …)` by name, pattern or port.
+
 ## What to return
 
 Kept short:

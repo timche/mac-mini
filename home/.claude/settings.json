@@ -26,6 +26,11 @@
             "type": "command",
             "command": "python3 \"$HOME/.claude/hooks/strip-claude-attribution.py\"",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.claude/hooks/kill-by-pid.py\"",
+            "timeout": 10
           }
         ]
       },

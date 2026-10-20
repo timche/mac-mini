@@ -21,6 +21,8 @@ Keep going when a step does not need the lead. Stop and ask only when you cannot
 
 Never push, open a pull request or spawn an agent.
 
+Other sessions share this machine, each running its own copy of the same servers. Stop only what you started, by the PID you recorded when starting it or through the background task that runs it; never `pkill`, `killall` or `kill $(pgrep …)` by name, pattern or port.
+
 ## What to return
 
 Kept short, in this order:

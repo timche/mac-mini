@@ -56,7 +56,7 @@
 - A dev server takes the port it is given: portless's `PORT`, or `0` and the next free one. Pass the URL it settled on to whatever needs it as an environment variable rather than writing the port down.
 - A compose file maps a container port with no host port — `"5432"`, not `"5432:5432"` — and `docker compose port <service> 5432` reads back the one it got.
 - The output of anything long-running — a dev server, a worker, a watcher — goes to a Claude Code background task or a size-capped log, never to a file in `/tmp` or anywhere else unbounded: a process that lost what it retries on writes tens of gigabytes an hour, and hachiko catches one growing only after the gigabytes.
-- Never stop, reuse or clean up another worktree's processes, containers, volumes or profiles by hand. `hachiko gc` sweeps what a removed worktree leaves behind, and a running worktree is somebody's session.
+- Never stop, reuse or clean up another worktree's processes, containers, volumes or profiles by hand; stop your own only by its PID or TaskStop. `hachiko gc` sweeps what a removed worktree leaves behind, and a running worktree is somebody's session.
 - A worktree is herdr's to make or Claude Code's own, never a `git worktree add` into a folder beside the repository or anywhere else: `hachiko gc` sweeps those two roots alone, and a sibling folder cannot be told apart from a repository.
 
 # Delegation

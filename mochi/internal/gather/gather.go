@@ -56,6 +56,9 @@ type Set struct {
 	notes map[string][]string
 	focus map[string]bool
 	Gaps  []string
+
+	// mochi's own user, whose posts in a session's thread are the session's.
+	Self string
 }
 
 func NewSet(guild string) *Set {
@@ -247,11 +250,12 @@ func Channel(api chat.API, mention *discordgo.Message) (*Set, error) {
 	return set, nil
 }
 
-// What others wrote in a session's thread between Tim's last mention and this one. Tim's
-// own messages and mochi's are not news to the session; everybody else's are, bots
-// included, as data.
-func Since(api chat.API, thread, after string, mention *discordgo.Message, skip ...string) (*Set, error) {
+// Everything posted in a session's thread between Tim's last mention and this one: the
+// moderators' answers, his own messages, and what the session itself posted, marked as its own
+// so it can tell what it said from what was said back.
+func Since(api chat.API, thread, after string, mention *discordgo.Message, self string) (*Set, error) {
 	set := NewSet(mention.GuildID)
+	set.Self = self
 
 	for page := 0; page < laterPages; page++ {
 		got, err := api.Messages(thread, Page, "", after, "")
@@ -266,7 +270,7 @@ func Since(api chat.API, thread, after string, mention *discordgo.Message, skip 
 			if !chat.Before(m.ID, mention.ID) {
 				return set, nil
 			}
-			if m.Author != nil && !contains(skip, m.Author.ID) {
+			if m.Author != nil {
 				set.Add(m)
 			}
 		}
@@ -356,7 +360,7 @@ func writeMessages(b *strings.Builder, set *Set, msgs []*discordgo.Message, file
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		fmt.Fprintf(b, "[%s] %s — %s\n", stamp(m.Timestamp), author(m), chat.Link(set.Guild, m.ChannelID, m.ID))
+		fmt.Fprintf(b, "[%s] %s — %s\n", stamp(m.Timestamp), set.author(m), chat.Link(set.Guild, m.ChannelID, m.ID))
 		for _, n := range set.notes[m.ID] {
 			b.WriteString("(" + n + ")\n")
 		}
@@ -392,6 +396,13 @@ func quote(text string) string {
 
 // A display name is the author's to choose, so it is one line, without the characters that
 // frame a record, and followed by the account id it cannot choose.
+func (s *Set) author(m *discordgo.Message) string {
+	if s.Self != "" && m.Author != nil && m.Author.ID == s.Self {
+		return "mochi (this session)"
+	}
+	return author(m)
+}
+
 func author(m *discordgo.Message) string {
 	name := strings.Map(func(r rune) rune {
 		switch r {

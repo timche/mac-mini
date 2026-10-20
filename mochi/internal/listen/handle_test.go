@@ -373,8 +373,8 @@ func TestAMentionInASessionThreadIsRelayedWithOthersMessages(t *testing.T) {
 	if !strings.Contains(context, "please also b)") || !strings.Contains(context, "and c)") {
 		t.Errorf("others' messages are missing:\n%s", context)
 	}
-	if strings.Contains(context, "findings so far") || strings.Contains(context, "thinking") {
-		t.Errorf("Tim's or mochi's own messages were relayed:\n%s", context)
+	if !strings.Contains(context, "mochi (this session)") || !strings.Contains(context, "findings so far") || !strings.Contains(context, "thinking") {
+		t.Errorf("the session's own post or Tim's message is missing:\n%s", context)
 	}
 	if strings.Count(relay, "----- END DISCORD CONTEXT") != 1 {
 		t.Error("a moderator's message closed the fence")

@@ -303,7 +303,7 @@ func (h *Handler) relay(server config.Server, ch *discordgo.Channel, rec state.S
 		return
 	}
 
-	others, err := gather.Since(h.API, rec.Thread, rec.LastMention, m, h.Cfg.User, h.bot)
+	others, err := gather.Since(h.API, rec.Thread, rec.LastMention, m, h.bot)
 	if err != nil {
 		h.fail(m, rec.Thread, "the thread could not be read", err)
 		return

@@ -164,26 +164,35 @@ func TestAMentionThatRepliesToNothingIsHandedTheRecentChannel(t *testing.T) {
 	}
 }
 
-func TestARelayCarriesWhatOthersSaidSinceTheLastMention(t *testing.T) {
+// Everything since Tim's previous mention, his own messages and mochi's included, the session's
+// own posts marked as its own — what it said, and what moderators said back after it.
+func TestARelayCarriesEverythingSinceTheLastMention(t *testing.T) {
 	f := server()
 	thread := chattest.ID(10)
 	f.AddChannel(&discordgo.Channel{ID: thread, GuildID: guild, ParentID: channel, Type: discordgo.ChannelTypeGuildPublicThread})
-	f.Post(thread, 11, mochi, "session started in repeek: moderators-1200")
+	f.Post(thread, 11, mochi, "session started in repeek: moderators")
 	first := f.Post(thread, 12, tim, "<@"+mochi.ID+"> start")
 	f.Post(thread, 13, maker, "also b) please")
-	f.Post(thread, 14, mochi, "findings: ...")
+	f.Post(thread, 14, mochi, "Finished: the overlay no longer covers the scoreboard.")
 	f.Post(thread, 15, tim, "noted")
-	f.Post(thread, 16, other, "and c)")
+	f.Post(thread, 16, other, "still covers it on 1440p")
 	mention := f.Post(thread, 17, tim, "<@"+mochi.ID+"> also check b)")
 	f.Post(thread, 18, other, "after the mention")
 
-	set, err := Since(f, thread, first.ID, mention, tim.ID, mochi.ID)
+	set, err := Since(f, thread, first.ID, mention, mochi.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := ids(set)
-	if set.Len() != 2 || !got[chattest.ID(13)] || !got[chattest.ID(16)] {
+	if set.Len() != 4 || !got[chattest.ID(13)] || !got[chattest.ID(14)] || !got[chattest.ID(15)] || !got[chattest.ID(16)] {
 		t.Errorf("relayed %v", got)
+	}
+	out := Render(set, nil)
+	if !strings.Contains(out, "] mochi (this session) — ") || strings.Contains(out, "] mochi ("+mochi.ID+")") {
+		t.Errorf("mochi's own post is not marked as the session's:\n%s", out)
+	}
+	if strings.Index(out, "Finished:") > strings.Index(out, "still covers it on 1440p") {
+		t.Error("what was said after the finished post is not after it")
 	}
 }
 

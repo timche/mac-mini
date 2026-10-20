@@ -14,15 +14,15 @@ import (
 func TestAnAnswerInTheSessionEndsTheWait(t *testing.T) {
 	f, thread := startedSession(t)
 	f.event(thread, event.Ask, 0)
-	f.h.ConsumeEvents()
+	f.consume()
 	f.shows(thread, mark.Asking)
 
 	f.event(thread, event.Heard, 0)
-	f.h.ConsumeEvents()
+	f.consume()
 	f.shows(thread, mark.Running)
 
 	f.event(thread, event.Stop, 0)
-	f.h.ConsumeEvents()
+	f.consume()
 	if f.pings(thread) != 2 {
 		t.Errorf("pings = %d, want one per wait", f.pings(thread))
 	}
@@ -34,11 +34,11 @@ func TestAnAnswerLeavesWhatTheSessionSetSince(t *testing.T) {
 	for _, emoji := range []string{mark.Finished, mark.Asking} {
 		f, thread := startedSession(t)
 		f.event(thread, event.Stop, 0)
-		f.h.ConsumeEvents()
+		f.consume()
 		f.h.Marks.Settled(thread, emoji)
 
 		f.event(thread, event.Heard, 0)
-		f.h.ConsumeEvents()
+		f.consume()
 		f.shows(thread, emoji)
 	}
 }
@@ -48,19 +48,19 @@ func TestAStaleStopPingsNobody(t *testing.T) {
 	f, thread := startedSession(t)
 	f.event(thread, event.Stop, 0)  // the session's turn ended…
 	f.event(thread, event.Heard, 0) // …and Tim had answered by the time it was read
-	f.h.ConsumeEvents()
+	f.consume()
 	if f.pings(thread) != 0 {
 		t.Errorf("pings = %d", f.pings(thread))
 	}
 
 	// A stop written before an answer that is read later is stale as well.
 	f.event(thread, event.Heard, 0)
-	f.h.ConsumeEvents()
+	f.consume()
 	waits := f.waits()
 	waits[thread] = state.Wait{Heard: f.h.Now().Add(time.Hour).UnixNano()}
 	f.h.Waits.Save(waits)
 	f.event(thread, event.Stop, 0)
-	f.h.ConsumeEvents()
+	f.consume()
 	if f.pings(thread) != 0 {
 		t.Errorf("a stop older than Tim's answer pinged")
 	}
@@ -75,7 +75,7 @@ func TestAStopFromBeforeTheSessionLastStartedIsStale(t *testing.T) {
 	f.h.Store.Put(rec)
 
 	f.event(thread, event.Stop, 0)
-	f.h.ConsumeEvents()
+	f.consume()
 	if f.pings(thread) != 0 {
 		t.Errorf("pings = %d", f.pings(thread))
 	}

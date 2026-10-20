@@ -16,6 +16,8 @@ import (
 const (
 	pingBackoff    = 30 * time.Second
 	pingBackoffMax = time.Hour
+
+	pingGrace = 3 * time.Second
 )
 
 // ConsumeEvents runs every second: a session whose turn ended, or that asked a question, is
@@ -77,9 +79,7 @@ func (h *Handler) waiting(ev event.Event, waits map[string]state.Wait) {
 	if w.Pinged || w.Pending || w.Dead {
 		return
 	}
-	h.Marks.Settled(ev.Thread, mark.Asking)
-	_, w.Seq = h.Marks.Session(ev.Thread)
-	w.Pending = true
+	w.Pending, w.Due = true, ev.Nanos+int64(pingGrace)
 	waits[ev.Thread] = w
 }
 
@@ -87,7 +87,7 @@ func (h *Handler) waiting(ev event.Event, waits map[string]state.Wait) {
 // pings again. The ❓ the ping set goes back to ⏳ unless something was set since.
 func (h *Handler) answered(thread string, waits map[string]state.Wait, at int64) {
 	w := waits[thread]
-	if w.Pinged || w.Pending {
+	if w.Asked {
 		if _, seq := h.Marks.Session(thread); seq == w.Seq {
 			h.Marks.Settled(thread, mark.Running)
 		}
@@ -97,13 +97,23 @@ func (h *Handler) answered(thread string, waits map[string]state.Wait, at int64)
 
 func (h *Handler) pingWaiting(waits map[string]state.Wait) {
 	for thread, w := range waits {
-		if !w.Pending || w.Dead || h.Now().Unix() < w.RetryAt {
+		if !w.Pending || w.Dead || h.Now().UnixNano() < w.Due || h.Now().Unix() < w.RetryAt {
 			continue
+		}
+		if !w.Asked {
+			// The session may have said it is done while the grace ran.
+			if shown, _ := h.Marks.Session(thread); shown == mark.Finished {
+				waits[thread] = state.Wait{Heard: w.Heard}
+				continue
+			}
+			h.Marks.Settled(thread, mark.Asking)
+			_, w.Seq = h.Marks.Session(thread)
+			w.Asked = true
 		}
 		err := h.ping(thread)
 		switch {
 		case err == nil:
-			w = state.Wait{Pinged: true, Seq: w.Seq, Heard: w.Heard}
+			w = state.Wait{Pinged: true, Asked: true, Seq: w.Seq, Heard: w.Heard}
 		case chat.Gone(err):
 			w = state.Wait{Dead: true, Heard: w.Heard}
 			h.Log.Warn("the thread of a session waiting on Tim is gone, so it is pinged no more", "thread", thread)

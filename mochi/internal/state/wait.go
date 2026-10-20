@@ -15,6 +15,12 @@ type Wait struct {
 	Pinged  bool `json:"pinged,omitempty"`
 	Pending bool `json:"pending,omitempty"`
 
+	// A wait shows ❓ and pings only once Due has passed, in nanoseconds, so a follow-up that
+	// was queued behind the turn and starts the moment it ends cancels it first; Asked once ❓
+	// is showing.
+	Due   int64 `json:"due,omitempty"`
+	Asked bool  `json:"asked,omitempty"`
+
 	// A ping that did not land is tried again at RetryAt, after a wait that doubles; one
 	// Discord says has no thread to land in is never tried again.
 	Backoff int64 `json:"backoff,omitempty"`

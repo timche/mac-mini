@@ -53,6 +53,13 @@ func (f *fixture) pings(thread string) int {
 
 func (f *fixture) at(t time.Time) { f.h.Now = func() time.Time { return t } }
 
+// The events read, and read again once the grace before a ping has run out.
+func (f *fixture) consume() {
+	f.h.ConsumeEvents()
+	f.at(f.h.Now().Add(pingGrace + time.Second))
+	f.h.ConsumeEvents()
+}
+
 func (f *fixture) waits() map[string]state.Wait {
 	f.t.Helper()
 	all, err := f.h.Waits.Load()
@@ -68,7 +75,7 @@ func TestAStopOrAQuestionPingsTimOnce(t *testing.T) {
 	for _, kind := range []string{event.Stop, event.Ask} {
 		f, thread := startedSession(t)
 		f.event(thread, kind, 0)
-		f.h.ConsumeEvents()
+		f.consume()
 
 		if f.pings(thread) != 1 {
 			t.Fatalf("%s: pings = %d", kind, f.pings(thread))
@@ -91,10 +98,10 @@ func TestAStopOrAQuestionPingsTimOnce(t *testing.T) {
 func TestNoSecondPingUntilTimHasSaidSomething(t *testing.T) {
 	f, thread := startedSession(t)
 	f.event(thread, event.Stop, 0)
-	f.h.ConsumeEvents()
+	f.consume()
 	f.event(thread, event.Ask, 0)
 	f.event(thread, event.Stop, 0)
-	f.h.ConsumeEvents()
+	f.consume()
 	if f.pings(thread) != 1 {
 		t.Fatalf("pings = %d", f.pings(thread))
 	}
@@ -103,7 +110,7 @@ func TestNoSecondPingUntilTimHasSaidSomething(t *testing.T) {
 	f.h.Handle(f.mention(thread, 5, tim, "go with b", nil))
 	f.shows(thread, mark.Running)
 	f.event(thread, event.Stop, 0)
-	f.h.ConsumeEvents()
+	f.consume()
 	if f.pings(thread) != 2 {
 		t.Errorf("pings = %d after his follow-up", f.pings(thread))
 	}
@@ -115,7 +122,7 @@ func TestDoneIsQuietAndReviewIsNot(t *testing.T) {
 	f, thread := startedSession(t)
 	f.h.Marks.Settled(thread, mark.Finished)
 	f.event(thread, event.Stop, 0)
-	f.h.ConsumeEvents()
+	f.consume()
 	if f.pings(thread) != 0 {
 		t.Error("a done session pinged")
 	}
@@ -124,7 +131,7 @@ func TestDoneIsQuietAndReviewIsNot(t *testing.T) {
 	f2, review := startedSession(t)
 	f2.h.Marks.Settled(review, mark.Asking)
 	f2.event(review, event.Stop, 0)
-	f2.h.ConsumeEvents()
+	f2.consume()
 	if f2.pings(review) != 1 {
 		t.Error("a stop after a review did not ping")
 	}
@@ -134,7 +141,7 @@ func TestDoneIsQuietAndReviewIsNot(t *testing.T) {
 func TestAStopWithWorkInFlightIsNotAWait(t *testing.T) {
 	f, thread := startedSession(t)
 	f.event(thread, event.Stop, 2)
-	f.h.ConsumeEvents()
+	f.consume()
 	if f.pings(thread) != 0 {
 		t.Error("pinged while work was still running")
 	}
@@ -145,7 +152,7 @@ func TestAStopWithWorkInFlightIsNotAWait(t *testing.T) {
 func TestAnEventForNoSessionIsDropped(t *testing.T) {
 	f := newFixture(t)
 	f.event("1300000000000000077", event.Stop, 0)
-	f.h.ConsumeEvents()
+	f.consume()
 	if len(f.api.Sent) != 0 || len(event.Read(f.cfg.EventsDir())) != 0 {
 		t.Errorf("sent %d, events left %d", len(f.api.Sent), len(event.Read(f.cfg.EventsDir())))
 	}
@@ -162,7 +169,7 @@ func TestAFailedPingBacksOffAndADeletedThreadIsLeft(t *testing.T) {
 	f.at(start)
 
 	f.event(thread, event.Stop, 0)
-	f.h.ConsumeEvents()
+	f.consume()
 	for _, step := range []struct {
 		after time.Duration
 		want  int
@@ -173,21 +180,21 @@ func TestAFailedPingBacksOffAndADeletedThreadIsLeft(t *testing.T) {
 		{90 * time.Second, 3},
 	} {
 		f.at(start.Add(step.after))
-		f.h.ConsumeEvents()
+		f.consume()
 		if tries() != step.want {
 			t.Errorf("after %s: %d tries, want %d", step.after, tries(), step.want)
 		}
 	}
 	for i := 0; i < 20; i++ {
 		f.at(time.Unix(f.waits()[thread].RetryAt, 0))
-		f.h.ConsumeEvents()
+		f.consume()
 	}
 	if b := f.waits()[thread].Backoff; b != 3600 {
 		t.Errorf("backoff = %d", b)
 	}
 	delete(f.api.SendErr, thread)
 	f.at(time.Unix(f.waits()[thread].RetryAt, 0))
-	f.h.ConsumeEvents()
+	f.consume()
 	if f.pings(thread) != 1 {
 		t.Errorf("pings = %d once Discord answered", f.pings(thread))
 	}
@@ -196,7 +203,7 @@ func TestAFailedPingBacksOffAndADeletedThreadIsLeft(t *testing.T) {
 	gbase := g.api.Tries[gone]
 	g.api.SendErr[gone] = chat.ErrUnknownChannel
 	g.event(gone, event.Stop, 0)
-	g.h.ConsumeEvents()
+	g.consume()
 	g.h.Handle(g.mention(gone, 5, tim, "again", nil))
 	g.event(gone, event.Stop, 0)
 	g.at(time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC))
@@ -209,11 +216,50 @@ func TestAFailedPingBacksOffAndADeletedThreadIsLeft(t *testing.T) {
 	}
 }
 
+// A follow-up queued behind the turn starts the moment it ends: the heard it brings inside the
+// grace cancels the wait before anything shows.
+func TestAHeardInsideTheGraceCancelsThePing(t *testing.T) {
+	f, thread := startedSession(t)
+	f.event(thread, event.Stop, 0)
+	f.h.ConsumeEvents()
+	f.at(f.h.Now().Add(pingGrace / 2))
+	f.event(thread, event.Heard, 0)
+	f.consume()
+	f.at(f.h.Now().Add(time.Minute))
+	f.h.ConsumeEvents()
+
+	if f.pings(thread) != 0 {
+		t.Errorf("pings = %d", f.pings(thread))
+	}
+	f.shows(thread, mark.Running)
+	if w := f.waits()[thread]; w.Pending || w.Asked {
+		t.Errorf("wait = %+v", w)
+	}
+}
+
+// Nothing shows inside the grace, and the ping follows once it has run out.
+func TestThePingWaitsOutTheGrace(t *testing.T) {
+	f, thread := startedSession(t)
+	f.event(thread, event.Ask, 0)
+	f.h.ConsumeEvents()
+	if f.pings(thread) != 0 {
+		t.Error("pinged inside the grace")
+	}
+	f.shows(thread, mark.Running)
+
+	f.at(f.h.Now().Add(pingGrace + time.Second))
+	f.h.ConsumeEvents()
+	if f.pings(thread) != 1 {
+		t.Errorf("pings = %d after the grace", f.pings(thread))
+	}
+	f.shows(thread, mark.Asking)
+}
+
 // Whether Tim has been pinged outlives a restart.
 func TestAPingOutlivesARestart(t *testing.T) {
 	f, thread := startedSession(t)
 	f.event(thread, event.Stop, 0)
-	f.h.ConsumeEvents()
+	f.consume()
 
 	restarted := &Handler{
 		Cfg: f.h.Cfg, API: f.api, Herdr: f.herdr.run,
@@ -236,8 +282,8 @@ func TestACorruptWaitingFileIsMovedAsideOnce(t *testing.T) {
 	os.WriteFile(f.h.Waits.Path, []byte("{not json"), 0o600)
 
 	f.event(thread, event.Stop, 0)
-	f.h.ConsumeEvents()
-	f.h.ConsumeEvents()
+	f.consume()
+	f.consume()
 
 	if n := strings.Count(logged.String(), "was corrupt"); n != 1 {
 		t.Errorf("said %d times", n)

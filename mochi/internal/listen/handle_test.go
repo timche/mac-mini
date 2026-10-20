@@ -481,7 +481,7 @@ func TestAFollowUpAnswersTheQuestionASessionIsWaitingOn(t *testing.T) {
 	f.h.Handle(first)
 	agent := "mochi-" + first.ID
 	f.event(first.ID, event.Ask, 0)
-	f.h.ConsumeEvents()
+	f.consume()
 	f.herdr.agents[agent] = "blocked"
 	f.herdr.escLag = 2
 

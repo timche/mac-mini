@@ -136,7 +136,7 @@ func TestNothingPostedNamesTheToolsBehindIt(t *testing.T) {
 			first := f.mention(channel, 1, tim, "start", nil)
 			f.h.Handle(first)
 			f.event(first.ID, event.Stop, 0)
-			f.h.ConsumeEvents()
+			f.consume()
 		},
 		"a follow-up to a session that ended": func(f *fixture) {
 			first := f.mention(channel, 1, tim, "start", nil)

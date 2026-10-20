@@ -1,0 +1,26 @@
+# Who mochi takes instructions from, and where each Discord server's sessions go. None of
+# it is a secret — a user id is on Tim's own profile and a guild id is in the URL of every
+# message in the server — so it is here rather than in 1Password, and the bot token that is
+# a secret is a reference in mochi.env.op beside the wrapper.
+#
+# Every id is a snowflake as a string: enable Developer Mode in Discord and copy it.
+#
+# user: the one account whose mention starts or feeds a session. Everybody else is
+#       ignored, bots included, and what they wrote reaches a session only as fenced data.
+#
+# [[server]], one per Discord server mochi is in:
+#   guild:     the server's id. A mention in a server with no entry here is ignored.
+#   workspace: the herdr workspace the session's tab goes in, found by its label and
+#              created when there is none.
+#   repo:      the checkout the tab starts in, so the session has that project's
+#              instructions loaded. `~/` is this account's home.
+#
+# README has the rest under mochi: the Discord application, its permissions, and the
+# 1Password item the token is in.
+
+user = "94004892942741504"
+
+[[server]]
+guild = "1220378778665095291"
+workspace = "repeek"
+repo = "~/projects/repeek"

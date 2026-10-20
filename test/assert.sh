@@ -576,6 +576,74 @@ check "the on-call guard refuses a call it cannot read rather than allowing it" 
      HACHIKO_ONCALL_SESSION=update python3 "$HOME/.claude/hooks/oncall-guard.py"
    [ $? -eq 2 ]'
 
+# Every session on this Mac runs its own copy of the same dev servers, so a process
+# picked by name, pattern or port is every session's copy of it. The hook answers with
+# a deny decision in JSON and says nothing at all about a command it lets through.
+killguard() {
+  jq -nc --arg value "$1" \
+    '{session_id:"t",hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$value}}' |
+    python3 "$HOME/.claude/hooks/kill-by-pid.py"
+}
+export -f killguard
+
+killdenied() {
+  killguard "$1" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null
+}
+export -f killdenied
+
+killallowed() { out=$(killguard "$1") && [ -z "$out" ]; }
+export -f killallowed
+
+check "the kill guard is wired to PreToolUse for Bash" \
+  'jq -e ".hooks.PreToolUse[] | select(.matcher == \"Bash\") | .hooks[].command | select(contains(\"kill-by-pid.py\"))" \
+     "$HOME/.claude/settings.json"'
+
+check "the kill guard refuses a kill by name or pattern wherever it runs" \
+  'killdenied "pkill -f \"portless/dist/cli.js\"" &&
+   killdenied "killall node" &&
+   killdenied "/usr/bin/pkill -9 vite" &&
+   killdenied "cd app && pkill -f vite" &&
+   killdenied "sudo -u root killall node" &&
+   killdenied "env FOO=1 pkill node" &&
+   killdenied "echo node | xargs pkill" &&
+   killdenied "echo \$(pkill -f x)" &&
+   killdenied "echo \`killall node\`" &&
+   killdenied "bash -c \"pkill -f vite\""'
+
+check "the kill guard refuses a kill whose pids come from pgrep, lsof, ps or fuser" \
+  'killdenied "kill \$(pgrep -f vite)" &&
+   killdenied "kill \"\$(pgrep node)\"" &&
+   killdenied "kill \`pidof node\`" &&
+   killdenied "kill -9 \$(lsof -ti :3000)" &&
+   killdenied "pgrep -f vite | xargs kill" &&
+   killdenied "lsof -ti:3000 | xargs kill" &&
+   killdenied "ps aux | grep x | awk '"'"'{print \$2}'"'"' | xargs kill" &&
+   killdenied "pid=\$(pgrep -f vite); kill \$pid" &&
+   killdenied "for p in \$(pgrep node); do kill \$p; done" &&
+   killdenied "pgrep node | while read p; do kill \$p; done" &&
+   killdenied "fuser -k 3000/tcp"'
+
+check "the kill guard allows a kill by pid and a pkill that is only text" \
+  'killallowed "kill 4242" &&
+   killallowed "kill -TERM 4242" &&
+   killallowed "kill %1" &&
+   killallowed "kill \"\$pid\"" &&
+   killallowed "kill \$PID" &&
+   killallowed "kill \$(cat /tmp/server.pid)" &&
+   killallowed "pgrep -f vite" &&
+   killallowed "lsof -ti :3000" &&
+   killallowed "pgrep -f vite | head -1; kill \$SERVER_PID" &&
+   killallowed "git commit -m \"never pkill\"" &&
+   killallowed "grep -n pkill file" &&
+   killallowed "cat <<EOF
+pkill -f vite
+EOF"'
+
+# A guard on every session'"'"'s shell that refused what it could not read would cost them
+# all their shell, so a command it cannot parse goes through.
+check "the kill guard lets through a command it cannot parse" \
+  'killallowed "echo \"unterminated" && printf "not json" | python3 "$HOME/.claude/hooks/kill-by-pid.py"'
+
 # Worktree isolation. A fixture repository with a linked worktree, built per
 # check rather than once, because the checks below are independent of each other.
 worktree_fixture() {

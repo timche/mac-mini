@@ -18,6 +18,9 @@ type Case struct {
 	Replied     string `json:"replied"`
 	Want        int    `json:"want"`
 	Decision    string `json:"decision,omitempty"`
+
+	// The type the work as a whole should be filed under, for a case labelled with one.
+	Type string `json:"type,omitempty"`
 }
 
 type Result struct {
@@ -30,6 +33,10 @@ type Result struct {
 	Pass         bool     `json:"pass"`
 	Title        string   `json:"title,omitempty"`
 	Titles       []string `json:"titles,omitempty"`
+	WantType     string   `json:"want_type,omitempty"`
+	Type         string   `json:"type,omitempty"`
+	Types        []string `json:"types,omitempty"`
+	TypePass     bool     `json:"type_pass,omitempty"`
 	Error        string   `json:"error,omitempty"`
 }
 
@@ -39,6 +46,11 @@ type Summary struct {
 	Cases   int     `json:"cases"`
 	Passed  int     `json:"passed"`
 	Seconds float64 `json:"seconds"`
+
+	// Of the cases labelled with a type, how many were filed under it; scored apart from
+	// Passed, which stays the decision and the count.
+	Typed      int `json:"typed"`
+	TypePassed int `json:"type_passed"`
 }
 
 // `mochi split-eval`: the cases as JSON lines in, a result per case and a summary out, through
@@ -64,7 +76,7 @@ func Eval(in io.Reader, out io.Writer, s Splitter, now func() time.Time) error {
 		}
 		start := now()
 		answer, err := s.Split(c.Instruction, replied)
-		r := Result{Case: n, Want: c.Want, WantDecision: c.Decision, Seconds: now().Sub(start).Seconds()}
+		r := Result{Case: n, Want: c.Want, WantDecision: c.Decision, WantType: c.Type, Seconds: now().Sub(start).Seconds()}
 
 		var tooMany TooMany
 		switch {
@@ -73,13 +85,20 @@ func Eval(in io.Reader, out io.Writer, s Splitter, now func() time.Time) error {
 		case err != nil:
 			r.Error = err.Error()
 		default:
-			r.Decision, r.Title = answer.Decision, answer.Title
+			r.Decision, r.Title, r.Type = answer.Decision, answer.Title, answer.Type
 			r.Got = len(answer.Tasks)
 			if answer.Decision == One {
 				r.Got = 1
 			}
 			for _, t := range answer.Tasks {
 				r.Titles = append(r.Titles, t.Title)
+				r.Types = append(r.Types, t.Type)
+			}
+		}
+		if c.Type != "" {
+			sum.Typed++
+			if r.TypePass = r.Error == "" && r.Type == c.Type; r.TypePass {
+				sum.TypePassed++
 			}
 		}
 		switch {

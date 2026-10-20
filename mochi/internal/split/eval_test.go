@@ -11,7 +11,7 @@ import (
 
 func TestEvalScoresEachCaseThroughTheProductionCall(t *testing.T) {
 	answers := []string{
-		`{"is_error":false,"structured_output":{"decision":"many","title":"AB","tasks":[{"title":"A","instruction":"research a"},{"title":"B","instruction":"research b"}]}}`,
+		`{"is_error":false,"structured_output":{"decision":"many","title":"AB","type":"research","tasks":[{"title":"A","instruction":"research a","type":"research"},{"title":"B","instruction":"research b","type":"research"}]}}`,
 		`{"is_error":false,"structured_output":{"decision":"one","title":"All","tasks":[{"title":"All","instruction":"research a and b"}]}}`,
 		`not json`,
 		`{"is_error":false,"structured_output":{"decision":"many","title":"x","tasks":[` + strings.Repeat(`{"title":"x","instruction":"y"},`, 5) + `{"title":"x","instruction":"y"}]}}`,
@@ -26,8 +26,8 @@ func TestEvalScoresEachCaseThroughTheProductionCall(t *testing.T) {
 	clock := time.Unix(0, 0)
 	now := func() time.Time { clock = clock.Add(time.Second); return clock }
 
-	in := strings.NewReader(`{"instruction":"research a and b separately","replied":"a) elo b) maps","want":2}
-{"instruction":"research a and b","want":2}
+	in := strings.NewReader(`{"instruction":"research a and b separately","replied":"a) elo b) maps","want":2,"type":"research"}
+{"instruction":"research a and b","want":2,"type":"bug"}
 {"instruction":"research a","want":1}
 {"instruction":"do six separately","want":6}
 `)
@@ -46,10 +46,11 @@ func TestEvalScoresEachCaseThroughTheProductionCall(t *testing.T) {
 		json.Unmarshal([]byte(line), &r)
 		results = append(results, r)
 	}
-	if !results[0].Pass || results[0].Got != 2 || results[0].Seconds != 1 || !reflect.DeepEqual(results[0].Titles, []string{"A", "B"}) {
+	if !results[0].Pass || results[0].Got != 2 || results[0].Seconds != 1 || !reflect.DeepEqual(results[0].Titles, []string{"A", "B"}) ||
+		!results[0].TypePass || !reflect.DeepEqual(results[0].Types, []string{"research", "research"}) {
 		t.Errorf("case 1 = %+v", results[0])
 	}
-	if results[1].Pass || results[1].Got != 1 {
+	if results[1].Pass || results[1].Got != 1 || results[1].TypePass || results[1].WantType != "bug" {
 		t.Errorf("case 2 = %+v", results[1])
 	}
 	if results[2].Pass || results[2].Error == "" {
@@ -61,7 +62,7 @@ func TestEvalScoresEachCaseThroughTheProductionCall(t *testing.T) {
 
 	var sum Summary
 	json.Unmarshal([]byte(lines[4]), &sum)
-	if sum != (Summary{Model: "haiku", Effort: "low", Cases: 4, Passed: 2, Seconds: 4}) {
+	if sum != (Summary{Model: "haiku", Effort: "low", Cases: 4, Passed: 2, Seconds: 4, Typed: 2, TypePassed: 1}) {
 		t.Errorf("summary = %+v", sum)
 	}
 

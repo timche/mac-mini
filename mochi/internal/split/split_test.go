@@ -55,9 +55,25 @@ func TestTheCallIsHeadlessWithNoToolsSettingsOrSession(t *testing.T) {
 		t.Errorf("the replied-to message is not fenced:\n%s", stdin)
 	}
 	for _, arg := range (*calls)[0].args {
-		if strings.Contains(arg, "research") {
+		if strings.Contains(arg, "a and b separately") {
 			t.Error("the instruction is in an argument rather than on stdin")
 		}
+	}
+}
+
+// Each task, and the work as a whole, comes back with its type; one that is none of the four
+// is no type, and a whole with none takes its first task's.
+func TestTypesComeBackAndAnUnknownOneIsNone(t *testing.T) {
+	s, _ := splitter(t, []byte(`{"is_error":false,"structured_output":{"decision":"many","title":"AB","type":"chore","tasks":[{"title":"A","instruction":"fix a","type":"bug"},{"title":"B","instruction":"look at b","type":"musing"}]}}`), nil)
+	got, err := s.Split("fix a, look at b", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Type != Bug || got.Tasks[0].Type != Bug || got.Tasks[1].Type != "" {
+		t.Errorf("types = %q, %q, %q", got.Type, got.Tasks[0].Type, got.Tasks[1].Type)
+	}
+	if !strings.Contains(Schema, `"required":["title","instruction","type"]`) {
+		t.Error("the schema does not ask each task for its type")
 	}
 }
 

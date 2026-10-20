@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/bwmarrin/discordgo"
+
 	"github.com/timche/mac-mini/mochi/internal/mark"
 	"github.com/timche/mac-mini/mochi/internal/split"
 )
@@ -115,4 +117,20 @@ func TestAFollowUpPutsTheSessionBackToRunning(t *testing.T) {
 	f.h.Marks.Settled(first.ID, mark.Finished)
 	f.shows(follow.ID, mark.Finished)
 	f.shows(first.ID, mark.Finished)
+}
+
+// A forum post Tim mentioned mochi in is the session's thread but not mochi's: its title stays.
+func TestAForumPostKeepsItsTitle(t *testing.T) {
+	f := newFixture(t)
+	f.api.AddChannel(&discordgo.Channel{ID: forum, GuildID: guild, Type: discordgo.ChannelTypeGuildForum})
+	f.api.AddChannel(&discordgo.Channel{ID: post, GuildID: guild, ParentID: forum, Name: "Bug: elo resets", Type: discordgo.ChannelTypeGuildPublicThread})
+	m := f.mention(post, 1, tim, "look into this", nil)
+
+	f.h.Handle(m)
+	f.h.Marks.Settled(post, mark.Finished)
+
+	if len(f.api.Renames) != 0 || f.api.Channels[post].Name != "Bug: elo resets" {
+		t.Errorf("renames %v", f.api.Renames)
+	}
+	f.shows(m.ID, mark.Finished)
 }

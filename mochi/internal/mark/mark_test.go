@@ -202,15 +202,14 @@ func TestA429IsOneLaterRenameWithTheLatestState(t *testing.T) {
 	}
 }
 
-// A thread mochi did not make, such as a forum post Tim mentioned it in, is tried once and
-// then left as it is.
-func TestAThreadThatIsNotMochisIsLeftAlone(t *testing.T) {
+// A thread mochi did not make, such as a forum post Tim mentioned it in, keeps the title its
+// author gave it: nothing even tries to rename it.
+func TestAThreadThatIsNotMochisIsNeverRenamed(t *testing.T) {
 	f := newFixture(t)
 	f.api.AddChannel(&discordgo.Channel{ID: "post", Name: "Bug: elo resets"})
-	f.k.Adopted("post", "Elo resets", "Bug: elo resets")
-	f.api.RenameErr["post"] = chat.ErrForbidden
 
 	f.k.Started("post", mention)
+	f.k.Settled("post", Asking)
 	f.k.Settled("post", Finished)
 	f.now = f.now.Add(time.Hour)
 	f.k.Retry()

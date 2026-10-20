@@ -96,20 +96,11 @@ func (k Marker) Set(ref state.Ref, emoji string) {
 	k.update(func(m *marks) { k.react(m, ref, emoji) })
 }
 
-// A thread mochi just made, under the name it gave it.
+// A thread mochi just made, under the name it gave it. Only these carry the state in their
+// name: a thread somebody else made keeps the title they gave it, so it is never named here.
 func (k Marker) Named(thread, title, name string) {
 	k.update(func(m *marks) {
 		m.Names[thread] = &Name{Title: title, Want: name, Have: name}
-	})
-}
-
-// A thread mochi did not make, which a session is in all the same: its name is tried once,
-// and left alone if Discord says it is not mochi's.
-func (k Marker) Adopted(thread, title, have string) {
-	k.update(func(m *marks) {
-		if m.Names[thread] == nil {
-			m.Names[thread] = &Name{Title: title, Have: have}
-		}
 	})
 }
 

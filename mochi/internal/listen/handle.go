@@ -273,9 +273,7 @@ func (h *Handler) begin(server config.Server, ch *discordgo.Channel, m *discordg
 
 	// A thread cannot hold a thread, so a mention inside one makes that thread the session's.
 	thread := ch.ID
-	if ch.IsThread() {
-		h.Marks.Adopted(thread, name, ch.Name)
-	} else {
+	if !ch.IsThread() {
 		threadName := mark.ThreadName(mark.Running, name)
 		opened, err := h.API.StartThread(m.ChannelID, m.ID, threadName)
 		if err != nil {

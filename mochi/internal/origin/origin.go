@@ -4,6 +4,7 @@ package origin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -40,21 +41,23 @@ func Of(path string) (string, error) {
 	}
 	repo, err := Parse(strings.TrimSpace(string(out)))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("the origin of %s is not a GitHub remote", path)
 	}
 	cache[path] = repo
 	return repo, nil
 }
 
-// A remote can carry credentials, https://user:token@host/…, which no error may echo and no
-// match needs.
+// A remote can carry credentials, https://user:token@host/…, which no match needs. Errors name
+// the checkout and never the remote, so even credentials too malformed to strip cannot leak.
 var userinfo = regexp.MustCompile(`\A([A-Za-z][A-Za-z0-9+.-]*://)[^/@]*@`)
+
+var ErrNotGitHub = errors.New("not a GitHub remote")
 
 func Parse(remote string) (string, error) {
 	remote = userinfo.ReplaceAllString(remote, "$1")
 	m := github.FindStringSubmatch(remote)
 	if m == nil {
-		return "", fmt.Errorf("%s is not a GitHub remote", remote)
+		return "", ErrNotGitHub
 	}
 	return m[1], nil
 }

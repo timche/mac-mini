@@ -51,8 +51,21 @@ func TestARemotesCredentialsAreNeverEchoed(t *testing.T) {
 	if got, err := Parse("https://" + userinfo + "github.com/timche/repeek.git"); err != nil || got != "timche/repeek" {
 		t.Errorf("%q, %v", got, err)
 	}
-	_, err := Parse("https://" + userinfo + "gitlab.com/timche/repeek.git")
-	if err == nil || strings.Contains(err.Error(), "not-a-real-token") || strings.Contains(err.Error(), "tim:") {
+	if _, err := Parse("https://" + userinfo + "gitlab.com/timche/repeek.git"); err != ErrNotGitHub {
+		t.Errorf("error = %v", err)
+	}
+
+	// A remote whose credentials are too malformed to strip is still never named: the error is
+	// about the checkout alone.
+	dir := t.TempDir()
+	malformed := "https://tim:" + "not-a-real" + "@token@" + "gitlab.com/timche/repeek.git"
+	for _, args := range [][]string{{"init", "-q", dir}, {"-C", dir, "remote", "add", "origin", malformed}} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	_, err := Of(dir)
+	if err == nil || err.Error() != "the origin of "+dir+" is not a GitHub remote" || strings.Contains(err.Error(), "not-a-real") {
 		t.Errorf("error = %v", err)
 	}
 }

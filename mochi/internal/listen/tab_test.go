@@ -23,8 +23,9 @@ func TestATabIsNamedForItsTitleAndNeverRepeatsOne(t *testing.T) {
 	if strings.Join(tabs[0][9:], " ") != "--env MOCHI_THREAD="+m.ID {
 		t.Errorf("env = %v", tabs[0][9:])
 	}
-	if posts := f.sentTo(m.ID); len(posts) != 1 || posts[0] != "session started in repeek: faceit-overlay-hover-2" {
-		t.Errorf("the ack names %q", posts)
+	// The label is for Tim in the terminal; Discord is told only that a session started.
+	if posts := f.sentTo(m.ID); len(posts) != 1 || posts[0] != "Session started." {
+		t.Errorf("the ack is %q", posts)
 	}
 	if !strings.Contains(onlyPrompt(t, f.herdr, "mochi-"+m.ID), "This tab is already named for the thread; don't rename it.") {
 		t.Error("the orders do not say to keep the tab's name")

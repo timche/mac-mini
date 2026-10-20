@@ -51,6 +51,9 @@ type fakeHerdr struct {
 	// Every tab's label, as `tab list` answers.
 	tabs []string
 
+	// Every prompt is refused, when set.
+	promptFails bool
+
 	// The nth start and every one after it fail, when set.
 	starts, failFrom int
 
@@ -107,6 +110,9 @@ func (f *fakeHerdr) run(args ...string) ([]byte, error) {
 		f.agents[args[2]] = "idle"
 		return answer(map[string]any{"result": map[string]any{}}), nil
 	case "agent prompt":
+		if f.promptFails {
+			return refusal("agent_prompt_failed"), nil
+		}
 		switch f.agents[args[2]] {
 		case "":
 			return refusal("agent_not_found"), nil
@@ -287,7 +293,7 @@ func TestAReplyToAnOldMessageStartsALeadSessionWithTheDiscussion(t *testing.T) {
 	}
 
 	thread := f.sentTo(m.ID)
-	if len(thread) != 1 || thread[0] != "session started in repeek: qol-a-average-elo-per-team-b-m" {
+	if len(thread) != 1 || thread[0] != "Session started." {
 		t.Errorf("thread posts = %q", thread)
 	}
 	rec := f.record(m.ID)
@@ -317,7 +323,7 @@ func TestAMentionInAForumPostUsesThatPostAsTheThread(t *testing.T) {
 	if !strings.Contains(context, "Bug: elo resets after a draw") || strings.Count(context, "me too") != 20 {
 		t.Errorf("the whole post is not in the context:\n%s", context)
 	}
-	if got := f.sentTo(post); len(got) != 1 || got[0] != "session started in repeek: look-into-this" {
+	if got := f.sentTo(post); len(got) != 1 || got[0] != "Session started." {
 		t.Errorf("post replies = %q", got)
 	}
 	if rec := f.record(post); rec.Source != post {
@@ -422,7 +428,7 @@ func TestARelayToASessionTimClosedStartsANewOneWithTheThread(t *testing.T) {
 		t.Error("the thread is not the new session's context")
 	}
 	posts := f.sentTo(thread)
-	if len(posts) != 2 || !strings.HasPrefix(posts[1], "the previous session is gone, so a new one started in repeek: ") {
+	if len(posts) != 2 || posts[1] != "The previous session ended, so a new one started." {
 		t.Errorf("thread posts = %q", posts)
 	}
 	if rec := f.record(thread); rec.Source != channel || rec.LastMention != follow.ID {
@@ -443,7 +449,7 @@ func TestARelayToABlockedSessionFailsWithAReason(t *testing.T) {
 		t.Error("no ❌")
 	}
 	posts := f.sentTo(first.ID)
-	if !strings.Contains(posts[len(posts)-1], "❌ the session is waiting on a question in repeek: research-a") {
+	if !strings.Contains(posts[len(posts)-1], "❌ the session is waiting on a question; answer it in the session") {
 		t.Errorf("posts = %q", posts)
 	}
 	if f.record(first.ID).LastMention != first.ID {
@@ -480,7 +486,7 @@ func TestAHerdrFailureIsACrossAndAReason(t *testing.T) {
 		t.Errorf("reactions = %v", f.api.Reactions)
 	}
 	posts := f.sentTo(m.ID)
-	if len(posts) != 1 || posts[0] != "❌ Claude Code did not start in repeek: research" {
+	if len(posts) != 1 || posts[0] != "❌ the session could not be started" {
 		t.Errorf("thread posts = %q", posts)
 	}
 	if _, ok, _ := f.h.Store.Get(m.ID); ok {

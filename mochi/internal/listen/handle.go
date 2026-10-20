@@ -114,7 +114,7 @@ func (h *Handler) Handle(m *discordgo.Message) {
 
 	rec, found, err := h.Store.Get(m.ChannelID)
 	if err != nil {
-		h.fail(m, "", "mochi's state file could not be read", err)
+		h.fail(m, "", "mochi could not read its own notes", err)
 		return
 	}
 
@@ -292,7 +292,7 @@ func (h *Handler) begin(server config.Server, ch *discordgo.Channel, m *discordg
 		return
 	}
 
-	h.say(thread, fmt.Sprintf("session started in %s: %s", server.Workspace, session.Tab))
+	h.say(thread, "Session started.")
 	if alone != "" {
 		h.say(thread, alone)
 	}
@@ -306,7 +306,7 @@ func (h *Handler) relay(server config.Server, ch *discordgo.Channel, rec state.S
 		h.restart(server, ch, rec, m, instruction)
 		return
 	} else if err != nil {
-		h.fail(m, rec.Thread, "herdr could not be asked about the session", err)
+		h.fail(m, rec.Thread, "the session could not be reached", err)
 		return
 	}
 
@@ -318,13 +318,14 @@ func (h *Handler) relay(server config.Server, ch *discordgo.Channel, rec state.S
 
 	path, err := h.brief(rec.Thread, "relay-"+m.ID+".md", followUp(m, instruction, others, h.files(rec.Thread, others)))
 	if err != nil {
-		h.fail(m, rec.Thread, "the follow-up could not be written for the session", err)
+		h.fail(m, rec.Thread, "the follow-up could not be handed to the session", err)
 		return
 	}
 	err = herdr.Prompt(h.Herdr, rec.Agent, relayPrompt(path))
 	switch {
 	case errors.Is(err, herdr.ErrBlocked):
-		h.fail(m, rec.Thread, fmt.Sprintf("the session is waiting on a question in %s: %s, so this did not reach it — answer it there first", rec.Workspace, rec.Tab), nil)
+		h.Log.Info("a follow-up reached a session waiting on a question", "workspace", rec.Workspace, "tab", rec.Tab)
+		h.fail(m, rec.Thread, "the session is waiting on a question; answer it in the session", nil)
 		return
 	case err != nil:
 		h.fail(m, rec.Thread, "the message did not reach the session", err)
@@ -356,7 +357,7 @@ func (h *Handler) restart(server config.Server, ch *discordgo.Channel, rec state
 		return
 	}
 
-	h.say(rec.Thread, fmt.Sprintf("the previous session is gone, so a new one started in %s: %s", server.Workspace, rec.Tab))
+	h.say(rec.Thread, "The previous session ended, so a new one started.")
 	h.Marks.Started(rec.Thread, ref(m), rec.Origin)
 }
 
@@ -369,7 +370,7 @@ func (h *Handler) start(server config.Server, rec *state.Session, name, text str
 
 	workspace, err := herdr.Workspace(h.Herdr, server.Workspace, server.Repo)
 	if err != nil {
-		return h.herdrFailed("the herdr workspace could not be found or made", err)
+		return h.startFailed("the herdr workspace could not be found or made", notStarted, err)
 	}
 	taken, err := herdr.Tabs(h.Herdr, workspace)
 	if err != nil {
@@ -378,20 +379,20 @@ func (h *Handler) start(server config.Server, rec *state.Session, name, text str
 	rec.Tab = tabLabel(name, taken)
 	pane, err := herdr.Tab(h.Herdr, workspace, rec.Tab, server.Repo, ThreadVar+"="+rec.Thread)
 	if err != nil {
-		return h.herdrFailed("a herdr tab could not be opened", err)
+		return h.startFailed("a herdr tab could not be opened", notStarted, err)
 	}
 	if err := herdr.Start(h.Herdr, rec.Agent, pane); err != nil {
-		return h.herdrFailed("Claude Code did not start in "+rec.Workspace+": "+rec.Tab, err)
+		return h.startFailed("Claude Code did not start in "+rec.Workspace+": "+rec.Tab, notStarted, err)
 	}
 	if err := h.Store.Put(*rec); err != nil {
 		h.Log.Error("the session started but was not recorded, so a follow-up will start another", "thread", rec.Thread, "error", h.redact(err))
 	}
 	path, err := h.brief(rec.Thread, "brief.md", text)
 	if err != nil {
-		return h.herdrFailed("the brief for "+rec.Workspace+": "+rec.Tab+" could not be written", err)
+		return h.startFailed("the brief for "+rec.Workspace+": "+rec.Tab+" could not be written", notBriefed, err)
 	}
 	if err := herdr.Prompt(h.Herdr, rec.Agent, openingPrompt(path)); err != nil {
-		return h.herdrFailed("Claude Code started in "+rec.Workspace+": "+rec.Tab+" but the prompt did not reach it", err)
+		return h.startFailed("Claude Code started in "+rec.Workspace+": "+rec.Tab+" but the prompt did not reach it", notBriefed, err)
 	}
 	return nil
 }
@@ -416,9 +417,16 @@ func relayPrompt(path string) string {
 	return "Tim followed up in Discord: read " + path + " before anything else. It holds his message and the fenced Discord context since his last one."
 }
 
-func (h *Handler) herdrFailed(reason string, err error) error {
-	h.Log.Error(reason, "error", h.redact(err))
-	return errors.New(reason)
+// What Discord is told when a session does not start, which names none of the tools behind
+// it; the log has the detail.
+const (
+	notStarted = "the session could not be started"
+	notBriefed = "the session started but did not get its instructions"
+)
+
+func (h *Handler) startFailed(detail, public string, err error) error {
+	h.Log.Error(detail, "error", h.redact(err))
+	return errors.New(public)
 }
 
 func (h *Handler) files(thread string, set *gather.Set) gather.Files {

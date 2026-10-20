@@ -34,6 +34,7 @@ func TestTheOrdersSayWhenAndHowToPost(t *testing.T) {
 		"Post nothing else unprompted: no progress updates.",
 		"often not technical and without GitHub access",
 		"No links but the pull request --pr adds, no file paths, branch names, code or jargon, no secrets",
+		"Name none of the tools or services behind the work",
 	} {
 		if !strings.Contains(orders, want) {
 			t.Errorf("the orders lack %q", want)

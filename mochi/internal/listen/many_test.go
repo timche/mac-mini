@@ -91,7 +91,7 @@ func TestASplitIntoThreeOpensThreeThreadsAndTabsAndOneReply(t *testing.T) {
 		if !strings.Contains(context, "QOL: a) average elo") || !strings.Contains(prompt, fmt.Sprintf("works on task %d of them alone", i+1)) {
 			t.Errorf("task %d lacks the shared context or its place", i+1)
 		}
-		if posts := f.sentTo(thread.ID); len(posts) != 1 || !strings.HasPrefix(posts[0], "session started in repeek: ") {
+		if posts := f.sentTo(thread.ID); len(posts) != 1 || !strings.HasPrefix(posts[0], "Session started, for https://discord.com/channels/") {
 			t.Errorf("thread %d posts = %q", i+1, posts)
 		}
 		if rec := f.record(thread.ID); rec.Source != channel || rec.LastMention != m.ID {
@@ -133,7 +133,7 @@ func TestAStartThatFailsIsNamedInTheReplyAndCrossed(t *testing.T) {
 	f.h.Handle(m)
 
 	reply := f.sentTo(channel)
-	if len(reply) != 1 || strings.Count(reply[0], "❌") != 2 || !strings.Contains(reply[0], "Map stats: Claude Code did not start") {
+	if len(reply) != 1 || strings.Count(reply[0], "❌") != 2 || !strings.Contains(reply[0], "Map stats: the session could not be started") {
 		t.Errorf("reply = %q", reply)
 	}
 	if !f.api.ReactedWith(m.ID, "❌") || f.api.ReactedWith(m.ID, "⏳") {
@@ -164,11 +164,7 @@ func TestAClassifierThatFailsIsOneSessionAsBefore(t *testing.T) {
 		if got := strings.TrimSpace(between(t, prompt, "INSTRUCTION FROM TIM")); got != "research a, b and c separately" {
 			t.Errorf("%s: instruction = %q", name, got)
 		}
-		tab := "research-a-b-and-c-separately"
-		if name == "one task" {
-			tab = "research"
-		}
-		if posts := f.sentTo(m.ID); len(posts) != 1 || posts[0] != "session started in repeek: "+tab {
+		if posts := f.sentTo(m.ID); len(posts) != 1 || posts[0] != "Session started." {
 			t.Errorf("%s: posts = %q", name, posts)
 		}
 		if len(f.sentTo(channel)) != 0 || !f.api.ReactedWith(m.ID, "⏳") {

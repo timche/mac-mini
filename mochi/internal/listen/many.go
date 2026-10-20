@@ -129,7 +129,7 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 		}
 
 		// The thread's first post stands for its session: ⏳ while it works, ✅ when it is done.
-		ack, err := h.API.Send(thread.ID, chat.Quiet(fmt.Sprintf("session started in %s: %s, for %s", server.Workspace, session.Tab, chat.Link(m.GuildID, m.ChannelID, m.ID))))
+		ack, err := h.API.Send(thread.ID, chat.Quiet("Session started, for "+chat.Link(m.GuildID, m.ChannelID, m.ID)))
 		if err != nil {
 			h.Log.Error("could not post in the thread", "thread", thread.ID, "error", h.redact(err))
 		} else {

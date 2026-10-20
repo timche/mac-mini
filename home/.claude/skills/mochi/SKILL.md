@@ -36,7 +36,7 @@ mochi post --review --file before.png --file after.png <<'EOF'
 EOF
 ```
 
-`--file` attaches a file, up to ten, each within what the server takes for one file (10 MB, or 50 or 100 MB on a boosted server); mochi refuses one that is too large, and then say in the post that it is too large to attach. Files have to be inside this session's checkout or its scratch folder. If the project's own instructions say what to attach to review posts, follow them.
+`--file` attaches a file, up to ten, each within what the server takes for one file (10 MB, or 50 or 100 MB on a boosted server); mochi refuses one that is too large, and then say in the post that it is too large to attach. Files have to be inside this session's checkout or its scratch folder, and mochi refuses ones that look like secrets or local settings, as a guard against attaching the wrong file. If the project's own instructions say what to attach to review posts, follow them.
 
 - `--review` is a post that needs an answer from Tim or the team — a result ready for review, or a product question: the thread's name shows ❓.
 - `--done` is for a task complete with nothing left for Tim, such as after he said to merge and it merged: the name shows ✅.

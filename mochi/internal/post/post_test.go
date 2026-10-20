@@ -530,3 +530,22 @@ func TestTheCheckedFileIsTheOneSent(t *testing.T) {
 		t.Errorf("files = %v", got)
 	}
 }
+
+// Files each within the limit but over it together are refused as well.
+func TestFilesAreHeldToTheLimitTogether(t *testing.T) {
+	api, store := fixture(t)
+	dir := t.TempDir()
+	var files []string
+	for _, name := range []string{"a.mov", "b.mov"} {
+		p := filepath.Join(dir, name)
+		os.WriteFile(p, make([]byte, 6<<20), 0o644)
+		files = append(files, p)
+	}
+	err := Send(api, store, nil, repeek, thread, Post{Text: "x", Files: files, Roots: anywhere})
+	if err == nil || !strings.Contains(err.Error(), "12 MB together, over the 10 MB this server takes for one post") {
+		t.Errorf("refusal = %v", err)
+	}
+	if len(api.Sent) != 0 {
+		t.Error("a post too large together went up")
+	}
+}

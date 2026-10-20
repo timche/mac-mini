@@ -248,19 +248,27 @@ func inside(path string, bases []string) (string, error) {
 	return "", errors.New("is outside this session's checkout and its scratch folder, so it is not posted")
 }
 
-// Within what the server lets one file be, so a file too large says so before Discord refuses.
+// Within what the server lets one file be, and all of them together, which Discord may hold a
+// message to as well, so a post too large says so before Discord refuses.
 func checkSizes(files []string, limit int64) error {
+	var total int64
 	for _, file := range files {
 		info, err := os.Stat(file)
 		if err != nil {
 			return fmt.Errorf("%s is not a file", file)
 		}
 		if info.Size() > limit {
-			return fmt.Errorf("%s is %d MB, over the %d MB this server takes for one file: leave it off, and say in the post that it is too large to attach", file, (info.Size()+(1<<20)-1)>>20, limit>>20)
+			return fmt.Errorf("%s is %d MB, over the %d MB this server takes for one file: leave it off, and say in the post that it is too large to attach", file, mb(info.Size()), limit>>20)
 		}
+		total += info.Size()
+	}
+	if total > limit {
+		return fmt.Errorf("the files are %d MB together, over the %d MB this server takes for one post: post fewer, or say in the post that the rest is too large to attach", mb(total), limit>>20)
 	}
 	return nil
 }
+
+func mb(n int64) int64 { return (n + (1 << 20) - 1) >> 20 }
 
 func CheckFiles(files []string) error {
 	if len(files) > MaxFiles {

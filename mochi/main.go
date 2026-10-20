@@ -74,6 +74,12 @@ func run(args []string) error {
 		fmt.Print(usage)
 		return nil
 	}
+	// Left out of the usage: the listener runs it through the wrapper so that an edit is
+	// built, and it needs nothing else to have happened.
+	if len(args) > 0 && args[0] == "version" {
+		fmt.Println("mochi")
+		return nil
+	}
 
 	command := "listen"
 	if len(args) > 0 {

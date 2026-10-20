@@ -88,12 +88,16 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 	defer s.Close()
 
 	binary := self.Looking(self.Stat)
+	refresh := newRefresher(time.Now(), runWrapper(cfg.Home))
 	var pruned time.Time
 	for {
 		time.Sleep(beatEvery)
 
 		if connected(s) {
 			beat(cfg, time.Now())
+		}
+		if err := refresh.tick(time.Now()); err != nil {
+			log.Warn("the wrapper could not be run to pick up a change to mochi", "error", err)
 		}
 		if time.Since(pruned) > pruneEvery {
 			h.Prune(keepGone)

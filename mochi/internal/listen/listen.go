@@ -64,7 +64,9 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 	if err != nil {
 		return errors.New(chat.Redact(err, token))
 	}
-	s.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsMessageContent
+	// Guilds for each guild's roles and their changes, which is how a mention of mochi's
+	// managed role is recognised.
+	s.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsMessageContent
 
 	h := &Handler{
 		Cfg:   cfg,
@@ -86,6 +88,7 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 		log.Info("connected to Discord", "as", r.User.Username, "servers", len(r.Guilds))
 	})
 	s.AddHandler(func(_ *discordgo.Session, m *discordgo.MessageCreate) { h.Handle(m.Message) })
+	s.AddHandler(func(_ *discordgo.Session, e *discordgo.Event) { h.Gateway(e.Type, e.RawData) })
 
 	if err := s.Open(); err != nil {
 		log.Error("could not connect to Discord", "error", chat.Redact(err, token), "retry", retryAfter.String())

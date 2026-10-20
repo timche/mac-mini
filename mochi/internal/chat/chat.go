@@ -31,6 +31,9 @@ type API interface {
 	NewThread(channel, name string) (*discordgo.Channel, error)
 	Send(channel string, msg *discordgo.MessageSend) (*discordgo.Message, error)
 
+	// Every role of a guild, with the tags that say which one is a bot's.
+	Roles(guild string) ([]Role, error)
+
 	// An attachment's bytes off Discord's CDN, which needs no token.
 	Fetch(url string) (io.ReadCloser, error)
 }

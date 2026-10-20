@@ -34,6 +34,9 @@ type Fake struct {
 
 	Standalone []string
 
+	GuildRoles map[string][]chat.Role
+	RoleReads  int
+
 	ThreadErr  error
 	next       int
 	newThreads int
@@ -166,6 +169,15 @@ func (f *Fake) Send(channel string, msg *discordgo.MessageSend) (*discordgo.Mess
 	f.Sent = append(f.Sent, Sent{Channel: channel, Msg: msg, Files: files})
 	f.next++
 	return &discordgo.Message{ID: ID(900_000 + f.next), ChannelID: channel, Content: msg.Content}, nil
+}
+
+func (f *Fake) Roles(guild string) ([]chat.Role, error) {
+	f.RoleReads++
+	roles, ok := f.GuildRoles[guild]
+	if !ok {
+		return nil, fmt.Errorf("unknown guild %s", guild)
+	}
+	return roles, nil
 }
 
 func (f *Fake) Fetch(url string) (io.ReadCloser, error) {

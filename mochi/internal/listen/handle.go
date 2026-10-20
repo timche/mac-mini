@@ -4,6 +4,7 @@
 package listen
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -44,6 +45,11 @@ type Handler struct {
 	mu      sync.Mutex
 	bot     string
 	mention *regexp.Regexp
+
+	// The bot's managed role in each guild, by guild, once known; "" for a guild that has
+	// none. Kept current from the gateway, and read from Discord when a message needs it
+	// before the gateway has said.
+	roles map[string]string
 }
 
 func (h *Handler) SetBot(id string) {
@@ -68,12 +74,16 @@ func (h *Handler) Handle(m *discordgo.Message) {
 		return
 	}
 	server, ok := h.Cfg.Server(m.GuildID)
-	// The token form of a mention and not Discord's list of mentioned users, which also
-	// holds the author of any message replied to with the ping left on.
-	if !ok || h.mention == nil || !h.mention.MatchString(m.Content) {
+	if !ok || h.mention == nil {
 		return
 	}
-	instruction := strings.TrimSpace(h.mention.ReplaceAllString(m.Content, ""))
+	instruction, mentioned := h.mentioned(m)
+	if !mentioned {
+		if strings.Contains(strings.ToLower(m.Content), "mochi") {
+			h.Log.Info("a message from Tim names mochi without a mention mochi recognises, so it was ignored", "message", m.ID)
+		}
+		return
+	}
 
 	ch, err := h.API.Channel(m.ChannelID)
 	if err != nil {
@@ -93,6 +103,88 @@ func (h *Handler) Handle(m *discordgo.Message) {
 		return
 	}
 	h.open(server, ch, m, instruction)
+}
+
+// The token form of a mention and not Discord's lists of mentioned users and roles, which
+// also hold the author of any message replied to with the ping left on. Either the bot
+// itself or its own managed role, which Discord's autocomplete offers beside it; no other
+// role. The instruction is the message with every such mention taken out.
+func (h *Handler) mentioned(m *discordgo.Message) (string, bool) {
+	content := m.Content
+	found := h.mention.MatchString(content)
+	content = h.mention.ReplaceAllString(content, "")
+
+	if strings.Contains(content, "<@&") {
+		if role := h.botRole(m.GuildID); role != "" && strings.Contains(content, "<@&"+role+">") {
+			found = true
+			content = strings.ReplaceAll(content, "<@&"+role+">", "")
+		}
+	}
+	return strings.TrimSpace(content), found
+}
+
+func (h *Handler) botRole(guild string) string {
+	if role, known := h.roles[guild]; known {
+		return role
+	}
+	roles, err := h.API.Roles(guild)
+	if err != nil {
+		h.Log.Warn("the guild's roles could not be read, so a role mention of mochi is not recognised", "guild", guild, "error", h.redact(err))
+		return ""
+	}
+	h.setRole(guild, chat.BotRole(roles, h.bot))
+	return h.roles[guild]
+}
+
+func (h *Handler) setRole(guild, role string) {
+	if h.roles == nil {
+		h.roles = map[string]string{}
+	}
+	h.roles[guild] = role
+}
+
+// What the gateway says about roles: a guild's whole list when it becomes available, and
+// each role created, changed or deleted afterwards. discordgo's typed events drop the
+// tags, so these are read from the raw payload.
+func (h *Handler) Gateway(event string, data []byte) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.bot == "" {
+		return
+	}
+
+	switch event {
+	case "GUILD_CREATE":
+		var g struct {
+			ID    string      `json:"id"`
+			Roles []chat.Role `json:"roles"`
+		}
+		if json.Unmarshal(data, &g) == nil && g.ID != "" {
+			h.setRole(g.ID, chat.BotRole(g.Roles, h.bot))
+		}
+	case "GUILD_ROLE_CREATE", "GUILD_ROLE_UPDATE":
+		var e struct {
+			GuildID string    `json:"guild_id"`
+			Role    chat.Role `json:"role"`
+		}
+		if json.Unmarshal(data, &e) != nil || e.GuildID == "" {
+			return
+		}
+		switch {
+		case e.Role.BotID() == h.bot:
+			h.setRole(e.GuildID, e.Role.ID)
+		case h.roles[e.GuildID] == e.Role.ID:
+			h.setRole(e.GuildID, "")
+		}
+	case "GUILD_ROLE_DELETE":
+		var e struct {
+			GuildID string `json:"guild_id"`
+			RoleID  string `json:"role_id"`
+		}
+		if json.Unmarshal(data, &e) == nil && h.roles[e.GuildID] == e.RoleID {
+			h.setRole(e.GuildID, "")
+		}
+	}
 }
 
 func (h *Handler) open(server config.Server, ch *discordgo.Channel, m *discordgo.Message, instruction string) {

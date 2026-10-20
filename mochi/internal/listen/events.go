@@ -93,15 +93,10 @@ func (h *Handler) heard(thread string) {
 	if !ok {
 		return
 	}
-	w, known := waits[thread]
-	if !known || (w.Dead && w == (state.Wait{Dead: true})) {
+	if w, known := waits[thread]; !known || w.Dead {
 		return
 	}
-	if w.Dead {
-		waits[thread] = state.Wait{Dead: true}
-	} else {
-		delete(waits, thread)
-	}
+	delete(waits, thread)
 	h.saveWaits(waits)
 }
 

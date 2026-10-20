@@ -56,6 +56,7 @@ func Show(cfg config.Config, api chat.API, thread string, q Query, out io.Writer
 	if err != nil {
 		return err
 	}
+	set.Tim = cfg.User
 	msgs := set.Messages()
 	where := chat.Link(rec.Guild, rec.Source, "")
 	if len(msgs) == 0 {

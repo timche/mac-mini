@@ -59,6 +59,10 @@ type Set struct {
 
 	// mochi's own user, whose posts in a session's thread are the session's.
 	Self string
+
+	// Tim's account, labelled as the author of the instruction so a moderator who calls
+	// themselves Tim cannot pass for him.
+	Tim string
 }
 
 func NewSet(guild string) *Set {
@@ -124,6 +128,7 @@ func (s *Set) Messages() []*discordgo.Message {
 // the instruction and is not part of the context.
 func Reply(api chat.API, mention *discordgo.Message) (*Set, error) {
 	set := NewSet(mention.GuildID)
+	set.Tim = authorID(mention)
 	channel := mention.ChannelID
 
 	target, err := Referenced(api, mention)
@@ -196,6 +201,7 @@ func Reply(api chat.API, mention *discordgo.Message) (*Set, error) {
 // focus is the starter and the mention itself, with what it replies to.
 func Thread(api chat.API, thread *discordgo.Channel, mention *discordgo.Message) (*Set, error) {
 	set := NewSet(mention.GuildID)
+	set.Tim = authorID(mention)
 
 	page, err := api.Messages(thread.ID, ThreadWindow, mention.ID, "", "")
 	if err != nil {
@@ -234,6 +240,7 @@ func Thread(api chat.API, thread *discordgo.Channel, mention *discordgo.Message)
 // last few messages of it the focus.
 func Channel(api chat.API, mention *discordgo.Message) (*Set, error) {
 	set := NewSet(mention.GuildID)
+	set.Tim = authorID(mention)
 
 	page, err := api.Messages(mention.ChannelID, ChannelWindow, mention.ID, "", "")
 	if err != nil {
@@ -255,6 +262,7 @@ func Channel(api chat.API, mention *discordgo.Message) (*Set, error) {
 // so it can tell what it said from what was said back.
 func Since(api chat.API, thread, after string, mention *discordgo.Message, self string) (*Set, error) {
 	set := NewSet(mention.GuildID)
+	set.Tim = authorID(mention)
 	set.Self = self
 
 	for page := 0; page < laterPages; page++ {
@@ -396,9 +404,20 @@ func quote(text string) string {
 
 // A display name is the author's to choose, so it is one line, without the characters that
 // frame a record, and followed by the account id it cannot choose.
+func authorID(m *discordgo.Message) string {
+	if m.Author == nil {
+		return ""
+	}
+	return m.Author.ID
+}
+
 func (s *Set) author(m *discordgo.Message) string {
-	if s.Self != "" && m.Author != nil && m.Author.ID == s.Self {
+	switch {
+	case m.Author == nil:
+	case s.Self != "" && m.Author.ID == s.Self:
 		return "mochi (this session)"
+	case s.Tim != "" && m.Author.ID == s.Tim:
+		return "Tim (instruction author)"
 	}
 	return author(m)
 }

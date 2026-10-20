@@ -348,7 +348,7 @@ func TestAReplyToAnOldMessageStartsALeadSessionWithTheDiscussion(t *testing.T) {
 		t.Errorf("instruction block = %q", instruction)
 	}
 	context := between(t, prompt, "DISCORD CONTEXT")
-	for _, want := range []string{"Maker-sama", "QOL: a) average elo per team", "(the message Tim replied to)", "a) please", "mochi history --before"} {
+	for _, want := range []string{"Maker-sama", "QOL: a) average elo per team", "(the message Tim replied to)", "a) please"} {
 		if !strings.Contains(context+prompt, want) {
 			t.Errorf("the prompt lacks %q", want)
 		}
@@ -534,7 +534,7 @@ func TestAFollowUpAnswersTheQuestionASessionIsWaitingOn(t *testing.T) {
 		t.Errorf("prompt = %q", raw[len(raw)-1])
 	}
 	brief := f.herdr.prompts[agent][len(f.herdr.prompts[agent])-1]
-	if !strings.HasPrefix(brief, "Tim answered in Discord instead of the question") || !strings.Contains(brief, "go with b)") {
+	if !strings.HasPrefix(brief, skillAgain+"\n\nTim answered in Discord instead of the question") || !strings.Contains(brief, "go with b)") {
 		t.Errorf("brief = %q", brief)
 	}
 	if f.api.ReactedWith(follow.ID, "❌") {

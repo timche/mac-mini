@@ -27,7 +27,7 @@ func TestASessionIsPastedOneLineThatNamesItsBrief(t *testing.T) {
 		t.Fatalf("pasted %d prompts", len(raw))
 	}
 	path := filepath.Join(f.cfg.SessionDir(m.ID), "brief.md")
-	want := "/lead Tim mentioned mochi in Discord. Your brief is " + path + "; read all of it before anything else. It holds his instruction and the fenced Discord context, with the rules for both."
+	want := "/lead Tim mentioned mochi in Discord. Your brief is " + path + "; read all of it before anything else. It holds his instruction and the fenced Discord context, and says which skill to load first."
 	if raw[0] != want {
 		t.Errorf("pasted:\n%s\nwant:\n%s", raw[0], want)
 	}

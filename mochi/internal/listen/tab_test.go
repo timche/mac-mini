@@ -27,8 +27,8 @@ func TestATabIsNamedForItsTitleAndNeverRepeatsOne(t *testing.T) {
 	if posts := f.sentTo(m.ID); len(posts) != 1 || posts[0] != startedPost(m.ID) {
 		t.Errorf("the ack is %q", posts)
 	}
-	if !strings.Contains(onlyPrompt(t, f.herdr, "mochi-"+m.ID), "This tab is already named for the thread; don't rename it.") {
-		t.Error("the orders do not say to keep the tab's name")
+	if !strings.Contains(skill(t), "This tab is already named for the thread; don't rename it.") {
+		t.Error("the skill does not say to keep the tab's name")
 	}
 }
 

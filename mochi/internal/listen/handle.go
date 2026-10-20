@@ -22,6 +22,7 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/fence"
 	"github.com/timche/mac-mini/mochi/internal/gather"
 	"github.com/timche/mac-mini/mochi/internal/herdr"
+	"github.com/timche/mac-mini/mochi/internal/mark"
 	"github.com/timche/mac-mini/mochi/internal/split"
 	"github.com/timche/mac-mini/mochi/internal/state"
 )
@@ -45,6 +46,9 @@ type Handler struct {
 
 	// The questions asked and not yet answered.
 	Pending state.PendingStore
+
+	// What each message's reaction and each thread's name say about its session.
+	Marks mark.Marker
 
 	// One mention at a time: each is a handful of Discord calls and a herdr start, and two
 	// at once would race on the state file and on the agent name.
@@ -114,7 +118,7 @@ func (h *Handler) Handle(m *discordgo.Message) {
 		return
 	}
 
-	h.react(m, chat.Eyes)
+	h.Marks.Set(ref(m), mark.Seen)
 	if found {
 		h.relay(server, ch, rec, m, instruction)
 		return
@@ -269,18 +273,23 @@ func (h *Handler) begin(server config.Server, ch *discordgo.Channel, m *discordg
 
 	// A thread cannot hold a thread, so a mention inside one makes that thread the session's.
 	thread := ch.ID
-	if !ch.IsThread() {
-		opened, err := h.API.StartThread(m.ChannelID, m.ID, threadName(name))
+	if ch.IsThread() {
+		h.Marks.Adopted(thread, name, ch.Name)
+	} else {
+		threadName := mark.ThreadName(mark.Running, name)
+		opened, err := h.API.StartThread(m.ChannelID, m.ID, threadName)
 		if err != nil {
 			h.fail(m, "", "a thread could not be opened on this message", err)
 			return
 		}
 		thread = opened.ID
+		h.Marks.Named(thread, name, threadName)
 	}
 
-	session := state.Session{Thread: thread, Source: ch.ID, Guild: m.GuildID, LastMention: m.ID}
+	session := state.Session{Thread: thread, Source: ch.ID, Guild: m.GuildID, LastMention: m.ID, Origin: ref(m)}
 	text := opening(ch, m, instruction, set, h.files(thread, set), "", "")
 	if err := h.start(server, &session, name, text); err != nil {
+		h.Marks.Failed(thread, ref(m))
 		h.fail(m, thread, err.Error(), nil)
 		return
 	}
@@ -289,7 +298,7 @@ func (h *Handler) begin(server config.Server, ch *discordgo.Channel, m *discordg
 	if alone != "" {
 		h.say(thread, alone)
 	}
-	h.react(m, chat.Check)
+	h.Marks.Started(thread, ref(m))
 }
 
 // Tim's message goes to the session with what everybody else wrote in the thread since his
@@ -328,7 +337,7 @@ func (h *Handler) relay(server config.Server, ch *discordgo.Channel, rec state.S
 	if err := h.Store.Put(rec); err != nil {
 		h.Log.Error("the relay was delivered but not recorded", "thread", rec.Thread, "error", h.redact(err))
 	}
-	h.react(m, chat.Check)
+	h.Marks.Started(rec.Thread, ref(m), rec.Origin)
 }
 
 // The session Tim closed is replaced by one that reads the whole thread, so nothing said in
@@ -343,13 +352,14 @@ func (h *Handler) restart(server config.Server, ch *discordgo.Channel, rec state
 	rec.LastMention = m.ID
 	note := "The session that was working on this thread has gone, so this is a new one: the thread so far is the context."
 	text := opening(ch, m, instruction, set, h.files(rec.Thread, set), note, "")
-	if err := h.start(server, &rec, strings.TrimPrefix(ch.Name, "mochi: "), text); err != nil {
+	if err := h.start(server, &rec, mark.Title(ch.Name), text); err != nil {
+		h.Marks.Failed(rec.Thread, ref(m))
 		h.fail(m, rec.Thread, err.Error(), nil)
 		return
 	}
 
 	h.say(rec.Thread, fmt.Sprintf("the previous session is gone, so a new one started in %s: %s", server.Workspace, rec.Tab))
-	h.react(m, chat.Check)
+	h.Marks.Started(rec.Thread, ref(m), rec.Origin)
 }
 
 // The record is written as soon as the agent exists, so a follow-up finds it even when the
@@ -421,7 +431,7 @@ func (h *Handler) files(thread string, set *gather.Set) gather.Files {
 // Tim's message when there is not.
 func (h *Handler) fail(m *discordgo.Message, thread, reason string, err error) {
 	h.Log.Error(reason, "message", m.ID, "error", h.redact(err))
-	h.react(m, chat.Cross)
+	h.Marks.Set(ref(m), mark.Failed)
 
 	line := chat.Quiet("❌ " + reason)
 	target := thread
@@ -440,10 +450,8 @@ func (h *Handler) say(thread, text string) {
 	}
 }
 
-func (h *Handler) react(m *discordgo.Message, emoji string) {
-	if err := h.API.React(m.ChannelID, m.ID, emoji); err != nil {
-		h.Log.Warn("could not react", "emoji", emoji, "error", h.redact(err))
-	}
+func ref(m *discordgo.Message) state.Ref {
+	return state.Ref{Channel: m.ChannelID, Message: m.ID}
 }
 
 func (h *Handler) redact(err error) string { return chat.Redact(err, h.Token) }
@@ -502,16 +510,4 @@ func tabLabel(name string, taken []string) string {
 			return label
 		}
 	}
-}
-
-func threadName(name string) string {
-	line, _, _ := strings.Cut(name, "\n")
-	line = strings.TrimSpace(line)
-	if r := []rune(line); len(r) > 90 {
-		line = string(r[:90]) + "…"
-	}
-	if line == "" {
-		return "mochi"
-	}
-	return "mochi: " + line
 }

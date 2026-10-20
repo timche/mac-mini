@@ -13,8 +13,10 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/chat/chattest"
 	"github.com/timche/mac-mini/mochi/internal/config"
+	"github.com/timche/mac-mini/mochi/internal/mark"
 	"github.com/timche/mac-mini/mochi/internal/state"
 )
 
@@ -183,6 +185,7 @@ func newFixture(t *testing.T) *fixture {
 		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Token:   "secret-token",
 	}
+	h.Marks = mark.Marker{API: api, Path: cfg.MarksPath(), Now: func() time.Time { return h.Now() }, Log: h.Log}
 	h.SetBot(bot.ID)
 	return &fixture{t: t, api: api, herdr: hd, h: h, cfg: cfg}
 }
@@ -248,10 +251,10 @@ func TestAReplyToAnOldMessageStartsALeadSessionWithTheDiscussion(t *testing.T) {
 
 	f.h.Handle(m)
 
-	if !f.api.ReactedWith(m.ID, "👀") || !f.api.ReactedWith(m.ID, "✅") || f.api.ReactedWith(m.ID, "❌") {
+	if !f.api.ReactedWith(m.ID, "👀") || !f.api.ReactedWith(m.ID, "⏳") || f.api.ReactedWith(m.ID, "❌") {
 		t.Errorf("reactions = %v", f.api.Reactions)
 	}
-	if len(f.api.Threads) != 1 || f.api.Threads[0] != m.ID+" mochi: QOL: a) average elo per team b) map stats" {
+	if len(f.api.Threads) != 1 || f.api.Threads[0] != m.ID+" ⏳ QOL: a) average elo per team b) map stats" {
 		t.Errorf("threads = %v", f.api.Threads)
 	}
 
@@ -379,7 +382,7 @@ func TestAMentionInASessionThreadIsRelayedWithOthersMessages(t *testing.T) {
 	if strings.Count(relay, "----- END DISCORD CONTEXT") != 1 {
 		t.Error("a moderator's message closed the fence")
 	}
-	if !f.api.ReactedWith(follow.ID, "✅") || f.record(thread).LastMention != follow.ID {
+	if !f.api.ReactedWith(follow.ID, "⏳") || f.record(thread).LastMention != follow.ID {
 		t.Error("the relay was not acknowledged or recorded")
 	}
 
@@ -473,7 +476,7 @@ func TestAHerdrFailureIsACrossAndAReason(t *testing.T) {
 
 	f.h.Handle(m)
 
-	if !f.api.ReactedWith(m.ID, "❌") || f.api.ReactedWith(m.ID, "✅") {
+	if !f.api.ReactedWith(m.ID, "❌") || f.api.ReactedWith(m.ID, "⏳") {
 		t.Errorf("reactions = %v", f.api.Reactions)
 	}
 	posts := f.sentTo(m.ID)
@@ -601,6 +604,7 @@ func TestAThreadTitleNeverReachesTheOrders(t *testing.T) {
 	f.api.AddChannel(&discordgo.Channel{ID: post, GuildID: guild, ParentID: forum, Name: title, Type: discordgo.ChannelTypeGuildPublicThread})
 	starter := f.api.Post(post, 0, imp, "see the title")
 	starter.ID = post
+	f.api.RenameErr[post] = chat.ErrForbidden
 
 	f.h.Handle(f.mention(post, 1, tim, "look into this", nil))
 	delete(f.herdr.agents, "mochi-"+post)

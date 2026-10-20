@@ -77,7 +77,7 @@ func TestAnUnclearMentionIsAQuestionWithAButtonPerAnswer(t *testing.T) {
 	if len([]rune(b[0].Label)) > 80 || b[0].Disabled {
 		t.Errorf("label %q", b[0].Label)
 	}
-	if !f.api.ReactedWith(m.ID, "👀") || f.api.ReactedWith(m.ID, "✅") {
+	if !f.api.ReactedWith(m.ID, "👀") || f.api.ReactedWith(m.ID, "⏳") {
 		t.Errorf("reactions = %v", f.api.Reactions)
 	}
 	if len(f.pending()) != 1 {
@@ -106,7 +106,7 @@ func TestTimPressingSeparateStartsOneSessionPerItem(t *testing.T) {
 	if len(f.api.Standalone) != 3 || len(f.herdr.called("tab create")) != 3 {
 		t.Errorf("threads %v", f.api.Standalone)
 	}
-	if !f.api.ReactedWith(m.ID, "✅") || len(f.pending()) != 0 {
+	if !f.api.ReactedWith(m.ID, "⏳") || len(f.pending()) != 0 {
 		t.Error("the answer was not finished")
 	}
 }
@@ -117,14 +117,14 @@ func TestTimPressingOneStartsOneSessionNamedForTheWhole(t *testing.T) {
 
 	press(f, tim, b[1].CustomID)
 
-	if len(f.api.Threads) != 1 || f.api.Threads[0] != m.ID+" mochi: QOL suggestions" || len(f.api.Standalone) != 0 {
+	if len(f.api.Threads) != 1 || f.api.Threads[0] != m.ID+" ⏳ QOL suggestions" || len(f.api.Standalone) != 0 {
 		t.Errorf("threads %v, standalone %v", f.api.Threads, f.api.Standalone)
 	}
 	prompt := onlyPrompt(t, f.herdr, "mochi-"+m.ID)
 	if got := strings.TrimSpace(between(t, prompt, "INSTRUCTION FROM TIM")); got != "take a look at the three suggestions" {
 		t.Errorf("instruction = %q", got)
 	}
-	if *f.api.Edits[0].Content != question+" 1 session." || !f.api.ReactedWith(m.ID, "✅") {
+	if *f.api.Edits[0].Content != question+" 1 session." || !f.api.ReactedWith(m.ID, "⏳") {
 		t.Error("the answer was not shown or finished")
 	}
 }
@@ -229,12 +229,13 @@ func TestAnAnswerIsTakenAfterARestart(t *testing.T) {
 		Store: f.h.Store, Pending: f.h.Pending,
 		Now: f.h.Now, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
+	restarted.Marks = f.h.Marks
 	restarted.SetBot(bot.ID)
 	f.h = restarted
 
 	press(f, tim, b[0].CustomID)
 
-	if len(f.api.Standalone) != 3 || !f.api.ReactedWith(m.ID, "✅") {
+	if len(f.api.Standalone) != 3 || !f.api.ReactedWith(m.ID, "⏳") {
 		t.Errorf("after a restart: %v", f.api.Standalone)
 	}
 }

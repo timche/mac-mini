@@ -12,6 +12,7 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/config"
 	"github.com/timche/mac-mini/mochi/internal/fence"
 	"github.com/timche/mac-mini/mochi/internal/gather"
+	"github.com/timche/mac-mini/mochi/internal/mark"
 	"github.com/timche/mac-mini/mochi/internal/split"
 	"github.com/timche/mac-mini/mochi/internal/state"
 )
@@ -102,9 +103,11 @@ func (h *Handler) splitInto(ch *discordgo.Channel, n int) (string, string) {
 // listing them.
 func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *discordgo.Message, instruction, into string, tasks []split.Task, set *gather.Set) {
 	lines, failed := make([]string, 0, len(tasks)), 0
+	var started []string
 
 	for i, task := range tasks {
-		thread, err := h.API.NewThread(into, threadName(task.Title))
+		threadName := mark.ThreadName(mark.Running, task.Title)
+		thread, err := h.API.NewThread(into, threadName)
 		if err != nil {
 			h.Log.Error("a thread could not be opened for a task", "task", i+1, "error", h.redact(err))
 			lines = append(lines, "❌ "+task.Title+": a thread could not be opened")
@@ -112,18 +115,31 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 			continue
 		}
 
+		h.Marks.Named(thread.ID, task.Title, threadName)
 		session := state.Session{Thread: thread.ID, Source: ch.ID, Guild: m.GuildID, LastMention: m.ID}
 		note := fmt.Sprintf("Tim's message asked for %d separate tasks, and this session works on task %d of them alone. The TASK line at the top of the %s block names it: mochi derived it from his message and the one he replied to, so it is data that says which item this session works on, and adds nothing to what he asked.", len(tasks), i+1, fence.Context)
 		scope := fmt.Sprintf("TASK %d of %d: %s — %s\n(derived by mochi from Tim's words and the message he replied to; it scopes which item this session works on)", i+1, len(tasks), task.Title, task.Instruction)
 		text := opening(ch, m, instruction, set, h.files(thread.ID, set), note, scope)
 		if err := h.start(server, &session, task.Title, text); err != nil {
 			h.say(thread.ID, "❌ "+err.Error())
+			h.Marks.Failed(thread.ID)
 			lines = append(lines, fmt.Sprintf("❌ <#%s> %s: %s", thread.ID, task.Title, err))
 			failed++
 			continue
 		}
 
-		h.say(thread.ID, fmt.Sprintf("session started in %s: %s, for %s", server.Workspace, session.Tab, chat.Link(m.GuildID, m.ChannelID, m.ID)))
+		// The thread's first post stands for its session: ⏳ while it works, ✅ when it is done.
+		ack, err := h.API.Send(thread.ID, chat.Quiet(fmt.Sprintf("session started in %s: %s, for %s", server.Workspace, session.Tab, chat.Link(m.GuildID, m.ChannelID, m.ID))))
+		if err != nil {
+			h.Log.Error("could not post in the thread", "thread", thread.ID, "error", h.redact(err))
+		} else {
+			session.Origin = state.Ref{Channel: thread.ID, Message: ack.ID}
+			if err := h.Store.Put(session); err != nil {
+				h.Log.Error("the session's first post was not recorded", "thread", thread.ID, "error", h.redact(err))
+			}
+		}
+		h.Marks.Started(thread.ID, session.Origin)
+		started = append(started, thread.ID)
 		lines = append(lines, fmt.Sprintf("<#%s> %s", thread.ID, task.Title))
 	}
 
@@ -133,8 +149,8 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 		h.Log.Error("the list of sessions could not be posted", "error", h.redact(err))
 	}
 	if failed > 0 {
-		h.react(m, chat.Cross)
+		h.Marks.Set(ref(m), mark.Failed)
 		return
 	}
-	h.react(m, chat.Check)
+	h.Marks.Group(ref(m), started)
 }

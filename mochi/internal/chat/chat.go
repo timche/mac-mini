@@ -25,6 +25,13 @@ type API interface {
 	Messages(channel string, limit int, before, after, around string) ([]*discordgo.Message, error)
 
 	React(channel, message, emoji string) error
+
+	// Takes back a reaction of mochi's own, and nobody else's.
+	Unreact(channel, message, emoji string) error
+
+	// A thread's new name. ErrRateLimited when Discord says to wait, ErrForbidden when the
+	// thread is not mochi's to rename.
+	RenameThread(thread, name string) error
 	StartThread(channel, message, name string) (*discordgo.Channel, error)
 
 	// A public thread on no message, which is how one mention gets several.
@@ -147,6 +154,36 @@ func (l Live) Messages(channel string, limit int, before, after, around string) 
 
 func (l Live) React(channel, message, emoji string) error {
 	return l.S.MessageReactionAdd(channel, message, emoji)
+}
+
+func (l Live) Unreact(channel, message, emoji string) error {
+	return l.S.MessageReactionRemove(channel, message, emoji, "@me")
+}
+
+var (
+	ErrRateLimited = errors.New("Discord asked to wait before renaming again")
+	ErrForbidden   = errors.New("the thread is not mochi's to rename")
+)
+
+// Without discordgo's own retry, which would wait out a ten-minute rename limit inside the
+// call; the caller schedules the rename instead.
+func (l Live) RenameThread(thread, name string) error {
+	_, err := l.S.ChannelEditComplex(thread, &discordgo.ChannelEdit{Name: name}, discordgo.WithRetryOnRatelimit(false))
+	var limited *discordgo.RateLimitError
+	var rest *discordgo.RESTError
+	switch {
+	case err == nil:
+		return nil
+	case errors.As(err, &limited):
+		return ErrRateLimited
+	case errors.As(err, &rest) && rest.Response != nil && rest.Response.StatusCode == http.StatusTooManyRequests:
+		return ErrRateLimited
+	case errors.As(err, &rest) && rest.Response != nil && rest.Response.StatusCode == http.StatusForbidden:
+		return ErrForbidden
+	case errors.As(err, &rest) && rest.Message != nil && (rest.Message.Code == discordgo.ErrCodeMissingAccess || rest.Message.Code == discordgo.ErrCodeMissingPermissions):
+		return ErrForbidden
+	}
+	return err
 }
 
 // A day, which is long enough for a session's findings to land in a thread Discord has not

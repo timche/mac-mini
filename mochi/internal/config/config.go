@@ -73,6 +73,9 @@ func (c Config) Heartbeat() string { return filepath.Join(c.CacheDir, "heartbeat
 // the answer.
 func (c Config) PendingPath() string { return filepath.Join(c.CacheDir, "pending.json") }
 
+// What mochi's reactions and thread names show, shared by the listener and `mochi post`.
+func (c Config) MarksPath() string { return filepath.Join(c.CacheDir, "marks.json") }
+
 // The marker the outer half leaves before it hands over to `op run`, which the inner half
 // removes once it has a token: one still there on the next start means 1Password did not
 // answer last time.

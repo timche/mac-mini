@@ -24,7 +24,17 @@ type Session struct {
 
 	// Tim's last mention in the thread, so a relay carries only what others wrote since.
 	LastMention string `json:"last_mention"`
-	Updated     int64  `json:"updated"`
+
+	// The message whose reaction says how this session is doing: Tim's mention, or for one
+	// of several sessions the first post in its own thread.
+	Origin  Ref   `json:"origin,omitempty"`
+	Updated int64 `json:"updated"`
+}
+
+// A message, by where it is.
+type Ref struct {
+	Channel string `json:"channel"`
+	Message string `json:"message"`
 }
 
 type Store struct{ Path string }

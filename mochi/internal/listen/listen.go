@@ -13,6 +13,7 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/config"
 	"github.com/timche/mac-mini/mochi/internal/herdr"
+	"github.com/timche/mac-mini/mochi/internal/mark"
 	"github.com/timche/mac-mini/mochi/internal/op"
 	"github.com/timche/mac-mini/mochi/internal/self"
 	"github.com/timche/mac-mini/mochi/internal/split"
@@ -74,6 +75,7 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 		Herdr:   herdr.CLI,
 		Store:   state.Store{Path: cfg.StatePath()},
 		Pending: state.PendingStore{Path: cfg.PendingPath()},
+		Marks:   mark.Marker{API: chat.NewLive(s), Path: cfg.MarksPath(), Now: time.Now, Log: log},
 		Now:     time.Now,
 		Log:     log,
 		Token:   token,
@@ -111,6 +113,7 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 			beat(cfg, time.Now())
 		}
 		h.ExpirePending()
+		h.Marks.Retry()
 		if err := refresh.tick(time.Now()); err != nil {
 			log.Warn("the wrapper could not be run to pick up a change to mochi", "error", err)
 		}

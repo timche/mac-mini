@@ -10,6 +10,7 @@ import (
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/fence"
+	"github.com/timche/mac-mini/mochi/internal/mark"
 	"github.com/timche/mac-mini/mochi/internal/split"
 	"github.com/timche/mac-mini/mochi/internal/state"
 )
@@ -42,6 +43,7 @@ func (h *Handler) ask(m *discordgo.Message, instruction string, answer split.Ans
 		return
 	}
 	p.Question = posted.ID
+	h.Marks.Set(ref(m), mark.Asking)
 	if err := h.Pending.Put(p); err != nil {
 		h.closeQuestion(p, question+" It could not be kept — mention mochi again.")
 		h.fail(m, "", "the question could not be kept", err)

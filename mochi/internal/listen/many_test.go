@@ -67,7 +67,7 @@ func TestASplitIntoThreeOpensThreeThreadsAndTabsAndOneReply(t *testing.T) {
 	if len(f.api.Threads) != 0 {
 		t.Errorf("a thread was opened on Tim's message: %v", f.api.Threads)
 	}
-	if len(f.api.Standalone) != 3 || f.api.Standalone[0] != channel+" mochi: Average elo per team" {
+	if len(f.api.Standalone) != 3 || f.api.Standalone[0] != channel+" ⏳ Average elo per team" {
 		t.Fatalf("threads = %v", f.api.Standalone)
 	}
 	if got := f.herdr.called("tab create"); len(got) != 3 || got[0][5] != "average-elo-per-team" {
@@ -107,7 +107,7 @@ func TestASplitIntoThreeOpensThreeThreadsAndTabsAndOneReply(t *testing.T) {
 	if ref := f.api.Sent[len(f.api.Sent)-1].Msg.Reference; ref == nil || ref.MessageID != m.ID {
 		t.Error("the list is not a reply to Tim's message")
 	}
-	if !f.api.ReactedWith(m.ID, "👀") || !f.api.ReactedWith(m.ID, "✅") || f.api.ReactedWith(m.ID, "❌") {
+	if !f.api.ReactedWith(m.ID, "👀") || !f.api.ReactedWith(m.ID, "⏳") || f.api.ReactedWith(m.ID, "❌") {
 		t.Errorf("reactions = %v", f.api.Reactions)
 	}
 	f.quiet()
@@ -136,7 +136,7 @@ func TestAStartThatFailsIsNamedInTheReplyAndCrossed(t *testing.T) {
 	if len(reply) != 1 || strings.Count(reply[0], "❌") != 2 || !strings.Contains(reply[0], "Map stats: Claude Code did not start") {
 		t.Errorf("reply = %q", reply)
 	}
-	if !f.api.ReactedWith(m.ID, "❌") || f.api.ReactedWith(m.ID, "✅") {
+	if !f.api.ReactedWith(m.ID, "❌") || f.api.ReactedWith(m.ID, "⏳") {
 		t.Errorf("reactions = %v", f.api.Reactions)
 	}
 }
@@ -171,7 +171,7 @@ func TestAClassifierThatFailsIsOneSessionAsBefore(t *testing.T) {
 		if posts := f.sentTo(m.ID); len(posts) != 1 || posts[0] != "session started in repeek: "+tab {
 			t.Errorf("%s: posts = %q", name, posts)
 		}
-		if len(f.sentTo(channel)) != 0 || !f.api.ReactedWith(m.ID, "✅") {
+		if len(f.sentTo(channel)) != 0 || !f.api.ReactedWith(m.ID, "⏳") {
 			t.Errorf("%s: something else was said", name)
 		}
 	}
@@ -306,11 +306,11 @@ func TestASingleSessionIsNamedForItsTask(t *testing.T) {
 	}{
 		"the classifier's title": {
 			splitsInto([]split.Task{{Title: "FACEIT overlay blocks hover", Instruction: "have a look at this"}}, nil, nil),
-			"mochi: FACEIT overlay blocks hover", "faceit-overlay-blocks-hover",
+			"⏳ FACEIT overlay blocks hover", "faceit-overlay-blocks-hover",
 		},
 		"the replied-to message when the classifier failed": {
 			splitsInto(nil, errors.New("claude did not answer"), nil),
-			"mochi: The FACEIT overlay blocks hover on the scoreboard since…", "the-faceit-overlay-blocks-hove",
+			"⏳ The FACEIT overlay blocks hover on the scoreboard since…", "the-faceit-overlay-blocks-hove",
 		},
 	} {
 		f := newFixture(t)

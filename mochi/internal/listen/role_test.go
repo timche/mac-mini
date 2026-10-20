@@ -45,7 +45,7 @@ func TestAMentionOfMochisOwnRoleStartsASession(t *testing.T) {
 	if got := strings.TrimSpace(between(t, prompt, "INSTRUCTION FROM TIM")); got != "have a look at this" {
 		t.Errorf("instruction = %q", got)
 	}
-	if !f.api.ReactedWith(m.ID, "✅") {
+	if !f.api.ReactedWith(m.ID, "⏳") {
 		t.Errorf("reactions = %v", f.api.Reactions)
 	}
 

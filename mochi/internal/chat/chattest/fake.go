@@ -9,6 +9,7 @@ import (
 	"io"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -35,6 +36,10 @@ type Fake struct {
 
 	Standalone []string
 
+	Unreactions []string
+	Renames     []string
+	RenameErr   map[string]error
+
 	Edits     []*discordgo.MessageEdit
 	Responses []*discordgo.InteractionResponse
 
@@ -51,9 +56,10 @@ type Fake struct {
 
 func New() *Fake {
 	return &Fake{
-		Channels: map[string]*discordgo.Channel{},
-		Msgs:     map[string][]*discordgo.Message{},
-		Files:    map[string][]byte{},
+		Channels:  map[string]*discordgo.Channel{},
+		Msgs:      map[string][]*discordgo.Message{},
+		Files:     map[string][]byte{},
+		RenameErr: map[string]error{},
 	}
 }
 
@@ -140,6 +146,48 @@ func (f *Fake) Messages(channel string, limit int, before, after, around string)
 
 func (f *Fake) React(channel, message, emoji string) error {
 	f.Reactions = append(f.Reactions, message+" "+emoji)
+	return nil
+}
+
+func (f *Fake) Unreact(channel, message, emoji string) error {
+	f.Unreactions = append(f.Unreactions, message+" "+emoji)
+	return nil
+}
+
+// What mochi's reactions on a message are now: every one added and not taken back.
+func (f *Fake) Showing(message string) []string {
+	count := map[string]int{}
+	var order []string
+	for _, r := range f.Reactions {
+		if id, emoji, _ := strings.Cut(r, " "); id == message {
+			if count[emoji] == 0 {
+				order = append(order, emoji)
+			}
+			count[emoji]++
+		}
+	}
+	for _, r := range f.Unreactions {
+		if id, emoji, _ := strings.Cut(r, " "); id == message {
+			count[emoji]--
+		}
+	}
+	var out []string
+	for _, emoji := range order {
+		if count[emoji] > 0 {
+			out = append(out, emoji)
+		}
+	}
+	return out
+}
+
+func (f *Fake) RenameThread(thread, name string) error {
+	if err := f.RenameErr[thread]; err != nil {
+		return err
+	}
+	if c, ok := f.Channels[thread]; ok {
+		c.Name = name
+	}
+	f.Renames = append(f.Renames, thread+" "+name)
 	return nil
 }
 

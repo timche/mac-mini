@@ -12,8 +12,12 @@ import (
 // Blocked is what the listener knows of a session waiting on Tim: how many polls in a row
 // have found it so, and whether he has been told for this episode.
 type Blocked struct {
-	Polls  int  `json:"polls"`
-	Pinged bool `json:"pinged"`
+	Polls  int  `json:"polls,omitempty"`
+	Pinged bool `json:"pinged,omitempty"`
+
+	// The session record's Updated when herdr last said its agent was gone; it is not asked
+	// again until the record changes, as it does when a follow-up starts a new session.
+	Gone int64 `json:"gone,omitempty"`
 }
 
 type BlockedStore struct{ Path string }

@@ -54,6 +54,12 @@ type fakeHerdr struct {
 	// Every prompt is refused, when set.
 	promptFails bool
 
+	// How many times an agent's status was asked; when set, an error every ask gets, and a
+	// hold on each ask until released.
+	gets                   int
+	getErr                 error
+	getStarted, getRelease chan struct{}
+
 	// The nth start and every one after it fail, when set.
 	starts, failFrom int
 
@@ -123,6 +129,14 @@ func (f *fakeHerdr) run(args ...string) ([]byte, error) {
 		f.prompts[args[2]] = append(f.prompts[args[2]], expand(args[3]))
 		return answer(map[string]any{"result": map[string]any{}}), nil
 	case "agent get":
+		f.gets++
+		if f.getStarted != nil {
+			f.getStarted <- struct{}{}
+			<-f.getRelease
+		}
+		if f.getErr != nil {
+			return nil, f.getErr
+		}
 		status, ok := f.agents[args[2]]
 		if !ok {
 			return refusal("agent_not_found"), nil

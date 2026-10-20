@@ -1,10 +1,12 @@
 package listen
 
 import (
+	"errors"
 	"io"
 	"log/slog"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/timche/mac-mini/mochi/internal/mark"
 )
@@ -113,9 +115,9 @@ func TestAWaitOutlivesARestart(t *testing.T) {
 	f.shows(thread, mark.Running)
 }
 
-// A session herdr has lost is not waiting on anybody, and one herdr cannot be asked about is
-// left as it was.
-func TestAGoneSessionEndsItsWait(t *testing.T) {
+// A session herdr has lost is not waiting on anybody: its wait ends, and it is not asked
+// after again until its record changes, as it does when a follow-up starts a new session.
+func TestAGoneSessionEndsItsWaitAndIsNotAskedAgain(t *testing.T) {
 	f, thread := startedSession(t)
 	f.herdr.agents["mochi-"+thread] = "blocked"
 	f.h.WatchBlocked()
@@ -123,7 +125,68 @@ func TestAGoneSessionEndsItsWait(t *testing.T) {
 
 	delete(f.herdr.agents, "mochi-"+thread)
 	f.h.WatchBlocked()
-	if all, _ := f.h.Blocked.Load(); len(all) != 0 {
-		t.Errorf("still remembered: %v", all)
+	all, _ := f.h.Blocked.Load()
+	if b := all[thread]; b.Pinged || b.Polls != 0 || b.Gone == 0 {
+		t.Errorf("remembered %+v", b)
 	}
+
+	asked := f.herdr.gets
+	f.h.WatchBlocked()
+	f.h.WatchBlocked()
+	if f.herdr.gets != asked {
+		t.Errorf("a session last seen gone was asked after %d more times", f.herdr.gets-asked)
+	}
+
+	// A follow-up later starts a new session in the thread, and it is watched again.
+	f.h.Now = func() time.Time { return time.Date(2026, 10, 20, 16, 0, 0, 0, time.UTC) }
+	f.h.Handle(f.mention(thread, 5, tim, "again", nil))
+	asked = f.herdr.gets
+	f.h.WatchBlocked()
+	if f.herdr.gets != asked+1 {
+		t.Errorf("the new session was not asked after")
+	}
+}
+
+// herdr is asked without the handler's lock, so a mention is never kept waiting on a poll.
+func TestTheWatchDoesNotHoldTheLockWhileAskingHerdr(t *testing.T) {
+	f, thread := startedSession(t)
+	f.herdr.agents["mochi-"+thread] = "blocked"
+	f.herdr.getStarted, f.herdr.getRelease = make(chan struct{}), make(chan struct{})
+
+	done := make(chan struct{})
+	go func() { f.h.WatchBlocked(); close(done) }()
+	<-f.herdr.getStarted
+
+	locked := make(chan struct{})
+	go func() { f.h.Lock(); f.h.Unlock(); close(locked) }()
+	select {
+	case <-locked:
+	case <-time.After(2 * time.Second):
+		t.Error("the handler's lock was held while herdr was asked")
+	}
+	close(f.herdr.getRelease)
+	<-done
+}
+
+// herdr not answering ends the pass rather than reading every session as moved on.
+func TestAHerdrThatDoesNotAnswerEndsThePass(t *testing.T) {
+	f, first := startedSession(t)
+	second := f.mention(channel, 2, tim, "another", nil)
+	f.h.Handle(second)
+	f.herdr.agents["mochi-"+first] = "blocked"
+	f.herdr.agents["mochi-"+second.ID] = "blocked"
+	f.h.WatchBlocked()
+	f.h.WatchBlocked()
+	if f.pings(first) != 1 || f.pings(second.ID) != 1 {
+		t.Fatal("not pinged to begin with")
+	}
+
+	f.herdr.getErr = errors.New("herdr: connection refused")
+	asked := f.herdr.gets
+	f.h.WatchBlocked()
+	if f.herdr.gets != asked+1 {
+		t.Errorf("asked %d times after herdr stopped answering", f.herdr.gets-asked)
+	}
+	f.shows(first, mark.Asking)
+	f.shows(second.ID, mark.Asking)
 }

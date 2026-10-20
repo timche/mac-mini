@@ -19,35 +19,50 @@ const blockedPolls = 2
 // WatchBlocked runs every half minute: a session that has stopped on a question or a
 // permission is one Tim has to answer in the session, and he is told once per episode, in
 // its thread, with the one ping mochi ever sends. Its state is ❓ until it moves again.
+//
+// herdr is asked without the handler's lock, which a mention in progress holds for up to a
+// minute; a session last seen gone is not asked again until its record changes, and herdr not
+// answering ends the pass rather than reading every session as moved.
 func (h *Handler) WatchBlocked() {
 	h.mu.Lock()
-	defer h.mu.Unlock()
+	sessions, seen, ok := h.loadWaits()
+	h.mu.Unlock()
+	if !ok {
+		return
+	}
 
-	sessions, err := h.Store.Load()
-	if err != nil {
-		h.Log.Error("the sessions could not be read to see which wait on Tim", "error", err)
-		return
+	const gone = "gone"
+	statuses := map[string]string{}
+	for thread, rec := range sessions {
+		if b := seen[thread]; b.Gone != 0 && b.Gone == rec.Updated {
+			continue
+		}
+		status, err := herdr.Status(h.Herdr, rec.Agent)
+		if errors.Is(err, herdr.ErrGone) {
+			statuses[thread] = gone
+			continue
+		}
+		if err != nil {
+			h.Log.Warn("herdr could not be asked which sessions wait on Tim, so this pass stops", "error", h.redact(err))
+			break
+		}
+		statuses[thread] = status
 	}
-	seen, err := h.Blocked.Load()
-	switch {
-	case errors.Is(err, state.ErrCorrupt):
-		h.Log.Error("what is known of waiting sessions was corrupt", "error", err)
-	case err != nil:
-		h.Log.Error("what is known of waiting sessions could not be read", "error", err)
-		return
-	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	before := map[string]state.Blocked{}
 	for k, v := range seen {
 		before[k] = v
 	}
-
-	for thread, rec := range sessions {
-		status, err := herdr.Status(h.Herdr, rec.Agent)
-		if err != nil && !errors.Is(err, herdr.ErrGone) {
-			continue
-		}
+	for thread, status := range statuses {
 		b := seen[thread]
-		if status != herdr.StatusBlocked {
+		switch status {
+		case gone:
+			seen[thread] = state.Blocked{Gone: sessions[thread].Updated}
+			continue
+		case herdr.StatusBlocked:
+		default:
 			if b.Pinged {
 				h.Marks.Settled(thread, mark.Running)
 			}
@@ -77,6 +92,23 @@ func (h *Handler) WatchBlocked() {
 			h.Log.Error("what is known of waiting sessions could not be kept", "error", err)
 		}
 	}
+}
+
+func (h *Handler) loadWaits() (map[string]state.Session, map[string]state.Blocked, bool) {
+	sessions, err := h.Store.Load()
+	if err != nil {
+		h.Log.Error("the sessions could not be read to see which wait on Tim", "error", err)
+		return nil, nil, false
+	}
+	seen, err := h.Blocked.Load()
+	switch {
+	case errors.Is(err, state.ErrCorrupt):
+		h.Log.Error("what is known of waiting sessions was corrupt", "error", err)
+	case err != nil:
+		h.Log.Error("what is known of waiting sessions could not be read", "error", err)
+		return nil, nil, false
+	}
+	return sessions, seen, true
 }
 
 // Tim alone may be pinged, and only here.

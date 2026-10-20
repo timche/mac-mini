@@ -176,6 +176,8 @@ func (f *fakeHerdr) called(prefix string) [][]string {
 }
 
 type fixture struct {
+	seq int
+
 	t     *testing.T
 	api   *chattest.Fake
 	herdr *fakeHerdr
@@ -201,7 +203,7 @@ func newFixture(t *testing.T) *fixture {
 		Herdr:   hd.run,
 		Store:   state.Store{Path: cfg.StatePath()},
 		Pending: state.PendingStore{Path: cfg.PendingPath()},
-		Blocked: state.BlockedStore{Path: cfg.BlockedPath()},
+		Waits:   state.WaitStore{Path: cfg.WaitsPath()},
 		Now:     func() time.Time { return time.Date(2026, 10, 20, 15, 4, 0, 0, time.UTC) },
 		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Token:   "secret-token",

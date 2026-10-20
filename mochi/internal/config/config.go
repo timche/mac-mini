@@ -73,8 +73,8 @@ func (c Config) Heartbeat() string { return filepath.Join(c.CacheDir, "heartbeat
 // the answer.
 func (c Config) PendingPath() string { return filepath.Join(c.CacheDir, "pending.json") }
 
-// Which sessions are waiting on Tim, and whether he has been told.
-func (c Config) BlockedPath() string { return filepath.Join(c.CacheDir, "blocked.json") }
+// Which sessions are waiting on Tim, and whether he has been told since his last word to them.
+func (c Config) WaitsPath() string { return filepath.Join(c.CacheDir, "waits.json") }
 
 // What mochi's reactions and thread names show, shared by the listener and `mochi post`.
 func (c Config) MarksPath() string { return filepath.Join(c.CacheDir, "marks.json") }

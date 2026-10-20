@@ -50,8 +50,8 @@ type Handler struct {
 	// What each message's reaction and each thread's name say about its session.
 	Marks mark.Marker
 
-	// Which sessions are waiting on Tim, and whether he has been told this time.
-	Blocked state.BlockedStore
+	// Which sessions are waiting on Tim, and whether he has been told since his last word.
+	Waits state.WaitStore
 
 	// One mention at a time: each is a handful of Discord calls and a herdr start, and two
 	// at once would race on the state file and on the agent name.
@@ -303,6 +303,7 @@ func (h *Handler) begin(server config.Server, ch *discordgo.Channel, m *discordg
 		h.say(thread, alone)
 	}
 	h.Marks.Started(thread, ref(m))
+	h.heard(thread)
 }
 
 // Tim's message goes to the session with what everybody else wrote in the thread since his
@@ -346,6 +347,7 @@ func (h *Handler) relay(server config.Server, ch *discordgo.Channel, rec state.S
 		h.Log.Error("the relay was delivered but not recorded", "thread", rec.Thread, "error", h.redact(err))
 	}
 	h.Marks.Started(rec.Thread, ref(m), rec.Origin)
+	h.heard(rec.Thread)
 }
 
 // The session Tim closed is replaced by one that reads the whole thread, so nothing said in
@@ -368,6 +370,7 @@ func (h *Handler) restart(server config.Server, ch *discordgo.Channel, rec state
 
 	h.say(rec.Thread, "The previous session ended, so a new one started.")
 	h.Marks.Started(rec.Thread, ref(m), rec.Origin)
+	h.heard(rec.Thread)
 }
 
 // The record is written as soon as the agent exists, so a follow-up finds it even when the

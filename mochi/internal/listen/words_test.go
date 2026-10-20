@@ -8,6 +8,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"github.com/timche/mac-mini/mochi/internal/event"
 	"github.com/timche/mac-mini/mochi/internal/split"
 )
 
@@ -134,11 +135,8 @@ func TestNothingPostedNamesTheToolsBehindIt(t *testing.T) {
 		"a session that waits on Tim": func(f *fixture) {
 			first := f.mention(channel, 1, tim, "start", nil)
 			f.h.Handle(first)
-			f.herdr.agents["mochi-"+first.ID] = "blocked"
-			f.h.WatchBlocked()
-			f.h.WatchBlocked()
-			f.herdr.agents["mochi-"+first.ID] = "working"
-			f.h.WatchBlocked()
+			f.event(first.ID, event.Stop, 0)
+			f.h.ConsumeEvents()
 		},
 		"a follow-up to a session that ended": func(f *fixture) {
 			first := f.mention(channel, 1, tim, "start", nil)

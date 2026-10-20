@@ -59,9 +59,6 @@ const (
 	codeNotFound = "agent_not_found"
 )
 
-// What herdr says of an agent stopped on a question or a permission.
-const StatusBlocked = "blocked"
-
 var (
 	ErrGone    = errors.New("the agent is gone")
 	ErrBlocked = errors.New("the agent is waiting on a question in herdr")

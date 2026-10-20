@@ -9,52 +9,42 @@ import (
 	"time"
 )
 
-// Blocked is what the listener knows of a session waiting on Tim: how many polls in a row
-// have found it so, and whether he has been told for this episode.
-type Blocked struct {
-	Polls  int  `json:"polls,omitempty"`
-	Pinged bool `json:"pinged,omitempty"`
-
-	// The session record's Updated when herdr last said its agent was gone; it is not asked
-	// again until the record changes, as it does when a follow-up starts a new session.
-	Gone int64 `json:"gone,omitempty"`
+// Wait is what the listener knows of a session that stopped on Tim: whether he has been
+// pinged since he last sent it anything, and how a ping that did not land is being retried.
+type Wait struct {
+	Pinged  bool `json:"pinged,omitempty"`
+	Pending bool `json:"pending,omitempty"`
 
 	// A ping that did not land is tried again at RetryAt, after a wait that doubles; one
 	// Discord says has no thread to land in is never tried again.
 	Backoff int64 `json:"backoff,omitempty"`
 	RetryAt int64 `json:"retry_at,omitempty"`
 	Dead    bool  `json:"dead,omitempty"`
-
-	// The state the session showed before the ping set ❓, and the count of its states right
-	// after: when the wait ends with nothing set since, that state comes back; anything the
-	// session set itself in the meantime, a --review or a --done, stays.
-	Prev string `json:"prev,omitempty"`
-	Seq  int    `json:"seq,omitempty"`
 }
 
-type BlockedStore struct{ Path string }
+type WaitStore struct{ Path string }
 
 // ErrCorrupt is a file that would not parse and has been moved aside: what it held is lost,
 // which costs at most one more ping, and the next load starts fresh.
 var ErrCorrupt = errors.New("the waiting sessions file did not parse, so it was moved aside and starts fresh")
 
-func (s BlockedStore) Load() (map[string]Blocked, error) {
+func (s WaitStore) Load() (map[string]Wait, error) {
 	body, err := os.ReadFile(s.Path)
 	if errors.Is(err, os.ErrNotExist) {
-		return map[string]Blocked{}, nil
+		return map[string]Wait{}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]Blocked{}
+	out := map[string]Wait{}
 	if err := json.Unmarshal(body, &out); err != nil {
 		os.Rename(s.Path, fmt.Sprintf("%s.corrupt-%d", s.Path, time.Now().Unix()))
-		return map[string]Blocked{}, ErrCorrupt
+		return map[string]Wait{}, ErrCorrupt
 	}
 	return out, nil
 }
 
-func (s BlockedStore) Save(all map[string]Blocked) error {
+func (s WaitStore) Save(all map[string]Wait) error {
 	body, err := json.MarshalIndent(all, "", "  ")
 	if err != nil {
 		return err

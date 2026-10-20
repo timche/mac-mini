@@ -27,9 +27,10 @@ const (
 	// either waits this long before trying again: 48 reads a day rather than 288.
 	retryAfter = 30 * time.Minute
 
-	beatEvery  = 30 * time.Second
-	pruneEvery = time.Hour
-	keepGone   = 7 * 24 * time.Hour
+	beatEvery   = 30 * time.Second
+	eventsEvery = time.Second
+	pruneEvery  = time.Hour
+	keepGone    = 7 * 24 * time.Hour
 )
 
 // The outer half, which holds no token: it hands over to `op run`, unless the last start's
@@ -75,7 +76,7 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 		Herdr:   herdr.CLI,
 		Store:   state.Store{Path: cfg.StatePath()},
 		Pending: state.PendingStore{Path: cfg.PendingPath()},
-		Blocked: state.BlockedStore{Path: cfg.BlockedPath()},
+		Waits:   state.WaitStore{Path: cfg.WaitsPath()},
 		Marks:   mark.Marker{API: chat.NewLive(s), Path: cfg.MarksPath(), Now: time.Now, Log: log},
 		Now:     time.Now,
 		Log:     log,
@@ -104,6 +105,14 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 	}
 	defer s.Close()
 
+	// A session's hooks leave an event the moment its turn ends; read every second, which is a
+	// directory listing and nothing more when there is none.
+	go func() {
+		for range time.Tick(eventsEvery) {
+			h.ConsumeEvents()
+		}
+	}()
+
 	binary := self.Looking(self.Stat)
 	refresh := newRefresher(time.Now(), runWrapper(cfg.Home))
 	var pruned time.Time
@@ -114,7 +123,6 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 			beat(cfg, time.Now())
 		}
 		h.ExpirePending()
-		h.WatchBlocked()
 		h.Marks.Retry()
 		if err := refresh.tick(time.Now()); err != nil {
 			log.Warn("the wrapper could not be run to pick up a change to mochi", "error", err)

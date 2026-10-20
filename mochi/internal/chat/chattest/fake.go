@@ -48,8 +48,10 @@ type Fake struct {
 	Archived   []string
 	ArchiveErr error
 
-	// Refuses an edit that carries tags, as Discord does without the permission for them.
-	TagErr error
+	// Refuses an edit that carries tags, as Discord does without the permission for them; and
+	// how many edits carried them.
+	TagErr    error
+	PostEdits int
 
 	Edits     []*discordgo.MessageEdit
 	Responses []*discordgo.InteractionResponse
@@ -222,6 +224,7 @@ func (f *Fake) EditPost(thread, name string, tags []string) error {
 	}
 	f.Renames = append(f.Renames, thread+" "+name)
 	f.Tagged[thread] = tags
+	f.PostEdits++
 	return nil
 }
 

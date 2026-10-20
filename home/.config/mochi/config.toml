@@ -15,7 +15,7 @@
 #   repo:      the checkout the tab starts in, so the session has that project's
 #              instructions loaded. `~/` is this account's home.
 #   forum:     optional, a forum channel's id: a session started from a channel gets a
-#              post there, tagged by its state and its kind of work, rather than a thread
+#              post there, tagged with its kind of work, rather than a thread
 #              on Tim's message, which new messages bury.
 #
 # README has the rest under mochi: the Discord application, its permissions, and the

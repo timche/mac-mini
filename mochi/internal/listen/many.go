@@ -89,11 +89,11 @@ func (h *Handler) announce(thread string, o opener, covers string) (*discordgo.M
 	return h.API.Send(thread, h.announcement(o, covers))
 }
 
-// A session's post in the forum: named and tagged for its state and its kind of work, its
+// A session's post in the forum: named for its state and tagged with its kind of work, its
 // first message the announcement, and Tim a member of it.
 func (h *Handler) post(forum, title, typ string, o opener, covers string) (*discordgo.Channel, error) {
 	name := mark.ThreadName(mark.Running, title)
-	tags, err := chat.TagIDs(h.API, forum, mark.PostTags(mark.Running, typ))
+	tags, err := chat.TagIDs(h.API, forum, mark.PostTags(typ))
 	if err != nil {
 		return nil, err
 	}

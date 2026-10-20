@@ -2,6 +2,8 @@ package listen
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -15,8 +17,9 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/split"
 )
 
-// The server's forum for sessions, with Tim's tags on it, as the real one is set up; Research
-// is missing, so a tag the forum has not got is shown to be skipped.
+// The server's forum for sessions, with tags on it as the real one had them, state tags
+// included, which mochi no longer applies; Research is missing, so a tag the forum has not
+// got is shown to be skipped.
 const sessions = "1300000000000000005"
 
 var forumTags = []discordgo.ForumTag{
@@ -49,7 +52,7 @@ func TestAMentionInAChannelOpensAForumPost(t *testing.T) {
 	if !reflect.DeepEqual(f.api.Posts, []string{sessions + " ⏳ Hover blocked by the overlay"}) || len(f.api.Threads) != 0 {
 		t.Fatalf("posts = %v, threads = %v", f.api.Posts, f.api.Threads)
 	}
-	if got := f.api.Tagged[p]; !reflect.DeepEqual(got, []string{"t-running", "t-bug"}) {
+	if got := f.api.Tagged[p]; !reflect.DeepEqual(got, []string{"t-bug"}) {
 		t.Errorf("tags = %v", got)
 	}
 	if posts := f.sentTo(p); len(posts) != 1 || head(posts[0]) != startedPost(m.ID) {
@@ -80,36 +83,55 @@ func TestAMentionInAChannelOpensAForumPost(t *testing.T) {
 	f.quiet()
 }
 
-// The tags follow the state with the name, one edit for both, which counts against the
+// A post's state is in its name alone: a change renames it and leaves its tags, under the
 // rename limit; a type the forum has no tag for is not applied.
-func TestAPostsTagsFollowItsState(t *testing.T) {
+func TestAPostsStateIsInItsNameAlone(t *testing.T) {
 	f := forumFixture(t)
 	f.h.Split = answers(split.Answer{Decision: split.One, Title: "Steam login", Type: split.Research,
 		Tasks: []split.Task{{Title: "Steam login", Instruction: "look into it", Type: split.Research}}}, nil, nil)
 	f.h.Handle(f.mention(channel, 1, tim, "look into steam login", nil))
 	p := postID(1)
-	if got := f.api.Tagged[p]; !reflect.DeepEqual(got, []string{"t-running"}) {
+	if got := f.api.Tagged[p]; len(got) != 0 {
 		t.Errorf("tags at the start = %v", got)
 	}
 
 	f.h.Marks.Settled(p, mark.Asking)
-	if got := f.api.Tagged[p]; !reflect.DeepEqual(got, []string{"t-waiting"}) || f.api.Channels[p].Name != "❓ Steam login" {
-		t.Errorf("waiting: tags %v, name %q", got, f.api.Channels[p].Name)
-	}
 	f.h.Marks.Settled(p, mark.Finished)
-	if len(f.api.Renames) != 2 {
-		t.Fatalf("edits = %v", f.api.Renames)
+	if f.api.Channels[p].Name != "✅ Steam login" || len(f.api.Renames) != 2 || f.api.PostEdits != 0 {
+		t.Fatalf("renames %v, tag edits %d", f.api.Renames, f.api.PostEdits)
 	}
-	// A third edit inside ten minutes waits, and goes once the window has passed.
+	// A third inside ten minutes waits, and goes once the window has passed.
 	f.h.Marks.Settled(p, mark.Asking)
-	if got := f.api.Tagged[p]; !reflect.DeepEqual(got, []string{"t-done"}) || len(f.api.Renames) != 2 {
-		t.Errorf("an edit over the limit went: %v", f.api.Renames)
+	if len(f.api.Renames) != 2 {
+		t.Errorf("a rename over the limit went: %v", f.api.Renames)
 	}
-	f.h.Marks.Settled(p, mark.Finished)
 	f.at(f.h.Now().Add(11 * time.Minute))
 	f.h.Marks.Retry()
-	if got := f.api.Tagged[p]; !reflect.DeepEqual(got, []string{"t-done"}) || f.api.Channels[p].Name != "✅ Steam login" {
-		t.Errorf("done: tags %v, name %q", got, f.api.Channels[p].Name)
+	if f.api.Channels[p].Name != "❓ Steam login" || f.api.PostEdits != 0 {
+		t.Errorf("name %q, tag edits %d", f.api.Channels[p].Name, f.api.PostEdits)
+	}
+}
+
+// A post made while states had tags of their own loses its state tag with its next change, in
+// the same edit as the name, and is renamed alone after that.
+func TestAnOldPostsStateTagGoesWithItsNextChange(t *testing.T) {
+	f := forumFixture(t)
+	f.h.Split = answers(split.Answer{Decision: split.One, Title: "Overlay", Type: split.Bug,
+		Tasks: []split.Task{{Title: "Overlay", Instruction: "fix it", Type: split.Bug}}}, nil, nil)
+	f.h.Handle(f.mention(channel, 1, tim, "fix the overlay", nil))
+	p := postID(1)
+	old := filepath.Join(f.cfg.CacheDir, "marks.json")
+	body, _ := os.ReadFile(old)
+	body = []byte(strings.ReplaceAll(string(body), `"Bug"`, `"Running", "Bug"`))
+	os.WriteFile(old, body, 0o600)
+
+	f.h.Marks.Settled(p, mark.Asking)
+	if got := f.api.Tagged[p]; !reflect.DeepEqual(got, []string{"t-bug"}) || f.api.PostEdits != 1 || f.api.Channels[p].Name != "❓ Overlay" {
+		t.Errorf("tags %v after %d tag edits, name %q", got, f.api.PostEdits, f.api.Channels[p].Name)
+	}
+	f.h.Marks.Settled(p, mark.Finished)
+	if f.api.PostEdits != 1 || f.api.Channels[p].Name != "✅ Overlay" {
+		t.Errorf("the next change edited the tags again: %d", f.api.PostEdits)
 	}
 }
 
@@ -120,15 +142,12 @@ func TestRefusedTagsLeaveTheNameFollowing(t *testing.T) {
 	p := postID(1)
 	f.api.TagErr = chat.ErrForbidden
 
-	f.h.Marks.Settled(p, mark.Asking)
-	if f.api.Channels[p].Name != "❓ fix the login" {
-		t.Errorf("name = %q", f.api.Channels[p].Name)
+	if err := f.h.Marks.Typed(p, split.Bug); err != nil {
+		t.Fatal(err)
 	}
-	f.api.TagErr = nil
-	f.at(f.h.Now().Add(11 * time.Minute))
-	f.h.Marks.Settled(p, mark.Finished)
-	if got := f.api.Tagged[p]; !reflect.DeepEqual(got, []string{"t-running"}) || f.api.Channels[p].Name != "✅ fix the login" {
-		t.Errorf("tags %v, name %q after a refusal", got, f.api.Channels[p].Name)
+	f.h.Marks.Settled(p, mark.Asking)
+	if f.api.Channels[p].Name != "❓ fix the login" || len(f.api.Tagged[p]) != 0 {
+		t.Errorf("name %q, tags %v after a refusal", f.api.Channels[p].Name, f.api.Tagged[p])
 	}
 }
 
@@ -140,7 +159,7 @@ func TestASessionRefilesItsPostsType(t *testing.T) {
 	if err := f.h.Marks.Typed(p, split.Bug); err != nil {
 		t.Fatal(err)
 	}
-	if got := f.api.Tagged[p]; !reflect.DeepEqual(got, []string{"t-running", "t-bug"}) {
+	if got := f.api.Tagged[p]; !reflect.DeepEqual(got, []string{"t-bug"}) {
 		t.Errorf("tags = %v", got)
 	}
 	if err := f.h.Marks.Typed(p, "chore"); err == nil {
@@ -185,7 +204,7 @@ func TestASplitOpensAPostPerTask(t *testing.T) {
 	if len(f.api.Posts) != 2 || len(f.api.Standalone) != 0 {
 		t.Fatalf("posts = %v, threads = %v", f.api.Posts, f.api.Standalone)
 	}
-	if !reflect.DeepEqual(f.api.Tagged[postID(1)], []string{"t-running", "t-feature"}) || !reflect.DeepEqual(f.api.Tagged[postID(2)], []string{"t-running", "t-bug"}) {
+	if !reflect.DeepEqual(f.api.Tagged[postID(1)], []string{"t-feature"}) || !reflect.DeepEqual(f.api.Tagged[postID(2)], []string{"t-bug"}) {
 		t.Errorf("tags = %v", f.api.Tagged)
 	}
 	replies := f.sentTo(channel)

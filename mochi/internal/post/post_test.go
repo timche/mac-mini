@@ -200,7 +200,7 @@ func TestATypeRefilesAPostWithNoText(t *testing.T) {
 	if err := Send(api, store, marks, repeek, thread, Post{Type: "bug"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := api.Tagged[thread]; len(got) != 2 || got[0] != "t-run" || got[1] != "t-bug" {
+	if got := api.Tagged[thread]; len(got) != 1 || got[0] != "t-bug" {
 		t.Errorf("tags = %v", got)
 	}
 	if len(api.Sent) != 0 {

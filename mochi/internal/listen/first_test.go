@@ -124,7 +124,7 @@ func TestAHostileTitleIsPlainText(t *testing.T) {
 	m := f.mention(channel, 1, tim, "a, and separately b", nil)
 	f.h.Handle(m)
 
-	safe := strings.ReplaceAll(`\[Session started\]\(https://evil.example\) @ZWSPeveryone \<@ZWSP&1500000000000000001\> \*\*now\*\*`, "ZWSP", "\u200b")
+	safe := strings.ReplaceAll(`\[Session started\]\(https://ZWSPevil.example\) @ZWSPeveryone \<@ZWSP&1500000000000000001\> \*\*now\*\*`, "ZWSP", "\u200b")
 	if text := firstPost(t, f, postID(1)).Content; !strings.HasSuffix(text, "\nThis post covers: "+safe) {
 		t.Errorf("covers line:\n%s", text)
 	}

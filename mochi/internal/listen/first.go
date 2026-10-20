@@ -94,7 +94,9 @@ var markdown = strings.NewReplacer(
 // Plain is a name or a title, which somebody else wrote, made into one line of plain text in
 // mochi's own voice: no link, mention, formatting or line break of its own.
 func plain(text string) string {
-	return markdown.Replace(inert(strings.Join(strings.Fields(lines(text)), " ")))
+	text = markdown.Replace(inert(strings.Join(strings.Fields(lines(text)), " ")))
+	// A bare address is a link in Discord whatever escapes it carries.
+	return strings.ReplaceAll(text, "://", "://\u200b")
 }
 
 // A message as a Discord block quote under its author's name, every line of it quoted, with

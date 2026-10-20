@@ -46,22 +46,16 @@ const (
 	archiveRetry = time.Hour
 )
 
-// The tags a forum post carries, found on the forum by name: its state, and the kind of work.
-var (
-	stateTags = map[string]string{Running: "Running", Asking: "Waiting on you", Finished: "Done", Failed: "Failed"}
-	typeTags  = map[string]string{split.Feature: "Feature", split.Bug: "Bug", split.Improvement: "Improvement", split.Research: "Research"}
-)
+// A forum post carries one tag, found on the forum by name: the kind of work. Its state is the
+// emoji at the front of its name alone.
+var typeTags = map[string]string{split.Feature: "Feature", split.Bug: "Bug", split.Improvement: "Improvement", split.Research: "Research"}
 
-// PostTags are the names of the tags a post in this state, of this type, carries.
-func PostTags(emoji, typ string) []string {
-	var tags []string
-	if t := stateTags[emoji]; t != "" {
-		tags = append(tags, t)
-	}
+// PostTags are the names of the tags a post of this type carries.
+func PostTags(typ string) []string {
 	if t := typeTags[typ]; t != "" {
-		tags = append(tags, t)
+		return []string{t}
 	}
-	return tags
+	return []string{}
 }
 
 type Marker struct {
@@ -91,8 +85,9 @@ type Name struct {
 	Skip    bool    `json:"skip,omitempty"`
 
 	// A forum post's: the forum its tags are found on, its type, the tags wanted and the ones
-	// it has, by name, sent in the same edit as the name; NoTags once Discord has refused
-	// them, after which the name goes alone. ArchiveAt is when a done post is archived.
+	// it has, by name, sent in the same edit as the name when they differ; NoTags once Discord
+	// has refused them, after which the name goes alone. ArchiveAt is when a done post is
+	// archived.
 	Forum     string   `json:"forum,omitempty"`
 	Type      string   `json:"type,omitempty"`
 	Tags      []string `json:"tags,omitempty"`
@@ -182,7 +177,7 @@ func (k Marker) Named(thread, title, name string) {
 // A forum post mochi just made for a session, under the name and with the tags it gave it.
 func (k Marker) Posted(thread, title, name, forum, typ string) {
 	k.update(func(m *marks) {
-		tags := PostTags(Running, typ)
+		tags := PostTags(typ)
 		m.Names[thread] = &Name{Title: title, Want: name, Have: name, Forum: forum, Type: typ, Tags: tags, HaveTags: tags}
 	})
 }
@@ -203,7 +198,7 @@ func (k Marker) Typed(thread, typ string) error {
 		}
 		err = nil
 		n.Type = typ
-		n.Tags = PostTags(m.State[thread], typ)
+		n.Tags = PostTags(typ)
 		if n.RetryAt == 0 {
 			k.rename(thread, n)
 		}
@@ -424,7 +419,8 @@ func (k Marker) want(m *marks, thread, emoji string) {
 	}
 	n.Want = ThreadName(emoji, n.Title)
 	if n.Forum != "" {
-		n.Tags = PostTags(emoji, n.Type)
+		// A post made when state had tags of its own loses them with its next change.
+		n.Tags = PostTags(n.Type)
 		// A post somebody writes in is out of the archive again, which is the only way a
 		// post's state changes after it is done.
 		switch {
@@ -440,7 +436,7 @@ func (k Marker) want(m *marks, thread, emoji string) {
 }
 
 // One rename, or a single later one when the limit is used up or Discord says to wait. A
-// forum post's name and tags go in one edit, which counts as one rename.
+// forum post whose tags are to change has them in the same edit, which counts as one rename.
 func (k Marker) rename(thread string, n *Name) {
 	if n.Skip || n.Want == "" || !n.pending() {
 		return
@@ -458,7 +454,7 @@ func (k Marker) rename(thread string, n *Name) {
 		return
 	}
 
-	tagged := n.Forum != "" && !n.NoTags
+	tagged := n.Forum != "" && !n.NoTags && !slices.Equal(n.Tags, n.HaveTags)
 	var err error
 	if tagged {
 		var ids []string

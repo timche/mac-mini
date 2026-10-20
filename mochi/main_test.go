@@ -48,7 +48,7 @@ func TestPostTakesTextAndAFile(t *testing.T) {
 	if err != nil || len(files) != 2 || files[0] != shot || text != "see this" {
 		t.Errorf("%q %q %v", files, text, err)
 	}
-	for _, args := range [][]string{{}, {"--file", shot}, {"--file", "/nowhere", "hi"}} {
+	for _, args := range [][]string{{}, {"--file", shot}, {"--file", "/nowhere", "hi"}, {"see", "https://example.com"}} {
 		if _, _, err := postArgs(args); err == nil {
 			t.Errorf("%v parsed", args)
 		}

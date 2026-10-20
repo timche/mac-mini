@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -23,6 +24,23 @@ const (
 	MaxFiles    = 10
 	MaxFileSize = 10 << 20
 )
+
+// A post is read in Discord by moderators, so it carries no link and no file path: anything
+// worth showing is an attachment. Refused here rather than trusted to the orders.
+var (
+	link = regexp.MustCompile(`(?i)\bhttps?://\S+|\bwww\.\S+|\bdiscord\.gg/\S+|\bdiscord(?:app)?\.com/invite/\S+`)
+	path = regexp.MustCompile(`(?:^|[\s"'(\x60])(~?/[^\s/]+/\S*)`)
+)
+
+func CheckText(text string) error {
+	if found := link.FindString(text); found != "" {
+		return fmt.Errorf("a post is read in Discord by moderators, so it carries no links: say it in words and attach images instead (found %s)", found)
+	}
+	if found := path.FindStringSubmatch(text); found != nil {
+		return fmt.Errorf("a post is read in Discord by moderators, so it carries no file paths: say it in words and attach images instead (found %s)", found[1])
+	}
+	return nil
+}
 
 func CheckFiles(files []string) error {
 	if len(files) > MaxFiles {
@@ -46,6 +64,9 @@ func Send(api chat.API, store state.Store, thread string, files []string, text s
 		return err
 	}
 	if err := CheckFiles(files); err != nil {
+		return err
+	}
+	if err := CheckText(text); err != nil {
 		return err
 	}
 

@@ -178,6 +178,9 @@ func postArgs(args []string) (files []string, text string, err error) {
 	if text == "" {
 		return nil, "", errors.New("post takes the text to post")
 	}
+	if err := post.CheckText(text); err != nil {
+		return nil, "", err
+	}
 	return files, text, post.CheckFiles(files)
 }
 

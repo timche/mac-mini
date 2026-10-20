@@ -30,7 +30,7 @@ func TestAPostGoesToTheSessionsThreadWithNoPings(t *testing.T) {
 	shot := filepath.Join(t.TempDir(), "shot.png")
 	os.WriteFile(shot, []byte("png"), 0o644)
 
-	if err := Send(api, store, thread, []string{shot}, "PR: https://github.com/x/y/pull/1 — @everyone <@94004892942741504>"); err != nil {
+	if err := Send(api, store, thread, []string{shot}, "Finished — @everyone <@94004892942741504>"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -111,5 +111,36 @@ func TestAPostCarriesSeveralFilesWithinDiscordsLimits(t *testing.T) {
 	}
 	if len(api.Sent) != 1 {
 		t.Errorf("%d posts, want 1", len(api.Sent))
+	}
+}
+
+// Posts are Discord-only: links and file paths are refused with the reason, attachments are not.
+func TestAPostWithALinkOrAPathIsRefused(t *testing.T) {
+	api, store := fixture(t)
+	for _, text := range []string{
+		"Fixed, see https://github.com/x/y/pull/1",
+		"preview at http://localhost:3000/elo",
+		"details on www.example.com",
+		"join discord.gg/abcdef",
+		"or discord.com/invite/abcdef",
+		"the log is in /Users/timche/projects/repeek/log.txt",
+		"see ~/Library/Caches/mochi/sessions/1/brief.md",
+		"(/private/tmp/shot.png)",
+	} {
+		err := Send(api, store, thread, nil, text)
+		if err == nil || !strings.Contains(err.Error(), "read in Discord by moderators") {
+			t.Errorf("%q: %v", text, err)
+		}
+	}
+	for _, text := range []string{
+		"Finished: the overlay no longer covers the scoreboard on 1080p and 1440p.",
+		"Win rate is now shown per map, 3/4 of maps checked, and/or per team.",
+	} {
+		if err := Send(api, store, thread, nil, text); err != nil {
+			t.Errorf("%q was refused: %v", text, err)
+		}
+	}
+	if len(api.Sent) != 2 {
+		t.Errorf("%d posts, want 2", len(api.Sent))
 	}
 }

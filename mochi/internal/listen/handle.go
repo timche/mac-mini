@@ -271,14 +271,28 @@ func (h *Handler) begin(server config.Server, ch *discordgo.Channel, m *discordg
 		return
 	}
 
+	// A mention in a channel goes to a post in the server's forum, where new messages do not
+	// bury it; one in a thread or a post stays there, as below.
+	forum := ""
+	if !ch.IsThread() {
+		forum = server.Forum
+	}
+
 	var alone string
 	if many && len(answer.Tasks) > 1 {
 		into, why := h.splitInto(ch, len(answer.Tasks))
+		if forum != "" {
+			into = forum
+		}
 		if into != "" {
-			h.openMany(server, ch, m, instruction, into, answer.Tasks, set)
+			h.openMany(server, ch, m, instruction, into, forum != "", answer.Tasks, set)
 			return
 		}
 		alone = why
+	}
+	if forum != "" {
+		h.openPost(server, ch, m, instruction, set, name, answer.Type)
+		return
 	}
 
 	// A thread cannot hold a thread, so a mention inside one makes that thread the session's,
@@ -313,6 +327,28 @@ func (h *Handler) begin(server config.Server, ch *discordgo.Channel, m *discordg
 	}
 	if alone != "" {
 		h.say(thread, alone)
+	}
+	h.Marks.Started(thread, ref(m))
+	h.heard(thread)
+}
+
+// One session in a post of its own in the forum, and a reply to Tim saying where it went.
+func (h *Handler) openPost(server config.Server, ch *discordgo.Channel, m *discordgo.Message, instruction string, set *gather.Set, name, typ string) {
+	post, err := h.post(server.Forum, name, typ, m)
+	if err != nil {
+		h.fail(m, "", "a post could not be opened for this", err)
+		return
+	}
+	thread := post.ID
+
+	session := state.Session{Thread: thread, Source: ch.ID, Guild: m.GuildID, LastMention: m.ID, Origin: ref(m)}
+	text := opening(ch, m, instruction, set, h.files(thread, set), "", "")
+	err = h.start(server, &session, name, text)
+	h.moved(m, name, thread)
+	if err != nil {
+		h.Marks.Failed(thread, ref(m))
+		h.fail(m, thread, err.Error(), nil)
+		return
 	}
 	h.Marks.Started(thread, ref(m))
 	h.heard(thread)

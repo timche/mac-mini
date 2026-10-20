@@ -41,6 +41,16 @@ type Fake struct {
 	Renames     []string
 	RenameErr   map[string]error
 
+	// Forum posts as "<forum> <name>", each post's tags as last applied, and the threads
+	// archived.
+	Posts      []string
+	Tagged     map[string][]string
+	Archived   []string
+	ArchiveErr error
+
+	// Refuses an edit that carries tags, as Discord does without the permission for them.
+	TagErr error
+
 	Edits     []*discordgo.MessageEdit
 	Responses []*discordgo.InteractionResponse
 
@@ -63,6 +73,7 @@ func New() *Fake {
 		Msgs:      map[string][]*discordgo.Message{},
 		Files:     map[string][]byte{},
 		RenameErr: map[string]error{},
+		Tagged:    map[string][]string{},
 		SendErr:   map[string]error{},
 		Tries:     map[string]int{},
 	}
@@ -197,6 +208,45 @@ func (f *Fake) RenameThread(thread, name string) error {
 	}
 	f.Renames = append(f.Renames, thread+" "+name)
 	return nil
+}
+
+func (f *Fake) EditPost(thread, name string, tags []string) error {
+	if err := f.RenameErr[thread]; err != nil {
+		return err
+	}
+	if f.TagErr != nil {
+		return f.TagErr
+	}
+	if c, ok := f.Channels[thread]; ok {
+		c.Name, c.AppliedTags = name, tags
+	}
+	f.Renames = append(f.Renames, thread+" "+name)
+	f.Tagged[thread] = tags
+	return nil
+}
+
+func (f *Fake) Archive(thread string) error {
+	if f.ArchiveErr != nil {
+		return f.ArchiveErr
+	}
+	f.Archived = append(f.Archived, thread)
+	return nil
+}
+
+// Posts are numbered from 700000, and the first message is sent into the post under its id.
+func (f *Fake) ForumPost(forum, name string, tags []string, first *discordgo.MessageSend) (*discordgo.Channel, error) {
+	if f.ThreadErr != nil {
+		return nil, f.ThreadErr
+	}
+	parent := f.Channels[forum]
+	f.newThreads++
+	id := ID(700_000 + f.newThreads)
+	post := &discordgo.Channel{ID: id, GuildID: parent.GuildID, ParentID: forum, Name: name, Type: discordgo.ChannelTypeGuildPublicThread, AppliedTags: tags}
+	f.AddChannel(post)
+	f.Posts = append(f.Posts, forum+" "+name)
+	f.Tagged[id] = tags
+	f.Sent = append(f.Sent, Sent{ID: id, Channel: id, Msg: first})
+	return post, nil
 }
 
 func (f *Fake) StartThread(channel, message, name string) (*discordgo.Channel, error) {

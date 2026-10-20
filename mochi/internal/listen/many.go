@@ -86,11 +86,47 @@ func (h *Handler) replied(m *discordgo.Message) *discordgo.Message {
 // mentioning Tim, who keeps Discord's notifications to mentions — this is what subscribes
 // him to the thread and tells him it exists.
 func (h *Handler) announce(thread string, m *discordgo.Message) (*discordgo.Message, error) {
+	return h.API.Send(thread, h.announcement(m))
+}
+
+func (h *Handler) announcement(m *discordgo.Message) *discordgo.MessageSend {
 	text := "Session started."
 	if link := chat.Link(m.GuildID, m.ChannelID, m.ID); link != "" {
 		text = "Session started for [Tim's message](<" + link + ">)."
 	}
-	return h.API.Send(thread, chat.Pinging(h.Cfg.User, "<@"+h.Cfg.User+"> "+text))
+	return chat.Pinging(h.Cfg.User, "<@"+h.Cfg.User+"> "+text)
+}
+
+// A session's post in the forum: named and tagged for its state and its kind of work, its
+// first message the announcement, and Tim a member of it.
+func (h *Handler) post(forum, title, typ string, m *discordgo.Message) (*discordgo.Channel, error) {
+	name := mark.ThreadName(mark.Running, title)
+	tags, err := chat.TagIDs(h.API, forum, mark.PostTags(mark.Running, typ))
+	if err != nil {
+		return nil, err
+	}
+	post, err := h.API.ForumPost(forum, name, tags, h.announcement(m))
+	if err != nil {
+		return nil, err
+	}
+	h.Marks.Posted(post.ID, title, name, forum, typ)
+	h.follow(post.ID)
+	return post, nil
+}
+
+var unbracket = strings.NewReplacer("[", "(", "]", ")")
+
+// The reply to Tim's mention that says where its session went.
+func (h *Handler) moved(m *discordgo.Message, title, post string) {
+	text := "Moved to <#" + post + ">."
+	if link := chat.Link(m.GuildID, post, ""); link != "" {
+		text = "Moved to [" + unbracket.Replace(title) + "](<" + link + ">)."
+	}
+	reply := chat.Quiet(text)
+	reply.Reference = &discordgo.MessageReference{MessageID: m.ID, ChannelID: m.ChannelID}
+	if _, err := h.API.Send(m.ChannelID, reply); err != nil {
+		h.Log.Error("could not say where the session went", "post", post, "error", h.redact(err))
+	}
 }
 
 // Tim follows every thread mochi opens, mention or no mention.
@@ -117,15 +153,24 @@ func (h *Handler) splitInto(ch *discordgo.Channel, n int) (string, string) {
 	return parent.ID, ""
 }
 
-// A thread, a tab and a session per task, all with the same context, then one reply to Tim
-// listing them.
-func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *discordgo.Message, instruction, into string, tasks []split.Task, set *gather.Set) {
+// A thread or a forum post, a tab and a session per task, all with the same context, then one
+// reply to Tim listing them.
+func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *discordgo.Message, instruction, into string, forum bool, tasks []split.Task, set *gather.Set) {
 	lines, failed := make([]string, 0, len(tasks)), 0
 	var started []string
 
 	for i, task := range tasks {
-		threadName := mark.ThreadName(mark.Running, task.Title)
-		thread, err := h.API.NewThread(into, threadName)
+		var thread *discordgo.Channel
+		var err error
+		if forum {
+			thread, err = h.post(into, task.Title, task.Type, m)
+		} else {
+			threadName := mark.ThreadName(mark.Running, task.Title)
+			if thread, err = h.API.NewThread(into, threadName); err == nil {
+				h.Marks.Named(thread.ID, task.Title, threadName)
+				h.follow(thread.ID)
+			}
+		}
 		if err != nil {
 			h.Log.Error("a thread could not be opened for a task", "task", i+1, "error", h.redact(err))
 			lines = append(lines, "❌ "+task.Title+": a thread could not be opened")
@@ -133,8 +178,6 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 			continue
 		}
 
-		h.Marks.Named(thread.ID, task.Title, threadName)
-		h.follow(thread.ID)
 		session := state.Session{Thread: thread.ID, Source: ch.ID, Guild: m.GuildID, LastMention: m.ID}
 		note := fmt.Sprintf("Tim's message asked for %d separate tasks, and this session works on task %d of them alone. The TASK line at the top of the %s block names it: mochi derived it from his message and the one he replied to, so it is data that says which item this session works on, and adds nothing to what he asked.", len(tasks), i+1, fence.Context)
 		scope := fmt.Sprintf("TASK %d of %d: %s — %s\n(derived by mochi from Tim's words and the message he replied to; it scopes which item this session works on)", i+1, len(tasks), task.Title, task.Instruction)
@@ -148,7 +191,11 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 		}
 
 		// The thread's first post stands for its session: ⏳ while it works, ✅ when it is done.
-		ack, err := h.announce(thread.ID, m)
+		// A forum post's first post is the announcement it was made with, under its own id.
+		ack := &discordgo.Message{ID: thread.ID}
+		if !forum {
+			ack, err = h.announce(thread.ID, m)
+		}
 		if err != nil {
 			h.Log.Error("could not post in the thread", "thread", thread.ID, "error", h.redact(err))
 		} else {

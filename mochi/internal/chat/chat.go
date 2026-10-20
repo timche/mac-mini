@@ -39,6 +39,17 @@ type API interface {
 	// A public thread on no message, which is how one mention gets several.
 	NewThread(channel, name string) (*discordgo.Channel, error)
 
+	// A post in a forum, with its tags and its first message; the post's id is that
+	// message's id too.
+	ForumPost(forum, name string, tags []string, first *discordgo.MessageSend) (*discordgo.Channel, error)
+
+	// A forum post's name and tags in one edit, which Discord limits as it does a rename; the
+	// errors are RenameThread's.
+	EditPost(thread, name string, tags []string) error
+
+	// Takes a thread out of its forum's list until somebody posts in it again.
+	Archive(thread string) error
+
 	// Makes a user a member of a thread, so they follow it.
 	AddMember(thread, user string) error
 	Send(channel string, msg *discordgo.MessageSend) (*discordgo.Message, error)
@@ -111,6 +122,25 @@ func GuildOf(api API, rec state.Session) string {
 		return ch.GuildID
 	}
 	return ""
+}
+
+// TagIDs are the ids of a forum's tags with these names, in their order. A name the forum has
+// no tag for is skipped, so a tag somebody deleted or never made is simply not applied.
+func TagIDs(api API, forum string, names []string) ([]string, error) {
+	ch, err := api.Channel(forum)
+	if err != nil {
+		return nil, err
+	}
+	ids := []string{}
+	for _, name := range names {
+		for _, tag := range ch.AvailableTags {
+			if strings.EqualFold(tag.Name, name) {
+				ids = append(ids, tag.ID)
+				break
+			}
+		}
+	}
+	return ids, nil
 }
 
 // Snowflakes are timestamps, so their order is the messages' order. Compared as numbers,
@@ -222,7 +252,20 @@ var (
 // Without discordgo's own retry, which would wait out a ten-minute rename limit inside the
 // call; the caller schedules the rename instead.
 func (l Live) RenameThread(thread, name string) error {
-	_, err := l.S.ChannelEditComplex(thread, &discordgo.ChannelEdit{Name: name}, discordgo.WithRetryOnRatelimit(false))
+	return l.edit(thread, &discordgo.ChannelEdit{Name: name})
+}
+
+func (l Live) EditPost(thread, name string, tags []string) error {
+	return l.edit(thread, &discordgo.ChannelEdit{Name: name, AppliedTags: &tags})
+}
+
+func (l Live) Archive(thread string) error {
+	archived := true
+	return l.edit(thread, &discordgo.ChannelEdit{Archived: &archived})
+}
+
+func (l Live) edit(thread string, e *discordgo.ChannelEdit) error {
+	_, err := l.S.ChannelEditComplex(thread, e, discordgo.WithRetryOnRatelimit(false))
 	var limited *discordgo.RateLimitError
 	var rest *discordgo.RESTError
 	switch {
@@ -268,6 +311,16 @@ func (l Live) NewThread(channel, name string) (*discordgo.Channel, error) {
 		Type:                discordgo.ChannelTypeGuildPublicThread,
 		AutoArchiveDuration: 1440,
 	})
+}
+
+// A week, the longest Discord offers, since a post whose session is still working should stay
+// in the forum's list; mochi archives one itself three days after it is done.
+func (l Live) ForumPost(forum, name string, tags []string, first *discordgo.MessageSend) (*discordgo.Channel, error) {
+	return l.S.ForumThreadStartComplex(forum, &discordgo.ThreadStart{
+		Name:                name,
+		AutoArchiveDuration: 10080,
+		AppliedTags:         tags,
+	}, first)
 }
 
 func (l Live) Send(channel string, msg *discordgo.MessageSend) (*discordgo.Message, error) {

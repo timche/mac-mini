@@ -20,8 +20,11 @@ func TestHistoryTakesNoChannel(t *testing.T) {
 		}
 	}
 	q, err := historyArgs([]string{"--around", "1300000000000000002", "--limit", "100"})
-	if err != nil || q.Around != "1300000000000000002" || q.Limit != 100 {
+	if err != nil || q.Around != "1300000000000000002" || q.Limit != 100 || q.Post {
 		t.Errorf("%+v, %v", q, err)
+	}
+	if q, err := historyArgs([]string{"--post"}); err != nil || !q.Post {
+		t.Errorf("--post: %+v, %v", q, err)
 	}
 }
 
@@ -55,6 +58,9 @@ func TestPostTakesTextFilesAStateAndAPR(t *testing.T) {
 	if p, _ := postArgs([]string{"a note"}); p.Settles != "" {
 		t.Errorf("a plain post settles %q", p.Settles)
 	}
+	if p, err := postArgs([]string{"--type", "bug"}); err != nil || p.Type != "bug" || p.Text != "" {
+		t.Errorf("--type alone: %+v, %v", p, err)
+	}
 	for _, args := range [][]string{
 		{},
 		{"--file", shot},
@@ -62,6 +68,7 @@ func TestPostTakesTextFilesAStateAndAPR(t *testing.T) {
 		{"see", "https://example.com"},
 		{"--review", "--done", "x"},
 		{"--pr", "https://github.com/timche/repeek/issues/42", "x"},
+		{"--type", "chore"},
 	} {
 		if _, err := postArgs(args); err == nil {
 			t.Errorf("%v parsed", args)

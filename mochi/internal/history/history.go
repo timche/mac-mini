@@ -19,6 +19,9 @@ const DefaultLimit = 50
 type Query struct {
 	Before, After, Around string
 	Limit                 int
+
+	// The session's own thread or post rather than the channel it started from.
+	Post bool
 }
 
 func (q Query) Check() error {
@@ -41,8 +44,9 @@ func (q Query) Check() error {
 	return nil
 }
 
-// Only the channel or thread the session started from, read out of mochi's own record of
-// it and never taken as an argument, so a session cannot browse the rest of the server.
+// Only the channel or thread the session started from, or its own thread or post, read out of
+// mochi's own record of it and never taken as an argument, so a session cannot browse the
+// rest of the server.
 func Show(cfg config.Config, api chat.API, thread string, q Query, out io.Writer) error {
 	if err := q.Check(); err != nil {
 		return err
@@ -53,13 +57,17 @@ func Show(cfg config.Config, api chat.API, thread string, q Query, out io.Writer
 	}
 
 	rec.Guild = chat.GuildOf(api, rec)
-	set, err := gather.Paged(api, rec.Guild, rec.Source, q.Limit, q.Before, q.After, q.Around)
+	channel := rec.Source
+	if q.Post {
+		channel = rec.Thread
+	}
+	set, err := gather.Paged(api, rec.Guild, channel, q.Limit, q.Before, q.After, q.Around)
 	if err != nil {
 		return err
 	}
 	set.Tim = cfg.User
 	msgs := set.Messages()
-	where := chat.Link(rec.Guild, rec.Source, "")
+	where := chat.Link(rec.Guild, channel, "")
 	if len(msgs) == 0 {
 		_, err := fmt.Fprintf(out, "No messages in %s on that side of that message.\n", where)
 		return err

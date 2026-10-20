@@ -31,7 +31,7 @@ func TestTheShippedConfigMapsRepeek(t *testing.T) {
 		t.Errorf("user = %q", cfg.User)
 	}
 	s, ok := cfg.Server("1220378778665095291")
-	if !ok || s.Workspace != "repeek" || s.Repo != "/home/x/projects/repeek" {
+	if !ok || s.Workspace != "repeek" || s.Repo != "/home/x/projects/repeek" || s.Forum != "1562152175927558292" {
 		t.Errorf("repeek = %+v, %v", s, ok)
 	}
 	if _, ok := cfg.Server("1"); ok {
@@ -63,8 +63,9 @@ func TestAConfigThatWouldMisdirectIsRefused(t *testing.T) {
 		"a guild twice": "user = \"94004892942741504\"\n" +
 			"[[server]]\nguild = \"1220378778665095291\"\nworkspace = \"w\"\nrepo = \"/r\"\n" +
 			"[[server]]\nguild = \"1220378778665095291\"\nworkspace = \"v\"\nrepo = \"/s\"\n",
-		"no repo":    "user = \"94004892942741504\"\n[[server]]\nguild = \"1220378778665095291\"\nworkspace = \"w\"\n",
-		"a bad user": "user = \"tim\"\n",
+		"no repo":               "user = \"94004892942741504\"\n[[server]]\nguild = \"1220378778665095291\"\nworkspace = \"w\"\n",
+		"a bad user":            "user = \"tim\"\n",
+		"a forum that is no id": "user = \"94004892942741504\"\n[[server]]\nguild = \"1220378778665095291\"\nworkspace = \"w\"\nrepo = \"/r\"\nforum = \"#mochi\"\n",
 	} {
 		if _, err := Load(write(t, body), "/home/x"); err == nil {
 			t.Errorf("%s: loaded", name)

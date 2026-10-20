@@ -17,6 +17,10 @@ type Server struct {
 	Guild     string `toml:"guild"`
 	Workspace string `toml:"workspace"`
 	Repo      string `toml:"repo"`
+
+	// The forum a session started from a channel gets a post in; with none, a thread on Tim's
+	// message.
+	Forum string `toml:"forum"`
 }
 
 // The model that decides whether a mention is one task or several, chosen by measuring
@@ -147,6 +151,8 @@ func Load(path, home string) (Config, error) {
 			return Config{}, fmt.Errorf("%s: guild %s names no herdr workspace", path, s.Guild)
 		case strings.TrimSpace(s.Repo) == "":
 			return Config{}, fmt.Errorf("%s: guild %s names no repository", path, s.Guild)
+		case s.Forum != "" && !IsSnowflake(s.Forum):
+			return Config{}, fmt.Errorf("%s: guild %s has a forum that is not a Discord id", path, s.Guild)
 		}
 		seen[s.Guild] = true
 		cfg.Servers[i].Repo = expand(s.Repo, home)

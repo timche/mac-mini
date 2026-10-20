@@ -35,6 +35,24 @@ func fixture(t *testing.T) (config.Config, *chattest.Fake) {
 	return cfg, api
 }
 
+// --post reads the session's own thread or post, and still nothing else.
+func TestHistoryReadsTheSessionsOwnPost(t *testing.T) {
+	cfg, api := fixture(t)
+	api.AddChannel(&discordgo.Channel{ID: session, GuildID: guild, Type: discordgo.ChannelTypeGuildPublicThread})
+	api.Post(session, 5000, &discordgo.User{ID: "1400000000000000002", Username: "mod"}, "in the post")
+	var out strings.Builder
+
+	if err := Show(cfg, api, session, Query{Limit: 50, Post: true}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if text := out.String(); !strings.Contains(text, "in the post") || strings.Contains(text, "topic message") {
+		t.Errorf("wrong channel:\n%.300s", text)
+	}
+	if api.Pages[0] != session+" before= after= around= limit=50" {
+		t.Errorf("asked Discord for %q", api.Pages[0])
+	}
+}
+
 func TestHistoryPagesBackThroughTheSourceChannel(t *testing.T) {
 	cfg, api := fixture(t)
 	var out strings.Builder

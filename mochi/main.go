@@ -34,8 +34,8 @@ import (
 )
 
 const usage = `usage: mochi [listen]
-       mochi post [--review | --done] [--pr <url>] [--file <path>]... [<text>]
-       mochi history [--before <id> | --after <id> | --around <id>] [--limit <n>]
+       mochi post [--review | --done] [--pr <url>] [--type <kind>] [--file <path>]... [<text>]
+       mochi history [--post] [--before <id> | --after <id> | --around <id>] [--limit <n>]
 
   listen    connect to Discord and start a Claude Code session in herdr whenever Tim
             mentions mochi; what the LaunchAgent runs, and what no command means
@@ -44,10 +44,12 @@ const usage = `usage: mochi [listen]
             ten times; --review when it needs an answer, a result or a question
             (❓), --done when the task is complete with nothing left for him (✅);
             --pr adds a pull request as "#<number> (<url>)", the one link allowed;
-            with no text argument the text is read from stdin
+            --type refiles a forum post as feature, bug, improvement or research,
+            and needs no text; with no text argument the text is read from stdin
   history   print more of the channel or thread this session started from, oldest
-            first and fenced as data, with attachments downloaded; one of --before,
-            --after or --around a message id, and --limit up to 100 (default 50)
+            first and fenced as data, with attachments downloaded; --post reads the
+            session's own thread or post instead; one of --before, --after or
+            --around a message id, and --limit up to 100 (default 50)
 
 post and history run only inside a session mochi started.
 `
@@ -220,8 +222,12 @@ func postArgs(args []string) (post.Post, error) {
 	fs.BoolVar(&review, "review", false, "")
 	fs.BoolVar(&done, "done", false, "")
 	fs.StringVar(&p.PR, "pr", "", "")
+	fs.StringVar(&p.Type, "type", "", "")
 	if err := fs.Parse(args); err != nil {
 		return p, err
+	}
+	if p.Type != "" && !split.IsType(p.Type) {
+		return p, fmt.Errorf("--type is feature, bug, improvement or research, not %s", p.Type)
 	}
 	switch {
 	case review && done:
@@ -232,7 +238,7 @@ func postArgs(args []string) (post.Post, error) {
 		p.Settles = mark.Finished
 	}
 	p.Text = strings.TrimSpace(strings.Join(fs.Args(), " "))
-	if p.Text == "" {
+	if p.Text == "" && p.Type == "" {
 		return p, errNoText
 	}
 	return p, p.Check()
@@ -260,6 +266,7 @@ func historyArgs(args []string) (history.Query, error) {
 	fs.StringVar(&q.After, "after", "", "")
 	fs.StringVar(&q.Around, "around", "", "")
 	fs.IntVar(&q.Limit, "limit", history.DefaultLimit, "")
+	fs.BoolVar(&q.Post, "post", false, "")
 	if err := fs.Parse(args); err != nil {
 		return q, err
 	}

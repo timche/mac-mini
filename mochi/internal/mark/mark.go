@@ -8,9 +8,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -35,6 +37,31 @@ const (
 	renamesAllowed = 2
 	maxName        = 100
 )
+
+// A forum post that has been done this long is archived, and one whose archiving failed is
+// tried again after the retry. Never deleted.
+const (
+	archiveAfter = 3 * 24 * time.Hour
+	archiveRetry = time.Hour
+)
+
+// The tags a forum post carries, found on the forum by name: its state, and the kind of work.
+var (
+	stateTags = map[string]string{Running: "Running", Asking: "Waiting on you", Finished: "Done", Failed: "Failed"}
+	typeTags  = map[string]string{"feature": "Feature", "bug": "Bug", "improvement": "Improvement", "research": "Research"}
+)
+
+// PostTags are the names of the tags a post in this state, of this type, carries.
+func PostTags(emoji, typ string) []string {
+	var tags []string
+	if t := stateTags[emoji]; t != "" {
+		tags = append(tags, t)
+	}
+	if t := typeTags[typ]; t != "" {
+		tags = append(tags, t)
+	}
+	return tags
+}
 
 type Marker struct {
 	API  chat.API
@@ -61,6 +88,21 @@ type Name struct {
 	Renames []int64 `json:"renames,omitempty"`
 	RetryAt int64   `json:"retry_at,omitempty"`
 	Skip    bool    `json:"skip,omitempty"`
+
+	// A forum post's: the forum its tags are found on, its type, the tags wanted and the ones
+	// it has, by name, sent in the same edit as the name; NoTags once Discord has refused
+	// them, after which the name goes alone. ArchiveAt is when a done post is archived.
+	Forum     string   `json:"forum,omitempty"`
+	Type      string   `json:"type,omitempty"`
+	Tags      []string `json:"tags,omitempty"`
+	HaveTags  []string `json:"have_tags,omitempty"`
+	NoTags    bool     `json:"no_tags,omitempty"`
+	ArchiveAt int64    `json:"archive_at,omitempty"`
+	Archived  bool     `json:"archived,omitempty"`
+}
+
+func (n *Name) pending() bool {
+	return n.Want != n.Have || (n.Forum != "" && !n.NoTags && !slices.Equal(n.Tags, n.HaveTags))
 }
 
 type marks struct {
@@ -134,6 +176,38 @@ func (k Marker) Named(thread, title, name string) {
 	k.update(func(m *marks) {
 		m.Names[thread] = &Name{Title: title, Want: name, Have: name}
 	})
+}
+
+// A forum post mochi just made for a session, under the name and with the tags it gave it.
+func (k Marker) Posted(thread, title, name, forum, typ string) {
+	k.update(func(m *marks) {
+		tags := PostTags(Running, typ)
+		m.Names[thread] = &Name{Title: title, Want: name, Have: name, Forum: forum, Type: typ, Tags: tags, HaveTags: tags}
+	})
+}
+
+// ErrNoType is a session whose thread is not a forum post mochi made, which has no type tag.
+var ErrNoType = errors.New("this session's thread is not a forum post mochi made, so it has no type to change")
+
+// Typed refiles a forum post under another kind of work, in the same edit as its name.
+func (k Marker) Typed(thread, typ string) error {
+	if _, ok := typeTags[typ]; !ok {
+		return fmt.Errorf("%s is not a type: feature, bug, improvement or research", typ)
+	}
+	err := ErrNoType
+	k.update(func(m *marks) {
+		n := m.Names[thread]
+		if n == nil || n.Forum == "" {
+			return
+		}
+		err = nil
+		n.Type = typ
+		n.Tags = PostTags(m.State[thread], typ)
+		if n.RetryAt == 0 {
+			k.rename(thread, n)
+		}
+	})
+	return err
 }
 
 // A session is working: each message it is about shows ⏳ until the session says it waits on
@@ -229,7 +303,8 @@ func (k Marker) groups(m *marks, thread, emoji string) {
 	}
 }
 
-// Renames whose wait is over, with whatever state is wanted now.
+// Renames whose wait is over, with whatever state is wanted now, and done posts whose time to
+// be archived has come.
 func (k Marker) Retry() {
 	k.update(func(m *marks) {
 		now := k.Now().Unix()
@@ -238,8 +313,21 @@ func (k Marker) Retry() {
 				n.RetryAt = 0
 				k.rename(thread, n)
 			}
+			if n.ArchiveAt != 0 && !n.Archived && now >= n.ArchiveAt {
+				k.archive(thread, n)
+			}
 		}
 	})
+}
+
+func (k Marker) archive(thread string, n *Name) {
+	if err := k.API.Archive(thread); err != nil {
+		n.ArchiveAt = k.Now().Add(archiveRetry).Unix()
+		k.Log.Warn("a done post could not be archived", "thread", thread, "error", err)
+		return
+	}
+	n.Archived = true
+	k.Log.Info("archived a post done for three days", "thread", thread)
 }
 
 func (k Marker) react(m *marks, ref state.Ref, emoji string) {
@@ -334,14 +422,26 @@ func (k Marker) want(m *marks, thread, emoji string) {
 		return
 	}
 	n.Want = ThreadName(emoji, n.Title)
+	if n.Forum != "" {
+		n.Tags = PostTags(emoji, n.Type)
+		// A post somebody writes in is out of the archive again, which is the only way a
+		// post's state changes after it is done.
+		switch {
+		case emoji != Finished:
+			n.ArchiveAt, n.Archived = 0, false
+		case n.ArchiveAt == 0:
+			n.ArchiveAt = k.Now().Add(archiveAfter).Unix()
+		}
+	}
 	if n.RetryAt == 0 {
 		k.rename(thread, n)
 	}
 }
 
-// One rename, or a single later one when the limit is used up or Discord says to wait.
+// One rename, or a single later one when the limit is used up or Discord says to wait. A
+// forum post's name and tags go in one edit, which counts as one rename.
 func (k Marker) rename(thread string, n *Name) {
-	if n.Skip || n.Want == "" || n.Want == n.Have {
+	if n.Skip || n.Want == "" || !n.pending() {
 		return
 	}
 	now := k.Now()
@@ -357,13 +457,33 @@ func (k Marker) rename(thread string, n *Name) {
 		return
 	}
 
-	err := k.API.RenameThread(thread, n.Want)
+	tagged := n.Forum != "" && !n.NoTags
+	var err error
+	if tagged {
+		var ids []string
+		if ids, err = chat.TagIDs(k.API, n.Forum, n.Tags); err != nil {
+			n.RetryAt = now.Add(time.Minute).Unix()
+			k.Log.Warn("the forum's tags could not be read, so the post is edited later", "thread", thread, "error", err)
+			return
+		}
+		err = k.API.EditPost(thread, n.Want, ids)
+	} else {
+		err = k.API.RenameThread(thread, n.Want)
+	}
 	switch {
 	case err == nil:
 		n.Have = n.Want
+		if tagged {
+			n.HaveTags = n.Tags
+		}
 		n.Renames = append(n.Renames, now.Unix())
 	case errors.Is(err, chat.ErrRateLimited):
 		n.RetryAt = now.Add(renameWindow).Unix()
+	case errors.Is(err, chat.ErrForbidden) && tagged:
+		// Tags may need a permission a name does not; the name goes on alone.
+		n.NoTags = true
+		k.Log.Warn("the post's tags could not be set, so only its name follows its state", "thread", thread)
+		k.rename(thread, n)
 	case errors.Is(err, chat.ErrForbidden):
 		n.Skip = true
 		k.Log.Info("the thread is not mochi's to rename, so its name is left as it is", "thread", thread)

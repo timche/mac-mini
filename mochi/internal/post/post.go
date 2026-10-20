@@ -112,6 +112,9 @@ type Post struct {
 
 	// A pull request, the one link a post may carry, which mochi adds as a line of its own.
 	PR string
+
+	// The kind of work a forum post is refiled as; a post with a type needs no text.
+	Type string
 }
 
 var pullRequest = regexp.MustCompile(`\Ahttps://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)/?\z`)
@@ -170,10 +173,24 @@ func Send(api chat.API, store state.Store, marks *mark.Marker, repos Repos, thre
 			return err
 		}
 	}
+	if p.Type != "" {
+		if marks == nil {
+			return errors.New("there is nothing to change the post's type with")
+		}
+		if err := marks.Typed(rec.Thread, p.Type); err != nil {
+			return err
+		}
+	}
 	text := p.Text
 	if p.PR != "" {
 		line, _ := PRLine(p.PR)
 		text = strings.TrimRight(text, "\n") + "\n" + line
+	}
+	if strings.TrimSpace(text) == "" && len(p.Files) == 0 {
+		if p.Settles != "" && marks != nil {
+			marks.Settled(rec.Thread, p.Settles)
+		}
+		return nil
 	}
 
 	parts := split(text)

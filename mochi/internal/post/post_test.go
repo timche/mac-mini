@@ -1,6 +1,7 @@
 package post
 
 import (
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -184,6 +185,32 @@ func TestAPullRequestIsItsOwnLineWithNoPreview(t *testing.T) {
 	}
 	if len(api.Sent) != 1 {
 		t.Errorf("%d posts, want 1", len(api.Sent))
+	}
+}
+
+// --type refiles a forum post and needs no text; in a thread it is refused before anything is
+// posted.
+func TestATypeRefilesAPostWithNoText(t *testing.T) {
+	api, store := fixture(t)
+	api.AddChannel(&discordgo.Channel{ID: "f1", AvailableTags: []discordgo.ForumTag{{ID: "t-run", Name: "Running"}, {ID: "t-bug", Name: "Bug"}}})
+	marks := &mark.Marker{API: api, Path: filepath.Join(t.TempDir(), "marks.json"), Now: time.Now, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	marks.Posted(thread, "Overlay", "⏳ Overlay", "f1", "")
+	marks.Started(thread)
+
+	if err := Send(api, store, marks, repeek, thread, Post{Type: "bug"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := api.Tagged[thread]; len(got) != 2 || got[0] != "t-run" || got[1] != "t-bug" {
+		t.Errorf("tags = %v", got)
+	}
+	if len(api.Sent) != 0 {
+		t.Errorf("a type with no text posted %d messages", len(api.Sent))
+	}
+
+	plain, store2 := fixture(t)
+	other := &mark.Marker{API: plain, Path: filepath.Join(t.TempDir(), "marks.json"), Now: time.Now, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	if err := Send(plain, store2, other, repeek, thread, Post{Text: "it is a bug", Type: "bug"}); !errors.Is(err, mark.ErrNoType) || len(plain.Sent) != 0 {
+		t.Errorf("a thread's type: %v, %d posts", err, len(plain.Sent))
 	}
 }
 

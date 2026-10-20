@@ -122,7 +122,11 @@ func (h *Handler) apply(looks map[string]look) {
 		h.Log.Error("the watched pull requests could not be read", "error", err)
 		return
 	}
-	sessions, _ := h.Store.Load()
+	sessions, err := h.Store.Load()
+	if err != nil {
+		h.Log.Error("the state file could not be read to follow pull requests", "error", err)
+		return
+	}
 	changed := false
 	for url, w := range watches {
 		l, looked := looks[url]

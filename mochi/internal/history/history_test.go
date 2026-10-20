@@ -134,3 +134,16 @@ func TestHistoryLeavesOutMochiAndDiscordsNotices(t *testing.T) {
 		t.Errorf("history:\n%s", text)
 	}
 }
+
+// When mochi's own id cannot be read, history shows everything rather than nothing.
+func TestHistoryWithoutMochisIdShowsEverything(t *testing.T) {
+	cfg, api := fixture(t)
+	api.Bot = nil
+	var out strings.Builder
+	if err := Show(cfg, api, session, Query{Limit: 10}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "topic message") {
+		t.Errorf("history:\n%.300s", out.String())
+	}
+}

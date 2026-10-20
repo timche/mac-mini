@@ -2,6 +2,7 @@ package listen
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -268,5 +269,20 @@ func TestCheckNamesAreShortAndPlain(t *testing.T) {
 	}
 	if checkNames([]string{"!!!"}) != "a check" {
 		t.Error("a name with nothing plain in it was not replaced")
+	}
+}
+
+// A state file that cannot be read leaves every watch as it is.
+func TestAnUnreadableStateFileDropsNoWatch(t *testing.T) {
+	f, _, g := watched(t)
+	g.state = "open"
+	inside := g.run
+	f.h.GH = func(args ...string) ([]byte, error) {
+		os.WriteFile(f.h.Store.Path, []byte("not json"), 0o600)
+		return inside(args...)
+	}
+	f.h.WatchPRs()
+	if f.watching() != 1 {
+		t.Errorf("watching %d after the state file broke", f.watching())
 	}
 }

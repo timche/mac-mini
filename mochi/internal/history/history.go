@@ -61,11 +61,13 @@ func Show(cfg config.Config, api chat.API, thread string, q Query, out io.Writer
 	if q.Post {
 		channel = rec.Thread
 	}
-	me, err := api.Me()
-	if err != nil {
-		return err
+	// Without mochi's own id its posts are shown too, which is more than needed and nothing
+	// that should not be.
+	self := ""
+	if me, err := api.Me(); err == nil {
+		self = me.ID
 	}
-	set, err := gather.Paged(api, rec.Guild, channel, q.Limit, q.Before, q.After, q.Around, me.ID)
+	set, err := gather.Paged(api, rec.Guild, channel, q.Limit, q.Before, q.After, q.Around, self)
 	if err != nil {
 		return err
 	}

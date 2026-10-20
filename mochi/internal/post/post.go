@@ -249,7 +249,7 @@ func Send(api chat.API, store state.Store, marks *mark.Marker, repos Repos, thre
 	text := p.Text
 	if p.PR != "" {
 		line, _ := PRLine(p.PR)
-		text = strings.TrimRight(text, "\n") + "\n" + line
+		text = strings.TrimRight(text, " \t\r\n") + "\n\n" + line
 	}
 	if strings.TrimSpace(text) == "" && len(p.Files) == 0 {
 		if p.Settles != "" && marks != nil {

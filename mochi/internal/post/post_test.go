@@ -161,7 +161,7 @@ func TestAPullRequestIsItsOwnLineWithNoPreview(t *testing.T) {
 		t.Fatal(err)
 	}
 	msg := api.Sent[0].Msg
-	if msg.Content != "Ready: average elo now shows for each team.\n#42 (https://github.com/timche/repeek/pull/42)" {
+	if msg.Content != "Ready: average elo now shows for each team.\n\n#42 (https://github.com/timche/repeek/pull/42)" {
 		t.Errorf("content = %q", msg.Content)
 	}
 	if msg.Flags&discordgo.MessageFlagsSuppressEmbeds == 0 {
@@ -306,7 +306,7 @@ func TestAPostKeepsItsLines(t *testing.T) {
 	if err := Send(api, store, nil, repeek, thread, Post{Text: text, Files: []string{before, after}, PR: "https://github.com/timche/repeek/pull/9"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := api.Sent[0].Msg.Content; got != text+"\n#9 (https://github.com/timche/repeek/pull/9)" {
+	if got := api.Sent[0].Msg.Content; got != text+"\n\n#9 (https://github.com/timche/repeek/pull/9)" {
 		t.Errorf("content:\n%s", got)
 	}
 }
@@ -398,5 +398,16 @@ func TestAPullRequestAddressIsItsRepoAndNumber(t *testing.T) {
 	}
 	if _, _, ok := ParsePR("https://github.com/timche/repeek/issues/42"); ok {
 		t.Error("an issue was taken for a pull request")
+	}
+}
+
+// The pull request's line stands apart from the text, however the text ended.
+func TestThePullRequestLineIsAParagraphOfItsOwn(t *testing.T) {
+	api, store := fixture(t)
+	if err := Send(api, store, nil, repeek, thread, Post{Text: "**Done**\n- the last point  \n\n \t\n", PR: "https://github.com/timche/repeek/pull/7"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := api.Sent[0].Msg.Content; got != "**Done**\n- the last point\n\n#7 (https://github.com/timche/repeek/pull/7)" {
+		t.Errorf("content = %q", got)
 	}
 }

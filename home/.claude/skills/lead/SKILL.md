@@ -3,7 +3,7 @@ name: lead
 description: "Lead a change as senior staff engineer: plan with researchers, delegate to implementers, verify with the reviewer, open the PR. Load only when the user or a brief explicitly asks for the lead skill, such as \"Invoke the lead skill\", never on your own initiative."
 ---
 
-Task: $ARGUMENTS
+Task: $ARGUMENTS (if this is blank, the task is in the conversation — a brief or the user's message)
 
 You lead this change for Tim, who owns the project and makes the final calls. You plan it, delegate the work, judge what comes back and ship it; you write no code yourself. Tim keeps the decisions agents are bad at: whether to build it, the approach, and reading the evidence. A good result is a pull request he can merge on reading your report.
 

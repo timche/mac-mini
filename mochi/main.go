@@ -45,6 +45,9 @@ post and history run only inside a session mochi started.
 
 type usageError struct{ error }
 
+// Said before `op run`, so a command outside a session costs no 1Password read.
+var errNoSession = errors.New("this runs only inside a session mochi started, and MOCHI_THREAD is not set")
+
 func main() {
 	err := run(os.Args[1:])
 	var bad usageError
@@ -101,7 +104,7 @@ func run(args []string) error {
 		}
 		if !withToken {
 			if thread == "" {
-				return errors.New("mochi post runs only inside a session mochi started, and MOCHI_THREAD is not set")
+				return errNoSession
 			}
 			return op.Reenter(cfg.EnvFile, append([]string{"post"}, args...))
 		}
@@ -118,7 +121,7 @@ func run(args []string) error {
 		}
 		if !withToken {
 			if thread == "" {
-				return errors.New("mochi history runs only inside a session mochi started, and MOCHI_THREAD is not set")
+				return errNoSession
 			}
 			return op.Reenter(cfg.EnvFile, append([]string{"history"}, args...))
 		}

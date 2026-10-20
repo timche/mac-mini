@@ -31,6 +31,10 @@ type Downloader struct {
 	Total   int64
 }
 
+func SessionFiles(api chat.API, dir string) Downloader {
+	return Downloader{API: api, Dir: dir, PerFile: PerFile, Total: SessionTotal}
+}
+
 var unsafeName = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
 func (d Downloader) Fetch(msgs []*discordgo.Message) Files {

@@ -53,6 +53,23 @@ func (s Store) Get(thread string) (Session, bool, error) {
 	return rec, ok, nil
 }
 
+// The session a command inside one runs for, by the thread its tab was started with. A
+// thread mochi has no record of is refused: the variable alone would let a session reach
+// anywhere the bot can.
+func (s Store) Session(thread string) (Session, error) {
+	if thread == "" {
+		return Session{}, errors.New("this runs only inside a session mochi started, and MOCHI_THREAD is not set")
+	}
+	rec, ok, err := s.Get(thread)
+	if err != nil {
+		return Session{}, err
+	}
+	if !ok {
+		return Session{}, errors.New("MOCHI_THREAD names no thread mochi started a session for")
+	}
+	return rec, nil
+}
+
 func (s Store) Put(rec Session) error {
 	all, err := s.Load()
 	if err != nil {

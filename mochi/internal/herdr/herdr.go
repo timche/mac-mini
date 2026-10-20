@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -49,11 +48,6 @@ func CLI(args ...string) ([]byte, error) {
 	}
 	return body, nil
 }
-
-// herdr's own rule for an agent name.
-var name = regexp.MustCompile(`\A[a-z][a-z0-9-]*\z`)
-
-func ValidName(n string) bool { return name.MatchString(n) }
 
 const (
 	codeBlocked  = "agent_blocked"

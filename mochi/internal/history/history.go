@@ -47,15 +47,9 @@ func Show(cfg config.Config, api chat.API, thread string, q Query, out io.Writer
 	if err := q.Check(); err != nil {
 		return err
 	}
-	if thread == "" {
-		return errors.New("mochi history runs only inside a session mochi started, and MOCHI_THREAD is not set")
-	}
-	rec, ok, err := state.Store{Path: cfg.StatePath()}.Get(thread)
+	rec, err := state.Store{Path: cfg.StatePath()}.Session(thread)
 	if err != nil {
 		return err
-	}
-	if !ok {
-		return errors.New("MOCHI_THREAD names no thread mochi started a session for")
 	}
 
 	set, err := gather.Paged(api, rec.Guild, rec.Source, q.Limit, q.Before, q.After, q.Around)
@@ -69,7 +63,7 @@ func Show(cfg config.Config, api chat.API, thread string, q Query, out io.Writer
 		return err
 	}
 
-	files := gather.Downloader{API: api, Dir: cfg.SessionDir(rec.Thread), PerFile: gather.PerFile, Total: gather.SessionTotal}.Fetch(msgs)
+	files := gather.SessionFiles(api, cfg.SessionDir(rec.Thread)).Fetch(msgs)
 	nonce := fence.Nonce()
 
 	_, err = fmt.Fprintf(out, `%d messages from %s, oldest first. Earlier: mochi history --before %s. Later: mochi history --after %s.

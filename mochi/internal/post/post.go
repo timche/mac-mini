@@ -3,7 +3,6 @@
 package post
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,18 +16,10 @@ import (
 // Discord's limit is 2,000 characters, so a longer post goes as several, split between lines.
 const chunk = 1900
 
-// The thread is the one the session's tab was started with, and it has to be one mochi
-// opened a session for: the variable alone would let a session post anywhere the bot can.
 func Send(api chat.API, store state.Store, thread, file, text string) error {
-	if thread == "" {
-		return errors.New("mochi post runs only inside a session mochi started, and MOCHI_THREAD is not set")
-	}
-	rec, ok, err := store.Get(thread)
+	rec, err := store.Session(thread)
 	if err != nil {
 		return err
-	}
-	if !ok {
-		return errors.New("MOCHI_THREAD names no thread mochi started a session for")
 	}
 
 	parts := split(text)

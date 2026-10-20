@@ -37,14 +37,16 @@ type Handler struct {
 
 	// One mention at a time: each is a handful of Discord calls and a herdr start, and two
 	// at once would race on the state file and on the agent name.
-	mu  sync.Mutex
-	bot string
+	mu      sync.Mutex
+	bot     string
+	mention *regexp.Regexp
 }
 
 func (h *Handler) SetBot(id string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.bot = id
+	h.mention = regexp.MustCompile(`<@!?` + regexp.QuoteMeta(id) + `>`)
 }
 
 // Held across a handled mention, so a listener exiting for a new binary never abandons one
@@ -62,10 +64,12 @@ func (h *Handler) Handle(m *discordgo.Message) {
 		return
 	}
 	server, ok := h.Cfg.Server(m.GuildID)
-	if !ok || h.bot == "" || !mentions(m.Content, h.bot) {
+	// The token form of a mention and not Discord's list of mentioned users, which also
+	// holds the author of any message replied to with the ping left on.
+	if !ok || h.mention == nil || !h.mention.MatchString(m.Content) {
 		return
 	}
-	instruction := strings.TrimSpace(mentionOf(h.bot).ReplaceAllString(m.Content, ""))
+	instruction := strings.TrimSpace(h.mention.ReplaceAllString(m.Content, ""))
 
 	ch, err := h.API.Channel(m.ChannelID)
 	if err != nil {
@@ -190,10 +194,6 @@ func (h *Handler) start(server config.Server, rec *state.Session, channelName, t
 	rec.Tab = tabLabel(channelName, h.Now())
 	rec.Updated = h.Now().Unix()
 
-	if !herdr.ValidName(rec.Agent) {
-		return fmt.Errorf("%s is not a name herdr will take", rec.Agent)
-	}
-
 	workspace, err := herdr.Workspace(h.Herdr, server.Workspace, server.Repo)
 	if err != nil {
 		return h.herdrFailed("the herdr workspace could not be found or made", err)
@@ -220,12 +220,7 @@ func (h *Handler) herdrFailed(reason string, err error) error {
 }
 
 func (h *Handler) files(thread string, set *gather.Set) gather.Files {
-	return gather.Downloader{
-		API:     h.API,
-		Dir:     h.Cfg.SessionDir(thread),
-		PerFile: gather.PerFile,
-		Total:   gather.SessionTotal,
-	}.Fetch(set.Messages())
+	return gather.SessionFiles(h.API, h.Cfg.SessionDir(thread)).Fetch(set.Messages())
 }
 
 // A ❌ and one line saying why, in the session's thread when there is one and as a reply to
@@ -284,14 +279,6 @@ func (h *Handler) Prune(keep time.Duration) {
 		os.RemoveAll(h.Cfg.SessionDir(thread))
 		h.Log.Info("forgot a finished session and its attachments", "thread", thread, "agent", rec.Agent)
 	}
-}
-
-// The token form of a mention and not Discord's list of mentioned users, which also holds
-// the author of any message replied to with the ping left on.
-func mentions(content, bot string) bool { return mentionOf(bot).MatchString(content) }
-
-func mentionOf(bot string) *regexp.Regexp {
-	return regexp.MustCompile(`<@!?` + regexp.QuoteMeta(bot) + `>`)
 }
 
 var unslug = regexp.MustCompile(`[^a-z0-9]+`)

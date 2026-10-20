@@ -24,6 +24,12 @@ type Blocked struct {
 	Backoff int64 `json:"backoff,omitempty"`
 	RetryAt int64 `json:"retry_at,omitempty"`
 	Dead    bool  `json:"dead,omitempty"`
+
+	// The state the session showed before the ping set ❓, and the count of its states right
+	// after: when the wait ends with nothing set since, that state comes back; anything the
+	// session set itself in the meantime, a --review or a --done, stays.
+	Prev string `json:"prev,omitempty"`
+	Seq  int    `json:"seq,omitempty"`
 }
 
 type BlockedStore struct{ Path string }

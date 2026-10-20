@@ -72,7 +72,7 @@ func (h *Handler) WatchBlocked() {
 		case herdr.StatusBlocked:
 		default:
 			if b.Pinged {
-				h.Marks.Settled(thread, mark.Running)
+				h.restore(thread, b)
 			}
 			if b.Dead {
 				seen[thread] = state.Blocked{Dead: true}
@@ -90,7 +90,9 @@ func (h *Handler) WatchBlocked() {
 			switch {
 			case err == nil:
 				b.Pinged, b.Backoff, b.RetryAt = true, 0, 0
+				b.Prev, _ = h.Marks.Session(thread)
 				h.Marks.Settled(thread, mark.Asking)
+				_, b.Seq = h.Marks.Session(thread)
 			case chat.Gone(err):
 				b.Dead = true
 				h.Log.Warn("the thread of a session waiting on Tim is gone, so it is pinged no more", "thread", thread)
@@ -130,6 +132,19 @@ func (h *Handler) loadWaits() (map[string]state.Session, map[string]state.Blocke
 		return nil, nil, false
 	}
 	return sessions, seen, true
+}
+
+// The wait is over: the state from before the ping comes back, unless the session or a
+// follow-up has set one since, which is newer than anything the ping knew.
+func (h *Handler) restore(thread string, b state.Blocked) {
+	if _, seq := h.Marks.Session(thread); seq != b.Seq {
+		return
+	}
+	prev := b.Prev
+	if prev == "" || prev == mark.Asking {
+		prev = mark.Running
+	}
+	h.Marks.Settled(thread, prev)
 }
 
 // Tim alone may be pinged, and only here.

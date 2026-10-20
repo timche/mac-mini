@@ -73,6 +73,16 @@ type marks struct {
 	// forgets them too; and when each reaction was last set, for the ones no session holds.
 	Threads map[string][]state.Ref `json:"threads"`
 	At      map[string]int64       `json:"at"`
+
+	// Each session's state, and how many times it has been set, so a change made by somebody
+	// else since can be told apart from one's own.
+	State map[string]string `json:"state"`
+	Seq   map[string]int    `json:"seq"`
+}
+
+func (m *marks) set(thread, emoji string) {
+	m.State[thread] = emoji
+	m.Seq[thread]++
 }
 
 func key(r state.Ref) string { return r.Channel + "/" + r.Message }
@@ -144,6 +154,7 @@ func (k Marker) Started(thread string, refs ...state.Ref) {
 		}
 		k.want(m, thread, Running)
 		k.groups(m, thread, Running)
+		m.set(thread, Running)
 	})
 }
 
@@ -155,6 +166,7 @@ func (k Marker) Failed(thread string, refs ...state.Ref) {
 		}
 		delete(m.Running, thread)
 		k.want(m, thread, Failed)
+		m.set(thread, Failed)
 	})
 }
 
@@ -171,7 +183,17 @@ func (k Marker) Settled(thread, emoji string) {
 		}
 		k.want(m, thread, emoji)
 		k.groups(m, thread, emoji)
+		m.set(thread, emoji)
 	})
+}
+
+// Session is a session's state and how many times it has been set: what was set last, and
+// whether anything has been set since a given time.
+func (k Marker) Session(thread string) (string, int) {
+	var shown string
+	var seq int
+	k.update(func(m *marks) { shown, seq = m.State[thread], m.Seq[thread] })
+	return shown, seq
 }
 
 // Several sessions from one mention, all started: the mention shows ⏳ while any works.
@@ -267,6 +289,8 @@ func (k Marker) Prune(alive func(thread string) bool, keep time.Duration) {
 			delete(m.Threads, t)
 			delete(m.Running, t)
 			delete(m.Names, t)
+			delete(m.State, t)
+			delete(m.Seq, t)
 		}
 
 		for gk, g := range m.Groups {
@@ -396,6 +420,12 @@ func (k Marker) update(fn func(*marks)) {
 	}
 	if m.At == nil {
 		m.At = map[string]int64{}
+	}
+	if m.State == nil {
+		m.State = map[string]string{}
+	}
+	if m.Seq == nil {
+		m.Seq = map[string]int{}
 	}
 	before, _ := json.MarshalIndent(m, "", "  ")
 

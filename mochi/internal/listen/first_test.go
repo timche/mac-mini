@@ -37,7 +37,7 @@ func TestTheFirstPostQuotesWhatTheSessionIsAbout(t *testing.T) {
 
 	msg := firstPost(t, f, m.ID)
 	want := startedPost(m.ID) + "\n" +
-		"> **Maker-sama:** hey, some QOL things:\n> a) average elo\n> b) map stats (2 images)\n" +
+		"> **Maker-sama:** hey, some QOL things:\n> a) average elo\n> b) map stats (2 images)\n\n" +
 		"> **tim:** take a look\n> at both (1 file)"
 	if msg.Content != want {
 		t.Errorf("first post:\n%s\nwant:\n%s", msg.Content, want)
@@ -67,7 +67,7 @@ func TestALongRepliedMessageIsShortenedAndTimsWordsAreNot(t *testing.T) {
 	if head(text) != startedPost(m.ID) || !strings.Contains(text, "> **tim:** "+strings.TrimSpace(words)) {
 		t.Errorf("the link or Tim's words were cut:\n%s", text)
 	}
-	if !strings.Contains(text, "> **Maker-sama:** a long suggestion") || !strings.Contains(text, "…\n> **tim:**") {
+	if !strings.Contains(text, "> **Maker-sama:** a long suggestion") || !strings.Contains(text, "…\n\n> **tim:**") {
 		t.Errorf("the replied-to message was not shortened with an ellipsis:\n%.300s", text)
 	}
 }
@@ -149,7 +149,7 @@ func TestEveryLineOfAQuoteIsQuoted(t *testing.T) {
 
 	text := firstPost(t, f, m.ID).Content
 	want := startedPost(m.ID) + "\n" +
-		"> **Odd Name \\*\\*bold\\*\\*:** one\n> two\n> three\n> four\n> five\n> six\n" +
+		"> **Odd Name \\*\\*bold\\*\\*:** one\n> two\n> three\n> four\n> five\n> six\n\n" +
 		"> **tim:** look\n> here"
 	if text != want {
 		t.Errorf("first post:\n%q\nwant:\n%q", text, want)
@@ -172,7 +172,7 @@ func TestAnEmojiHeavyPostStaysUnderDiscordsLimit(t *testing.T) {
 	if n := len(utf16.Encode([]rune(text))); n >= 2000 {
 		t.Errorf("first post is %d UTF-16 units", n)
 	}
-	if !utf8.ValidString(text) || !strings.Contains(text, "…\n> **tim:** look 😀") {
+	if !utf8.ValidString(text) || !strings.Contains(text, "…\n\n> **tim:** look 😀") {
 		t.Errorf("not cut on a character boundary with an ellipsis:\n%.200s", text)
 	}
 }

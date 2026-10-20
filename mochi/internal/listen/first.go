@@ -37,11 +37,13 @@ func (h *Handler) announcement(o opener, covers string) *discordgo.MessageSend {
 		tail += "\n" + covers
 	}
 
+	// Each message is a quote block of its own, a blank line between them, so Discord shows
+	// them apart.
 	text := head + "\n" + tail
 	if r := o.replied; r != nil {
-		budget := maxFirstPost - units(text) - 1
+		budget := maxFirstPost - units(text) - 2
 		if q := quoteWithin(chat.Name(r), r.Content, r.Attachments, budget); q != "" {
-			text = head + "\n" + q + "\n" + tail
+			text = head + "\n" + q + "\n\n" + tail
 		}
 	}
 	if units(text) > maxFirstPost {

@@ -61,7 +61,7 @@ func TestASplitIntoThreeOpensThreeThreadsAndTabsAndOneReply(t *testing.T) {
 
 	f.h.Handle(m)
 
-	if len(seen) != 1 || seen[0].instruction != "research a, b and c separately" || seen[0].replied != qol {
+	if len(seen) != 1 || seen[0].instruction != "research a, b and c separately" || seen[0].replied == nil || seen[0].replied.ID != qol.ID {
 		t.Errorf("the classifier was asked %+v", seen)
 	}
 	if len(f.api.Threads) != 0 {
@@ -91,7 +91,7 @@ func TestASplitIntoThreeOpensThreeThreadsAndTabsAndOneReply(t *testing.T) {
 		if !strings.Contains(context, "QOL: a) average elo") || !strings.Contains(prompt, fmt.Sprintf("works on task %d of them alone", i+1)) {
 			t.Errorf("task %d lacks the shared context or its place", i+1)
 		}
-		if posts := f.sentTo(thread.ID); len(posts) != 1 || !strings.HasPrefix(posts[0], "Session started, for https://discord.com/channels/") {
+		if posts := f.sentTo(thread.ID); len(posts) != 1 || !strings.HasPrefix(posts[0], "Session started for [Tim's message](<https://discord.com/channels/"+guild+"/") {
 			t.Errorf("thread %d posts = %q", i+1, posts)
 		}
 		if rec := f.record(thread.ID); rec.Source != channel || rec.LastMention != m.ID {

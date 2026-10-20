@@ -98,10 +98,13 @@ func (f *Fake) Channel(id string) (*discordgo.Channel, error) {
 	return nil, fmt.Errorf("unknown channel %s", id)
 }
 
+// As Discord answers a message fetched by id: without its guild.
 func (f *Fake) Message(channel, id string) (*discordgo.Message, error) {
 	for _, m := range f.Msgs[channel] {
 		if m.ID == id {
-			return m, nil
+			fetched := *m
+			fetched.GuildID = ""
+			return &fetched, nil
 		}
 	}
 	return nil, fmt.Errorf("unknown message %s in %s", id, channel)

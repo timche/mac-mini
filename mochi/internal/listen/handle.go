@@ -245,6 +245,9 @@ func (h *Handler) open(server config.Server, ch *discordgo.Channel, m *discordgo
 // The sessions themselves, once it is settled whether they are one or several: straight from
 // a mention, or from Tim's answer to a question.
 func (h *Handler) begin(server config.Server, ch *discordgo.Channel, m *discordgo.Message, instruction string, replied *discordgo.Message, answer split.Answer, many bool) {
+	if m.GuildID == "" {
+		m.GuildID = ch.GuildID
+	}
 	name := title(answer, replied, instruction)
 
 	var (
@@ -336,6 +339,9 @@ func (h *Handler) relay(server config.Server, ch *discordgo.Channel, rec state.S
 	}
 
 	rec.LastMention, rec.Updated = m.ID, h.Now().Unix()
+	if rec.Guild == "" {
+		rec.Guild = m.GuildID
+	}
 	if err := h.Store.Put(rec); err != nil {
 		h.Log.Error("the relay was delivered but not recorded", "thread", rec.Thread, "error", h.redact(err))
 	}

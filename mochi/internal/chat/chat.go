@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+
+	"github.com/timche/mac-mini/mochi/internal/state"
 )
 
 type API interface {
@@ -59,20 +61,42 @@ const (
 
 // Every post mochi makes pings nobody: it quotes moderators' names and Tim's own mention
 // back, and a session posting findings is not a reason to wake a server.
+// A link in a post is for following, not for a preview card moderators have to scroll past.
 func Quiet(content string) *discordgo.MessageSend {
-	return &discordgo.MessageSend{Content: content, AllowedMentions: NoMentions()}
+	msg := &discordgo.MessageSend{Content: content, AllowedMentions: NoMentions()}
+	if strings.Contains(content, "://") {
+		msg.Flags |= discordgo.MessageFlagsSuppressEmbeds
+	}
+	return msg
 }
 
 func NoMentions() *discordgo.MessageAllowedMentions {
 	return &discordgo.MessageAllowedMentions{Parse: []discordgo.AllowedMentionType{}}
 }
 
+// Link is a message's or a channel's address, or nothing when it does not know the guild or
+// the channel: an address with an empty part opens nothing and draws a generic preview.
 func Link(guild, channel, message string) string {
+	if guild == "" || channel == "" {
+		return ""
+	}
 	link := "https://discord.com/channels/" + guild + "/" + channel
 	if message != "" {
 		link += "/" + message
 	}
 	return link
+}
+
+// GuildOf is the guild a session belongs to: its record's, or the source channel's when a
+// record was saved without one, since a message fetched over REST carries no guild.
+func GuildOf(api API, rec state.Session) string {
+	if rec.Guild != "" {
+		return rec.Guild
+	}
+	if ch, err := api.Channel(rec.Source); err == nil {
+		return ch.GuildID
+	}
+	return ""
 }
 
 // Snowflakes are timestamps, so their order is the messages' order. Compared as numbers,

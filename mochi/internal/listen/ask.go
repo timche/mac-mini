@@ -186,6 +186,10 @@ func (h *Handler) settle(p state.Pending, many bool) {
 		h.Log.Error("the mention a question was about could not be read", "message", p.Mention, "error", h.redact(err))
 		return
 	}
+	// Discord leaves the guild off a message fetched by id; the question kept it.
+	if m.GuildID == "" {
+		m.GuildID = p.Guild
+	}
 	ch, err := h.API.Channel(p.Channel)
 	if err != nil {
 		h.fail(m, "", "the channel could not be read", err)

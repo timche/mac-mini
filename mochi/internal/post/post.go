@@ -165,7 +165,7 @@ func Send(api chat.API, store state.Store, marks *mark.Marker, repos Repos, thre
 		return err
 	}
 	if p.PR != "" {
-		if err := checkRepo(p.PR, rec.Guild, repos); err != nil {
+		if err := checkRepo(p.PR, chat.GuildOf(api, rec), repos); err != nil {
 			return err
 		}
 	}

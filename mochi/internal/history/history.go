@@ -52,6 +52,7 @@ func Show(cfg config.Config, api chat.API, thread string, q Query, out io.Writer
 		return err
 	}
 
+	rec.Guild = chat.GuildOf(api, rec)
 	set, err := gather.Paged(api, rec.Guild, rec.Source, q.Limit, q.Before, q.After, q.Around)
 	if err != nil {
 		return err

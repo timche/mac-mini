@@ -82,6 +82,14 @@ func (h *Handler) replied(m *discordgo.Message) *discordgo.Message {
 	return got
 }
 
+// A split thread's first post: started, and for which message, as a masked link.
+func startedFor(m *discordgo.Message) string {
+	if link := chat.Link(m.GuildID, m.ChannelID, m.ID); link != "" {
+		return "Session started for [Tim's message](<" + link + ">)."
+	}
+	return "Session started."
+}
+
 // Where the threads of a split go: the channel, or a thread's parent, since a thread holds no
 // threads. A forum's parent holds only posts, so there the answer is no channel and why.
 func (h *Handler) splitInto(ch *discordgo.Channel, n int) (string, string) {
@@ -129,7 +137,7 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 		}
 
 		// The thread's first post stands for its session: ⏳ while it works, ✅ when it is done.
-		ack, err := h.API.Send(thread.ID, chat.Quiet("Session started, for "+chat.Link(m.GuildID, m.ChannelID, m.ID)))
+		ack, err := h.API.Send(thread.ID, chat.Quiet(startedFor(m)))
 		if err != nil {
 			h.Log.Error("could not post in the thread", "thread", thread.ID, "error", h.redact(err))
 		} else {

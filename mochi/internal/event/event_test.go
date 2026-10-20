@@ -71,3 +71,19 @@ func TestAnythingOddWritesNothing(t *testing.T) {
 		t.Errorf("events = %+v", events)
 	}
 }
+
+// A hook killed between its write and its rename leaves a .tmp, which the listener clears.
+func TestCleanTakesAwayHalfWrittenEvents(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "t1-1.json.tmp"), []byte("{"), 0o600)
+	Write(strings.NewReader("{}"), env(map[string]string{ThreadVar: "t1"}), dir, Heard, now)
+
+	Clean(dir)
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 1 || !strings.HasSuffix(entries[0].Name(), ".json") {
+		t.Errorf("left %v", entries)
+	}
+	if events := Read(dir); len(events) != 1 || events[0].Kind != Heard || events[0].Nanos != now().UnixNano() {
+		t.Errorf("events = %+v", events)
+	}
+}

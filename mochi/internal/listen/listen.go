@@ -12,6 +12,7 @@ import (
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/config"
+	"github.com/timche/mac-mini/mochi/internal/event"
 	"github.com/timche/mac-mini/mochi/internal/herdr"
 	"github.com/timche/mac-mini/mochi/internal/mark"
 	"github.com/timche/mac-mini/mochi/internal/op"
@@ -115,6 +116,7 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 
 	// A session's hooks leave an event the moment its turn ends; read every second, which is a
 	// directory listing and nothing more when there is none.
+	event.Clean(cfg.EventsDir())
 	go func() {
 		for range time.Tick(eventsEvery) {
 			h.ConsumeEvents()

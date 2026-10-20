@@ -41,6 +41,13 @@ func (h *Handler) ConsumeEvents() {
 		event.Done(ev)
 	}
 	h.pingWaiting(waits)
+	if sessions, err := h.Store.Load(); err == nil {
+		for thread := range waits {
+			if _, ok := sessions[thread]; !ok {
+				delete(waits, thread)
+			}
+		}
+	}
 
 	if !reflect.DeepEqual(waits, before) {
 		h.saveWaits(waits)
@@ -48,22 +55,44 @@ func (h *Handler) ConsumeEvents() {
 }
 
 func (h *Handler) waiting(ev event.Event, waits map[string]state.Wait) {
-	if ev.Kind == event.Stop && ev.Background > 0 {
+	rec, ok, _ := h.Store.Get(ev.Thread)
+	if !ok {
 		return
 	}
-	if _, ok, _ := h.Store.Get(ev.Thread); !ok {
+	w := waits[ev.Thread]
+	if ev.Kind == event.Heard {
+		h.answered(ev.Thread, waits, ev.Nanos)
+		return
+	}
+	// A report from before Tim last reached the session, or before it last started, is stale.
+	if ev.Nanos <= w.Heard || ev.Nanos <= rec.Updated*int64(time.Second) {
+		return
+	}
+	if ev.Kind == event.Stop && ev.Background > 0 {
 		return
 	}
 	if shown, _ := h.Marks.Session(ev.Thread); shown == mark.Finished {
 		return
 	}
-	w := waits[ev.Thread]
 	if w.Pinged || w.Pending || w.Dead {
 		return
 	}
 	h.Marks.Settled(ev.Thread, mark.Asking)
+	_, w.Seq = h.Marks.Session(ev.Thread)
 	w.Pending = true
 	waits[ev.Thread] = w
+}
+
+// Tim reached the session, in it or through a follow-up: the wait is over, and the next one
+// pings again. The ❓ the ping set goes back to ⏳ unless something was set since.
+func (h *Handler) answered(thread string, waits map[string]state.Wait, at int64) {
+	w := waits[thread]
+	if w.Pinged || w.Pending {
+		if _, seq := h.Marks.Session(thread); seq == w.Seq {
+			h.Marks.Settled(thread, mark.Running)
+		}
+	}
+	waits[thread] = state.Wait{Dead: w.Dead, Heard: max(at, w.Heard)}
 }
 
 func (h *Handler) pingWaiting(waits map[string]state.Wait) {
@@ -74,9 +103,9 @@ func (h *Handler) pingWaiting(waits map[string]state.Wait) {
 		err := h.ping(thread)
 		switch {
 		case err == nil:
-			w = state.Wait{Pinged: true}
+			w = state.Wait{Pinged: true, Seq: w.Seq, Heard: w.Heard}
 		case chat.Gone(err):
-			w = state.Wait{Dead: true}
+			w = state.Wait{Dead: true, Heard: w.Heard}
 			h.Log.Warn("the thread of a session waiting on Tim is gone, so it is pinged no more", "thread", thread)
 		default:
 			wait := max(pingBackoff, min(time.Duration(w.Backoff)*time.Second*2, pingBackoffMax))
@@ -86,17 +115,13 @@ func (h *Handler) pingWaiting(waits map[string]state.Wait) {
 	}
 }
 
-// Heard is Tim's input reaching the session: the next time it waits on him he is pinged
-// again. A thread Discord has lost stays lost.
+// heard is a follow-up of Tim's delivered to the session from Discord.
 func (h *Handler) heard(thread string) {
 	waits, ok := h.loadWaits()
 	if !ok {
 		return
 	}
-	if w, known := waits[thread]; !known || w.Dead {
-		return
-	}
-	delete(waits, thread)
+	h.answered(thread, waits, h.Now().UnixNano())
 	h.saveWaits(waits)
 }
 

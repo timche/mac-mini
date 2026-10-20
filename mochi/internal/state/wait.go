@@ -20,6 +20,14 @@ type Wait struct {
 	Backoff int64 `json:"backoff,omitempty"`
 	RetryAt int64 `json:"retry_at,omitempty"`
 	Dead    bool  `json:"dead,omitempty"`
+
+	// How many states the session had been through when the ping set ❓, so Tim's answer
+	// puts it back to ⏳ only if nothing else — a --review, a --done — has been set since.
+	Seq int `json:"seq,omitempty"`
+
+	// When Tim last reached the session, in nanoseconds: anything it reported from before
+	// then is out of date and pings nobody.
+	Heard int64 `json:"heard,omitempty"`
 }
 
 type WaitStore struct{ Path string }

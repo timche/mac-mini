@@ -20,6 +20,9 @@ const (
 	Stop = "stop"
 	Ask  = "ask"
 
+	// Tim answered in the session: a question answered, or a prompt submitted.
+	Heard = "heard"
+
 	ThreadVar = "MOCHI_THREAD"
 )
 
@@ -31,7 +34,8 @@ type Event struct {
 	// has paused for that work rather than for Tim.
 	Background int `json:"background,omitempty"`
 
-	At int64 `json:"at"`
+	At    int64 `json:"at"`
+	Nanos int64 `json:"nanos"`
 
 	file string
 }
@@ -42,7 +46,7 @@ var safeThread = regexp.MustCompile(`\A[A-Za-z0-9_-]+\z`)
 // nothing that goes wrong is shown: the session's turn goes on exactly as without it.
 func Write(stdin io.Reader, env func(string) string, dir, kind string, now func() time.Time) {
 	thread := env(ThreadVar)
-	if thread == "" || !safeThread.MatchString(thread) || (kind != Stop && kind != Ask) {
+	if thread == "" || !safeThread.MatchString(thread) || (kind != Stop && kind != Ask && kind != Heard) {
 		return
 	}
 	var input struct {
@@ -53,7 +57,7 @@ func Write(stdin io.Reader, env func(string) string, dir, kind string, now func(
 	}
 
 	at := now()
-	body, _ := json.Marshal(Event{Thread: thread, Kind: kind, Background: len(input.BackgroundTasks), At: at.Unix()})
+	body, _ := json.Marshal(Event{Thread: thread, Kind: kind, Background: len(input.BackgroundTasks), At: at.Unix(), Nanos: at.UnixNano()})
 	if os.MkdirAll(dir, 0o700) != nil {
 		return
 	}
@@ -88,3 +92,11 @@ func Read(dir string) []Event {
 }
 
 func Done(ev Event) { os.Remove(ev.file) }
+
+// Clean takes away what a hook killed between its write and its rename left behind.
+func Clean(dir string) {
+	stale, _ := filepath.Glob(filepath.Join(dir, "*.tmp"))
+	for _, path := range stale {
+		os.Remove(path)
+	}
+}

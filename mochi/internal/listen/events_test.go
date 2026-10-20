@@ -32,7 +32,7 @@ func (f *fixture) event(thread, kind string, background int) {
 	f.t.Helper()
 	input := `{"background_tasks":[` + strings.TrimSuffix(strings.Repeat(`{"id":"x"},`, background), ",") + `]}`
 	f.seq++
-	at := time.Unix(1792500000, int64(f.seq))
+	at := f.h.Now().Add(time.Duration(f.seq) * time.Millisecond)
 	event.Write(strings.NewReader(input), func(k string) string {
 		if k == event.ThreadVar {
 			return thread

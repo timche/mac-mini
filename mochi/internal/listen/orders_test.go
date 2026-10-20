@@ -48,6 +48,7 @@ var orders = []string{
 	"**What was found**",
 	"Use these shapes exactly, so every post reads the same. The headings are fixed: don't rename them, add others, or switch their list style.",
 	"questions always go under **Questions** as a numbered list, 1., 2., …, even when there is only one",
+	"The proof heading names what is attached: **Screenshots** for images only, **Videos** for videos only, **Screenshots and videos** for both",
 	"**Questions**\n1. Fix the matchroom team average",
 	"Keep it brief: Tim reads the details in this session and the pull request.",
 	"At most three bullets under a heading",

@@ -48,7 +48,7 @@ EOF
 
 ## What a post looks like
 
-Use these shapes exactly, so every post reads the same. The headings are fixed: don't rename them, add others, or switch their list style. Points under a heading are bullets; questions always go under **Questions** as a numbered list, 1., 2., …, even when there is only one, so people can answer "2: thumbs up" without quoting.
+Use these shapes exactly, so every post reads the same. The headings are fixed: don't rename them, add others, or switch their list style. Points under a heading are bullets; questions always go under **Questions** as a numbered list, 1., 2., …, even when there is only one, so people can answer "2: thumbs up" without quoting. The proof heading names what is attached: **Screenshots** for images only, **Videos** for videos only, **Screenshots and videos** for both; `mochi post` refuses one that does not match the files.
 
 A result:
 

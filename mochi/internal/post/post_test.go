@@ -300,7 +300,10 @@ func TestAPullRequestOfAnotherRepositoryIsRefused(t *testing.T) {
 func TestAPostKeepsItsLines(t *testing.T) {
 	api, store := fixture(t)
 	text := "**Average elo shows for each team**\n\n**What changed**\n- The lobby shows each team's average elo\n- Teams are compared at a glance\n\n**Screenshots**\n1. Before — no average\n2. After — the average beside each team"
-	if err := Send(api, store, nil, repeek, thread, Post{Text: text, PR: "https://github.com/timche/repeek/pull/9"}); err != nil {
+	before, after := filepath.Join(t.TempDir(), "before.png"), filepath.Join(t.TempDir(), "after.png")
+	os.WriteFile(before, []byte("png"), 0o644)
+	os.WriteFile(after, []byte("png"), 0o644)
+	if err := Send(api, store, nil, repeek, thread, Post{Text: text, Files: []string{before, after}, PR: "https://github.com/timche/repeek/pull/9"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := api.Sent[0].Msg.Content; got != text+"\n#9 (https://github.com/timche/repeek/pull/9)" {
@@ -331,5 +334,40 @@ func TestRepeekAndFaceitMayBeNamed(t *testing.T) {
 		if err := CheckText(text); err == nil {
 			t.Errorf("%q passed", text)
 		}
+	}
+}
+
+// The proof heading names what is attached, and a post whose heading does not is refused.
+func TestTheProofHeadingMustMatchTheFiles(t *testing.T) {
+	dir := t.TempDir()
+	shot, clip := filepath.Join(dir, "after.png"), filepath.Join(dir, "after.mov")
+	os.WriteFile(shot, []byte("png"), 0o644)
+	os.WriteFile(clip, []byte("mov"), 0o644)
+	text := func(heading string) string { return "**Fixed**\n\n" + heading + "\n1. After — it works" }
+
+	for _, ok := range []Post{
+		{Text: text("**Screenshots**"), Files: []string{shot}},
+		{Text: text("**Videos**"), Files: []string{clip}},
+		{Text: text("**Screenshots and videos**"), Files: []string{shot, clip}},
+		{Text: "**Fixed**\n\n- a note", Files: []string{clip}},
+	} {
+		if err := ok.Check(); err != nil {
+			t.Errorf("%q with %v: %v", ok.Text, ok.Files, err)
+		}
+	}
+	for _, bad := range []Post{
+		{Text: text("**Screenshots**"), Files: []string{clip}},
+		{Text: text("**Videos**"), Files: []string{shot}},
+		{Text: text("**Screenshots**"), Files: []string{shot, clip}},
+		{Text: text("**Screenshots and videos**"), Files: []string{shot}},
+		{Text: text("**Screenshots**")},
+	} {
+		if err := bad.Check(); err == nil {
+			t.Errorf("%q with %v was taken", bad.Text, bad.Files)
+		}
+	}
+	err := Post{Text: text("**Screenshots**"), Files: []string{clip}}.Check()
+	if err == nil || !strings.Contains(err.Error(), "**Videos**") {
+		t.Errorf("the refusal does not say what to use: %v", err)
 	}
 }

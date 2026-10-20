@@ -84,6 +84,54 @@ func isNamed(host string) bool {
 	return false
 }
 
+// The proof heading of a post's template, by what is attached under it.
+const (
+	headingImages = "**Screenshots**"
+	headingVideos = "**Videos**"
+	headingBoth   = "**Screenshots and videos**"
+)
+
+var (
+	imageExt = map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true, ".heic": true, ".bmp": true}
+	videoExt = map[string]bool{".mp4": true, ".mov": true, ".webm": true, ".mkv": true, ".m4v": true, ".avi": true}
+)
+
+// CheckProof refuses a proof heading that does not name what is attached, so a post never
+// shows videos under **Screenshots**.
+func CheckProof(text string, files []string) error {
+	var used string
+	for _, line := range strings.Split(text, "\n") {
+		switch line = strings.TrimSpace(line); line {
+		case headingImages, headingVideos, headingBoth:
+			used = line
+		}
+	}
+	if used == "" {
+		return nil
+	}
+	images, videos := false, false
+	for _, f := range files {
+		ext := strings.ToLower(filepath.Ext(f))
+		images = images || imageExt[ext]
+		videos = videos || videoExt[ext]
+	}
+	want := ""
+	switch {
+	case images && videos:
+		want = headingBoth
+	case images:
+		want = headingImages
+	case videos:
+		want = headingVideos
+	default:
+		return fmt.Errorf("the post has a %s heading but attaches no image or video: attach them with --file, or leave the heading out", used)
+	}
+	if used != want {
+		return fmt.Errorf("the post's proof heading is %s, but what it attaches calls for %s", used, want)
+	}
+	return nil
+}
+
 func CheckFiles(files []string) error {
 	if len(files) > MaxFiles {
 		return fmt.Errorf("a post takes at most %d files, not %d", MaxFiles, len(files))
@@ -151,6 +199,9 @@ func checkRepo(url, guild string, repos Repos) error {
 
 func (p Post) Check() error {
 	if err := CheckText(p.Text); err != nil {
+		return err
+	}
+	if err := CheckProof(p.Text, p.Files); err != nil {
 		return err
 	}
 	if p.PR != "" {

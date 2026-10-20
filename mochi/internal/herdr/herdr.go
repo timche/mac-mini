@@ -193,12 +193,18 @@ func Prompt(run Runner, agent, text string) error {
 	return err
 }
 
+// Interrupt is an esc: it ends the turn an agent is in, or cancels the question it waits on.
+func Interrupt(run Runner, agent string) error {
+	_, err := call(run, "agent", "send-keys", agent, "esc")
+	return err
+}
+
 // Answer cancels the question an agent is waiting on and prompts it in the question's place.
 // The esc goes first because herdr refuses a prompt to an agent still on its question, and is
 // read back rather than assumed, since herdr goes on calling the agent blocked for a moment
 // after the cancel has landed.
 func Answer(run Runner, agent, text string, nap func(time.Duration)) error {
-	if _, err := call(run, "agent", "send-keys", agent, "esc"); err != nil {
+	if err := Interrupt(run, agent); err != nil {
 		return err
 	}
 	status, err := Status(run, agent)

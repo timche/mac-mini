@@ -22,12 +22,13 @@ import (
 )
 
 // ⏳ a session working, ❓ waiting on Tim — a question to answer or a result to review — ✅
-// done with nothing left for him, ❌ failed.
+// done with nothing left for him, ❌ failed, ⏸ stopped by him until he says more.
 const (
 	Running  = "⏳"
 	Asking   = "❓"
 	Finished = "✅"
 	Failed   = "❌"
+	Stopped  = "⏸"
 )
 
 // Discord lets a thread be renamed twice in ten minutes.
@@ -117,7 +118,7 @@ func ThreadName(emoji, title string) string {
 // The title in a thread name mochi gave, with the state at its front, or the older "mochi: "
 // prefix, taken off.
 func Title(name string) string {
-	for _, prefix := range []string{Running + " ", Finished + " ", Failed + " ", Asking + " ", "mochi: "} {
+	for _, prefix := range []string{Running + " ", Finished + " ", Failed + " ", Asking + " ", Stopped + " ", "mochi: "} {
 		if rest, ok := strings.CutPrefix(name, prefix); ok {
 			return rest
 		}

@@ -82,7 +82,7 @@ func (h *Handler) waiting(ev event.Event, waits map[string]state.Wait) {
 	if ev.Kind == event.Stop && ev.Background > 0 {
 		return
 	}
-	if shown, _ := h.Marks.Session(ev.Thread); shown == mark.Finished {
+	if shown, _ := h.Marks.Session(ev.Thread); shown == mark.Finished || shown == mark.Stopped {
 		return
 	}
 	if w.Pinged || w.Pending || w.Dead {
@@ -149,7 +149,7 @@ func (h *Handler) pingWaiting(waits map[string]state.Wait) {
 		}
 		if !w.Asked {
 			// The session may have said it is done while the grace ran.
-			if shown, _ := h.Marks.Session(thread); shown == mark.Finished {
+			if shown, _ := h.Marks.Session(thread); shown == mark.Finished || shown == mark.Stopped {
 				waits[thread] = w.Lasting()
 				continue
 			}

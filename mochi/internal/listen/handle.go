@@ -129,11 +129,54 @@ func (h *Handler) Handle(m *discordgo.Message) {
 		return
 	}
 
-	if found {
+	switch {
+	case found && stopping(instruction):
+		h.stop(rec, m)
+	case found:
 		h.relay(server, ch, rec, m, instruction)
-		return
+	case stopping(instruction):
+		h.fail(m, "", "there is no session here to stop", nil)
+	default:
+		h.open(server, ch, m, instruction)
 	}
-	h.open(server, ch, m, instruction)
+}
+
+// Stop is a command rather than a task, and only when it is the whole of what Tim wrote: "stop
+// showing the old elo" is an instruction like any other.
+func stopping(instruction string) bool {
+	switch strings.ToLower(strings.Trim(instruction, " \t\n.!")) {
+	case "stop", "cancel":
+		return true
+	}
+	return false
+}
+
+// Tim stopped the session: an esc ends what it is doing, nothing is prompted, and it shows ⏸
+// until his next word. One already idle is only marked.
+func (h *Handler) stop(rec state.Session, m *discordgo.Message) {
+	status, err := herdr.Status(h.Herdr, rec.Agent)
+	switch {
+	case errors.Is(err, herdr.ErrGone):
+		h.fail(m, rec.Thread, "the session has already ended", nil)
+		return
+	case err != nil:
+		h.fail(m, rec.Thread, "the session could not be reached", err)
+		return
+	case status == "working" || status == herdr.Blocked:
+		if err := herdr.Interrupt(h.Herdr, rec.Agent); err != nil {
+			h.fail(m, rec.Thread, "the session could not be stopped", err)
+			return
+		}
+		h.Log.Info("stopped a session at Tim's word", "workspace", rec.Workspace, "tab", rec.Tab)
+	}
+
+	rec.LastMention, rec.Updated = m.ID, h.Now().Unix()
+	if err := h.Store.Put(rec); err != nil {
+		h.Log.Error("the stop was not recorded", "thread", rec.Thread, "error", h.redact(err))
+	}
+	h.heard(rec.Thread)
+	h.Marks.Settled(rec.Thread, mark.Stopped)
+	h.say(rec.Thread, "Stopped. Mention mochi to continue.")
 }
 
 // The token form of a mention and not Discord's lists of mentioned users and roles, which

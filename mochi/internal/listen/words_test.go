@@ -181,6 +181,12 @@ func TestNothingPostedNamesTheToolsBehindIt(t *testing.T) {
 			f.h.Cfg.Servers[0].Forum = sessions
 			f.h.Handle(f.mention(channel, 1, tim, "research", nil))
 		},
+		"a stop": func(f *fixture) {
+			first := f.mention(channel, 1, tim, "start", nil)
+			f.h.Handle(first)
+			f.h.Handle(f.mention(first.ID, 2, tim, "stop", nil))
+			f.h.Handle(f.mention(channel, 3, tim, "stop", nil))
+		},
 		"a follow-up to a session that ended": func(f *fixture) {
 			first := f.mention(channel, 1, tim, "start", nil)
 			f.h.Handle(first)

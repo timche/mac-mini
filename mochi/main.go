@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/op"
 	"github.com/timche/mac-mini/mochi/internal/post"
 	"github.com/timche/mac-mini/mochi/internal/self"
+	"github.com/timche/mac-mini/mochi/internal/split"
 	"github.com/timche/mac-mini/mochi/internal/state"
 )
 
@@ -120,6 +122,17 @@ func run(args []string) error {
 		}
 		return post.Send(api, state.Store{Path: cfg.StatePath()}, thread, file, text)
 
+	// Left out of the usage: it is for choosing the model in [split], and reads cases rather
+	// than Discord.
+	case "split-eval":
+		s, err := splitArgs(cfg.Split, args)
+		if err != nil {
+			return usageError{err}
+		}
+		return split.Eval(os.Stdin, os.Stdout, split.Splitter{
+			Run: split.CLI, Model: s.Model, Effort: s.Effort, Timeout: split.Timeout,
+		}, time.Now)
+
 	case "history":
 		q, err := historyArgs(args)
 		if err != nil {
@@ -170,6 +183,20 @@ func postArgs(args []string) (file, text string, err error) {
 		}
 	}
 	return file, text, nil
+}
+
+func splitArgs(s config.Split, args []string) (config.Split, error) {
+	fs := flag.NewFlagSet("split-eval", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.StringVar(&s.Model, "model", s.Model, "")
+	fs.StringVar(&s.Effort, "effort", s.Effort, "")
+	if err := fs.Parse(args); err != nil {
+		return s, err
+	}
+	if fs.NArg() > 0 {
+		return s, fmt.Errorf("split-eval reads its cases on stdin, not %s", fs.Arg(0))
+	}
+	return s, s.Check()
 }
 
 func historyArgs(args []string) (history.Query, error) {

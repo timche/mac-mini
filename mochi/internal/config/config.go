@@ -26,6 +26,13 @@ type Split struct {
 	Effort string `toml:"effort"`
 }
 
+func (s Split) Check() error {
+	if !word.MatchString(s.Model) || !word.MatchString(s.Effort) {
+		return fmt.Errorf("[split] model and effort are each one word, like sonnet and medium")
+	}
+	return nil
+}
+
 type Config struct {
 	User    string   `toml:"user"`
 	Servers []Server `toml:"server"`
@@ -125,8 +132,8 @@ func Load(path, home string) (Config, error) {
 	if cfg.Split.Effort == "" {
 		cfg.Split.Effort = "medium"
 	}
-	if !word.MatchString(cfg.Split.Model) || !word.MatchString(cfg.Split.Effort) {
-		return Config{}, fmt.Errorf("%s: [split] model and effort are each one word, like sonnet and medium", path)
+	if err := cfg.Split.Check(); err != nil {
+		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
 
 	cfg.Home = home

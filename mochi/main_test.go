@@ -2,6 +2,8 @@ package main
 
 import (
 	"os"
+
+	"github.com/timche/mac-mini/mochi/internal/config"
 	"path/filepath"
 	"testing"
 )
@@ -19,6 +21,22 @@ func TestHistoryTakesNoChannel(t *testing.T) {
 	q, err := historyArgs([]string{"--around", "1300000000000000002", "--limit", "100"})
 	if err != nil || q.Around != "1300000000000000002" || q.Limit != 100 {
 		t.Errorf("%+v, %v", q, err)
+	}
+}
+
+func TestSplitEvalTakesAModelAndAnEffort(t *testing.T) {
+	base := config.Split{Model: "sonnet", Effort: "medium"}
+	s, err := splitArgs(base, []string{"--model", "haiku", "--effort", "low"})
+	if err != nil || s != (config.Split{Model: "haiku", Effort: "low"}) {
+		t.Errorf("%+v, %v", s, err)
+	}
+	if s, _ := splitArgs(base, nil); s != base {
+		t.Errorf("the defaults are not the config's: %+v", s)
+	}
+	for _, args := range [][]string{{"--model", "--tools"}, {"cases.jsonl"}, {"--effort", ""}} {
+		if _, err := splitArgs(base, args); err == nil {
+			t.Errorf("%v parsed", args)
+		}
 	}
 }
 

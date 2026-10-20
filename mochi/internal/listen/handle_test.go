@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -40,6 +41,9 @@ type fakeHerdr struct {
 	workspaces map[string]string
 	agents     map[string]string
 	prompts    map[string][]string
+
+	// What was pasted, before the brief it names is read.
+	raw        map[string][]string
 	startFails bool
 
 	// Every tab's label, as `tab list` answers.
@@ -58,6 +62,7 @@ func newHerdr() *fakeHerdr {
 		workspaces: map[string]string{"repeek": "w4"},
 		agents:     map[string]string{},
 		prompts:    map[string][]string{},
+		raw:        map[string][]string{},
 	}
 }
 
@@ -106,7 +111,8 @@ func (f *fakeHerdr) run(args ...string) ([]byte, error) {
 		case "blocked":
 			return refusal("agent_blocked"), nil
 		}
-		f.prompts[args[2]] = append(f.prompts[args[2]], args[3])
+		f.raw[args[2]] = append(f.raw[args[2]], args[3])
+		f.prompts[args[2]] = append(f.prompts[args[2]], expand(args[3]))
 		return answer(map[string]any{"result": map[string]any{}}), nil
 	case "agent get":
 		status, ok := f.agents[args[2]]
@@ -116,6 +122,25 @@ func (f *fakeHerdr) run(args ...string) ([]byte, error) {
 		return answer(map[string]any{"result": map[string]any{"agent": map[string]string{"agent_status": status}}}), nil
 	}
 	return refusal("unknown_command"), nil
+}
+
+var briefPath = regexp.MustCompile(`(/\S+\.md)\b`)
+
+// The prompt as the session reads it: the brief a short prompt names, with "/lead " kept in
+// front when the prompt starts with it.
+func expand(prompt string) string {
+	path := briefPath.FindString(prompt)
+	if path == "" {
+		return prompt
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return prompt
+	}
+	if strings.HasPrefix(prompt, "/lead ") {
+		return "/lead " + string(body)
+	}
+	return string(body)
 }
 
 func (f *fakeHerdr) called(prefix string) [][]string {

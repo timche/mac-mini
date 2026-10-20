@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/config"
+	"github.com/timche/mac-mini/mochi/internal/fence"
 	"github.com/timche/mac-mini/mochi/internal/gather"
 	"github.com/timche/mac-mini/mochi/internal/herdr"
 	"github.com/timche/mac-mini/mochi/internal/split"
@@ -307,7 +309,12 @@ func (h *Handler) relay(server config.Server, ch *discordgo.Channel, rec state.S
 		return
 	}
 
-	err = herdr.Prompt(h.Herdr, rec.Agent, followUp(m, instruction, others, h.files(rec.Thread, others)))
+	path, err := h.brief(rec.Thread, "relay-"+m.ID+".md", followUp(m, instruction, others, h.files(rec.Thread, others)))
+	if err != nil {
+		h.fail(m, rec.Thread, "the follow-up could not be written for the session", err)
+		return
+	}
+	err = herdr.Prompt(h.Herdr, rec.Agent, relayPrompt(path))
 	switch {
 	case errors.Is(err, herdr.ErrBlocked):
 		h.fail(m, rec.Thread, fmt.Sprintf("the session is waiting on a question in %s: %s, so this did not reach it — answer it there first", rec.Workspace, rec.Tab), nil)
@@ -371,10 +378,34 @@ func (h *Handler) start(server config.Server, rec *state.Session, name, text str
 	if err := h.Store.Put(*rec); err != nil {
 		h.Log.Error("the session started but was not recorded, so a follow-up will start another", "thread", rec.Thread, "error", h.redact(err))
 	}
-	if err := herdr.Prompt(h.Herdr, rec.Agent, "/lead "+text); err != nil {
+	path, err := h.brief(rec.Thread, "brief.md", text)
+	if err != nil {
+		return h.herdrFailed("the brief for "+rec.Workspace+": "+rec.Tab+" could not be written", err)
+	}
+	if err := herdr.Prompt(h.Herdr, rec.Agent, openingPrompt(path)); err != nil {
 		return h.herdrFailed("Claude Code started in "+rec.Workspace+": "+rec.Tab+" but the prompt did not reach it", err)
 	}
 	return nil
+}
+
+// Claude Code turns a long paste into a "[Pasted text]" placeholder, and a slash command
+// inside one is never run, so the lead skill would not load. So what a session is handed goes
+// in a file in its own folder, and only one short line is pasted.
+func (h *Handler) brief(thread, name, text string) (string, error) {
+	dir := h.Cfg.SessionDir(thread)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, name)
+	return path, os.WriteFile(path, []byte(fence.Clean(text)+"\n"), 0o600)
+}
+
+func openingPrompt(path string) string {
+	return "/lead Tim mentioned mochi in Discord. Your brief is " + path + "; read all of it before anything else. It holds his instruction and the fenced Discord context, with the rules for both."
+}
+
+func relayPrompt(path string) string {
+	return "Tim followed up in Discord: read " + path + " before anything else. It holds his message and the fenced Discord context since his last one."
 }
 
 func (h *Handler) herdrFailed(reason string, err error) error {

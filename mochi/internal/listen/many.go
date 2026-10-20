@@ -106,13 +106,11 @@ func (h *Handler) post(forum, title, typ string, o opener, covers string) (*disc
 	return post, nil
 }
 
-var unbracket = strings.NewReplacer("[", "(", "]", ")")
-
 // The reply to Tim's mention that says where its session went.
 func (h *Handler) moved(m *discordgo.Message, title, post string) {
 	text := "Moved to <#" + post + ">."
 	if link := chat.Link(m.GuildID, post, ""); link != "" {
-		text = "Moved to [" + unbracket.Replace(title) + "](<" + link + ">)."
+		text = "Moved to [" + plain(title) + "](<" + link + ">)."
 	}
 	reply := chat.Quiet(text)
 	reply.Reference = &discordgo.MessageReference{MessageID: m.ID, ChannelID: m.ChannelID}
@@ -156,7 +154,7 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 		var thread *discordgo.Channel
 		var err error
 		if forum {
-			thread, err = h.post(into, task.Title, task.Type, o, "This post covers: "+task.Title)
+			thread, err = h.post(into, task.Title, task.Type, o, "This post covers: "+plain(task.Title))
 		} else {
 			threadName := mark.ThreadName(mark.Running, task.Title)
 			if thread, err = h.API.NewThread(into, threadName); err == nil {
@@ -166,7 +164,7 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 		}
 		if err != nil {
 			h.Log.Error("a thread could not be opened for a task", "task", i+1, "error", h.redact(err))
-			lines = append(lines, "❌ "+task.Title+": the thread could not be opened.")
+			lines = append(lines, "❌ "+plain(task.Title)+": the thread could not be opened.")
 			failed++
 			continue
 		}
@@ -178,7 +176,7 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 		if err := h.start(server, &session, task.Title, text); err != nil {
 			h.say(thread.ID, "❌ "+sentence(err.Error()))
 			h.Marks.Failed(thread.ID)
-			lines = append(lines, fmt.Sprintf("❌ <#%s> %s: %s.", thread.ID, task.Title, strings.TrimSuffix(err.Error(), ".")))
+			lines = append(lines, fmt.Sprintf("❌ <#%s> %s: %s.", thread.ID, plain(task.Title), strings.TrimSuffix(err.Error(), ".")))
 			failed++
 			continue
 		}
@@ -187,7 +185,7 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 		// A forum post's first post is the announcement it was made with, under its own id.
 		ack := &discordgo.Message{ID: thread.ID}
 		if !forum {
-			ack, err = h.announce(thread.ID, o, "This thread covers: "+task.Title)
+			ack, err = h.announce(thread.ID, o, "This thread covers: "+plain(task.Title))
 		}
 		if err != nil {
 			h.Log.Error("could not post in the thread", "thread", thread.ID, "error", h.redact(err))
@@ -199,7 +197,7 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 		}
 		h.Marks.Started(thread.ID, session.Origin)
 		started = append(started, thread.ID)
-		lines = append(lines, fmt.Sprintf("<#%s> %s", thread.ID, task.Title))
+		lines = append(lines, fmt.Sprintf("<#%s> %s", thread.ID, plain(task.Title)))
 	}
 
 	reply := chat.Quiet(strings.Join(lines, "\n"))

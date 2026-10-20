@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -108,4 +110,69 @@ func TestQuotedMentionsPingNobody(t *testing.T) {
 		}
 	}
 	f.quiet()
+}
+
+// A title the classifier took from somebody else's words is plain text wherever mochi writes
+// it: no masked link, mention or formatting of its own, in the covers line and the split reply.
+func TestAHostileTitleIsPlainText(t *testing.T) {
+	f := forumFixture(t)
+	hostile := "[Session started](https://evil.example) @everyone <@&1500000000000000001> **now**"
+	f.h.Split = answers(split.Answer{Decision: split.Many, Tasks: []split.Task{
+		{Title: hostile, Instruction: "a"},
+		{Title: "Login timeout", Instruction: "b"},
+	}}, nil, nil)
+	m := f.mention(channel, 1, tim, "a, and separately b", nil)
+	f.h.Handle(m)
+
+	safe := strings.ReplaceAll(`\[Session started\]\(https://evil.example\) @ZWSPeveryone \<@ZWSP&1500000000000000001\> \*\*now\*\*`, "ZWSP", "\u200b")
+	if text := firstPost(t, f, postID(1)).Content; !strings.HasSuffix(text, "\nThis post covers: "+safe) {
+		t.Errorf("covers line:\n%s", text)
+	}
+	replies := f.sentTo(channel)
+	if len(replies) != 1 || !strings.HasPrefix(replies[0], "<#"+postID(1)+"> "+safe+"\n") {
+		t.Errorf("split reply = %q", replies)
+	}
+	for _, text := range append(replies, firstPost(t, f, postID(1)).Content) {
+		if strings.Contains(text, "](https://evil") || strings.Contains(text, "@everyone") {
+			t.Errorf("a live link or ping in %q", text)
+		}
+	}
+}
+
+// Every way a line can end becomes a quoted line of its own, in the text and in a name.
+func TestEveryLineOfAQuoteIsQuoted(t *testing.T) {
+	f := newFixture(t)
+	odd := &discordgo.User{ID: "1400000000000000009", Username: "odd", GlobalName: "Odd\rName\u2028**bold**"}
+	sly := f.api.Post(channel, 1, odd, "one\rtwo\u2028three\u2029four\u0085five\r\nsix")
+	m := f.mention(channel, 2, tim, "look\u2028here", sly)
+	f.h.Handle(m)
+
+	text := firstPost(t, f, m.ID).Content
+	want := startedPost(m.ID) + "\n" +
+		"> **Odd Name \\*\\*bold\\*\\*:** one\n> two\n> three\n> four\n> five\n> six\n" +
+		"> **tim:** look\n> here"
+	if text != want {
+		t.Errorf("first post:\n%q\nwant:\n%q", text, want)
+	}
+	for _, r := range []string{"\r", "\u2028", "\u2029", "\u0085"} {
+		if strings.Contains(text, r) {
+			t.Errorf("%q survived", r)
+		}
+	}
+}
+
+// Emoji count twice in UTF-16, which Discord may count in: the post stays under its limit.
+func TestAnEmojiHeavyPostStaysUnderDiscordsLimit(t *testing.T) {
+	f := newFixture(t)
+	loud := f.api.Post(channel, 1, maker, strings.Repeat("🔥🎮", 1500))
+	m := f.mention(channel, 2, tim, "look 😀", loud)
+	f.h.Handle(m)
+
+	text := firstPost(t, f, m.ID).Content
+	if n := len(utf16.Encode([]rune(text))); n >= 2000 {
+		t.Errorf("first post is %d UTF-16 units", n)
+	}
+	if !utf8.ValidString(text) || !strings.Contains(text, "…\n> **tim:** look 😀") {
+		t.Errorf("not cut on a character boundary with an ellipsis:\n%.200s", text)
+	}
 }

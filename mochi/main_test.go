@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -139,5 +140,19 @@ func TestSessionEventIsSilentAndNeedsNoConfig(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(filepath.Join(cache, "events")); len(entries) != 1 {
 		t.Errorf("events = %v", entries)
+	}
+}
+
+// The scratch folder is named as Claude Code names it: the project's path with every character
+// but a letter or a digit a dash, under the user's id.
+func TestTheScratchFolderIsNamedAsClaudeCodeNamesIt(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_TMPDIR", "/tmp/claude-tmp")
+	want := fmt.Sprintf("/tmp/claude-tmp/claude-%d/-Users-timche--mac-mini", os.Getuid())
+	if got := scratch("/Users/timche", "/Users/timche/.mac-mini"); got != want {
+		t.Errorf("%q, want %q", got, want)
+	}
+	t.Setenv("CLAUDE_CODE_TMPDIR", "")
+	if got := scratch("/Users/x", "/Users/x/projects/repeek"); !strings.HasPrefix(got, "/Users/x/.cache/claude-tmp/claude-") || !strings.HasSuffix(got, "/-Users-x-projects-repeek") {
+		t.Errorf("without the variable: %q", got)
 	}
 }

@@ -14,6 +14,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -154,24 +156,26 @@ func run(args []string) error {
 			return origin.Of(server.Repo)
 		}
 		// The session's checkout is the one it runs in, a worktree of its own or the mapped
-		// repository, as long as it is a checkout of the server's repository.
-		p.Root = func(guild string) (string, error) {
+		// repository, as long as it is a checkout of the server's repository; with it, Claude
+		// Code's scratch folder for that checkout and for the mapped repository.
+		p.Roots = func(guild string) ([]string, error) {
 			want, err := repos(guild)
 			if err != nil {
-				return "", err
+				return nil, err
 			}
 			wd, err := os.Getwd()
 			if err != nil {
-				return "", err
+				return nil, err
 			}
 			root, err := origin.Toplevel(wd)
 			if err != nil {
-				return "", errors.New("this session is not running in a checkout, so it can attach no file")
+				return nil, errors.New("this session is not running in a checkout, so it can attach no file")
 			}
 			if got, err := origin.Of(root); err != nil || !strings.EqualFold(got, want) {
-				return "", fmt.Errorf("this session is running in a checkout of %s rather than %s, so it can attach no file", got, want)
+				return nil, fmt.Errorf("this session is running in a checkout of %s rather than %s, so it can attach no file", got, want)
 			}
-			return root, nil
+			server, _ := cfg.Server(guild)
+			return []string{root, scratch(cfg.Home, root), scratch(cfg.Home, server.Repo)}, nil
 		}
 		if err := post.Send(api, state.Store{Path: cfg.StatePath()}, marks, repos, thread, p); err != nil {
 			return err
@@ -216,6 +220,18 @@ func run(args []string) error {
 		return history.Show(cfg, api, thread, q, os.Stdout)
 	}
 	return usageError{fmt.Errorf("unknown command %s", command)}
+}
+
+var unslug = regexp.MustCompile(`[^A-Za-z0-9]`)
+
+// Claude Code's scratch folder for a project: under CLAUDE_CODE_TMPDIR, the user's id, and the
+// project's path with every character but a letter or a digit made a dash.
+func scratch(home, project string) string {
+	base := os.Getenv("CLAUDE_CODE_TMPDIR")
+	if base == "" {
+		base = filepath.Join(home, ".cache", "claude-tmp")
+	}
+	return filepath.Join(base, fmt.Sprintf("claude-%d", os.Getuid()), unslug.ReplaceAllString(project, "-"))
 }
 
 // REST alone, with no gateway: a post or a page of history is a request or two.

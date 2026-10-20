@@ -134,44 +134,60 @@ func CheckProof(text string, files []string) error {
 	return nil
 }
 
-// Root answers the root of the checkout a session works in, a checkout of its server's
-// repository; a post attaches nothing from anywhere else.
-type Root func(guild string) (string, error)
+// Roots answers the folders a session's attachments may come from: the checkout it works in, a
+// checkout of its server's repository, and Claude Code's scratch folder for it; a post attaches
+// nothing from anywhere else.
+type Roots func(guild string) ([]string, error)
 
-// A file goes up only from inside the session's own checkout, its real path once links are
-// followed, and never from the checkout's own .git: a session cannot post a key, another
-// repository's file or git's configuration by naming it.
-func checkInside(files []string, guild string, root Root) error {
+// A file goes up only from inside one of the session's own folders, by its real path once links
+// are followed, and never from a .git: a session cannot post a key, another repository's file
+// or git's configuration by naming it.
+func checkInside(files []string, guild string, roots Roots) error {
 	if len(files) == 0 {
 		return nil
 	}
-	if root == nil {
+	if roots == nil {
 		return errors.New("there is no checkout to check the files against")
 	}
-	base, err := root(guild)
+	bases, err := roots(guild)
 	if err != nil {
 		return err
 	}
-	if base, err = filepath.EvalSymlinks(base); err != nil {
-		return err
+	var real []string
+	for _, b := range bases {
+		if r, err := filepath.EvalSymlinks(b); err == nil {
+			real = append(real, r)
+		}
 	}
 	for _, file := range files {
-		real, err := filepath.EvalSymlinks(file)
+		path, err := filepath.EvalSymlinks(file)
 		if err != nil {
 			return fmt.Errorf("%s is not a file", file)
 		}
-		if real, err = filepath.Abs(real); err != nil {
+		if path, err = filepath.Abs(path); err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(base, real)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return fmt.Errorf("%s is outside this session's checkout, so it is not posted: save what to attach inside the checkout", file)
-		}
-		if rel == ".git" || strings.HasPrefix(rel, ".git"+string(filepath.Separator)) {
-			return fmt.Errorf("%s is git's own, so it is not posted", file)
+		if err := inside(path, real); err != nil {
+			return fmt.Errorf("%s %v", file, err)
 		}
 	}
 	return nil
+}
+
+func inside(path string, bases []string) error {
+	for _, base := range bases {
+		rel, err := filepath.Rel(base, path)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		for _, part := range strings.Split(rel, string(filepath.Separator)) {
+			if part == ".git" {
+				return errors.New("is git's own, so it is not posted")
+			}
+		}
+		return nil
+	}
+	return errors.New("is outside this session's checkout and its scratch folder, so it is not posted")
 }
 
 // Within what the server lets one file be, so a file too large says so before Discord refuses.
@@ -223,8 +239,9 @@ type Post struct {
 	// With --done: the session has cleaned up, and its tab may be closed.
 	Close bool
 
-	// The session's checkout, which every attached file has to be inside; nil takes no file.
-	Root Root
+	// The session's folders, one of which every attached file has to be inside; nil takes no
+	// file.
+	Roots Roots
 }
 
 var pullRequest = regexp.MustCompile(`\Ahttps://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)/?\z`)
@@ -297,7 +314,7 @@ func Send(api chat.API, store state.Store, marks *mark.Marker, repos Repos, thre
 			return err
 		}
 	}
-	if err := checkInside(p.Files, guild, p.Root); err != nil {
+	if err := checkInside(p.Files, guild, p.Roots); err != nil {
 		return err
 	}
 	if len(p.Files) > 0 {

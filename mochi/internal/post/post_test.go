@@ -35,7 +35,7 @@ func TestAPostGoesToTheSessionsThreadWithNoPings(t *testing.T) {
 	shot := filepath.Join(t.TempDir(), "shot.png")
 	os.WriteFile(shot, []byte("png"), 0o644)
 
-	if err := Send(api, store, nil, repeek, thread, Post{Files: []string{shot}, Root: anywhere, Text: "Finished — @everyone <@94004892942741504>"}); err != nil {
+	if err := Send(api, store, nil, repeek, thread, Post{Files: []string{shot}, Roots: anywhere, Text: "Finished — @everyone <@94004892942741504>"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -96,7 +96,7 @@ func TestAPostCarriesSeveralFilesWithinDiscordsLimits(t *testing.T) {
 		files = append(files, p)
 	}
 
-	if err := Send(api, store, nil, repeek, thread, Post{Files: files, Root: anywhere, Text: "Finished: the overlay no longer covers the scoreboard."}); err != nil {
+	if err := Send(api, store, nil, repeek, thread, Post{Files: files, Roots: anywhere, Text: "Finished: the overlay no longer covers the scoreboard."}); err != nil {
 		t.Fatal(err)
 	}
 	if got := api.Sent[0].Files; len(got) != 3 || got["after.png"] != "after.png" || got["walkthrough.mp4"] != "walkthrough.mp4" {
@@ -110,7 +110,7 @@ func TestAPostCarriesSeveralFilesWithinDiscordsLimits(t *testing.T) {
 	big := filepath.Join(dir, "huge.mov")
 	os.WriteFile(big, make([]byte, 10<<20+1), 0o644)
 	for name, f := range map[string][]string{"eleven files": eleven, "a file over 10 MB": {big}, "no such file": {filepath.Join(dir, "gone.png")}} {
-		if err := Send(api, store, nil, repeek, thread, Post{Files: f, Root: anywhere, Text: "x"}); err == nil {
+		if err := Send(api, store, nil, repeek, thread, Post{Files: f, Roots: anywhere, Text: "x"}); err == nil {
 			t.Errorf("%s was posted", name)
 		}
 	}
@@ -303,7 +303,7 @@ func TestAPostKeepsItsLines(t *testing.T) {
 	before, after := filepath.Join(t.TempDir(), "before.png"), filepath.Join(t.TempDir(), "after.png")
 	os.WriteFile(before, []byte("png"), 0o644)
 	os.WriteFile(after, []byte("png"), 0o644)
-	if err := Send(api, store, nil, repeek, thread, Post{Text: text, Files: []string{before, after}, Root: anywhere, PR: "https://github.com/timche/repeek/pull/9"}); err != nil {
+	if err := Send(api, store, nil, repeek, thread, Post{Text: text, Files: []string{before, after}, Roots: anywhere, PR: "https://github.com/timche/repeek/pull/9"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := api.Sent[0].Msg.Content; got != text+"\n\n#9 (https://github.com/timche/repeek/pull/9)" {
@@ -413,7 +413,7 @@ func TestThePullRequestLineIsAParagraphOfItsOwn(t *testing.T) {
 }
 
 // A post whose checkout is everything, for the tests that are about something else.
-var anywhere Root = func(string) (string, error) { return "/", nil }
+var anywhere Roots = func(string) ([]string, error) { return []string{"/"}, nil }
 
 // A file goes up only from inside the session's checkout, links followed, and never from its
 // .git; one outside, or a link out of it, is refused before anything is posted.
@@ -430,13 +430,19 @@ func TestOnlyFilesInsideTheCheckoutGoUp(t *testing.T) {
 	os.MkdirAll(filepath.Join(checkout, ".git"), 0o755)
 	gitconfig := filepath.Join(checkout, ".git", "config")
 	os.WriteFile(gitconfig, []byte("[remote]"), 0o644)
-	root := Root(func(string) (string, error) { return checkout, nil })
+	scratchpad := t.TempDir()
+	shot := filepath.Join(scratchpad, "session", "scratchpad", "after.png")
+	os.MkdirAll(filepath.Dir(shot), 0o755)
+	os.WriteFile(shot, []byte("png"), 0o644)
+	root := Roots(func(string) ([]string, error) {
+		return []string{checkout, scratchpad, filepath.Join(t.TempDir(), "gone")}, nil
+	})
 
-	if err := Send(api, store, nil, repeek, thread, Post{Text: "**Test build**\n1. Unzip it", Files: []string{in}, Root: root}); err != nil {
+	if err := Send(api, store, nil, repeek, thread, Post{Text: "**Test build**\n1. Unzip it", Files: []string{in, shot}, Roots: root}); err != nil {
 		t.Fatalf("a file in the checkout, under a heading of the project's own: %v", err)
 	}
 	for name, file := range map[string]string{"outside": out, "a link out": link, "git's own": gitconfig, "with ..": filepath.Join(checkout, "..", filepath.Base(elsewhere), "id_ed25519")} {
-		err := Send(api, store, nil, repeek, thread, Post{Text: "x", Files: []string{file}, Root: root})
+		err := Send(api, store, nil, repeek, thread, Post{Text: "x", Files: []string{file}, Roots: root})
 		if err == nil {
 			t.Errorf("%s was posted", name)
 		}
@@ -456,12 +462,12 @@ func TestAFileIsHeldToTheServersUploadLimit(t *testing.T) {
 	big := filepath.Join(t.TempDir(), "build.zip")
 	os.WriteFile(big, make([]byte, 12<<20), 0o644)
 
-	err := Send(api, store, nil, repeek, thread, Post{Text: "x", Files: []string{big}, Root: anywhere})
+	err := Send(api, store, nil, repeek, thread, Post{Text: "x", Files: []string{big}, Roots: anywhere})
 	if err == nil || !strings.Contains(err.Error(), "12 MB, over the 10 MB") || !strings.Contains(err.Error(), "too large to attach") {
 		t.Errorf("refusal = %v", err)
 	}
 	api.Tiers = map[string]discordgo.PremiumTier{"": discordgo.PremiumTier2}
-	if err := Send(api, store, nil, repeek, thread, Post{Text: "x", Files: []string{big}, Root: anywhere}); err != nil {
+	if err := Send(api, store, nil, repeek, thread, Post{Text: "x", Files: []string{big}, Roots: anywhere}); err != nil {
 		t.Errorf("a boosted server refused 12 MB: %v", err)
 	}
 }

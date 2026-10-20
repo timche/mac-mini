@@ -277,17 +277,19 @@ func (h *Handler) begin(server config.Server, ch *discordgo.Channel, m *discordg
 		alone = why
 	}
 
-	// A thread cannot hold a thread, so a mention inside one makes that thread the session's.
-	thread := ch.ID
-	if !ch.IsThread() {
+	// A thread cannot hold a thread, so a mention inside one makes that thread the session's,
+	// one Tim is already in.
+	thread, opened := ch.ID, !ch.IsThread()
+	if opened {
 		threadName := mark.ThreadName(mark.Running, name)
-		opened, err := h.API.StartThread(m.ChannelID, m.ID, threadName)
+		made, err := h.API.StartThread(m.ChannelID, m.ID, threadName)
 		if err != nil {
 			h.fail(m, "", "a thread could not be opened on this message", err)
 			return
 		}
-		thread = opened.ID
+		thread = made.ID
 		h.Marks.Named(thread, name, threadName)
+		h.follow(thread)
 	}
 
 	session := state.Session{Thread: thread, Source: ch.ID, Guild: m.GuildID, LastMention: m.ID, Origin: ref(m)}
@@ -298,7 +300,13 @@ func (h *Handler) begin(server config.Server, ch *discordgo.Channel, m *discordg
 		return
 	}
 
-	h.say(thread, "Session started.")
+	if opened {
+		if _, err := h.announce(thread, m); err != nil {
+			h.Log.Error("could not post in the thread", "thread", thread, "error", h.redact(err))
+		}
+	} else {
+		h.say(thread, "Session started.")
+	}
 	if alone != "" {
 		h.say(thread, alone)
 	}

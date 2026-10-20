@@ -240,15 +240,21 @@ func (f *fixture) sentTo(ch string) []string {
 	return out
 }
 
-// Every post mochi made pinged nobody.
+// Every post mochi made could ping nobody but Tim.
 func (f *fixture) quiet() {
 	f.t.Helper()
 	for _, s := range f.api.Sent {
 		am := s.Msg.AllowedMentions
-		if am == nil || am.Parse == nil || len(am.Parse) != 0 || am.RepliedUser {
-			f.t.Errorf("a post could ping somebody: %q", s.Msg.Content)
+		if am == nil || am.Parse == nil || len(am.Parse) != 0 || am.RepliedUser || len(am.Roles) != 0 ||
+			(len(am.Users) != 0 && (len(am.Users) != 1 || am.Users[0] != tim.ID)) {
+			f.t.Errorf("a post could ping somebody other than Tim: %q", s.Msg.Content)
 		}
 	}
+}
+
+// The first post in a thread mochi opened for Tim's message.
+func startedPost(message string) string {
+	return "<@" + tim.ID + "> Session started for [Tim's message](<https://discord.com/channels/" + guild + "/" + channel + "/" + message + ">)."
 }
 
 func onlyPrompt(t *testing.T, hd *fakeHerdr, agent string) string {
@@ -310,7 +316,7 @@ func TestAReplyToAnOldMessageStartsALeadSessionWithTheDiscussion(t *testing.T) {
 	}
 
 	thread := f.sentTo(m.ID)
-	if len(thread) != 1 || thread[0] != "Session started." {
+	if len(thread) != 1 || thread[0] != startedPost(m.ID) {
 		t.Errorf("thread posts = %q", thread)
 	}
 	rec := f.record(m.ID)

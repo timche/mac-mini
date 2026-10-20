@@ -41,7 +41,7 @@ func TestASessionStartedFromAnAnswerLinksWithItsGuild(t *testing.T) {
 			t.Errorf("a link with an empty part:\n%.300s", text)
 		}
 	}
-	want := "Session started for [Tim's message](<https://discord.com/channels/" + guild + "/" + channel + "/" + m.ID + ">)."
+	want := startedPost(m.ID)
 	if got := f.sentTo(chanID(0)); len(got) == 0 || got[0] != want {
 		t.Errorf("first post = %q", got)
 	}

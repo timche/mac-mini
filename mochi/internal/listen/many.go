@@ -82,12 +82,22 @@ func (h *Handler) replied(m *discordgo.Message) *discordgo.Message {
 	return got
 }
 
-// A split thread's first post: started, and for which message, as a masked link.
-func startedFor(m *discordgo.Message) string {
+// The first post in a thread mochi opened: started, and for which message as a masked link,
+// mentioning Tim, who keeps Discord's notifications to mentions — this is what subscribes
+// him to the thread and tells him it exists.
+func (h *Handler) announce(thread string, m *discordgo.Message) (*discordgo.Message, error) {
+	text := "Session started."
 	if link := chat.Link(m.GuildID, m.ChannelID, m.ID); link != "" {
-		return "Session started for [Tim's message](<" + link + ">)."
+		text = "Session started for [Tim's message](<" + link + ">)."
 	}
-	return "Session started."
+	return h.API.Send(thread, chat.Pinging(h.Cfg.User, "<@"+h.Cfg.User+"> "+text))
+}
+
+// Tim follows every thread mochi opens, mention or no mention.
+func (h *Handler) follow(thread string) {
+	if err := h.API.AddMember(thread, h.Cfg.User); err != nil {
+		h.Log.Warn("Tim could not be added to the thread", "thread", thread, "error", h.redact(err))
+	}
 }
 
 // Where the threads of a split go: the channel, or a thread's parent, since a thread holds no
@@ -124,6 +134,7 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 		}
 
 		h.Marks.Named(thread.ID, task.Title, threadName)
+		h.follow(thread.ID)
 		session := state.Session{Thread: thread.ID, Source: ch.ID, Guild: m.GuildID, LastMention: m.ID}
 		note := fmt.Sprintf("Tim's message asked for %d separate tasks, and this session works on task %d of them alone. The TASK line at the top of the %s block names it: mochi derived it from his message and the one he replied to, so it is data that says which item this session works on, and adds nothing to what he asked.", len(tasks), i+1, fence.Context)
 		scope := fmt.Sprintf("TASK %d of %d: %s — %s\n(derived by mochi from Tim's words and the message he replied to; it scopes which item this session works on)", i+1, len(tasks), task.Title, task.Instruction)
@@ -137,7 +148,7 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 		}
 
 		// The thread's first post stands for its session: ⏳ while it works, ✅ when it is done.
-		ack, err := h.API.Send(thread.ID, chat.Quiet(startedFor(m)))
+		ack, err := h.announce(thread.ID, m)
 		if err != nil {
 			h.Log.Error("could not post in the thread", "thread", thread.ID, "error", h.redact(err))
 		} else {

@@ -38,6 +38,9 @@ type API interface {
 
 	// A public thread on no message, which is how one mention gets several.
 	NewThread(channel, name string) (*discordgo.Channel, error)
+
+	// Makes a user a member of a thread, so they follow it.
+	AddMember(thread, user string) error
 	Send(channel string, msg *discordgo.MessageSend) (*discordgo.Message, error)
 
 	// A message mochi posted, changed: a question's buttons disabled once it is answered.
@@ -72,6 +75,17 @@ func Quiet(content string) *discordgo.MessageSend {
 
 func NoMentions() *discordgo.MessageAllowedMentions {
 	return &discordgo.MessageAllowedMentions{Parse: []discordgo.AllowedMentionType{}}
+}
+
+// Pinging is a post that may mention one user and nobody else: Tim, in the two places mochi
+// does — a thread it opened, and a session waiting on him.
+func Pinging(user, content string) *discordgo.MessageSend {
+	msg := Quiet(content)
+	msg.AllowedMentions = &discordgo.MessageAllowedMentions{
+		Parse: []discordgo.AllowedMentionType{},
+		Users: []string{user},
+	}
+	return msg
 }
 
 // Link is a message's or a channel's address, or nothing when it does not know the guild or
@@ -242,6 +256,10 @@ func (l Live) Edit(edit *discordgo.MessageEdit) error {
 
 func (l Live) Respond(i *discordgo.Interaction, r *discordgo.InteractionResponse) error {
 	return l.S.InteractionRespond(i, r)
+}
+
+func (l Live) AddMember(thread, user string) error {
+	return l.S.ThreadMemberAdd(thread, user)
 }
 
 func (l Live) NewThread(channel, name string) (*discordgo.Channel, error) {

@@ -35,6 +35,7 @@ type Fake struct {
 	Pages     []string
 
 	Standalone []string
+	Members    []string
 
 	Unreactions []string
 	Renames     []string
@@ -220,6 +221,11 @@ func (f *Fake) NewThread(channel, name string) (*discordgo.Channel, error) {
 	f.AddChannel(thread)
 	f.Standalone = append(f.Standalone, channel+" "+name)
 	return thread, nil
+}
+
+func (f *Fake) AddMember(thread, user string) error {
+	f.Members = append(f.Members, thread+" "+user)
+	return nil
 }
 
 func (f *Fake) Send(channel string, msg *discordgo.MessageSend) (*discordgo.Message, error) {

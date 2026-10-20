@@ -24,7 +24,7 @@ func TestATabIsNamedForItsTitleAndNeverRepeatsOne(t *testing.T) {
 		t.Errorf("env = %v", tabs[0][9:])
 	}
 	// The label is for Tim in the terminal; Discord is told only that a session started.
-	if posts := f.sentTo(m.ID); len(posts) != 1 || posts[0] != "Session started." {
+	if posts := f.sentTo(m.ID); len(posts) != 1 || posts[0] != startedPost(m.ID) {
 		t.Errorf("the ack is %q", posts)
 	}
 	if !strings.Contains(onlyPrompt(t, f.herdr, "mochi-"+m.ID), "This tab is already named for the thread; don't rename it.") {

@@ -224,14 +224,12 @@ func run(args []string) error {
 
 var unslug = regexp.MustCompile(`[^A-Za-z0-9]`)
 
-// Claude Code's scratch folder for a project: under CLAUDE_CODE_TMPDIR, the user's id, and the
-// project's path with every character but a letter or a digit made a dash.
+// Claude Code's scratch folder for a project, where this account's .zshenv points
+// CLAUDE_CODE_TMPDIR: under the user's id, the project's path with every character but a letter
+// or a digit made a dash. From HOME rather than the variable, which the session could set to
+// anywhere.
 func scratch(home, project string) string {
-	base := os.Getenv("CLAUDE_CODE_TMPDIR")
-	if base == "" {
-		base = filepath.Join(home, ".cache", "claude-tmp")
-	}
-	return filepath.Join(base, fmt.Sprintf("claude-%d", os.Getuid()), unslug.ReplaceAllString(project, "-"))
+	return filepath.Join(home, ".cache", "claude-tmp", fmt.Sprintf("claude-%d", os.Getuid()), unslug.ReplaceAllString(project, "-"))
 }
 
 // REST alone, with no gateway: a post or a page of history is a request or two.

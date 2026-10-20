@@ -296,7 +296,7 @@ func (h *Handler) begin(server config.Server, ch *discordgo.Channel, m *discordg
 		alone = why
 	}
 	if forum != "" {
-		h.openPost(server, ch, m, replied, instruction, set, name, answer.Type)
+		h.openPost(server, ch, m, opener{mention: m, replied: replied, instruction: instruction, summary: answer.Summary}, set, name, answer.Type)
 		return
 	}
 
@@ -324,7 +324,7 @@ func (h *Handler) begin(server config.Server, ch *discordgo.Channel, m *discordg
 	}
 
 	if opened {
-		if _, err := h.announce(thread, opener{mention: m, replied: replied, instruction: instruction}, ""); err != nil {
+		if _, err := h.announce(thread, opener{mention: m, replied: replied, instruction: instruction, summary: answer.Summary}); err != nil {
 			h.Log.Error("could not post in the thread", "thread", thread, "error", h.redact(err))
 		}
 	} else {
@@ -338,8 +338,9 @@ func (h *Handler) begin(server config.Server, ch *discordgo.Channel, m *discordg
 }
 
 // One session in a post of its own in the forum, and a reply to Tim saying where it went.
-func (h *Handler) openPost(server config.Server, ch *discordgo.Channel, m *discordgo.Message, replied *discordgo.Message, instruction string, set *gather.Set, name, typ string) {
-	post, err := h.post(server.Forum, name, typ, opener{mention: m, replied: replied, instruction: instruction}, "")
+func (h *Handler) openPost(server config.Server, ch *discordgo.Channel, m *discordgo.Message, o opener, set *gather.Set, name, typ string) {
+	instruction := o.instruction
+	post, err := h.post(server.Forum, name, typ, o)
 	if err != nil {
 		h.fail(m, "", "a post could not be opened for this", err)
 		return

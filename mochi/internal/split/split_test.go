@@ -72,8 +72,28 @@ func TestTypesComeBackAndAnUnknownOneIsNone(t *testing.T) {
 	if got.Type != Bug || got.Tasks[0].Type != Bug || got.Tasks[1].Type != "" {
 		t.Errorf("types = %q, %q, %q", got.Type, got.Tasks[0].Type, got.Tasks[1].Type)
 	}
-	if !strings.Contains(Schema, `"required":["title","instruction","type"]`) {
-		t.Error("the schema does not ask each task for its type")
+	if !strings.Contains(Schema, `"required":["title","instruction","type","summary"]`) {
+		t.Error("the schema does not ask each task for its type and summary")
+	}
+}
+
+// Each task's summary, and the whole's, comes back on one line and within 300 characters; a
+// whole with none takes its first task's.
+func TestSummariesComeBackOnOneLineAndShort(t *testing.T) {
+	long := strings.Repeat("word ", 100)
+	s, _ := splitter(t, []byte(`{"is_error":false,"structured_output":{"decision":"many","title":"AB","type":"bug","summary":"","tasks":[{"title":"A","instruction":"fix a","type":"bug","summary":"Players see\nthe wrong elo."},{"title":"B","instruction":"look at b","type":"research","summary":"`+long+`"}]}}`), nil)
+	got, err := s.Split("fix a, look at b", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Tasks[0].Summary != "Players see the wrong elo." || got.Summary != got.Tasks[0].Summary {
+		t.Errorf("summaries = %q, %q", got.Tasks[0].Summary, got.Summary)
+	}
+	if n := len([]rune(got.Tasks[1].Summary)); n > 300 || !strings.HasSuffix(got.Tasks[1].Summary, "…") {
+		t.Errorf("a long summary is %d characters: %q", n, got.Tasks[1].Summary)
+	}
+	if !strings.Contains(Prompt("x", nil), "add nothing") {
+		t.Error("the prompt does not ask for a summary that adds nothing")
 	}
 }
 

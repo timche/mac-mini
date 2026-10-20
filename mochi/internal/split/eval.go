@@ -33,6 +33,8 @@ type Result struct {
 	Pass         bool     `json:"pass"`
 	Title        string   `json:"title,omitempty"`
 	Titles       []string `json:"titles,omitempty"`
+	Summary      string   `json:"summary,omitempty"`
+	Summaries    []string `json:"summaries,omitempty"`
 	WantType     string   `json:"want_type,omitempty"`
 	Type         string   `json:"type,omitempty"`
 	Types        []string `json:"types,omitempty"`
@@ -85,13 +87,14 @@ func Eval(in io.Reader, out io.Writer, s Splitter, now func() time.Time) error {
 		case err != nil:
 			r.Error = err.Error()
 		default:
-			r.Decision, r.Title, r.Type = answer.Decision, answer.Title, answer.Type
+			r.Decision, r.Title, r.Type, r.Summary = answer.Decision, answer.Title, answer.Type, answer.Summary
 			r.Got = len(answer.Tasks)
 			if answer.Decision == One {
 				r.Got = 1
 			}
 			for _, t := range answer.Tasks {
 				r.Titles = append(r.Titles, t.Title)
+				r.Summaries = append(r.Summaries, t.Summary)
 				r.Types = append(r.Types, t.Type)
 			}
 		}

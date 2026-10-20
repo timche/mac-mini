@@ -88,7 +88,7 @@ var plainTim = regexp.MustCompile(`\bTim\b`)
 func sentences(t *testing.T, name string, f *fixture) {
 	t.Helper()
 	for _, line := range mochiLines(f) {
-		rest := strings.TrimPrefix(line, "❌ ")
+		rest := strings.TrimPrefix(strings.TrimPrefix(line, "❌ "), "**")
 		if rest == "" || strings.HasPrefix(rest, "> ") {
 			// A quote is somebody's words as they wrote them.
 			continue

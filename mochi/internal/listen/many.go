@@ -85,19 +85,19 @@ func (h *Handler) replied(m *discordgo.Message) *discordgo.Message {
 // The first post in a thread mochi opened: started, and for which message as a masked link,
 // mentioning Tim, who keeps Discord's notifications to mentions — this is what subscribes
 // him to the thread and tells him it exists.
-func (h *Handler) announce(thread string, o opener, covers string) (*discordgo.Message, error) {
-	return h.API.Send(thread, h.announcement(o, covers))
+func (h *Handler) announce(thread string, o opener) (*discordgo.Message, error) {
+	return h.API.Send(thread, h.announcement(o))
 }
 
 // A session's post in the forum: named for its state and tagged with its kind of work, its
 // first message the announcement, and Tim a member of it.
-func (h *Handler) post(forum, title, typ string, o opener, covers string) (*discordgo.Channel, error) {
+func (h *Handler) post(forum, title, typ string, o opener) (*discordgo.Channel, error) {
 	name := mark.ThreadName(mark.Running, title)
 	tags, err := chat.TagIDs(h.API, forum, mark.PostTags(typ))
 	if err != nil {
 		return nil, err
 	}
-	post, err := h.API.ForumPost(forum, name, tags, h.announcement(o, covers))
+	post, err := h.API.ForumPost(forum, name, tags, h.announcement(o))
 	if err != nil {
 		return nil, err
 	}
@@ -150,10 +150,11 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 	lines := make([]string, 0, len(tasks))
 
 	for i, task := range tasks {
+		o.summary = task.Summary
 		var thread *discordgo.Channel
 		var err error
 		if forum {
-			thread, err = h.post(into, task.Title, task.Type, o, "This post covers: "+plain(task.Title))
+			thread, err = h.post(into, task.Title, task.Type, o)
 		} else {
 			threadName := mark.ThreadName(mark.Running, task.Title)
 			if thread, err = h.API.NewThread(into, threadName); err == nil {
@@ -179,7 +180,7 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 		}
 
 		if !forum {
-			if _, err := h.announce(thread.ID, o, "This thread covers: "+plain(task.Title)); err != nil {
+			if _, err := h.announce(thread.ID, o); err != nil {
 				h.Log.Error("could not post in the thread", "thread", thread.ID, "error", h.redact(err))
 			}
 		}

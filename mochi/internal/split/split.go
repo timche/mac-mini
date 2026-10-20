@@ -35,7 +35,13 @@ type Task struct {
 	Title       string `json:"title"`
 	Instruction string `json:"instruction"`
 	Type        string `json:"type"`
+
+	// What the messages ask for, for this task, in plain words for the team reading the post.
+	Summary string `json:"summary"`
 }
+
+// The most a summary may be, which the first post of a session shows whole.
+const maxSummary = 300
 
 // What kind of work a task is, which a forum post carries as a tag: something new, something
 // broken, a change to something that works, or looking into it with no change planned yet.
@@ -72,12 +78,13 @@ type Answer struct {
 	Decision string `json:"decision"`
 	Title    string `json:"title"`
 	Type     string `json:"type"`
+	Summary  string `json:"summary"`
 	Tasks    []Task `json:"tasks"`
 }
 
 // No item limit in the schema: a model held to five would merge or drop tasks, and too many
 // is something to tell Tim rather than hide from him.
-const Schema = `{"type":"object","properties":{"decision":{"type":"string","enum":["one","many","ask"]},"title":{"type":"string","maxLength":80},"type":{"type":"string","enum":["feature","bug","improvement","research"]},"tasks":{"type":"array","minItems":1,"items":{"type":"object","properties":{"title":{"type":"string","maxLength":80},"instruction":{"type":"string","minLength":1},"type":{"type":"string","enum":["feature","bug","improvement","research"]}},"required":["title","instruction","type"],"additionalProperties":false}}},"required":["decision","title","type","tasks"],"additionalProperties":false}`
+const Schema = `{"type":"object","properties":{"decision":{"type":"string","enum":["one","many","ask"]},"title":{"type":"string","maxLength":80},"type":{"type":"string","enum":["feature","bug","improvement","research"]},"summary":{"type":"string","maxLength":300},"tasks":{"type":"array","minItems":1,"items":{"type":"object","properties":{"title":{"type":"string","maxLength":80},"instruction":{"type":"string","minLength":1},"type":{"type":"string","enum":["feature","bug","improvement","research"]},"summary":{"type":"string","maxLength":300}},"required":["title","instruction","type","summary"],"additionalProperties":false}}},"required":["decision","title","type","summary","tasks"],"additionalProperties":false}`
 
 // Headless, with no tools, no MCP servers, no settings and no saved session: the call reads
 // one instruction and one message and answers in the schema, nothing more.
@@ -112,6 +119,7 @@ Rules:
 - Resolve references such as "a, b and c" or "the three points" from the message he replied to, naming each item as that message does.
 - Each task's title names the subject of its task in at most 80 characters: what the work is about, not what Tim asked to be done with it. When his words do not name it, as with "have a look at this" in reply to a report that the FACEIT overlay blocks hover, take it from the message he replied to: "FACEIT overlay blocks hover". The top-level title names the work as a whole the same way, as one session would be named.
 - Each task's type says what kind of work it is: "feature" for something new, "bug" for something broken or behaving wrongly, "improvement" for a change to something that already works, "research" when he asks to look into, investigate or evaluate something with no change decided yet. The top-level type is the work as a whole, as one session would be filed. Judge by what the work is, taking it from the message he replied to when his words do not say: "have a look at this" in reply to a crash report is a bug.
+- Each task's summary says in one or two plain sentences, at most 300 characters, what the messages ask for, for that task alone, for a team of non-technical readers: what users would see or get, not how it would be built. Summarise what the instruction and the message he replied to ask for, and add nothing. The top-level summary does the same for the work as a whole.
 - Return every item he covers, however many there are.
 
 Tim's instruction follows between the two markers below.
@@ -215,6 +223,10 @@ func parse(out []byte) (Answer, error) {
 		if !IsType(a.Tasks[i].Type) {
 			a.Tasks[i].Type = ""
 		}
+		a.Tasks[i].Summary = summary(a.Tasks[i].Summary)
+	}
+	if a.Summary = summary(a.Summary); a.Summary == "" {
+		a.Summary = a.Tasks[0].Summary
 	}
 	a.Title = title(a.Title, a.Tasks[0].Title)
 	if !IsType(a.Type) {
@@ -227,6 +239,14 @@ func parse(out []byte) (Answer, error) {
 		return Answer{}, TooMany{N: len(a.Tasks)}
 	}
 	return a, nil
+}
+
+func summary(text string) string {
+	text = strings.Join(strings.Fields(fence.Clean(text)), " ")
+	if r := []rune(text); len(r) > maxSummary {
+		text = string(r[:maxSummary-1]) + "…"
+	}
+	return text
 }
 
 func title(name, fallback string) string {

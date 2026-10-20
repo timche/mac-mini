@@ -72,21 +72,63 @@ func TestALongRepliedMessageIsShortenedAndTimsWordsAreNot(t *testing.T) {
 	}
 }
 
-// One of several sessions says which task it covers, under the same quotes.
-func TestASplitSessionsFirstPostSaysWhatItCovers(t *testing.T) {
+// Each session's first post ends on the classifier's summary of its own task, after the same
+// quotes; one with no summary has no such line.
+func TestAFirstPostEndsOnItsTasksSummary(t *testing.T) {
 	f := forumFixture(t)
 	f.h.Split = answers(split.Answer{Decision: split.Many, Tasks: []split.Task{
-		{Title: "Lobby average", Instruction: "add the lobby average"},
+		{Title: "Lobby average", Instruction: "add the lobby average", Summary: "Show the average elo of the whole lobby."},
 		{Title: "Login timeout", Instruction: "fix the login timeout"},
 	}}, nil, nil)
 	m := f.mention(channel, 1, tim, "add the lobby average, and separately fix the login timeout", nil)
 	f.h.Handle(m)
 
-	for i, title := range []string{"Lobby average", "Login timeout"} {
-		text := firstPost(t, f, postID(i+1)).Content
-		if !strings.HasSuffix(text, "\n> **tim:** add the lobby average, and separately fix the login timeout\nThis post covers: "+title) {
-			t.Errorf("post %d:\n%s", i+1, text)
-		}
+	quoted := "\n> **tim:** add the lobby average, and separately fix the login timeout"
+	if text := firstPost(t, f, postID(1)).Content; !strings.HasSuffix(text, quoted+"\n\n**Summary:** Show the average elo of the whole lobby.") {
+		t.Errorf("post 1:\n%s", text)
+	}
+	if text := firstPost(t, f, postID(2)).Content; !strings.HasSuffix(text, quoted) {
+		t.Errorf("post 2:\n%s", text)
+	}
+
+	// One session takes the summary of the work as a whole; a classifier that failed gives none.
+	g := forumFixture(t)
+	g.h.Split = answers(split.Answer{Decision: split.One, Title: "Overlay", Summary: "Hovering names works again.",
+		Tasks: []split.Task{{Title: "Overlay", Instruction: "fix it"}}}, nil, nil)
+	g.h.Handle(g.mention(channel, 1, tim, "fix the overlay", nil))
+	if text := firstPost(t, g, postID(1)).Content; !strings.HasSuffix(text, "\n\n**Summary:** Hovering names works again.") {
+		t.Errorf("one session:\n%s", text)
+	}
+	h := forumFixture(t)
+	h.h.Handle(h.mention(channel, 1, tim, "fix the overlay", nil))
+	if text := firstPost(t, h, postID(1)).Content; strings.Contains(text, "Summary") {
+		t.Errorf("a summary with no classifier:\n%s", text)
+	}
+}
+
+// Over the limit the replied-to message gives way first, then the summary; Tim's words and the
+// link stay whole.
+func TestTheSummaryGivesWayAfterTheRepliedMessage(t *testing.T) {
+	f := newFixture(t)
+	long := f.api.Post(channel, 1, maker, strings.Repeat("a long suggestion ", 200))
+	words := strings.TrimSpace(strings.Repeat("do this ", 200))
+	f.h.Split = answers(split.Answer{Decision: split.One, Title: "T", Summary: strings.Repeat("plain words ", 25),
+		Tasks: []split.Task{{Title: "T", Instruction: "x"}}}, nil, nil)
+	m := f.mention(channel, 2, tim, words, long)
+	f.h.Handle(m)
+
+	text := firstPost(t, f, m.ID).Content
+	if n := len(utf16.Encode([]rune(text))); n >= 2000 {
+		t.Errorf("first post is %d UTF-16 units", n)
+	}
+	if head(text) != startedPost(m.ID) || !strings.Contains(text, "> **tim:** "+words) {
+		t.Errorf("the link or Tim's words were cut:\n%.300s", text)
+	}
+	if strings.Contains(text, "Maker-sama") {
+		t.Error("the replied-to message stayed while the summary gave way")
+	}
+	if !strings.Contains(text, "\n\n**Summary:** plain words") || !strings.HasSuffix(text, "…") {
+		t.Errorf("the summary was not shortened to fit:\n…%s", text[len(text)-200:])
 	}
 }
 
@@ -112,21 +154,22 @@ func TestQuotedMentionsPingNobody(t *testing.T) {
 	f.quiet()
 }
 
-// A title the classifier took from somebody else's words is plain text wherever mochi writes
-// it: no masked link, mention or formatting of its own, in the covers line and the split reply.
+// A title or a summary the classifier took from somebody else's words is plain text wherever
+// mochi writes it: no masked link, mention or formatting of its own, in the summary line and
+// the split reply.
 func TestAHostileTitleIsPlainText(t *testing.T) {
 	f := forumFixture(t)
 	hostile := "[Session started](https://evil.example) @everyone <@&1500000000000000001> **now**"
 	f.h.Split = answers(split.Answer{Decision: split.Many, Tasks: []split.Task{
-		{Title: hostile, Instruction: "a"},
+		{Title: hostile, Instruction: "a", Summary: hostile},
 		{Title: "Login timeout", Instruction: "b"},
 	}}, nil, nil)
 	m := f.mention(channel, 1, tim, "a, and separately b", nil)
 	f.h.Handle(m)
 
 	safe := strings.ReplaceAll(`\[Session started\]\(https://ZWSPevil.example\) @ZWSPeveryone \<@ZWSP&1500000000000000001\> \*\*now\*\*`, "ZWSP", "\u200b")
-	if text := firstPost(t, f, postID(1)).Content; !strings.HasSuffix(text, "\nThis post covers: "+safe) {
-		t.Errorf("covers line:\n%s", text)
+	if text := firstPost(t, f, postID(1)).Content; !strings.HasSuffix(text, "\n\n**Summary:** "+safe) {
+		t.Errorf("summary line:\n%s", text)
 	}
 	replies := f.sentTo(channel)
 	if len(replies) != 1 || !strings.HasPrefix(replies[0], "<#"+postID(1)+"> "+safe+"\n") {

@@ -20,25 +20,35 @@ type opener struct {
 	mention     *discordgo.Message
 	replied     *discordgo.Message
 	instruction string
+
+	// The classifier's account of what the messages ask for, for this session; empty when it
+	// gave none.
+	summary string
 }
 
 // The first post in a thread or a forum post mochi opened. Its first line mentions Tim, who
 // keeps Discord's notifications to mentions, and links his message, which Discord shows as a
 // pill and a forum shows on its card; then the messages it is about, quoted, so the team sees
-// what the session is for without leaving it. covers names the one task of several it is for.
-func (h *Handler) announcement(o opener, covers string) *discordgo.MessageSend {
+// what the session is for without leaving it, and the classifier's summary of it.
+func (h *Handler) announcement(o opener) *discordgo.MessageSend {
 	m := o.mention
 	head := "Session started for <@" + h.Cfg.User + ">'s message."
 	if link := chat.Link(m.GuildID, m.ChannelID, m.ID); link != "" {
 		head = "Session started for <@" + h.Cfg.User + ">'s message: " + link
 	}
+	// Each message is a quote block of its own, and the summary a paragraph, a blank line
+	// between them so Discord shows them apart. Over the limit the replied-to message gives
+	// way first, then the summary; Tim's words and the link never do.
 	tail := quote(chat.Name(m), o.instruction, m.Attachments)
-	if covers != "" {
-		tail += "\n" + covers
+	if o.summary != "" {
+		line := "**Summary:** " + plain(o.summary)
+		if room := maxFirstPost - units(head+"\n"+tail) - 2; units(line) > room && room > units("**Summary:** …")+10 {
+			line = within(line, room-1) + "…"
+		}
+		if units(head+"\n"+tail)+2+units(line) <= maxFirstPost {
+			tail += "\n\n" + line
+		}
 	}
-
-	// Each message is a quote block of its own, a blank line between them, so Discord shows
-	// them apart.
 	text := head + "\n" + tail
 	if r := o.replied; r != nil {
 		budget := maxFirstPost - units(text) - 2

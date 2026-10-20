@@ -5,6 +5,7 @@
 package mark
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -67,6 +68,11 @@ type marks struct {
 	Running map[string][]state.Ref `json:"running"`
 	Groups  map[string]*Group      `json:"groups"`
 	Names   map[string]*Name       `json:"names"`
+
+	// Every message a session's state was shown on, by thread, so forgetting the session
+	// forgets them too; and when each reaction was last set, for the ones no session holds.
+	Threads map[string][]state.Ref `json:"threads"`
+	At      map[string]int64       `json:"at"`
 }
 
 func key(r state.Ref) string { return r.Channel + "/" + r.Message }
@@ -131,6 +137,9 @@ func (k Marker) Started(thread string, refs ...state.Ref) {
 			k.react(m, ref, Running)
 			if !contains(m.Running[thread], ref) {
 				m.Running[thread] = append(m.Running[thread], ref)
+			}
+			if !contains(m.Threads[thread], ref) {
+				m.Threads[thread] = append(m.Threads[thread], ref)
 			}
 		}
 		k.want(m, thread, Running)
@@ -226,6 +235,73 @@ func (k Marker) react(m *marks, ref state.Ref, emoji string) {
 		return
 	}
 	m.Shown[key(ref)] = emoji
+	m.At[key(ref)] = k.Now().Unix()
+}
+
+// Prune forgets the sessions whose record is gone, with the messages they were shown on, and
+// any other reaction nobody has touched for keep. The reactions stay on Discord; only
+// mochi's memory of them goes.
+func (k Marker) Prune(alive func(thread string) bool, keep time.Duration) {
+	k.update(func(m *marks) {
+		forget := func(ref state.Ref) {
+			delete(m.Shown, key(ref))
+			delete(m.At, key(ref))
+		}
+		var gone []string
+		for _, threads := range []map[string][]state.Ref{m.Running, m.Threads} {
+			for t := range threads {
+				if !alive(t) {
+					gone = append(gone, t)
+				}
+			}
+		}
+		for t := range m.Names {
+			if !alive(t) {
+				gone = append(gone, t)
+			}
+		}
+		for _, t := range gone {
+			for _, ref := range m.Threads[t] {
+				forget(ref)
+			}
+			delete(m.Threads, t)
+			delete(m.Running, t)
+			delete(m.Names, t)
+		}
+
+		for gk, g := range m.Groups {
+			var still []string
+			for _, t := range g.Threads {
+				if alive(t) {
+					still = append(still, t)
+				} else {
+					delete(g.State, t)
+				}
+			}
+			g.Threads = still
+			if len(still) == 0 {
+				forget(g.Mention)
+				delete(m.Groups, gk)
+			}
+		}
+
+		held := map[string]bool{}
+		for _, refs := range m.Threads {
+			for _, ref := range refs {
+				held[key(ref)] = true
+			}
+		}
+		for _, g := range m.Groups {
+			held[key(g.Mention)] = true
+		}
+		now := k.Now().Unix()
+		for k2 := range m.Shown {
+			if !held[k2] && now-m.At[k2] > int64(keep/time.Second) {
+				delete(m.Shown, k2)
+				delete(m.At, k2)
+			}
+		}
+	})
 }
 
 func (k Marker) want(m *marks, thread, emoji string) {
@@ -315,16 +391,31 @@ func (k Marker) update(fn func(*marks)) {
 	if m.Names == nil {
 		m.Names = map[string]*Name{}
 	}
+	if m.Threads == nil {
+		m.Threads = map[string][]state.Ref{}
+	}
+	if m.At == nil {
+		m.At = map[string]int64{}
+	}
+	before, _ := json.MarshalIndent(m, "", "  ")
 
 	fn(m)
 
 	body, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
+		k.Log.Error("the marks could not be written", "error", err)
+		return
+	}
+	if bytes.Equal(body, before) {
 		return
 	}
 	tmp := k.Path + ".tmp"
-	if err := os.WriteFile(tmp, body, 0o600); err == nil {
-		os.Rename(tmp, k.Path)
+	if err := os.WriteFile(tmp, body, 0o600); err != nil {
+		k.Log.Error("the marks could not be written", "error", err)
+		return
+	}
+	if err := os.Rename(tmp, k.Path); err != nil {
+		k.Log.Error("the marks could not be put in place", "error", err)
 	}
 }
 

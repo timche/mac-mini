@@ -477,8 +477,10 @@ func (h *Handler) Prune(keep time.Duration) {
 			continue
 		}
 		os.RemoveAll(h.Cfg.SessionDir(thread))
+		delete(all, thread)
 		h.Log.Info("forgot a finished session and its attachments", "thread", thread, "agent", rec.Agent)
 	}
+	h.Marks.Prune(func(thread string) bool { _, ok := all[thread]; return ok }, keep)
 }
 
 var unslug = regexp.MustCompile(`[^a-z0-9]+`)

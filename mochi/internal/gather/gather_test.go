@@ -88,7 +88,7 @@ func TestAReplyToAnOldMessageGathersTheDiscussionAroundIt(t *testing.T) {
 	if !strings.Contains(out, "(the message Tim replied to)") {
 		t.Errorf("the replied-to message is not marked:\n%s", out)
 	}
-	if !strings.Contains(out, "Maker-sama — https://discord.com/channels/"+guild+"/"+channel+"/"+qol.ID) {
+	if !strings.Contains(out, "Maker-sama ("+maker.ID+") — https://discord.com/channels/"+guild+"/"+channel+"/"+qol.ID) {
 		t.Error("a message lacks its author or its link")
 	}
 	if !strings.Contains(out, "[2026-10-20 13:40 UTC]") {

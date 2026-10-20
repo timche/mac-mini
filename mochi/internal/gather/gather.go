@@ -342,7 +342,7 @@ func writeMessages(b *strings.Builder, set *Set, msgs []*discordgo.Message, file
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		fmt.Fprintf(b, "[%s] %s — %s\n", stamp(m.Timestamp), chat.Name(m), chat.Link(set.Guild, m.ChannelID, m.ID))
+		fmt.Fprintf(b, "[%s] %s — %s\n", stamp(m.Timestamp), author(m), chat.Link(set.Guild, m.ChannelID, m.ID))
 		for _, n := range set.notes[m.ID] {
 			b.WriteString("(" + n + ")\n")
 		}
@@ -354,7 +354,7 @@ func writeMessages(b *strings.Builder, set *Set, msgs []*discordgo.Message, file
 			b.WriteString("replying to " + chat.Link(set.Guild, channel, ref.MessageID) + "\n")
 		}
 		if text := strings.TrimSpace(m.Content); text != "" {
-			b.WriteString(text + "\n")
+			b.WriteString(quote(text) + "\n")
 		} else if len(m.Attachments) == 0 {
 			b.WriteString("(no text)\n")
 		}
@@ -363,12 +363,43 @@ func writeMessages(b *strings.Builder, set *Set, msgs []*discordgo.Message, file
 			if !ok {
 				line = "not downloaded: " + a.Filename
 			}
-			b.WriteString("attachment: " + line + "\n")
+			b.WriteString("attachment: " + oneLine(line) + "\n")
 		}
 	}
 }
 
 func stamp(t time.Time) string { return t.UTC().Format("2006-01-02 15:04 UTC") }
+
+// Everything a message's author wrote is quoted line by line, so no body can start a line of
+// the transcript's own: a heading, a "[time] name — link" record, or a note.
+func quote(text string) string {
+	return "> " + strings.ReplaceAll(text, "\n", "\n> ")
+}
+
+// A display name is the author's to choose, so it is one line, without the characters that
+// frame a record, and followed by the account id it cannot choose.
+func author(m *discordgo.Message) string {
+	name := strings.Map(func(r rune) rune {
+		switch r {
+		case '[', ']', '—', '>', '(', ')':
+			return ' '
+		}
+		return r
+	}, oneLine(chat.Name(m)))
+	name = strings.Join(strings.Fields(name), " ")
+	if r := []rune(name); len(r) > 40 {
+		name = string(r[:40]) + "…"
+	}
+	if name == "" {
+		name = "unnamed"
+	}
+	if m.Author != nil && m.Author.ID != "" {
+		return name + " (" + m.Author.ID + ")"
+	}
+	return name
+}
+
+func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 func contains(list []string, s string) bool {
 	for _, x := range list {

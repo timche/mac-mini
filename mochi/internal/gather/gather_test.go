@@ -117,7 +117,7 @@ func TestAMentionInAForumPostIsHandedTheWholePost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if set.Len() != 31 || !set.Has(post) {
+	if set.Len() != 32 || !set.Has(post) {
 		t.Errorf("gathered %d messages, starter present %v", set.Len(), set.Has(post))
 	}
 	if out := Render(set, nil); !strings.Contains(out, "(the message this thread started from)") {
@@ -139,7 +139,7 @@ func TestALongThreadKeepsItsStarterAndSaysWhatIsMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !set.Has(starter.ID) || set.Len() != ThreadWindow+1 {
+	if !set.Has(starter.ID) || set.Len() != ThreadWindow+2 {
 		t.Errorf("gathered %d messages, starter present %v", set.Len(), set.Has(starter.ID))
 	}
 	if len(set.Gaps) != 1 || !strings.Contains(Render(set, nil), "Not shown: messages between the starter") {

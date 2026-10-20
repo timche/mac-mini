@@ -20,7 +20,10 @@ const (
 	Page = 100
 
 	ChannelWindow = 50
-	ThreadWindow  = 100
+
+	// What a mention that replies to nothing is about: the last few messages before it.
+	FocusWindow  = 5
+	ThreadWindow = 100
 
 	// A reply chain is followed this far up, and later replies to the message are searched
 	// for this many pages after it, which bounds a mention of a month-old message to a
@@ -33,6 +36,12 @@ const (
 	NoteReplied = "the message Tim replied to"
 	NoteStarter = "the message this thread started from"
 	NoteChain   = "earlier in the reply chain"
+	NoteMention = "Tim's mention of mochi"
+
+	// The two halves of a session's context. Everything gathered is kept, but most of a busy
+	// channel is about something else, and the session has to know which part Tim meant.
+	FocusHeading       = "FOCUS"
+	SurroundingHeading = "SURROUNDING CHANNEL (may be unrelated; read only what bears on the focus)"
 )
 
 // Set is the messages chosen for a session, each at most once, with what is notable about
@@ -41,11 +50,21 @@ type Set struct {
 	Guild string
 	msgs  map[string]*discordgo.Message
 	notes map[string][]string
+	focus map[string]bool
 	Gaps  []string
 }
 
 func NewSet(guild string) *Set {
-	return &Set{Guild: guild, msgs: map[string]*discordgo.Message{}, notes: map[string][]string{}}
+	return &Set{Guild: guild, msgs: map[string]*discordgo.Message{}, notes: map[string][]string{}, focus: map[string]bool{}}
+}
+
+// What Tim's instruction is about, rendered first under its own heading and never trimmed.
+func (s *Set) Focus(m *discordgo.Message, notes ...string) {
+	if m == nil {
+		return
+	}
+	s.Add(m, notes...)
+	s.focus[m.ID] = true
 }
 
 func (s *Set) Add(m *discordgo.Message, notes ...string) {
@@ -72,11 +91,10 @@ func (s *Set) Remove(id string) { delete(s.msgs, id) }
 
 func (s *Set) Len() int { return len(s.msgs) }
 
-// The oldest message that is neither the one Tim replied to nor a thread's starter goes,
-// and false when only those are left.
+// The oldest surrounding message goes, and false when only the focus is left.
 func (s *Set) DropOldest() bool {
 	for _, m := range s.Messages() {
-		if contains(s.notes[m.ID], NoteReplied) || contains(s.notes[m.ID], NoteStarter) {
+		if s.focus[m.ID] {
 			continue
 		}
 		s.Remove(m.ID)
@@ -105,7 +123,7 @@ func Reply(api chat.API, mention *discordgo.Message) (*Set, error) {
 	if err != nil {
 		return nil, fmt.Errorf("the message Tim replied to could not be read: %w", err)
 	}
-	set.Add(target, NoteReplied)
+	set.Focus(target, NoteReplied)
 
 	cur := target
 	for hop := 0; hop < chainHops && cur.MessageReference != nil; hop++ {
@@ -117,7 +135,7 @@ func Reply(api chat.API, mention *discordgo.Message) (*Set, error) {
 		if parent.ChannelID != "" && parent.ChannelID != channel {
 			break
 		}
-		set.Add(parent, NoteChain)
+		set.Focus(parent, NoteChain)
 		cur = parent
 	}
 
@@ -143,7 +161,7 @@ func Reply(api chat.API, mention *discordgo.Message) (*Set, error) {
 				break
 			}
 			if m.MessageReference != nil && m.MessageReference.MessageID == target.ID {
-				set.Add(m)
+				set.Focus(m)
 			}
 		}
 		after = got[len(got)-1].ID
@@ -157,7 +175,8 @@ func Reply(api chat.API, mention *discordgo.Message) (*Set, error) {
 }
 
 // A mention inside a thread or a forum post: the whole of it from its starter, as far as
-// one page before the mention reaches, and the starter on its own when it does not.
+// one page before the mention reaches, and the starter on its own when it does not. The
+// focus is the starter and the mention itself, with what it replies to.
 func Thread(api chat.API, thread *discordgo.Channel, mention *discordgo.Message) (*Set, error) {
 	set := NewSet(mention.GuildID)
 
@@ -177,15 +196,16 @@ func Thread(api chat.API, thread *discordgo.Channel, mention *discordgo.Message)
 			starter, err = api.Message(thread.ParentID, thread.ID)
 		}
 		if err == nil {
-			set.Add(starter, NoteStarter)
+			set.Focus(starter, NoteStarter)
 			if len(page) == ThreadWindow {
 				oldest := set.Messages()[1].ID
 				set.Gaps = append(set.Gaps, "messages between the starter and "+chat.Link(set.Guild, thread.ID, oldest)+" are not shown")
 			}
 		}
 	} else {
-		set.Note(thread.ID, NoteStarter)
+		set.Focus(set.msgs[thread.ID], NoteStarter)
 	}
+	set.Focus(mention, NoteMention)
 
 	if err := markReplied(api, set, mention); err != nil {
 		set.Gaps = append(set.Gaps, err.Error())
@@ -193,7 +213,8 @@ func Thread(api chat.API, thread *discordgo.Channel, mention *discordgo.Message)
 	return set, nil
 }
 
-// A mention in a channel that answers nothing in particular: the recent conversation.
+// A mention in a channel that answers nothing in particular: the recent conversation, the
+// last few messages of it the focus.
 func Channel(api chat.API, mention *discordgo.Message) (*Set, error) {
 	set := NewSet(mention.GuildID)
 
@@ -201,8 +222,13 @@ func Channel(api chat.API, mention *discordgo.Message) (*Set, error) {
 	if err != nil {
 		return nil, fmt.Errorf("the channel could not be read: %w", err)
 	}
-	for _, m := range page {
-		set.Add(m)
+	chat.Sort(page)
+	for i, m := range page {
+		if i >= len(page)-FocusWindow {
+			set.Focus(m)
+		} else {
+			set.Add(m)
+		}
 	}
 	return set, nil
 }
@@ -257,7 +283,7 @@ func markReplied(api chat.API, set *Set, mention *discordgo.Message) error {
 	if err != nil {
 		return errors.New("the message Tim replied to could not be read")
 	}
-	set.Add(target, NoteReplied)
+	set.Focus(target, NoteReplied)
 	return nil
 }
 
@@ -279,7 +305,7 @@ func Referenced(api chat.API, m *discordgo.Message) (*discordgo.Message, error) 
 type Files map[string]string
 
 // Every message carries its author, its time and its link, so the session can quote it and
-// Tim can open it.
+// Tim can open it. A set with a focus is two sections, the focus first, each in time order.
 func Render(set *Set, files Files) string {
 	var b strings.Builder
 	for _, gap := range set.Gaps {
@@ -289,11 +315,34 @@ func Render(set *Set, files Files) string {
 		b.WriteString("\n")
 	}
 
-	for i, m := range set.Messages() {
+	var focus, rest []*discordgo.Message
+	for _, m := range set.Messages() {
+		if set.focus[m.ID] {
+			focus = append(focus, m)
+		} else {
+			rest = append(rest, m)
+		}
+	}
+	if len(focus) == 0 {
+		writeMessages(&b, set, rest, files)
+		return strings.TrimRight(b.String(), "\n")
+	}
+
+	b.WriteString(FocusHeading + "\n\n")
+	writeMessages(&b, set, focus, files)
+	if len(rest) > 0 {
+		b.WriteString("\n" + SurroundingHeading + "\n\n")
+		writeMessages(&b, set, rest, files)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func writeMessages(b *strings.Builder, set *Set, msgs []*discordgo.Message, files Files) {
+	for i, m := range msgs {
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		fmt.Fprintf(&b, "[%s] %s — %s\n", stamp(m.Timestamp), chat.Name(m), chat.Link(set.Guild, m.ChannelID, m.ID))
+		fmt.Fprintf(b, "[%s] %s — %s\n", stamp(m.Timestamp), chat.Name(m), chat.Link(set.Guild, m.ChannelID, m.ID))
 		for _, n := range set.notes[m.ID] {
 			b.WriteString("(" + n + ")\n")
 		}
@@ -317,7 +366,6 @@ func Render(set *Set, files Files) string {
 			b.WriteString("attachment: " + line + "\n")
 		}
 	}
-	return strings.TrimRight(b.String(), "\n")
 }
 
 func stamp(t time.Time) string { return t.UTC().Format("2006-01-02 15:04 UTC") }

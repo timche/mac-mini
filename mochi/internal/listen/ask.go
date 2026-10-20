@@ -106,7 +106,7 @@ func (h *Handler) Interaction(i *discordgo.Interaction) {
 			Data: &discordgo.InteractionResponseData{
 				Content:         "Only Tim can choose.",
 				Flags:           discordgo.MessageFlagsEphemeral,
-				AllowedMentions: &discordgo.MessageAllowedMentions{Parse: []discordgo.AllowedMentionType{}},
+				AllowedMentions: chat.NoMentions(),
 			},
 		})
 		return
@@ -218,7 +218,7 @@ func (h *Handler) closeQuestion(p state.Pending, content string) {
 		Channel:         p.Channel,
 		Content:         &content,
 		Components:      &components,
-		AllowedMentions: &discordgo.MessageAllowedMentions{Parse: []discordgo.AllowedMentionType{}},
+		AllowedMentions: chat.NoMentions(),
 	})
 	if err != nil {
 		h.Log.Error("the question could not be closed", "question", p.Question, "error", h.redact(err))

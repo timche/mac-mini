@@ -53,10 +53,11 @@ const (
 // Every post mochi makes pings nobody: it quotes moderators' names and Tim's own mention
 // back, and a session posting findings is not a reason to wake a server.
 func Quiet(content string) *discordgo.MessageSend {
-	return &discordgo.MessageSend{
-		Content:         content,
-		AllowedMentions: &discordgo.MessageAllowedMentions{Parse: []discordgo.AllowedMentionType{}},
-	}
+	return &discordgo.MessageSend{Content: content, AllowedMentions: NoMentions()}
+}
+
+func NoMentions() *discordgo.MessageAllowedMentions {
+	return &discordgo.MessageAllowedMentions{Parse: []discordgo.AllowedMentionType{}}
 }
 
 func Link(guild, channel, message string) string {

@@ -251,12 +251,20 @@ func TestMoreThanFiveItemsAreOfferedOnlyAsOne(t *testing.T) {
 		t.Errorf("buttons = %+v", b)
 	}
 
-	answer := f.api.Post(channel, 3, tim, "all")
-	answer.MessageReference = &discordgo.MessageReference{MessageID: q.ID, ChannelID: channel}
-	f.h.Handle(answer)
-	if len(f.api.Standalone) != 0 {
-		t.Error("six sessions were started")
+	for n, text := range []string{"all", "6", "separately"} {
+		answer := f.api.Post(channel, 3+n, tim, text)
+		answer.MessageReference = &discordgo.MessageReference{MessageID: q.ID, ChannelID: channel}
+		f.h.Handle(answer)
+
+		last := f.api.Sent[len(f.api.Sent)-1]
+		if last.Msg.Content != "Only 1 session is offered here (more than 5 items)." || last.Msg.Reference == nil || last.Msg.Reference.MessageID != answer.ID {
+			t.Errorf("%q got %q", text, last.Msg.Content)
+		}
 	}
+	if len(f.api.Standalone) != 0 || len(f.herdr.calls) != 0 || len(f.pending()) != 1 {
+		t.Error("an answer the question did not offer started something or closed it")
+	}
+	f.quiet()
 }
 
 func TestAPressOnSomebodyElsesButtonIsIgnored(t *testing.T) {

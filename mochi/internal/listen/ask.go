@@ -135,9 +135,19 @@ func (h *Handler) textAnswer(m *discordgo.Message, text string) bool {
 	if err != nil || !found {
 		return false
 	}
-	many, ok := parseAnswer(text, len(p.Answer.Tasks))
-	if !ok {
+	n := len(p.Answer.Tasks)
+	many, ok := parseAnswer(text, n)
+	switch {
+	case !ok:
 		return false
+	case many && n > split.MaxTasks:
+		// The question offered only one session; saying so beats silence.
+		reply := chat.Quiet(fmt.Sprintf("Only 1 session is offered here (more than %d items).", split.MaxTasks))
+		reply.Reference = &discordgo.MessageReference{MessageID: m.ID, ChannelID: m.ChannelID}
+		if _, err := h.API.Send(m.ChannelID, reply); err != nil {
+			h.Log.Error("the reply to an answer could not be posted", "error", h.redact(err))
+		}
+		return true
 	}
 	h.settle(p, many)
 	return true
@@ -148,7 +158,7 @@ func parseAnswer(text string, n int) (many, ok bool) {
 	case "1", "one":
 		return false, true
 	case "all", "separately", "many", strconv.Itoa(n):
-		return true, n > 1 && n <= split.MaxTasks
+		return true, n > 1
 	}
 	return false, false
 }

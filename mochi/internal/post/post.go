@@ -38,8 +38,12 @@ var (
 		regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://\S*`),
 		regexp.MustCompile(`(?i)\b(?:mailto|file):\S+`),
 		regexp.MustCompile(`(?i)\bwww\.\S+`),
-		regexp.MustCompile(`(?i)\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(?:com|org|net|io|dev|gg|app|co|me|xyz|ai|so|sh|tv|ly|to)\b(?:/\S*)?`),
 	}
+	domain = regexp.MustCompile(`(?i)\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(?:com|org|net|io|dev|gg|app|co|me|xyz|ai|so|sh|tv|ly|to)\b(?:/\S*)?`)
+
+	// Naming the product and FACEIT is how a moderator would say it, so these two, and their
+	// subdomains, may stand in a post as names; with a path after them they are links again.
+	named = []string{"repeek.gg", "faceit.com"}
 	paths = []*regexp.Regexp{
 		regexp.MustCompile(`(?:^|[\s"'(\x60])(~/\S*)`),
 		regexp.MustCompile(`(?:^|[\s"'(\x60])(/[A-Za-z0-9._~-]+\S*)`),
@@ -50,7 +54,12 @@ var (
 func CheckText(text string) error {
 	for _, re := range links {
 		if found := re.FindString(text); found != "" {
-			return fmt.Errorf("a post is read in Discord by moderators, so it carries no links: say it in words and attach images instead (found %s)", found)
+			return refusedLink(found)
+		}
+	}
+	for _, found := range domain.FindAllString(text, -1) {
+		if !isNamed(found) {
+			return refusedLink(found)
 		}
 	}
 	for _, re := range paths {
@@ -59,6 +68,20 @@ func CheckText(text string) error {
 		}
 	}
 	return nil
+}
+
+func refusedLink(found string) error {
+	return fmt.Errorf("a post is read in Discord by moderators, so it carries no links: say it in words and attach images instead (found %s)", found)
+}
+
+func isNamed(host string) bool {
+	host = strings.ToLower(host)
+	for _, name := range named {
+		if host == name || strings.HasSuffix(host, "."+name) {
+			return true
+		}
+	}
+	return false
 }
 
 func CheckFiles(files []string) error {

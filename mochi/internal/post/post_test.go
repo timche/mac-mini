@@ -212,7 +212,7 @@ func TestTheGuardCatchesEveryFormOfLinkAndPath(t *testing.T) {
 	for _, text := range []string{
 		"see example.com for it",
 		"the docs are at repeek.gg/faq",
-		"ask on support.faceit.com",
+		"ask on support.example.com",
 		"try mochi.dev",
 		"it is on ftp://files.example/x",
 		"or ssh://host",
@@ -273,5 +273,31 @@ func TestAPostKeepsItsLines(t *testing.T) {
 	}
 	if got := api.Sent[0].Msg.Content; got != text+"\n#9 (https://github.com/timche/repeek/pull/9)" {
 		t.Errorf("content:\n%s", got)
+	}
+}
+
+// The product and FACEIT may be named; a page on them is still a link.
+func TestRepeekAndFaceitMayBeNamed(t *testing.T) {
+	for _, text := range []string{
+		"Average elo now shows on repeek.gg for each team.",
+		"It matches what FACEIT.com shows, and play.repeek.gg too.",
+		"Same as on www-free faceit.com.",
+	} {
+		if err := CheckText(text); err != nil {
+			t.Errorf("%q was refused: %v", text, err)
+		}
+	}
+	for _, text := range []string{
+		"see repeek.gg/faq",
+		"on faceit.com/en/players/x",
+		"https://repeek.gg",
+		"www.faceit.com",
+		"notrepeek.gg.evil.com",
+		"faceit.com.example.org",
+		"repeek.gg and example.com",
+	} {
+		if err := CheckText(text); err == nil {
+			t.Errorf("%q passed", text)
+		}
 	}
 }

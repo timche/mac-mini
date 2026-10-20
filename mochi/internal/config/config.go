@@ -19,9 +19,17 @@ type Server struct {
 	Repo      string `toml:"repo"`
 }
 
+// The model that decides whether a mention is one task or several, chosen by measuring
+// candidates with `mochi split-eval`: the cheapest and fastest that rarely gets it wrong.
+type Split struct {
+	Model  string `toml:"model"`
+	Effort string `toml:"effort"`
+}
+
 type Config struct {
 	User    string   `toml:"user"`
 	Servers []Server `toml:"server"`
+	Split   Split    `toml:"split"`
 
 	Home string `toml:"-"`
 
@@ -33,7 +41,12 @@ type Config struct {
 	EnvFile string `toml:"-"`
 }
 
-var snowflake = regexp.MustCompile(`\A[0-9]{17,20}\z`)
+var (
+	snowflake = regexp.MustCompile(`\A[0-9]{17,20}\z`)
+
+	// Both go to claude as flag values, so neither may look like a flag.
+	word = regexp.MustCompile(`\A[a-z0-9][a-z0-9.\[\]-]*\z`)
+)
 
 func IsSnowflake(id string) bool { return snowflake.MatchString(id) }
 
@@ -104,6 +117,16 @@ func Load(path, home string) (Config, error) {
 		}
 		seen[s.Guild] = true
 		cfg.Servers[i].Repo = expand(s.Repo, home)
+	}
+
+	if cfg.Split.Model == "" {
+		cfg.Split.Model = "sonnet"
+	}
+	if cfg.Split.Effort == "" {
+		cfg.Split.Effort = "medium"
+	}
+	if !word.MatchString(cfg.Split.Model) || !word.MatchString(cfg.Split.Effort) {
+		return Config{}, fmt.Errorf("%s: [split] model and effort are each one word, like sonnet and medium", path)
 	}
 
 	cfg.Home = home

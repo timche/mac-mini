@@ -37,6 +37,23 @@ func TestTheShippedConfigMapsRepeek(t *testing.T) {
 	if _, ok := cfg.Server("1"); ok {
 		t.Error("an unmapped guild was found")
 	}
+	if cfg.Split.Model != "sonnet" || cfg.Split.Effort != "medium" {
+		t.Errorf("split = %+v", cfg.Split)
+	}
+}
+
+func TestTheSplitModelDefaultsAndCannotBeAFlag(t *testing.T) {
+	cfg, err := Load(write(t, "user = \"94004892942741504\"\n"), "/home/x")
+	if err != nil || cfg.Split.Model != "sonnet" || cfg.Split.Effort != "medium" {
+		t.Errorf("defaults = %+v, %v", cfg.Split, err)
+	}
+	cfg, err = Load(write(t, "user = \"94004892942741504\"\n[split]\nmodel = \"claude-haiku-4-5\"\neffort = \"low\"\n"), "/home/x")
+	if err != nil || cfg.Split.Model != "claude-haiku-4-5" {
+		t.Errorf("a model id = %+v, %v", cfg.Split, err)
+	}
+	if _, err := Load(write(t, "user = \"94004892942741504\"\n[split]\nmodel = \"--dangerously-skip-permissions\"\n"), "/home/x"); err == nil {
+		t.Error("a flag was taken as a model")
+	}
 }
 
 func TestAConfigThatWouldMisdirectIsRefused(t *testing.T) {

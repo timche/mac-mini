@@ -50,6 +50,9 @@ type Handler struct {
 	// What each message's reaction and each thread's name say about its session.
 	Marks mark.Marker
 
+	// Which sessions are waiting on Tim, and whether he has been told this time.
+	Blocked state.BlockedStore
+
 	// One mention at a time: each is a handful of Discord calls and a herdr start, and two
 	// at once would race on the state file and on the agent name.
 	mu      sync.Mutex

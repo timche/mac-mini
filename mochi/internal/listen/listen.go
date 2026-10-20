@@ -75,6 +75,7 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 		Herdr:   herdr.CLI,
 		Store:   state.Store{Path: cfg.StatePath()},
 		Pending: state.PendingStore{Path: cfg.PendingPath()},
+		Blocked: state.BlockedStore{Path: cfg.BlockedPath()},
 		Marks:   mark.Marker{API: chat.NewLive(s), Path: cfg.MarksPath(), Now: time.Now, Log: log},
 		Now:     time.Now,
 		Log:     log,
@@ -113,6 +114,7 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 			beat(cfg, time.Now())
 		}
 		h.ExpirePending()
+		h.WatchBlocked()
 		h.Marks.Retry()
 		if err := refresh.tick(time.Now()); err != nil {
 			log.Warn("the wrapper could not be run to pick up a change to mochi", "error", err)

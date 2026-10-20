@@ -131,6 +131,15 @@ func TestNothingPostedNamesTheToolsBehindIt(t *testing.T) {
 			f.herdr.agents["mochi-"+first.ID] = "blocked"
 			f.h.Handle(f.mention(first.ID, 2, tim, "also b)", nil))
 		},
+		"a session that waits on Tim": func(f *fixture) {
+			first := f.mention(channel, 1, tim, "start", nil)
+			f.h.Handle(first)
+			f.herdr.agents["mochi-"+first.ID] = "blocked"
+			f.h.WatchBlocked()
+			f.h.WatchBlocked()
+			f.herdr.agents["mochi-"+first.ID] = "working"
+			f.h.WatchBlocked()
+		},
 		"a follow-up to a session that ended": func(f *fixture) {
 			first := f.mention(channel, 1, tim, "start", nil)
 			f.h.Handle(first)

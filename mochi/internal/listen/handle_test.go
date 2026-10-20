@@ -187,6 +187,7 @@ func newFixture(t *testing.T) *fixture {
 		Herdr:   hd.run,
 		Store:   state.Store{Path: cfg.StatePath()},
 		Pending: state.PendingStore{Path: cfg.PendingPath()},
+		Blocked: state.BlockedStore{Path: cfg.BlockedPath()},
 		Now:     func() time.Time { return time.Date(2026, 10, 20, 15, 4, 0, 0, time.UTC) },
 		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Token:   "secret-token",

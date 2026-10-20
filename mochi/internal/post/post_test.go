@@ -441,7 +441,8 @@ func TestOnlyFilesInsideTheCheckoutGoUp(t *testing.T) {
 	if err := Send(api, store, nil, repeek, thread, Post{Text: "**Test build**\n1. Unzip it", Files: []string{in, shot}, Roots: root}); err != nil {
 		t.Fatalf("a file in the checkout, under a heading of the project's own: %v", err)
 	}
-	for name, file := range map[string]string{"outside": out, "a link out": link, "git's own": gitconfig, "with ..": filepath.Join(checkout, "..", filepath.Base(elsewhere), "id_ed25519")} {
+	upper := filepath.Join(checkout, ".GIT", "config")
+	for name, file := range map[string]string{"outside": out, "a link out": link, "git's own": gitconfig, "git's own in capitals": upper, "with ..": filepath.Join(checkout, "..", filepath.Base(elsewhere), "id_ed25519")} {
 		err := Send(api, store, nil, repeek, thread, Post{Text: "x", Files: []string{file}, Roots: root})
 		if err == nil {
 			t.Errorf("%s was posted", name)

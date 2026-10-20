@@ -181,7 +181,8 @@ func inside(path string, bases []string) error {
 			continue
 		}
 		for _, part := range strings.Split(rel, string(filepath.Separator)) {
-			if part == ".git" {
+			// APFS takes .GIT for .git.
+			if strings.EqualFold(part, ".git") {
 				return errors.New("is git's own, so it is not posted")
 			}
 		}

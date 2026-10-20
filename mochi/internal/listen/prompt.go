@@ -1,6 +1,7 @@
 package listen
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -10,9 +11,40 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/gather"
 )
 
+// herdr takes a prompt as one argument, and an argument list is capped at a megabyte on
+// macOS: a gathered context of long messages could pass it.
+var maxPrompt = 200 << 10
+
+// Over the cap, the oldest context goes first, one message at a time; the message Tim
+// replied to, a thread's starter and his own words stay.
+func fit(set *gather.Set, gap string, build func() string) string {
+	text := build()
+	for len(text) > maxPrompt && set.DropOldest() {
+		if !contains(set.Gaps, gap) {
+			set.Gaps = append(set.Gaps, gap)
+		}
+		text = build()
+	}
+	return text
+}
+
+func contains(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+func opening(ch *discordgo.Channel, m *discordgo.Message, instruction string, set *gather.Set, files gather.Files, note string) string {
+	gap := fmt.Sprintf("older messages, trimmed to keep this prompt under %d KB; mochi history --before <the oldest id shown> reaches them", maxPrompt>>10)
+	return fit(set, gap, func() string { return openingText(ch, m, instruction, set, files, note) })
+}
+
 // The orders come first, then Tim's words and everybody else's in blocks of their own, so
 // the session can tell an instruction from a moderator's message quoting one.
-func opening(ch *discordgo.Channel, m *discordgo.Message, instruction string, set *gather.Set, files gather.Files, note string) string {
+func openingText(ch *discordgo.Channel, m *discordgo.Message, instruction string, set *gather.Set, files gather.Files, note string) string {
 	nonce := fence.Nonce()
 
 	// A channel's or a thread's name is chosen by whoever made it, so it is data like any
@@ -46,6 +78,11 @@ func opening(ch *discordgo.Channel, m *discordgo.Message, instruction string, se
 }
 
 func followUp(m *discordgo.Message, instruction string, others *gather.Set, files gather.Files) string {
+	gap := fmt.Sprintf("older messages, trimmed to keep this prompt under %d KB; they are in the thread on Discord", maxPrompt>>10)
+	return fit(others, gap, func() string { return followUpText(m, instruction, others, files) })
+}
+
+func followUpText(m *discordgo.Message, instruction string, others *gather.Set, files gather.Files) string {
 	nonce := fence.Nonce()
 
 	var b strings.Builder

@@ -72,6 +72,19 @@ func (s *Set) Remove(id string) { delete(s.msgs, id) }
 
 func (s *Set) Len() int { return len(s.msgs) }
 
+// The oldest message that is neither the one Tim replied to nor a thread's starter goes,
+// and false when only those are left.
+func (s *Set) DropOldest() bool {
+	for _, m := range s.Messages() {
+		if contains(s.notes[m.ID], NoteReplied) || contains(s.notes[m.ID], NoteStarter) {
+			continue
+		}
+		s.Remove(m.ID)
+		return true
+	}
+	return false
+}
+
 func (s *Set) Messages() []*discordgo.Message {
 	out := make([]*discordgo.Message, 0, len(s.msgs))
 	for _, m := range s.msgs {

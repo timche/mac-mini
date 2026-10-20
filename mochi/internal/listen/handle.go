@@ -211,10 +211,12 @@ func (h *Handler) Gateway(event string, data []byte) {
 }
 
 func (h *Handler) open(server config.Server, ch *discordgo.Channel, m *discordgo.Message, instruction string) {
-	tasks, ok := h.tasks(m, instruction)
+	replied := h.replied(m)
+	tasks, ok := h.tasks(m, instruction, replied)
 	if !ok {
 		return
 	}
+	name := title(tasks, replied, instruction)
 
 	var (
 		set *gather.Set
@@ -246,7 +248,7 @@ func (h *Handler) open(server config.Server, ch *discordgo.Channel, m *discordgo
 	// A thread cannot hold a thread, so a mention inside one makes that thread the session's.
 	thread := ch.ID
 	if !ch.IsThread() {
-		opened, err := h.API.StartThread(m.ChannelID, m.ID, threadName(instruction))
+		opened, err := h.API.StartThread(m.ChannelID, m.ID, threadName(name))
 		if err != nil {
 			h.fail(m, "", "a thread could not be opened on this message", err)
 			return
@@ -256,7 +258,7 @@ func (h *Handler) open(server config.Server, ch *discordgo.Channel, m *discordgo
 
 	session := state.Session{Thread: thread, Source: ch.ID, Guild: m.GuildID, LastMention: m.ID}
 	text := opening(ch, m, instruction, set, h.files(thread, set), "", "")
-	if err := h.start(server, &session, ch.Name, text); err != nil {
+	if err := h.start(server, &session, name, text); err != nil {
 		h.fail(m, thread, err.Error(), nil)
 		return
 	}
@@ -314,7 +316,7 @@ func (h *Handler) restart(server config.Server, ch *discordgo.Channel, rec state
 	rec.LastMention = m.ID
 	note := "The session that was working on this thread has gone, so this is a new one: the thread so far is the context."
 	text := opening(ch, m, instruction, set, h.files(rec.Thread, set), note, "")
-	if err := h.start(server, &rec, ch.Name, text); err != nil {
+	if err := h.start(server, &rec, strings.TrimPrefix(ch.Name, "mochi: "), text); err != nil {
 		h.fail(m, rec.Thread, err.Error(), nil)
 		return
 	}
@@ -325,10 +327,10 @@ func (h *Handler) restart(server config.Server, ch *discordgo.Channel, rec state
 
 // The record is written as soon as the agent exists, so a follow-up finds it even when the
 // first prompt did not land.
-func (h *Handler) start(server config.Server, rec *state.Session, channelName, text string) error {
+func (h *Handler) start(server config.Server, rec *state.Session, name, text string) error {
 	rec.Agent = "mochi-" + rec.Thread
 	rec.Workspace = server.Workspace
-	rec.Tab = tabLabel(channelName, h.Now())
+	rec.Tab = tabLabel(name, h.Now())
 	rec.Updated = h.Now().Unix()
 
 	workspace, err := herdr.Workspace(h.Herdr, server.Workspace, server.Repo)
@@ -431,8 +433,8 @@ func tabLabel(channel string, now time.Time) string {
 	return slug + "-" + now.Format("1504")
 }
 
-func threadName(instruction string) string {
-	line, _, _ := strings.Cut(instruction, "\n")
+func threadName(name string) string {
+	line, _, _ := strings.Cut(name, "\n")
 	line = strings.TrimSpace(line)
 	if r := []rune(line); len(r) > 90 {
 		line = string(r[:90]) + "…"

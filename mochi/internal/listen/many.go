@@ -3,6 +3,7 @@ package listen
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -15,14 +16,14 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/state"
 )
 
-// The tasks a new-session mention asks for, when there is more than one. False means Tim has
-// been told no; anything the classifier could not answer is one session with his own words,
-// exactly as without it.
-func (h *Handler) tasks(m *discordgo.Message, instruction string) ([]split.Task, bool) {
+// The tasks a new-session mention asks for, one or several. False means Tim has been told no;
+// none means the classifier could not answer, which is one session with his own words, exactly
+// as without it.
+func (h *Handler) tasks(m *discordgo.Message, instruction string, replied *discordgo.Message) ([]split.Task, bool) {
 	if h.Split == nil {
 		return nil, true
 	}
-	tasks, err := h.Split(instruction, h.replied(m))
+	tasks, err := h.Split(instruction, replied)
 	var tooMany split.TooMany
 	switch {
 	case errors.As(err, &tooMany):
@@ -31,10 +32,41 @@ func (h *Handler) tasks(m *discordgo.Message, instruction string) ([]split.Task,
 	case err != nil:
 		h.Log.Warn("the mention could not be split, so it is one session", "message", m.ID, "error", h.redact(err))
 		return nil, true
-	case len(tasks) < 2:
-		return nil, true
 	}
 	return tasks, true
+}
+
+var mentionToken = regexp.MustCompile(`<(?:@[!&]?|#)[0-9]+>`)
+
+// A session's name in Discord and in herdr: the classifier's title for its task, and without
+// one the start of the message Tim replied to, then his own words. Display only; a session
+// sees it, if at all, inside the fence.
+func title(tasks []split.Task, replied *discordgo.Message, instruction string) string {
+	if len(tasks) == 1 && tasks[0].Title != "" {
+		return tasks[0].Title
+	}
+	if replied != nil {
+		if t := firstWords(replied.Content, 60); t != "" {
+			return t
+		}
+	}
+	return firstWords(instruction, 60)
+}
+
+func firstWords(text string, max int) string {
+	words := strings.Fields(fence.Clean(mentionToken.ReplaceAllString(text, " ")))
+	out := ""
+	for _, w := range words {
+		next := strings.TrimSpace(out + " " + w)
+		if len([]rune(next)) > max {
+			if out == "" {
+				return string([]rune(next)[:max-1]) + "…"
+			}
+			return out + "…"
+		}
+		out = next
+	}
+	return out
 }
 
 // Only to resolve "a, b and c": the rest of the context is not the classifier's.

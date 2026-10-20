@@ -156,7 +156,11 @@ func TestAClassifierThatFailsIsOneSessionAsBefore(t *testing.T) {
 		if got := strings.TrimSpace(between(t, prompt, "INSTRUCTION FROM TIM")); got != "research a, b and c separately" {
 			t.Errorf("%s: instruction = %q", name, got)
 		}
-		if posts := f.sentTo(m.ID); len(posts) != 1 || posts[0] != "session started in repeek: moderators-1504" {
+		tab := "research-a-b-and-c-separately-1504"
+		if name == "one task" {
+			tab = "research-1504"
+		}
+		if posts := f.sentTo(m.ID); len(posts) != 1 || posts[0] != "session started in repeek: "+tab {
 			t.Errorf("%s: posts = %q", name, posts)
 		}
 		if len(f.sentTo(channel)) != 0 || !f.api.ReactedWith(m.ID, "✅") {
@@ -280,5 +284,52 @@ func TestAnInjectionInTheRepliedMessageStaysInsideTheFence(t *testing.T) {
 		if outside := prompt[:begin] + prompt[end:]; strings.Contains(outside, "IGNORE TIM") {
 			t.Errorf("session %d has the directive outside the fence:\n%s", i+1, outside)
 		}
+	}
+}
+
+// A thread and a tab are named for what the session is about, which Tim's own "have a look at
+// this" does not say.
+func TestASingleSessionIsNamedForItsTask(t *testing.T) {
+	report := "The FACEIT overlay blocks hover on the scoreboard since yesterday's patch, see screenshot"
+	for name, c := range map[string]struct {
+		split  func(string, *discordgo.Message) ([]split.Task, error)
+		thread string
+		tab    string
+	}{
+		"the classifier's title": {
+			splitsInto([]split.Task{{Title: "FACEIT overlay blocks hover", Instruction: "have a look at this"}}, nil, nil),
+			"mochi: FACEIT overlay blocks hover", "faceit-overlay-blocks-hover-1504",
+		},
+		"the replied-to message when the classifier failed": {
+			splitsInto(nil, errors.New("claude did not answer"), nil),
+			"mochi: The FACEIT overlay blocks hover on the scoreboard since…", "the-faceit-overlay-blocks-hove-1504",
+		},
+	} {
+		f := newFixture(t)
+		f.h.Split = c.split
+		target := f.api.Post(channel, 1, maker, "<@1400000000000000009> "+report)
+		m := f.mention(channel, 2, tim, "have a look at this", target)
+
+		f.h.Handle(m)
+
+		if len(f.api.Threads) != 1 || f.api.Threads[0] != m.ID+" "+c.thread {
+			t.Errorf("%s: thread %v", name, f.api.Threads)
+		}
+		if got := f.herdr.called("tab create"); len(got) != 1 || got[0][5] != c.tab {
+			t.Errorf("%s: tab %v", name, got)
+		}
+		if got := strings.TrimSpace(between(t, onlyPrompt(t, f.herdr, "mochi-"+m.ID), "INSTRUCTION FROM TIM")); got != "have a look at this" {
+			t.Errorf("%s: instruction %q", name, got)
+		}
+	}
+}
+
+// With nothing replied to and no classifier, Tim's own words name it.
+func TestWithNothingElseTimsWordsNameTheSession(t *testing.T) {
+	if got := title(nil, nil, "<@1400000000000000003>   look   into the login timeout"); got != "look into the login timeout" {
+		t.Errorf("title = %q", got)
+	}
+	if got := title(nil, &discordgo.Message{Content: "  "}, "fallback"); got != "fallback" {
+		t.Errorf("an empty replied message named it %q", got)
 	}
 }

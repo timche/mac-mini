@@ -46,53 +46,111 @@ func (h *Handler) watch(ev event.Event, watches map[string]state.Watch) {
 // WatchPRs runs every two minutes and asks GitHub nothing while no pull request is watched. A
 // merged one is the session done, a closed one is said in its thread, and a push whose checks
 // fail is relayed to the session once, as mochi's own prompt, with nothing of it in Discord.
+//
+// What it watches is read under the handler's lock and what came of it applied under it, but
+// GitHub and herdr are asked with the lock free, so a mention is never held behind them.
 func (h *Handler) WatchPRs() {
 	h.mu.Lock()
-	defer h.mu.Unlock()
+	watches, sessions, ok := h.watched()
+	h.mu.Unlock()
+	if !ok {
+		return
+	}
 
+	looks := make(map[string]look, len(watches))
+	for url, w := range watches {
+		if rec, ok := sessions[w.Thread]; ok {
+			looks[url] = h.lookAt(rec, w)
+		}
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.apply(looks)
+}
+
+// What one look at a watched pull request found.
+type look struct {
+	gone, merged, closed bool
+
+	// The head whose failed checks were dealt with, and whether the session was told of them.
+	told    string
+	relayed bool
+}
+
+func (h *Handler) watched() (map[string]state.Watch, map[string]state.Session, bool) {
+	watches, err := h.Watches.Load()
+	if err != nil {
+		h.Log.Error("the watched pull requests could not be read", "error", err)
+		return nil, nil, false
+	}
+	if len(watches) == 0 || h.GH == nil {
+		return nil, nil, false
+	}
+	sessions, err := h.Store.Load()
+	if err != nil {
+		h.Log.Error("the state file could not be read to follow pull requests", "error", err)
+		return nil, nil, false
+	}
+	return watches, sessions, true
+}
+
+func (h *Handler) lookAt(rec state.Session, w state.Watch) look {
+	pr, err := gh.Pull(h.GH, w.Repo, w.Number)
+	if err != nil {
+		h.Log.Warn("a watched pull request could not be read", "repo", w.Repo, "number", w.Number, "error", err)
+		return look{}
+	}
+	switch {
+	case pr.Merged:
+		return look{merged: true}
+	case !pr.Open:
+		return look{closed: true}
+	case pr.Head != "" && pr.Head != w.Told:
+		if dealt, relayed := h.failedChecks(rec, w, pr.Head); dealt {
+			return look{told: pr.Head, relayed: relayed}
+		}
+	}
+	return look{}
+}
+
+// The watches are read again under the lock, since an event may have added one meanwhile.
+func (h *Handler) apply(looks map[string]look) {
 	watches, err := h.Watches.Load()
 	if err != nil {
 		h.Log.Error("the watched pull requests could not be read", "error", err)
 		return
 	}
-	if len(watches) == 0 || h.GH == nil {
-		return
-	}
-	sessions, err := h.Store.Load()
-	if err != nil {
-		h.Log.Error("the state file could not be read to follow pull requests", "error", err)
-		return
-	}
+	sessions, _ := h.Store.Load()
 	changed := false
 	for url, w := range watches {
-		rec, ok := sessions[w.Thread]
-		if !ok {
-			delete(watches, url)
-			changed = true
-			continue
+		l, looked := looks[url]
+		if _, ok := sessions[w.Thread]; !ok {
+			l.gone, looked = true, true
 		}
-		pr, err := gh.Pull(h.GH, w.Repo, w.Number)
-		if err != nil {
-			h.Log.Warn("a watched pull request could not be read", "repo", w.Repo, "number", w.Number, "error", err)
+		if !looked {
 			continue
 		}
 		switch {
-		case pr.Merged:
+		case l.gone:
+			delete(watches, url)
+		case l.merged:
 			h.Marks.Settled(w.Thread, mark.Finished)
 			h.say(w.Thread, "Merged.")
 			delete(watches, url)
-			changed = true
-		case !pr.Open:
+		case l.closed:
 			h.say(w.Thread, "Closed without merging.")
 			delete(watches, url)
-			changed = true
-		case pr.Head != "" && pr.Head != w.Told:
-			if h.failedChecks(rec, w, pr.Head) {
-				w.Told = pr.Head
-				watches[url] = w
-				changed = true
+		case l.told != "":
+			w.Told = l.told
+			watches[url] = w
+			if l.relayed {
+				h.Marks.Started(w.Thread)
 			}
+		default:
+			continue
 		}
+		changed = true
 	}
 	if changed {
 		if err := h.Watches.Save(watches); err != nil {
@@ -101,37 +159,36 @@ func (h *Handler) WatchPRs() {
 	}
 }
 
-// Whether the head's checks were dealt with: failed and told to the session, or failed with no
-// session left to tell. Checks that have not failed, a session on a question, or one Tim
-// stopped, are tried again at the next look.
-func (h *Handler) failedChecks(rec state.Session, w state.Watch, head string) bool {
+// Whether the head's checks were dealt with, and whether the session was told: failed and
+// told, or failed with no session left to tell. Checks that have not failed, a session on a
+// question, or one Tim stopped, are tried again at the next look.
+func (h *Handler) failedChecks(rec state.Session, w state.Watch, head string) (dealt, relayed bool) {
 	if shown, _ := h.Marks.Session(rec.Thread); shown == mark.Stopped {
-		return false
+		return false, false
 	}
 	failed, err := gh.Failed(h.GH, w.Repo, head)
 	if err != nil {
 		h.Log.Warn("a watched pull request's checks could not be read", "repo", w.Repo, "number", w.Number, "error", err)
-		return false
+		return false, false
 	}
 	if len(failed) == 0 {
-		return false
+		return false, false
 	}
 	status, err := herdr.Status(h.Herdr, rec.Agent)
 	switch {
 	case err != nil:
 		h.Log.Warn("checks failed on a pull request whose session cannot be reached", "repo", w.Repo, "number", w.Number, "error", h.redact(err))
-		return true
+		return true, false
 	case status == herdr.Blocked:
-		return false
+		return false, false
 	}
 	text := fmt.Sprintf("%s%d: %s. Fix it and push.", event.CIPrefix, w.Number, strings.Join(failed, ", "))
 	if err := herdr.Prompt(h.Herdr, rec.Agent, text); err != nil {
 		h.Log.Warn("checks failed on a pull request and the session could not be told", "repo", w.Repo, "number", w.Number, "error", h.redact(err))
-		return false
+		return false, false
 	}
 	h.Log.Info("told a session its pull request's checks failed", "workspace", rec.Workspace, "tab", rec.Tab, "number", w.Number)
-	h.Marks.Started(rec.Thread)
-	return true
+	return true, true
 }
 
 // A session forgotten takes its watched pull requests with it.

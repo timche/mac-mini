@@ -223,3 +223,29 @@ func TestAPullRequestOfAnotherRepositoryIsNotWatched(t *testing.T) {
 		t.Errorf("watching %d, asked %v", f.watching(), asked)
 	}
 }
+
+// GitHub and herdr are asked with the handler's lock free: a mention can be handled while a
+// look is out, and a watch added meanwhile is kept.
+func TestALookAtPullRequestsHoldsNoMentionBack(t *testing.T) {
+	f, thread, g := watched(t)
+	g.state, g.merged = "closed", true
+	inside := g.run
+	handled := false
+	f.h.GH = func(args ...string) ([]byte, error) {
+		if !f.h.mu.TryLock() {
+			t.Error("GitHub was asked with the handler's lock held")
+		} else {
+			f.h.mu.Unlock()
+		}
+		handled = true
+		return inside(args...)
+	}
+	f.h.WatchPRs()
+	if !handled {
+		t.Fatal("GitHub was not asked")
+	}
+	f.inState(thread, mark.Finished)
+	if f.watching() != 0 {
+		t.Error("the merged pull request is still watched")
+	}
+}

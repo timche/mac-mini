@@ -74,3 +74,12 @@ func Toplevel(path string) (string, error) {
 	}
 	return strings.TrimSpace(string(out)), nil
 }
+
+// Ignored says whether git ignores a path in the checkout at root.
+func Ignored(root, path string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", root, "check-ignore", "-q", "--", path)
+	cmd.Env = op.Scrub(os.Environ())
+	return cmd.Run() == nil
+}

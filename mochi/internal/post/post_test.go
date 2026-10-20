@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -470,5 +471,44 @@ func TestAFileIsHeldToTheServersUploadLimit(t *testing.T) {
 	api.Tiers = map[string]discordgo.PremiumTier{"": discordgo.PremiumTier2}
 	if err := Send(api, store, nil, repeek, thread, Post{Text: "x", Files: []string{big}, Roots: anywhere}); err != nil {
 		t.Errorf("a boosted server refused 12 MB: %v", err)
+	}
+}
+
+// Files with a secret's name, files git ignores in the checkout other than media and zips,
+// and files linked under a second name are not posted; media and zips git ignores are.
+func TestSecretLookingAndIgnoredFilesAreNotPosted(t *testing.T) {
+	api, store := fixture(t)
+	checkout := t.TempDir()
+	for _, args := range [][]string{{"init", "-q", checkout}} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	os.WriteFile(filepath.Join(checkout, ".gitignore"), []byte("local/\n"), 0o644)
+	os.MkdirAll(filepath.Join(checkout, "local"), 0o755)
+	write := func(rel string) string {
+		p := filepath.Join(checkout, rel)
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		os.WriteFile(p, []byte("x"), 0o644)
+		return p
+	}
+	roots := Roots(func(string) ([]string, error) { return []string{checkout}, nil })
+
+	for _, ok := range []string{write("local/after.png"), write("local/build.zip"), write("docs/notes.txt")} {
+		if err := Send(api, store, nil, repeek, thread, Post{Text: "x", Files: []string{ok}, Roots: roots}); err != nil {
+			t.Errorf("%s: %v", ok, err)
+		}
+	}
+	hard := write("docs/twice.txt")
+	os.Link(hard, filepath.Join(checkout, "docs", "again.txt"))
+	for _, bad := range []string{
+		write(".env"), write(".env.local"), write("certs/server.PEM"), write("deploy.key"), write("store.p12"), write("a.pfx"),
+		write("keys/id_ed25519"), write(".npmrc"), write(".netrc"), write(".pgpass"), write("aws/credentials"), write("release.keystore"),
+		write(".git-credentials"), write("local/settings.json"), hard,
+	} {
+		err := Send(api, store, nil, repeek, thread, Post{Text: "x", Files: []string{bad}, Roots: roots})
+		if err == nil || !strings.Contains(err.Error(), "not posted") {
+			t.Errorf("%s: %v", bad, err)
+		}
 	}
 }

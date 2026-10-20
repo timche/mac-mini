@@ -10,11 +10,13 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/bwmarrin/discordgo"
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/mark"
+	"github.com/timche/mac-mini/mochi/internal/origin"
 	"github.com/timche/mac-mini/mochi/internal/state"
 )
 
@@ -134,9 +136,9 @@ func CheckProof(text string, files []string) error {
 	return nil
 }
 
-// Roots answers the folders a session's attachments may come from: the checkout it works in, a
-// checkout of its server's repository, and Claude Code's scratch folder for it; a post attaches
-// nothing from anywhere else.
+// Roots answers the folders a session's attachments may come from: first the checkout it works
+// in, a checkout of its server's repository, then Claude Code's scratch folders for it; a post
+// attaches nothing from anywhere else.
 type Roots func(guild string) ([]string, error)
 
 // A file goes up only from inside one of the session's own folders, by its real path once links
@@ -167,14 +169,64 @@ func checkInside(files []string, guild string, roots Roots) error {
 		if path, err = filepath.Abs(path); err != nil {
 			return err
 		}
-		if err := inside(path, real); err != nil {
+		base, err := inside(path, real)
+		if err != nil {
 			return fmt.Errorf("%s %v", file, err)
+		}
+		if err := plainFile(path); err != nil {
+			return fmt.Errorf("%s %v", file, err)
+		}
+		// What git ignores in the checkout is where keys and local settings are kept; a
+		// screenshot, a recording or a build there is what a session means to post.
+		if len(real) > 0 && base == real[0] && !isMedia(path) && !strings.EqualFold(filepath.Ext(path), ".zip") && origin.Ignored(base, path) {
+			return fmt.Errorf("%s is a file git ignores in the checkout, so it is not posted: only images, videos and zips are taken from there", file)
 		}
 	}
 	return nil
 }
 
-func inside(path string, bases []string) error {
+// Names a secret is kept under, matched on a file's own name in any case.
+var (
+	secretPrefixes = []string{".env", "id_", "credentials"}
+	secretSuffixes = []string{".pem", ".key", ".p12", ".pfx", ".keystore"}
+	secretNames    = []string{".npmrc", ".netrc", ".pgpass", ".git-credentials"}
+)
+
+// A file with a secret's name, or one linked under another name somewhere else, is not posted.
+func plainFile(path string) error {
+	name := strings.ToLower(filepath.Base(path))
+	for _, p := range secretPrefixes {
+		if strings.HasPrefix(name, p) {
+			return errors.New("has the name of a file secrets are kept in, so it is not posted")
+		}
+	}
+	for _, s := range secretSuffixes {
+		if strings.HasSuffix(name, s) {
+			return errors.New("has the name of a file secrets are kept in, so it is not posted")
+		}
+	}
+	for _, n := range secretNames {
+		if name == n {
+			return errors.New("has the name of a file secrets are kept in, so it is not posted")
+		}
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return errors.New("is not a file")
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); ok && st.Nlink > 1 {
+		return errors.New("is linked under another name as well, so it is not posted: copy it instead")
+	}
+	return nil
+}
+
+func isMedia(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	return imageExt[ext] || videoExt[ext]
+}
+
+// The folder of bases a path is inside, or why it is not posted.
+func inside(path string, bases []string) (string, error) {
 	for _, base := range bases {
 		rel, err := filepath.Rel(base, path)
 		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
@@ -183,12 +235,12 @@ func inside(path string, bases []string) error {
 		for _, part := range strings.Split(rel, string(filepath.Separator)) {
 			// APFS takes .GIT for .git.
 			if strings.EqualFold(part, ".git") {
-				return errors.New("is git's own, so it is not posted")
+				return "", errors.New("is git's own, so it is not posted")
 			}
 		}
-		return nil
+		return base, nil
 	}
-	return errors.New("is outside this session's checkout and its scratch folder, so it is not posted")
+	return "", errors.New("is outside this session's checkout and its scratch folder, so it is not posted")
 }
 
 // Within what the server lets one file be, so a file too large says so before Discord refuses.

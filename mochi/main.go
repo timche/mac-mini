@@ -153,6 +153,26 @@ func run(args []string) error {
 			}
 			return origin.Of(server.Repo)
 		}
+		// The session's checkout is the one it runs in, a worktree of its own or the mapped
+		// repository, as long as it is a checkout of the server's repository.
+		p.Root = func(guild string) (string, error) {
+			want, err := repos(guild)
+			if err != nil {
+				return "", err
+			}
+			wd, err := os.Getwd()
+			if err != nil {
+				return "", err
+			}
+			root, err := origin.Toplevel(wd)
+			if err != nil {
+				return "", errors.New("this session is not running in a checkout, so it can attach no file")
+			}
+			if got, err := origin.Of(root); err != nil || !strings.EqualFold(got, want) {
+				return "", fmt.Errorf("this session is running in a checkout of %s rather than %s, so it can attach no file", got, want)
+			}
+			return root, nil
+		}
 		if err := post.Send(api, state.Store{Path: cfg.StatePath()}, marks, repos, thread, p); err != nil {
 			return err
 		}

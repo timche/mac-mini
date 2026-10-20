@@ -68,6 +68,25 @@ type API interface {
 
 	// mochi's own user.
 	Me() (*discordgo.User, error)
+
+	// A guild, for its boost tier.
+	Guild(id string) (*discordgo.Guild, error)
+}
+
+// UploadLimit is the most one file may be in a guild, by its boost tier: Discord's own 10 MB,
+// 50 MB at tier 2 and 100 MB at tier 3. A guild that cannot be read gets the least.
+func UploadLimit(api API, guild string) int64 {
+	g, err := api.Guild(guild)
+	if err != nil {
+		return 10 << 20
+	}
+	switch g.PremiumTier {
+	case discordgo.PremiumTier3:
+		return 100 << 20
+	case discordgo.PremiumTier2:
+		return 50 << 20
+	}
+	return 10 << 20
 }
 
 // What mochi shows on Tim's message while it handles it, and takes back after.
@@ -328,6 +347,8 @@ func (l Live) Send(channel string, msg *discordgo.MessageSend) (*discordgo.Messa
 }
 
 func (l Live) Me() (*discordgo.User, error) { return l.S.User("@me") }
+
+func (l Live) Guild(id string) (*discordgo.Guild, error) { return l.S.Guild(id) }
 
 func (l Live) Fetch(raw string) (io.ReadCloser, error) {
 	u, err := url.Parse(raw)

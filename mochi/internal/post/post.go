@@ -21,11 +21,12 @@ import (
 // Discord's limit is 2,000 characters, so a longer post goes as several, split between lines.
 const chunk = 1900
 
-// Discord's own limits on one message: ten attachments, and on a server without boosts ten
-// megabytes a file. Checked here so a post fails with a reason rather than Discord's refusal.
+// Discord's own limits on one message: ten attachments, and a file of at most 100 MB on the
+// most boosted server, less on others, which is checked against the server's own limit before
+// sending. Checked here so a post fails with a reason rather than Discord's refusal.
 const (
 	MaxFiles    = 10
-	MaxFileSize = 10 << 20
+	MaxFileSize = 100 << 20
 )
 
 // A post is read in Discord by moderators, so it carries no link and no file path: anything
@@ -133,6 +134,60 @@ func CheckProof(text string, files []string) error {
 	return nil
 }
 
+// Root answers the root of the checkout a session works in, a checkout of its server's
+// repository; a post attaches nothing from anywhere else.
+type Root func(guild string) (string, error)
+
+// A file goes up only from inside the session's own checkout, its real path once links are
+// followed, and never from the checkout's own .git: a session cannot post a key, another
+// repository's file or git's configuration by naming it.
+func checkInside(files []string, guild string, root Root) error {
+	if len(files) == 0 {
+		return nil
+	}
+	if root == nil {
+		return errors.New("there is no checkout to check the files against")
+	}
+	base, err := root(guild)
+	if err != nil {
+		return err
+	}
+	if base, err = filepath.EvalSymlinks(base); err != nil {
+		return err
+	}
+	for _, file := range files {
+		real, err := filepath.EvalSymlinks(file)
+		if err != nil {
+			return fmt.Errorf("%s is not a file", file)
+		}
+		if real, err = filepath.Abs(real); err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(base, real)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("%s is outside this session's checkout, so it is not posted: save what to attach inside the checkout", file)
+		}
+		if rel == ".git" || strings.HasPrefix(rel, ".git"+string(filepath.Separator)) {
+			return fmt.Errorf("%s is git's own, so it is not posted", file)
+		}
+	}
+	return nil
+}
+
+// Within what the server lets one file be, so a file too large says so before Discord refuses.
+func checkSizes(files []string, limit int64) error {
+	for _, file := range files {
+		info, err := os.Stat(file)
+		if err != nil {
+			return fmt.Errorf("%s is not a file", file)
+		}
+		if info.Size() > limit {
+			return fmt.Errorf("%s is %d MB, over the %d MB this server takes for one file: leave it off, and say in the post that it is too large to attach", file, (info.Size()+(1<<20)-1)>>20, limit>>20)
+		}
+	}
+	return nil
+}
+
 func CheckFiles(files []string) error {
 	if len(files) > MaxFiles {
 		return fmt.Errorf("a post takes at most %d files, not %d", MaxFiles, len(files))
@@ -167,6 +222,9 @@ type Post struct {
 
 	// With --done: the session has cleaned up, and its tab may be closed.
 	Close bool
+
+	// The session's checkout, which every attached file has to be inside; nil takes no file.
+	Root Root
 }
 
 var pullRequest = regexp.MustCompile(`\Ahttps://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)/?\z`)
@@ -233,8 +291,17 @@ func Send(api chat.API, store state.Store, marks *mark.Marker, repos Repos, thre
 	if err := p.Check(); err != nil {
 		return err
 	}
+	guild := chat.GuildOf(api, rec)
 	if p.PR != "" {
-		if err := checkRepo(p.PR, chat.GuildOf(api, rec), repos); err != nil {
+		if err := checkRepo(p.PR, guild, repos); err != nil {
+			return err
+		}
+	}
+	if err := checkInside(p.Files, guild, p.Root); err != nil {
+		return err
+	}
+	if len(p.Files) > 0 {
+		if err := checkSizes(p.Files, chat.UploadLimit(api, guild)); err != nil {
 			return err
 		}
 	}

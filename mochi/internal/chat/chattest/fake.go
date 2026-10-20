@@ -62,8 +62,9 @@ type Fake struct {
 	// Runs while a roles request is in flight, for what the gateway says meanwhile.
 	DuringRoles func()
 
-	// mochi's own user, as Me answers.
-	Bot *discordgo.User
+	// mochi's own user, as Me answers, and each guild's boost tier.
+	Bot   *discordgo.User
+	Tiers map[string]discordgo.PremiumTier
 
 	ThreadErr  error
 	SendErr    map[string]error
@@ -335,4 +336,8 @@ func (f *Fake) Me() (*discordgo.User, error) {
 		return nil, fmt.Errorf("no bot user")
 	}
 	return f.Bot, nil
+}
+
+func (f *Fake) Guild(id string) (*discordgo.Guild, error) {
+	return &discordgo.Guild{ID: id, PremiumTier: f.Tiers[id]}, nil
 }

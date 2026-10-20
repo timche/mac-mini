@@ -61,3 +61,16 @@ func Parse(remote string) (string, error) {
 	}
 	return m[1], nil
 }
+
+// Toplevel is the root of the checkout a path is in, a worktree's own root for a path in one.
+func Toplevel(path string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", path, "rev-parse", "--show-toplevel")
+	cmd.Env = op.Scrub(os.Environ())
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("%s is in no checkout", path)
+	}
+	return strings.TrimSpace(string(out)), nil
+}

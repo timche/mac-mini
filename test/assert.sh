@@ -485,6 +485,28 @@ check "the on-call guard is wired to PreToolUse for Bash and the file tools" \
           .matcher | test(\"Bash\") and test(\"Edit\") and test(\"Write\")" \
      "$HOME/.claude/settings.json"'
 
+# mochi's sessions tell it when they stop on Tim: a Stop hook, and a PreToolUse hook on
+# AskUserQuestion, both running the cached mochi binary's session-event.
+check "mochi's session hooks are wired to Stop and to AskUserQuestion" \
+  'jq -e "[.hooks.Stop[].hooks[].command | select(contains(\"session-event stop\"))] | length == 1" "$HOME/.claude/settings.json" &&
+   jq -e "[.hooks.PreToolUse[] | select(.matcher == \"^AskUserQuestion$\") | .hooks[].command | select(contains(\"session-event ask\"))] | length == 1" "$HOME/.claude/settings.json"'
+
+# The commands as settings.json spells them, run the way Claude Code runs a hook: silent and
+# exit 0 outside a mochi session, with no binary built, and in one; and handing the binary
+# the right kind when there is one.
+check "mochi's session hooks never fail or speak, and hand the binary its event" \
+  'd="$(mktemp -d)" && mkdir -p "$d/Library/Caches/mochi" &&
+   for kind in stop ask; do
+     wired=$(jq -r "[.hooks[][].hooks[].command | select(contains(\"session-event $kind\"))][0]" "$HOME/.claude/settings.json") &&
+     out=$(echo "{}" | env -u MOCHI_THREAD HOME="$d" /bin/sh -c "$wired" 2>&1) && [ -z "$out" ] &&
+     out=$(echo "{}" | MOCHI_THREAD=t1 HOME="$d" /bin/sh -c "$wired" 2>&1) && [ -z "$out" ] &&
+     printf "#!/bin/sh\necho \"\$@\" >> \"$d/args\"\necho noise\nexit 1\n" > "$d/Library/Caches/mochi/mochi" &&
+     chmod +x "$d/Library/Caches/mochi/mochi" &&
+     out=$(echo "{}" | MOCHI_THREAD=t1 HOME="$d" /bin/sh -c "$wired" 2>&1) && [ -z "$out" ] &&
+     grep -qx "session-event $kind" "$d/args" &&
+     rm "$d/Library/Caches/mochi/mochi" || exit 1
+   done'
+
 # The command as settings.json spells it, run the way Claude Code runs a hook: a session
 # hachiko did not open never starts python at all, and one it did is refused when the
 # guard cannot start, since only exit 2 stops a call and anything else lets it through.

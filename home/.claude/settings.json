@@ -43,6 +43,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "^AskUserQuestion$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$MOCHI_THREAD\" ] || \"$HOME/Library/Caches/mochi/mochi\" session-event ask >/dev/null 2>&1 || true",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "SessionStart": [
@@ -77,6 +87,17 @@
           {
             "type": "command",
             "command": "bash \"$HOME/.claude/hooks/herdr-agent-state.sh\" session",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$MOCHI_THREAD\" ] || \"$HOME/Library/Caches/mochi/mochi\" session-event stop >/dev/null 2>&1 || true",
             "timeout": 10
           }
         ]

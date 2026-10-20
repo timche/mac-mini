@@ -99,7 +99,7 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 	// its own token, so it needs no permission beyond what posting the question did.
 	s.AddHandler(func(_ *discordgo.Session, i *discordgo.InteractionCreate) { h.Interaction(i.Interaction) })
 
-	gateway{
+	err = gateway{
 		open: func() error {
 			if err := s.Open(); !errors.Is(err, discordgo.ErrWSAlreadyOpen) {
 				return err
@@ -112,6 +112,13 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 		log:   log,
 		scrub: func(err error) string { return chat.Redact(err, token) },
 	}.connect()
+	if errors.Is(err, ErrRefused) {
+		log.Error("Discord refused the bot token, so mochi starts again for a fresh one", "retry", retryAfter.String())
+		time.Sleep(retryAfter)
+	}
+	if err != nil {
+		return err
+	}
 	defer s.Close()
 
 	// A session's hooks leave an event the moment its turn ends; read every second, which is a
@@ -126,11 +133,17 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 	binary := self.Looking(self.Stat)
 	refresh := newRefresher(time.Now(), runWrapper(cfg.Home))
 	var pruned time.Time
+	var lost down
 	for {
 		time.Sleep(beatEvery)
 
-		if connected(s) {
+		up := connected(s)
+		if up {
 			beat(cfg, time.Now())
+		}
+		if err := lost.observe(up, time.Now()); err != nil {
+			h.Lock()
+			return err
 		}
 		h.ExpirePending()
 		h.Marks.Retry()

@@ -1,6 +1,8 @@
 package listen
 
 import (
+	"errors"
+	"fmt"
 	"log/slog"
 	"math/rand/v2"
 	"os"
@@ -17,7 +19,16 @@ const (
 	identifyGap      = 5 * time.Second
 	connectBackoff   = 5 * time.Second
 	connectBackoffMx = 5 * time.Minute
+
+	// Past either, the process exits and launchd starts it again under a fresh `op run`, which
+	// is what picks up a token rotated in 1Password: nothing inside the process ever can.
+	connectAttempts = 10
+	connectWindow   = 30 * time.Minute
 )
+
+// ErrRefused is Discord turning the token away, close code 4004: no retry with the same token
+// will get in.
+var ErrRefused = errors.New("Discord refused the bot token")
 
 // gateway is the connect step, so a test can fail it.
 type gateway struct {
@@ -29,11 +40,13 @@ type gateway struct {
 	scrub func(error) string
 }
 
-// connect keeps trying until the gateway is up: a gateway that refuses is not a token that
-// will not resolve, so it is tried again in seconds, backing off to five minutes with jitter,
-// and a normal close straight after an identify is tried again at once.
-func (g gateway) connect() {
+// connect tries until the gateway is up: a gateway that will not connect is tried again in
+// seconds, backing off to five minutes with jitter, and a normal close straight after an
+// identify is tried again at once. A refused token, or a run of failures as long as
+// connectAttempts or connectWindow, is an error for the caller to exit on.
+func (g gateway) connect() error {
 	backoff := connectBackoff
+	first := g.now()
 	for attempt := 0; ; attempt++ {
 		if last, ok := g.lastIdentify(); ok {
 			if wait := identifyGap - g.now().Sub(last); wait > 0 {
@@ -44,11 +57,17 @@ func (g gateway) connect() {
 
 		err := g.open()
 		if err == nil {
-			return
+			return nil
+		}
+		if refused(err) {
+			return fmt.Errorf("%w: %s", ErrRefused, g.scrub(err))
 		}
 		if attempt == 0 && normalClose(err) {
 			g.log.Warn("Discord closed the connection as it opened, so it is tried again at once", "error", g.scrub(err))
 			continue
+		}
+		if attempt+1 >= connectAttempts || g.now().Sub(first) >= connectWindow {
+			return fmt.Errorf("could not connect to Discord in %d attempts over %s: %s", attempt+1, g.now().Sub(first).Round(time.Second), g.scrub(err))
 		}
 		wait := jitter(backoff)
 		g.log.Error("could not connect to Discord", "error", g.scrub(err), "retry", wait.Round(time.Second).String())
@@ -60,6 +79,24 @@ func (g gateway) connect() {
 // The websocket library says it as "websocket: close 1000 (normal)"; read off the text so its
 // error type is not one more dependency.
 func normalClose(err error) bool { return strings.Contains(err.Error(), "close 1000") }
+
+func refused(err error) bool { return strings.Contains(err.Error(), "close 4004") }
+
+// down tells a connection that dropped and stayed down, which discordgo would retry for ever
+// with the token it has, from one that is being re-established.
+type down struct{ since time.Time }
+
+func (d *down) observe(up bool, now time.Time) error {
+	switch {
+	case up:
+		d.since = time.Time{}
+	case d.since.IsZero():
+		d.since = now
+	case now.Sub(d.since) >= connectWindow:
+		return fmt.Errorf("Discord has not answered for %s", now.Sub(d.since).Round(time.Second))
+	}
+	return nil
+}
 
 // Up to a fifth either way, so several things waiting on Discord do not all come back at once.
 func jitter(d time.Duration) time.Duration {

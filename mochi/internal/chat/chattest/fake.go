@@ -37,6 +37,9 @@ type Fake struct {
 	GuildRoles map[string][]chat.Role
 	RoleReads  int
 
+	// Runs while a roles request is in flight, for what the gateway says meanwhile.
+	DuringRoles func()
+
 	ThreadErr  error
 	next       int
 	newThreads int
@@ -173,6 +176,9 @@ func (f *Fake) Send(channel string, msg *discordgo.MessageSend) (*discordgo.Mess
 
 func (f *Fake) Roles(guild string) ([]chat.Role, error) {
 	f.RoleReads++
+	if f.DuringRoles != nil {
+		f.DuringRoles()
+	}
 	roles, ok := f.GuildRoles[guild]
 	if !ok {
 		return nil, fmt.Errorf("unknown guild %s", guild)

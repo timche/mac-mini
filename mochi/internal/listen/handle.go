@@ -148,7 +148,10 @@ func (h *Handler) botRole(guild string) string {
 	}
 	h.roleMu.Lock()
 	defer h.roleMu.Unlock()
-	h.setRole(guild, chat.BotRole(roles, h.roleBot))
+	// The gateway may have said while the request was in flight, and it is the newer word.
+	if _, known := h.roles[guild]; !known {
+		h.setRole(guild, chat.BotRole(roles, h.roleBot))
+	}
 	return h.roles[guild]
 }
 

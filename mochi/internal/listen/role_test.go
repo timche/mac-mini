@@ -173,3 +173,17 @@ func TestOtherGatewayEventsAreIgnored(t *testing.T) {
 		t.Fatal("a gateway event waited for the handler's lock")
 	}
 }
+
+// A role event that lands while the roles are being fetched is newer than the fetch, and the
+// fetch may not overwrite it.
+func TestAFetchDoesNotOverwriteANewerGatewayUpdate(t *testing.T) {
+	f := newFixture(t)
+	withRoles(f)
+	f.api.DuringRoles = func() {
+		f.h.Gateway("GUILD_ROLE_CREATE", []byte(`{"guild_id":"`+guild+`","role":{"id":"`+otherRole+`","tags":{"bot_id":"`+bot.ID+`"}}}`))
+	}
+
+	if got := f.h.botRole(guild); got != otherRole {
+		t.Errorf("role = %q, want the gateway's %q", got, otherRole)
+	}
+}

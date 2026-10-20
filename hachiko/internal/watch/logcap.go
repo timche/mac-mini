@@ -33,6 +33,7 @@ func cappedLogs(cfg config.Config) []string {
 		under("hachiko-listen.log"),
 		under("hachiko.log"),
 		under("hachiko-gc.log"),
+		under("mochi.log"),
 	}
 }
 

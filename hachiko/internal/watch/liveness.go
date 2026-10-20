@@ -106,6 +106,16 @@ func Agents(cfg config.Config) []Agent {
 		Stale:     cfg.ListenStaleAfter,
 		Last:      func() (time.Time, bool) { return listenLastBeat(cfg) },
 		Unstamped: "off, nothing configured",
+	}, {
+		Key:       statedir.AgentMochi,
+		Subject:   "mochi",
+		Title:     "mochi",
+		LastLabel: labelLastBeat,
+		Label:     cfg.MochiLabel(),
+		LogFile:   logsRoot + "mochi.log",
+		Stale:     cfg.MochiStaleAfter,
+		Last:      func() (time.Time, bool) { return mochiLastBeat(cfg) },
+		Unstamped: "no mochi agent is installed",
 	}}
 }
 
@@ -176,12 +186,21 @@ func (s sweeper) agents() []liveness {
 			saidGone: "answering from Discord is switched off, so nothing further is said about the listener",
 			starts:   "it starts listening at once",
 		},
+		statedir.AgentMochi: {
+			meanwhile: "so a mention of mochi in Discord starts nothing",
+			why: "mochi is not connected to Discord, so a mention of it starts no " +
+				"session and a follow-up in a session's thread reaches nobody.",
+			gone:     "mochi is no longer installed, so nothing further is said about it",
+			saidGone: "mochi is no longer installed, so nothing further is said about it",
+			starts:   "it connects at once",
+		},
 	}
 
 	readings := map[string]func() (time.Time, bool){
 		statedir.AgentGC:     s.deps.GCLastRun,
 		statedir.AgentSync:   s.deps.SyncLastBeat,
 		statedir.AgentListen: s.deps.ListenLastBeat,
+		statedir.AgentMochi:  s.deps.MochiLastBeat,
 	}
 
 	out := make([]liveness, 0, len(words))

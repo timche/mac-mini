@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -79,6 +80,22 @@ func TestThePruneDefaults(t *testing.T) {
 
 	harness.Equal(t, cfg.GCPruneEvery, time.Minute, "the interval a knob set")
 	harness.Equal(t, cfg.GCPruneAge, "1h", "the age a knob set")
+}
+
+// mochi's heartbeat is where mochi's own default cache puts it, a module this one does not
+// import, so the two paths are pinned here.
+func TestTheMochiDefaults(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, "Library", "Caches"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := FromEnv()
+
+	harness.Equal(t, cfg.MochiStaleAfter, 10*time.Minute, "how old mochi's heartbeat may get")
+	harness.Equal(t, cfg.MochiStamp, filepath.Join(home, "Library", "Caches", "mochi", "heartbeat"), "mochi's heartbeat")
+	harness.Equal(t, cfg.MochiLabel(), "io.github.timche.mochi", "mochi's label")
 }
 
 func TestAKnobOverridesItsDefault(t *testing.T) {

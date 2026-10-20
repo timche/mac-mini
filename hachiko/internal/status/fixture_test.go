@@ -68,10 +68,12 @@ func newFixture(t *testing.T) *fixture {
 			GCPlist:     filepath.Join(agents, "io.github.timche.hachiko-gc.plist"),
 			SyncPlist:   filepath.Join(agents, "io.github.timche.hachiko-sync.plist"),
 			ListenPlist: filepath.Join(agents, "io.github.timche.hachiko-listen.plist"),
+			MochiPlist:  filepath.Join(agents, "io.github.timche.mochi.plist"),
 
 			GCStaleAfter:     time.Hour,
 			SyncStaleAfter:   10 * time.Minute,
 			ListenStaleAfter: 10 * time.Minute,
+			MochiStaleAfter:  10 * time.Minute,
 			SyncLateAfter:    30 * time.Minute,
 		},
 
@@ -82,12 +84,14 @@ func newFixture(t *testing.T) *fixture {
 			"io.github.timche.hachiko-gc":     {Loaded: true},
 			"io.github.timche.hachiko-sync":   {Loaded: true, PID: 2345},
 			"io.github.timche.hachiko-listen": {Loaded: true, PID: 3456},
+			"io.github.timche.mochi":          {Loaded: true, PID: 4567},
 		},
 		stamps: map[string]time.Time{
 			"watch":              base.Add(-2 * time.Minute),
 			statedir.AgentGC:     base.Add(-4 * time.Minute),
 			statedir.AgentSync:   base.Add(-20 * time.Second),
 			statedir.AgentListen: base.Add(-20 * time.Second),
+			statedir.AgentMochi:  base.Add(-20 * time.Second),
 		},
 
 		freeKB: 400 * config.GiB,

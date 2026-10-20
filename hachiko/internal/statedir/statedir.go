@@ -100,6 +100,7 @@ const (
 	AgentGC     = "gc"
 	AgentSync   = "sync"
 	AgentListen = "listen"
+	AgentMochi  = "mochi"
 )
 
 // AgentLiveness is when the watch first found one agent's stamp too old, and the thread it

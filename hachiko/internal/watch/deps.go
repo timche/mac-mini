@@ -61,6 +61,9 @@ type Deps struct {
 	// listener that has stopped.
 	ListenLastBeat func() (time.Time, bool)
 
+	// And for mochi, whose heartbeat says its Discord gateway is up.
+	MochiLastBeat func() (time.Time, bool)
+
 	// When this Mac last started. launchd starts every agent at boot, so an agent's silence
 	// counts from here at the earliest: the first check after a Mac was switched off would
 	// otherwise report each agent as stopped for as long as the Mac was.
@@ -153,6 +156,7 @@ func realDeps(cfg config.Config) Deps {
 		SyncRepoState: syncRepoState,
 
 		ListenLastBeat: func() (time.Time, bool) { return listenLastBeat(cfg) },
+		MochiLastBeat:  func() (time.Time, bool) { return mochiLastBeat(cfg) },
 		Booted:         booted,
 
 		UpdateFailing:   hand.Failing,
@@ -264,6 +268,20 @@ func listenLastBeat(cfg config.Config) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	return beat.ModTime(), true
+}
+
+// Sync's rule rather than the listener's: mochi ships configured, so from the moment its
+// plist is linked it is meant to be connected, and a token that never resolved is a mochi
+// that has stopped rather than a feature that is off.
+func mochiLastBeat(cfg config.Config) (time.Time, bool) {
+	plist, err := os.Stat(cfg.MochiPlist)
+	if err != nil {
+		return time.Time{}, false
+	}
+	if beat, err := os.Stat(cfg.MochiStamp); err == nil {
+		return beat.ModTime(), true
+	}
+	return plist.ModTime(), true
 }
 
 // Sync's own config, and a config that will not parse is no list at all: the daemon refuses

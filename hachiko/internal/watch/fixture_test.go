@@ -114,6 +114,10 @@ type fixture struct {
 	listenBeat    time.Time
 	listenBeating bool
 
+	// And mochi's, which counts from its plist like sync's: off unless a test installs it.
+	mochiBeat      time.Time
+	mochiInstalled bool
+
 	// When the Mac last started, which is long before any stamp unless a test pins it.
 	booted time.Time
 
@@ -254,6 +258,13 @@ func (f *fixture) lastBeat() time.Time {
 	return f.syncBeat
 }
 
+func (f *fixture) lastMochiBeat() time.Time {
+	if f.mochiBeat.IsZero() {
+		return f.now
+	}
+	return f.mochiBeat
+}
+
 func (f *fixture) lastListenBeat() time.Time {
 	if f.listenBeat.IsZero() {
 		return f.now
@@ -302,6 +313,7 @@ func (f *fixture) deps() Deps {
 		SyncRepoState: func(repo SyncRepo) SyncRepoState { return f.syncState[repo.Path] },
 
 		ListenLastBeat: func() (time.Time, bool) { return f.lastListenBeat(), f.listenBeating },
+		MochiLastBeat:  func() (time.Time, bool) { return f.lastMochiBeat(), f.mochiInstalled },
 		Booted:         func() time.Time { return f.booted },
 
 		UpdateFailing: func() []update.Handed { return f.updateFailing },

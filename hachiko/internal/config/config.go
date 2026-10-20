@@ -149,6 +149,13 @@ type Config struct {
 	ListenPlist      string
 	ListenStaleAfter time.Duration
 
+	// mochi, the Discord tool beside hachiko: its plist, the heartbeat it writes while its
+	// gateway connection is up, and how old that may get. The one thing hachiko knows about
+	// mochi, which is a module of its own.
+	MochiPlist      string
+	MochiStamp      string
+	MochiStaleAfter time.Duration
+
 	// The channel and the one account replies are taken from, both empty unless Tim has
 	// filled them in, which is what turns the bot and `hachiko listen` on.
 	Discord DiscordConfig
@@ -210,6 +217,10 @@ func (c Config) SyncLabel() string {
 func (c Config) ListenStamp() string { return filepath.Join(c.StateDir, "listen", "heartbeat") }
 func (c Config) ListenLabel() string {
 	return strings.TrimSuffix(filepath.Base(c.ListenPlist), ".plist")
+}
+
+func (c Config) MochiLabel() string {
+	return strings.TrimSuffix(filepath.Base(c.MochiPlist), ".plist")
 }
 
 // WorkspaceLabel is the herdr workspace the on-call session goes in: the one for
@@ -316,6 +327,13 @@ func FromEnv() Config {
 		// inside its first five minutes is away for the remainder of them, and anything
 		// shorter would report that as a listener that had stopped.
 		ListenStaleAfter: time.Duration(envInt64("HACHIKO_LISTEN_STALE", 600)) * time.Second,
+
+		MochiPlist: envString("HACHIKO_MOCHI_PLIST",
+			filepath.Join(home, "Library", "LaunchAgents", "io.github.timche.mochi.plist")),
+		MochiStamp: envString("HACHIKO_MOCHI_STAMP", filepath.Join(cache, "mochi", "heartbeat")),
+		// The listener's ten minutes, for the listener's reason: mochi's agent throttles a
+		// start to one every five.
+		MochiStaleAfter: time.Duration(envInt64("HACHIKO_MOCHI_STALE", 600)) * time.Second,
 
 		Discord: readDiscordConfig(envString("HACHIKO_DISCORD_CONFIG",
 			filepath.Join(home, ".config", "hachiko", "discord"))),

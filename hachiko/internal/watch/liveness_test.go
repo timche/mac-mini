@@ -53,6 +53,19 @@ func listenerFixture(t *testing.T) *fixture {
 	return f
 }
 
+// The listener's ten minutes, since mochi's agent throttles a restart to five as well.
+func mochiFixture(t *testing.T) *fixture {
+	t.Helper()
+
+	f := newFixture(t)
+	f.cfg.MochiStaleAfter = 10 * time.Minute
+	f.cfg.MochiPlist = "/Users/x/Library/LaunchAgents/io.github.timche.mochi.plist"
+	f.mochiBeat = base
+	f.mochiInstalled = true
+
+	return f
+}
+
 func TestASweepInsideTheHourSaysNothing(t *testing.T) {
 	f := gcFixture(t)
 
@@ -249,6 +262,45 @@ func TestAListenerThatHasStoppedIsOneMessageAndNoSession(t *testing.T) {
 	harness.Equal(t, f.sentCount(), 1, "messages sent")
 }
 
+func TestMochiInsideItsHeartbeatSaysNothing(t *testing.T) {
+	f := mochiFixture(t)
+
+	harness.Equal(t, f.at(540).sweep(), "", "the log of a check with mochi connected")
+	harness.Equal(t, f.sentCount(), 0, "messages sent")
+}
+
+func TestAMochiThatHasStoppedIsOneMessageAndNoSession(t *testing.T) {
+	f := mochiFixture(t)
+	f.threads = true
+	out := f.at(3900).sweep()
+
+	harness.Wants(t, out, "mochi has not run for 1h05m, so a mention of mochi in Discord starts nothing")
+
+	harness.Equal(t, f.sentCount(), 1, "messages sent")
+	harness.Wants(t, f.lastSent(), "⚠️ mochi has not run for 1 hour 5 minutes")
+	harness.Wants(t, f.lastSent(), "**Last heartbeat:** ")
+	harness.Wants(t, f.lastSent(), "**You can run:** `launchctl kickstart -k gui/501/io.github.timche.mochi`")
+	harness.Wants(t, f.lastSent(), "`~/Library/Logs/mochi.log`")
+	harness.Equal(t, f.oncallCalls, 0, "sessions opened")
+
+	f.at(4200).sweep()
+	harness.Equal(t, f.sentCount(), 1, "messages sent")
+
+	f.mochiBeat = base.Add(4500 * time.Second)
+	harness.Wants(t, f.at(4500).sweep(), "mochi is running again")
+	harness.Wants(t, f.lastSent(), "🟢 mochi is running again")
+	harness.Equal(t, f.sentTo[1], "thread-io.github.timche.mochi", "where the clear went")
+}
+
+// No agent installed is a Mac this repository has not reached, not a mochi that stopped.
+func TestAMacWithoutMochiSaysNothingAboutIt(t *testing.T) {
+	f := mochiFixture(t)
+	f.mochiInstalled = false
+
+	harness.Equal(t, f.at(100000).sweep(), "", "the log of a check with no mochi agent")
+	harness.Equal(t, f.sentCount(), 0, "messages sent")
+}
+
 func TestTheTimeAMacWasOffIsNotCountedAgainstItsAgents(t *testing.T) {
 	f := listenerFixture(t)
 	f.booted = base.Add(time.Hour)
@@ -330,6 +382,7 @@ func TestEachAgentsMessageNamesItsOwnLog(t *testing.T) {
 		{gcFixture, "`~/Library/Logs/hachiko-gc.log`"},
 		{syncFixture, "`~/Library/Logs/hachiko-sync.log`"},
 		{listenerFixture, "`~/Library/Logs/hachiko-listen.log`"},
+		{mochiFixture, "`~/Library/Logs/mochi.log`"},
 	} {
 		f := agent.fixture(t)
 		f.at(100000).sweep()

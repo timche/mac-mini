@@ -54,6 +54,9 @@ func TestAnAgentIsWhatLaunchdHasAndWhatItsStampSays(t *testing.T) {
 	harness.Wants(t, f.row("Agents", "sync"), "last heartbeat less than a minute ago")
 	harness.Wants(t, f.row("Agents", "sync"), "stale after 10 minutes")
 
+	harness.Wants(t, f.row("Agents", "mochi"), "loaded, pid 4567")
+	harness.Wants(t, f.row("Agents", "mochi"), "last heartbeat less than a minute ago")
+
 	// An agent on an interval, between runs: loaded and running nothing, which is what it
 	// looks like for all but a second of every ten minutes.
 	harness.Wants(t, f.row("Agents", "the worktree sweep"), "loaded  ")

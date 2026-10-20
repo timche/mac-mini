@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -20,7 +19,6 @@ import (
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/config"
-	"github.com/timche/mac-mini/mochi/internal/fence"
 	"github.com/timche/mac-mini/mochi/internal/gather"
 	"github.com/timche/mac-mini/mochi/internal/herdr"
 	"github.com/timche/mac-mini/mochi/internal/mark"
@@ -465,30 +463,13 @@ func (h *Handler) start(server config.Server, rec *state.Session, name, text str
 	if err := h.Store.Put(*rec); err != nil {
 		h.Log.Error("the session started but was not recorded, so a follow-up will start another", "thread", rec.Thread, "error", h.redact(err))
 	}
-	path, err := h.brief(rec.Thread, "brief.md", text)
-	if err != nil {
-		return h.startFailed("the brief for "+rec.Workspace+": "+rec.Tab+" could not be written", notBriefed, err)
-	}
-	if err := herdr.Prompt(h.Herdr, rec.Agent, openingPrompt(path)); err != nil {
+	// Pasted whole: Claude Code shows a long paste as a placeholder but hands the model all of
+	// it. A slash command inside a paste never runs, so the skills the session needs are named in
+	// its first line for the model to load.
+	if err := herdr.Prompt(h.Herdr, rec.Agent, text); err != nil {
 		return h.startFailed("Claude Code started in "+rec.Workspace+": "+rec.Tab+" but the prompt did not reach it", notBriefed, err)
 	}
 	return nil
-}
-
-// Claude Code turns a long paste into a "[Pasted text]" placeholder, and a slash command
-// inside one is never run, so the lead skill would not load. So what a session is handed goes
-// in a file in its own folder, and only one short line is pasted.
-func (h *Handler) brief(thread, name, text string) (string, error) {
-	dir := h.Cfg.SessionDir(thread)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	path := filepath.Join(dir, name)
-	return path, os.WriteFile(path, []byte(fence.Clean(text)+"\n"), 0o600)
-}
-
-func openingPrompt(path string) string {
-	return "/lead Tim mentioned mochi in Discord. Your brief is " + path + "; read all of it before anything else. It holds his instruction and the fenced Discord context, and says which skill to load first."
 }
 
 func (h *Handler) nap(d time.Duration) {

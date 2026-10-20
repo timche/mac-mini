@@ -27,7 +27,7 @@ func TestAnOversizedContextLosesItsOldestMessagesFirst(t *testing.T) {
 	f.h.Handle(m)
 
 	prompt := onlyPrompt(t, f.herdr, "mochi-"+m.ID)
-	if len(prompt) > maxPrompt+len("/lead ") {
+	if len(prompt) > maxPrompt {
 		t.Errorf("the prompt is %d bytes", len(prompt))
 	}
 	context := between(t, prompt, "DISCORD CONTEXT")

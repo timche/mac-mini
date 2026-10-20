@@ -95,8 +95,8 @@ func TestTheBriefLoadsTheSkillAndRepeatsNoOrder(t *testing.T) {
 	f.h.Handle(f.mention(m.ID, 2, tim, "also the scoreboard", nil))
 
 	prompts := f.herdr.prompts["mochi-"+m.ID]
-	brief, relay := strings.TrimPrefix(prompts[0], "/lead "), prompts[1]
-	if !strings.HasPrefix(brief, "Invoke the mochi skill before anything else.\n\n") {
+	brief, relay := prompts[0], prompts[1]
+	if !strings.HasPrefix(brief, "Invoke the lead skill and the mochi skill before anything else.\n\n") {
 		t.Errorf("the brief does not open on the skill:\n%.200s", brief)
 	}
 	if !strings.Contains(brief, "Its Discord thread, where `mochi post` posts, is https://discord.com/channels/"+guild+"/"+m.ID+".") {

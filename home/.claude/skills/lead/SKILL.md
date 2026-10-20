@@ -1,7 +1,6 @@
 ---
 name: lead
-description: Lead a change as senior staff engineer: plan with researchers, delegate to implementers, verify with the reviewer, open the PR.
-disable-model-invocation: true
+description: "Lead a change as senior staff engineer: plan with researchers, delegate to implementers, verify with the reviewer, open the PR. Load only when the user or a brief explicitly asks for the lead skill, such as \"Invoke the lead skill\", never on your own initiative."
 ---
 
 Task: $ARGUMENTS

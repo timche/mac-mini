@@ -51,7 +51,7 @@ type Event struct {
 // How the prompts mochi pastes begin, which is how a submitted prompt is told to be one of
 // mochi's rather than Tim's own typing.
 const (
-	OpeningPrefix  = "/lead Tim mentioned mochi in Discord"
+	OpeningPrefix  = "Invoke the lead skill and the mochi skill before anything else."
 	FollowedPrefix = "Tim followed up in this session's Discord thread"
 	AnsweredPrefix = "Tim answered in Discord"
 )

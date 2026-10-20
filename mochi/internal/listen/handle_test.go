@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -140,7 +139,7 @@ func (f *fakeHerdr) run(args ...string) ([]byte, error) {
 			return refusal("agent_blocked"), nil
 		}
 		f.raw[args[2]] = append(f.raw[args[2]], args[3])
-		f.prompts[args[2]] = append(f.prompts[args[2]], expand(args[3]))
+		f.prompts[args[2]] = append(f.prompts[args[2]], args[3])
 		return answer(map[string]any{"result": map[string]any{}}), nil
 	case "agent send-keys":
 		if _, ok := f.agents[args[2]]; !ok {
@@ -185,25 +184,6 @@ func (f *fakeHerdr) run(args ...string) ([]byte, error) {
 		return answer(map[string]any{"result": map[string]any{}}), nil
 	}
 	return refusal("unknown_command"), nil
-}
-
-var briefPath = regexp.MustCompile(`(/\S+\.md)\b`)
-
-// The prompt as the session reads it: the brief a short prompt names, with "/lead " kept in
-// front when the prompt starts with it.
-func expand(prompt string) string {
-	path := briefPath.FindString(prompt)
-	if path == "" {
-		return prompt
-	}
-	body, err := os.ReadFile(path)
-	if err != nil {
-		return prompt
-	}
-	if strings.HasPrefix(prompt, "/lead ") {
-		return "/lead " + string(body)
-	}
-	return string(body)
 }
 
 func (f *fakeHerdr) called(prefix string) [][]string {
@@ -345,7 +325,7 @@ func TestAReplyToAnOldMessageStartsALeadSessionWithTheDiscussion(t *testing.T) {
 	}
 
 	prompt := onlyPrompt(t, f.herdr, agent)
-	if !strings.HasPrefix(prompt, "/lead ") {
+	if !strings.HasPrefix(prompt, skillFirst) {
 		t.Errorf("the prompt does not load the lead skill: %.60q", prompt)
 	}
 	instruction := between(t, prompt, "INSTRUCTION FROM TIM")
@@ -442,7 +422,7 @@ func TestAMentionInASessionThreadIsRelayedWithOthersMessages(t *testing.T) {
 		t.Fatalf("prompts = %d", len(f.herdr.prompts[agent]))
 	}
 	relay := f.herdr.prompts[agent][1]
-	if strings.HasPrefix(relay, "/lead") {
+	if strings.HasPrefix(relay, skillFirst) {
 		t.Error("a follow-up reloads the lead skill")
 	}
 	if !strings.Contains(between(t, relay, "INSTRUCTION FROM TIM"), "also check b)") {
@@ -492,7 +472,7 @@ func TestARelayToASessionTimClosedStartsANewOneWithTheThread(t *testing.T) {
 		t.Fatalf("prompts = %d", len(prompts))
 	}
 	prompt := prompts[1]
-	if !strings.HasPrefix(prompt, "/lead ") || !strings.Contains(prompt, "has gone, so this is a new one") {
+	if !strings.HasPrefix(prompt, skillFirst) || !strings.Contains(prompt, "has gone, so this is a new one") {
 		t.Errorf("the new session was not told:\n%.300s", prompt)
 	}
 	if !strings.Contains(between(t, prompt, "DISCORD CONTEXT"), "please also b)") {

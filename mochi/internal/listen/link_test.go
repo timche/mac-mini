@@ -1,8 +1,6 @@
 package listen
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -27,11 +25,7 @@ func TestASessionStartedFromAnAnswerLinksWithItsGuild(t *testing.T) {
 	}
 	for i := range abc {
 		thread := chanID(i)
-		brief, err := os.ReadFile(filepath.Join(f.cfg.SessionDir(thread), "brief.md"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		texts = append(texts, string(brief))
+		texts = append(texts, f.herdr.raw["mochi-"+thread]...)
 		if rec := f.record(thread); rec.Guild != guild {
 			t.Errorf("session %d was recorded without its guild: %q", i+1, rec.Guild)
 		}

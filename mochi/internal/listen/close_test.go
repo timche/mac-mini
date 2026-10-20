@@ -52,7 +52,7 @@ func (f *fixture) later(d time.Duration) {
 func TestADoneSessionFromDiscordHasItsTabClosed(t *testing.T) {
 	f, thread := startedSession(t)
 	agent := "mochi-" + thread
-	f.prompted(thread, openingPrompt("/brief.md")) // the brief arriving is mochi's own prompt
+	f.prompted(thread, f.herdr.raw[agent][0]) // the opening arriving is mochi's own prompt
 	f.h.Marks.Settled(thread, mark.Finished)
 	f.closeRequested(thread)
 	f.h.ConsumeEvents()
@@ -178,7 +178,7 @@ func TestATabInUseIsNotClosedAndNotTriedAgain(t *testing.T) {
 // The prompts mochi pastes are recognised as its own, and Tim's typing is not.
 func TestMochisOwnPromptsAreToldFromTims(t *testing.T) {
 	m := &discordgo.Message{ID: "3", ChannelID: "2", GuildID: "1"}
-	for _, p := range []string{openingPrompt("/b.md"), followUp(m, "x", gather.NewSet("1"), nil, false), followUp(m, "x", gather.NewSet("1"), nil, true)} {
+	for _, p := range []string{skillFirst + "\n\nTim mentioned mochi", followUp(m, "x", gather.NewSet("1"), nil, false), followUp(m, "x", gather.NewSet("1"), nil, true)} {
 		if !event.FromMochi(p) {
 			t.Errorf("not recognised: %q", p)
 		}

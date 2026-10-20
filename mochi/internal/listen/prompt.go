@@ -87,7 +87,7 @@ func openingText(ch *discordgo.Channel, m *discordgo.Message, thread, instructio
 
 // The first line of every brief, and the reminder at the top of every follow-up.
 const (
-	skillFirst = "Invoke the mochi skill before anything else."
+	skillFirst = event.OpeningPrefix
 	skillAgain = "Follow the mochi skill, as for everything in this session."
 )
 

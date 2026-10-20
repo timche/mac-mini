@@ -371,3 +371,22 @@ func TestTheProofHeadingMustMatchTheFiles(t *testing.T) {
 		t.Errorf("the refusal does not say what to use: %v", err)
 	}
 }
+
+// Every image and video kind counts toward its heading, whatever the case of its extension.
+func TestEveryMediaKindCountsTowardItsHeading(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.avif", "a.TIFF", "a.tif", "a.svg", "a.apng", "a.png"} {
+		path := filepath.Join(dir, name)
+		os.WriteFile(path, []byte("x"), 0o644)
+		if err := CheckProof("**Screenshots**", []string{path}); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	for _, name := range []string{"a.ogv", "a.WMV", "a.mp4"} {
+		path := filepath.Join(dir, name)
+		os.WriteFile(path, []byte("x"), 0o644)
+		if err := CheckProof("**Videos**", []string{path}); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}

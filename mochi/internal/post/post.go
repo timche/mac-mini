@@ -92,8 +92,8 @@ const (
 )
 
 var (
-	imageExt = map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true, ".heic": true, ".bmp": true}
-	videoExt = map[string]bool{".mp4": true, ".mov": true, ".webm": true, ".mkv": true, ".m4v": true, ".avi": true}
+	imageExt = map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true, ".heic": true, ".bmp": true, ".avif": true, ".tiff": true, ".tif": true, ".svg": true, ".apng": true}
+	videoExt = map[string]bool{".mp4": true, ".mov": true, ".webm": true, ".mkv": true, ".m4v": true, ".avi": true, ".ogv": true, ".wmv": true}
 )
 
 // CheckProof refuses a proof heading that does not name what is attached, so a post never

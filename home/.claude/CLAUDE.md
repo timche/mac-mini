@@ -10,6 +10,7 @@
 - A screenshot proves a state: a layout, a label, a setting, a screen once it settles. A recording proves a sequence: focus, order, timing, a transition, a hover or drag, what follows a click. If one frame could look right while the bug is still there, record. On the Mac, `screencapture -v -k -x -V <seconds> out.mov` records the screen with clicks shown, and `ffmpeg -i out.mov -vf scale=1280:-2 -c:v libx264 -crf 26 -pix_fmt yuv420p out.mp4` makes it small enough to attach. A video takes no alt text, so the body says above it what it shows.
 - Before-and-after screenshots side by side are hard to compare. For any set of them, for a pull request, a review or a question, publish an HTML artifact that overlays each pair at the same width, with a draggable slider, a key or click that flips between them, side by side as a fallback, and pickers for page, viewport and theme. Capture each pair under identical conditions: same width, same device pixel ratio, a fresh browser context per theme so a stored theme toggle can't override it. Check that each capture shows what it claims. The pull request links the artifact and still attaches one representative pair, since a reviewer may not be able to open it.
 - When the design changes under an open pull request, the title and body change with it in the same step as the push, since a squash merge takes the title as the commit message; any brief published for it is republished too. Before merging, reread the title against the final diff.
+- Every mention of a pull request gives its link beside its number: `#<id> (<url>)`.
 - An issue, comment or pull request on someone else's repository shows none of our code: no snippets, file paths, package, variable or project names, or counts from our repositories. Reproduce with a minimal example under neutral names (`@acme/db`, `FEATURE_X`), written and run fresh.
 - A repository's own pre-commit hooks (lefthook, husky) run beside the global Betterleaks scan, a config-defined git hook, so never skip or remove them on that account.
 
@@ -28,7 +29,7 @@
 # Blockers
 
 - When a verification or a step cannot be done from this machine (a site behind a login or bot protection, a device, a display, a credential), do not report it as unverified and move on. Say what is missing, propose the concrete ways to get it with a recommendation, and ask Tim for the one thing only he can supply, such as a login, a port forward or a cookie export. Once it works, write the procedure into the project's docs so the next session starts unblocked.
-- Once its change has merged, a session cleans up: it removes its worktree and its local and remote branch, and stops what it started. Its last reply then says the session can be closed, or names what is still open: an uncommitted change, an open pull request, a running process, a question for Tim. A reply naming a pull request gives its URL.
+- Once its change has merged, a session cleans up: it removes its worktree and its local and remote branch, and stops what it started. Its last reply then says the session can be closed, or names what is still open: an uncommitted change, an open pull request, a running process, a question for Tim.
 
 # Where things live
 

@@ -53,10 +53,14 @@ func (h *Handler) splitInto(ch *discordgo.Channel, n int) (string, string) {
 		return ch.ID, ""
 	}
 	parent, err := h.API.Channel(ch.ParentID)
-	if err == nil && parent.Type != discordgo.ChannelTypeGuildForum && parent.Type != discordgo.ChannelTypeGuildMedia {
-		return parent.ID, ""
+	switch {
+	case err != nil:
+		h.Log.Warn("the channel a thread is in could not be read", "thread", ch.ID, "error", h.redact(err))
+		return "", fmt.Sprintf("this asked for %d separate tasks, but the channel this thread is in could not be read, so it is one session with the whole instruction", n)
+	case parent.Type == discordgo.ChannelTypeGuildForum || parent.Type == discordgo.ChannelTypeGuildMedia:
+		return "", fmt.Sprintf("this asked for %d separate tasks, but threads cannot be opened beside a forum post, so it is one session with the whole instruction", n)
 	}
-	return "", fmt.Sprintf("this asked for %d separate tasks, but threads cannot be opened beside a forum post, so it is one session with the whole instruction", n)
+	return parent.ID, ""
 }
 
 // A thread, a tab and a session per task, all with the same context, then one reply to Tim

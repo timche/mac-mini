@@ -228,6 +228,19 @@ func TestASplitInAForumPostIsOneSessionThatSaysSo(t *testing.T) {
 	}
 }
 
+func TestAThreadWhoseParentCannotBeReadIsOneSessionThatSaysWhy(t *testing.T) {
+	f := newFixture(t)
+	f.h.Split = splitsInto(abc, nil, nil)
+	thread := "1300000000000000008"
+	f.api.AddChannel(&discordgo.Channel{ID: thread, GuildID: guild, ParentID: "1300000000000000099", Name: "orphan", Type: discordgo.ChannelTypeGuildPublicThread})
+	f.h.Handle(f.mention(thread, 1, tim, "research a, b and c separately", nil))
+
+	posts := f.sentTo(thread)
+	if len(posts) != 2 || !strings.Contains(posts[1], "the channel this thread is in could not be read") || strings.Contains(posts[1], "forum") {
+		t.Errorf("posts = %q", posts)
+	}
+}
+
 // A follow-up is never split: it goes to the session that is already there.
 func TestAFollowUpIsNotClassified(t *testing.T) {
 	f := newFixture(t)

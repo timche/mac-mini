@@ -37,6 +37,7 @@ func watched(t *testing.T) (*fixture, string, *fakeGH) {
 	f, thread := startedSession(t)
 	g := &fakeGH{state: "open", head: "sha1"}
 	f.h.GH = g.run
+	f.h.Origin = func(string) (string, error) { return "timche/repeek", nil }
 	at := f.h.Now()
 	if err := event.Put(f.cfg.EventsDir(), event.Event{Thread: thread, Kind: event.PR, PR: prURL, At: at.Unix(), Nanos: at.UnixNano()}); err != nil {
 		t.Fatal(err)
@@ -206,5 +207,19 @@ func TestAStoppedSessionIsNotToldItsChecksFailed(t *testing.T) {
 	f.h.WatchPRs()
 	if prompts := f.herdr.prompts[agent]; len(prompts) != 3 || !strings.HasPrefix(prompts[2], "CI failed on #42") {
 		t.Errorf("prompts = %q", prompts)
+	}
+}
+
+// A pull request in another repository than the session's is not watched.
+func TestAPullRequestOfAnotherRepositoryIsNotWatched(t *testing.T) {
+	f, thread := startedSession(t)
+	f.h.GH = (&fakeGH{}).run
+	var asked []string
+	f.h.Origin = func(dir string) (string, error) { asked = append(asked, dir); return "timche/other", nil }
+	at := f.h.Now()
+	event.Put(f.cfg.EventsDir(), event.Event{Thread: thread, Kind: event.PR, PR: prURL, At: at.Unix(), Nanos: at.UnixNano()})
+	f.h.ConsumeEvents()
+	if f.watching() != 0 || len(asked) != 1 || asked[0] != "/repos/repeek" {
+		t.Errorf("watching %d, asked %v", f.watching(), asked)
 	}
 }

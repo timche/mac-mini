@@ -4,18 +4,37 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/event"
 	"github.com/timche/mac-mini/mochi/internal/gh"
 	"github.com/timche/mac-mini/mochi/internal/herdr"
 	"github.com/timche/mac-mini/mochi/internal/mark"
+	"github.com/timche/mac-mini/mochi/internal/origin"
 	posts "github.com/timche/mac-mini/mochi/internal/post"
 	"github.com/timche/mac-mini/mochi/internal/state"
 )
 
-// A pull request a session posted with --pr is followed from then on.
+// A pull request a session posted with --pr is followed from then on, when it is in the
+// repository its server maps to: the event is the session's word, checked again here.
 func (h *Handler) watch(ev event.Event, watches map[string]state.Watch) {
 	repo, number, ok := posts.ParsePR(ev.PR)
 	if !ok {
+		return
+	}
+	rec, ok, _ := h.Store.Get(ev.Thread)
+	if !ok {
+		return
+	}
+	server, ok := h.Cfg.Server(chat.GuildOf(h.API, rec))
+	if !ok {
+		return
+	}
+	read := h.Origin
+	if read == nil {
+		read = origin.Of
+	}
+	if want, err := read(server.Repo); err != nil || !strings.EqualFold(want, repo) {
+		h.Log.Warn("a posted pull request is not in the session's repository, so it is not watched", "thread", ev.Thread, "repo", repo, "want", want, "error", err)
 		return
 	}
 	if _, known := watches[ev.PR]; !known {

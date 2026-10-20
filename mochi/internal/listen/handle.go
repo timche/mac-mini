@@ -61,6 +61,10 @@ type Handler struct {
 	Watches state.WatchStore
 	GH      gh.Runner
 
+	// The "owner/repo" a checkout's origin is, which a posted pull request has to be in; nil
+	// reads the checkout.
+	Origin func(dir string) (string, error)
+
 	// One mention at a time: each is a handful of Discord calls and a herdr start, and two
 	// at once would race on the state file and on the agent name.
 	mu      sync.Mutex

@@ -15,6 +15,7 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/herdr"
 	"github.com/timche/mac-mini/mochi/internal/op"
 	"github.com/timche/mac-mini/mochi/internal/self"
+	"github.com/timche/mac-mini/mochi/internal/split"
 	"github.com/timche/mac-mini/mochi/internal/state"
 )
 
@@ -73,6 +74,12 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 		Now:   time.Now,
 		Log:   log,
 		Token: token,
+		Split: split.Splitter{
+			Run:     split.CLI,
+			Model:   cfg.Split.Model,
+			Effort:  cfg.Split.Effort,
+			Timeout: split.Timeout,
+		}.Split,
 	}
 	s.AddHandler(func(_ *discordgo.Session, r *discordgo.Ready) {
 		h.SetBot(r.User.ID)

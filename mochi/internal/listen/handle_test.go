@@ -41,6 +41,9 @@ type fakeHerdr struct {
 	agents     map[string]string
 	prompts    map[string][]string
 	startFails bool
+
+	// The nth start and every one after it fail, when set.
+	starts, failFrom int
 }
 
 func newHerdr() *fakeHerdr {
@@ -72,7 +75,8 @@ func (f *fakeHerdr) run(args ...string) ([]byte, error) {
 	case "tab create":
 		return answer(map[string]any{"result": map[string]any{"root_pane": map[string]string{"pane_id": "p1"}}}), nil
 	case "agent start":
-		if f.startFails {
+		f.starts++
+		if f.startFails || (f.failFrom > 0 && f.starts >= f.failFrom) {
 			return refusal("agent_start_timeout"), nil
 		}
 		f.agents[args[2]] = "idle"

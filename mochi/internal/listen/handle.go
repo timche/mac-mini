@@ -19,6 +19,7 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/config"
 	"github.com/timche/mac-mini/mochi/internal/gather"
 	"github.com/timche/mac-mini/mochi/internal/herdr"
+	"github.com/timche/mac-mini/mochi/internal/split"
 	"github.com/timche/mac-mini/mochi/internal/state"
 )
 
@@ -34,6 +35,9 @@ type Handler struct {
 	Now   func() time.Time
 	Log   *slog.Logger
 	Token string
+
+	// Whether a new-session mention is one task or several; nil is always one.
+	Split func(instruction string, replied *discordgo.Message) ([]split.Task, error)
 
 	// One mention at a time: each is a handful of Discord calls and a herdr start, and two
 	// at once would race on the state file and on the agent name.
@@ -92,6 +96,11 @@ func (h *Handler) Handle(m *discordgo.Message) {
 }
 
 func (h *Handler) open(server config.Server, ch *discordgo.Channel, m *discordgo.Message, instruction string) {
+	tasks, ok := h.tasks(m, instruction)
+	if !ok {
+		return
+	}
+
 	var (
 		set *gather.Set
 		err error
@@ -107,6 +116,16 @@ func (h *Handler) open(server config.Server, ch *discordgo.Channel, m *discordgo
 	if err != nil {
 		h.fail(m, "", "the conversation could not be read", err)
 		return
+	}
+
+	var alone string
+	if len(tasks) > 1 {
+		into, why := h.splitInto(ch, len(tasks))
+		if into != "" {
+			h.openMany(server, ch, m, into, tasks, set)
+			return
+		}
+		alone = why
 	}
 
 	// A thread cannot hold a thread, so a mention inside one makes that thread the session's.
@@ -128,6 +147,9 @@ func (h *Handler) open(server config.Server, ch *discordgo.Channel, m *discordgo
 	}
 
 	h.say(thread, fmt.Sprintf("session started in %s: %s", server.Workspace, session.Tab))
+	if alone != "" {
+		h.say(thread, alone)
+	}
 	h.react(m, chat.Check)
 }
 

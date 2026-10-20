@@ -48,8 +48,12 @@ type Handler struct {
 
 	// The bot's managed role in each guild, by guild, once known; "" for a guild that has
 	// none. Kept current from the gateway, and read from Discord when a message needs it
-	// before the gateway has said.
-	roles map[string]string
+	// before the gateway has said. A lock of its own, since a mention holds mu for as long as
+	// a classifier call and a herdr start take, and every gateway event would queue behind it.
+	// Always taken after mu, never before.
+	roleMu  sync.Mutex
+	roleBot string
+	roles   map[string]string
 }
 
 func (h *Handler) SetBot(id string) {
@@ -57,6 +61,10 @@ func (h *Handler) SetBot(id string) {
 	defer h.mu.Unlock()
 	h.bot = id
 	h.mention = regexp.MustCompile(`<@!?` + regexp.QuoteMeta(id) + `>`)
+
+	h.roleMu.Lock()
+	defer h.roleMu.Unlock()
+	h.roleBot = id
 }
 
 // Held across a handled mention, so a listener exiting for a new binary never abandons one
@@ -123,19 +131,28 @@ func (h *Handler) mentioned(m *discordgo.Message) (string, bool) {
 	return strings.TrimSpace(content), found
 }
 
+// The request is made without the role lock held, so gateway events go on being applied
+// while it is in flight.
 func (h *Handler) botRole(guild string) string {
-	if role, known := h.roles[guild]; known {
+	h.roleMu.Lock()
+	role, known := h.roles[guild]
+	h.roleMu.Unlock()
+	if known {
 		return role
 	}
+
 	roles, err := h.API.Roles(guild)
 	if err != nil {
 		h.Log.Warn("the guild's roles could not be read, so a role mention of mochi is not recognised", "guild", guild, "error", h.redact(err))
 		return ""
 	}
-	h.setRole(guild, chat.BotRole(roles, h.bot))
+	h.roleMu.Lock()
+	defer h.roleMu.Unlock()
+	h.setRole(guild, chat.BotRole(roles, h.roleBot))
 	return h.roles[guild]
 }
 
+// Called with roleMu held.
 func (h *Handler) setRole(guild, role string) {
 	if h.roles == nil {
 		h.roles = map[string]string{}
@@ -147,9 +164,15 @@ func (h *Handler) setRole(guild, role string) {
 // each role created, changed or deleted afterwards. discordgo's typed events drop the
 // tags, so these are read from the raw payload.
 func (h *Handler) Gateway(event string, data []byte) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.bot == "" {
+	switch event {
+	case "GUILD_CREATE", "GUILD_ROLE_CREATE", "GUILD_ROLE_UPDATE", "GUILD_ROLE_DELETE":
+	default:
+		return
+	}
+
+	h.roleMu.Lock()
+	defer h.roleMu.Unlock()
+	if h.roleBot == "" {
 		return
 	}
 
@@ -160,7 +183,7 @@ func (h *Handler) Gateway(event string, data []byte) {
 			Roles []chat.Role `json:"roles"`
 		}
 		if json.Unmarshal(data, &g) == nil && g.ID != "" {
-			h.setRole(g.ID, chat.BotRole(g.Roles, h.bot))
+			h.setRole(g.ID, chat.BotRole(g.Roles, h.roleBot))
 		}
 	case "GUILD_ROLE_CREATE", "GUILD_ROLE_UPDATE":
 		var e struct {
@@ -171,7 +194,7 @@ func (h *Handler) Gateway(event string, data []byte) {
 			return
 		}
 		switch {
-		case e.Role.BotID() == h.bot:
+		case e.Role.BotID() == h.roleBot:
 			h.setRole(e.GuildID, e.Role.ID)
 		case h.roles[e.GuildID] == e.Role.ID:
 			h.setRole(e.GuildID, "")

@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 )
@@ -120,5 +121,55 @@ func TestNamingMochiWithoutAMentionIsLogged(t *testing.T) {
 
 	if strings.Count(logged.String(), "names mochi without a mention") != 1 {
 		t.Errorf("log:\n%s", logged.String())
+	}
+}
+
+// A mention holds the handler's lock for as long as a classifier call and a herdr start
+// take; a role event in the meantime is applied at once rather than queued behind it.
+func TestARoleEventIsAppliedWhileAMentionIsInProgress(t *testing.T) {
+	f := newFixture(t)
+	f.herdr.started, f.herdr.release = make(chan struct{}), make(chan struct{})
+
+	handled := make(chan struct{})
+	go func() {
+		f.h.Handle(f.api.Post(channel, 1, tim, "<@"+bot.ID+"> research"))
+		close(handled)
+	}()
+	<-f.herdr.started
+
+	applied := make(chan struct{})
+	go func() {
+		f.h.Gateway("GUILD_ROLE_CREATE", []byte(`{"guild_id":"`+guild+`","role":{"id":"`+botRole+`","tags":{"bot_id":"`+bot.ID+`"}}}`))
+		close(applied)
+	}()
+	select {
+	case <-applied:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the role event waited for the mention")
+	}
+	if got := f.h.botRole(guild); got != botRole || f.api.RoleReads != 0 {
+		t.Errorf("role = %q after %d reads", got, f.api.RoleReads)
+	}
+
+	close(f.herdr.release)
+	<-handled
+}
+
+// Everything else the gateway sends is not looked at, let alone locked for.
+func TestOtherGatewayEventsAreIgnored(t *testing.T) {
+	f := newFixture(t)
+	f.h.Lock()
+	defer f.h.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		f.h.Gateway("MESSAGE_CREATE", []byte(`{}`))
+		f.h.Gateway("GUILD_CREATE", []byte(`{"id":"`+guild+`","roles":[]}`))
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a gateway event waited for the handler's lock")
 	}
 }

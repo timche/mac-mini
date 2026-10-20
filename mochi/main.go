@@ -41,7 +41,7 @@ const usage = `usage: mochi [listen]
             mentions mochi; what the LaunchAgent runs, and what no command means
   post      post into this session's Discord thread, with no pings; --file attaches
             a screenshot, a recording or any other file, and may be given up to
-            ten times; --review for a result ready for Tim's review, with proof
+            ten times; --review when it needs an answer, a result or a question
             (❓), --done when the task is complete with nothing left for him (✅);
             --pr adds a pull request as "#<number> (<url>)", the one link allowed;
             with no text argument the text is read from stdin

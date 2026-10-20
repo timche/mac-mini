@@ -58,7 +58,7 @@ var orders = []string{
 
 func TestTheSkillHoldsTheStandingOrders(t *testing.T) {
 	text := skill(t)
-	if !strings.HasPrefix(text, "---\nname: mochi\ndescription: ") || !strings.Contains(text, "mochi started from Discord") {
+	if !strings.HasPrefix(text, "---\nname: mochi\ndescription: ") || !strings.Contains(text, `Load only when your brief opens with \"Invoke the mochi skill\" or MOCHI_THREAD is set, never otherwise.`) {
 		t.Errorf("the frontmatter does not name the skill and say what it is for:\n%.300s", text)
 	}
 	front := text[:strings.Index(text[4:], "---")+4]

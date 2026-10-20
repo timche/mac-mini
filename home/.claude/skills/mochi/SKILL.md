@@ -1,6 +1,6 @@
 ---
 name: mochi
-description: How to work in a Claude Code session that mochi started from Discord, one whose brief says to invoke this skill or whose tab has MOCHI_THREAD set — posting to the session's Discord thread or forum post with mochi post, reading more of the conversation with mochi history, and who reads what.
+description: "Standing orders for a Claude Code session that the mochi Discord bot started. Load only when your brief opens with \"Invoke the mochi skill\" or MOCHI_THREAD is set, never otherwise. Covers mochi post, mochi history, and how to write for the Discord thread."
 ---
 
 # mochi

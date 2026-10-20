@@ -8,9 +8,10 @@ import (
 )
 
 // Short enough that Claude Code takes it as typed and runs /lead, rather than as a paste.
+// Measured without the brief's path, which is as long as the cache directory it is under.
 func shortLine(t *testing.T, prompt string) {
 	t.Helper()
-	if strings.ContainsAny(prompt, "\n\r") || len(prompt) > 400 {
+	if strings.ContainsAny(prompt, "\n\r") || len(briefPath.ReplaceAllString(prompt, "")) > 400 {
 		t.Errorf("the pasted prompt is not one short line (%d bytes):\n%s", len(prompt), prompt)
 	}
 }

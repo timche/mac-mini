@@ -8,6 +8,7 @@ import (
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/fence"
+	posts "github.com/timche/mac-mini/mochi/internal/post"
 )
 
 // Discord's limit on one message is 2,000, which it may count in UTF-16 code units; this
@@ -40,7 +41,9 @@ func (h *Handler) announcement(o opener) *discordgo.MessageSend {
 	// between them so Discord shows them apart. Over the limit the replied-to message gives
 	// way first, then the summary; Tim's words and the link never do.
 	tail := quote(chat.Name(m), o.instruction, m.Attachments)
-	if o.summary != "" {
+	// The summary is the classifier's words in mochi's voice, so it is held to what a session's
+	// own post is: no link or path, not even a bare domain plain() cannot defuse.
+	if o.summary != "" && posts.CheckText(o.summary) == nil {
 		line := "**Summary:** " + plain(o.summary)
 		if room := maxFirstPost - units(head+"\n"+tail) - 2; units(line) > room && room > units("**Summary:** …")+10 {
 			line = within(line, room-1) + "…"

@@ -161,14 +161,14 @@ func TestAHostileTitleIsPlainText(t *testing.T) {
 	f := forumFixture(t)
 	hostile := "[Session started](https://evil.example) @everyone <@&1500000000000000001> **now**"
 	f.h.Split = answers(split.Answer{Decision: split.Many, Tasks: []split.Task{
-		{Title: hostile, Instruction: "a", Summary: hostile},
+		{Title: hostile, Instruction: "a", Summary: "[Session started] @everyone <@&1500000000000000001> **now**"},
 		{Title: "Login timeout", Instruction: "b"},
 	}}, nil, nil)
 	m := f.mention(channel, 1, tim, "a, and separately b", nil)
 	f.h.Handle(m)
 
 	safe := strings.ReplaceAll(`\[Session started\]\(https://ZWSPevil.example\) @ZWSPeveryone \<@ZWSP&1500000000000000001\> \*\*now\*\*`, "ZWSP", "\u200b")
-	if text := firstPost(t, f, postID(1)).Content; !strings.HasSuffix(text, "\n\n**Summary:** "+safe) {
+	if text := firstPost(t, f, postID(1)).Content; !strings.HasSuffix(text, "\n\n**Summary:** "+strings.ReplaceAll(`\[Session started\] @ZWSPeveryone \<@ZWSP&1500000000000000001\> \*\*now\*\*`, "ZWSP", "\u200b")) {
 		t.Errorf("summary line:\n%s", text)
 	}
 	replies := f.sentTo(channel)
@@ -217,5 +217,18 @@ func TestAnEmojiHeavyPostStaysUnderDiscordsLimit(t *testing.T) {
 	}
 	if !utf8.ValidString(text) || !strings.Contains(text, "…\n\n> **tim:** look 😀") {
 		t.Errorf("not cut on a character boundary with an ellipsis:\n%.200s", text)
+	}
+}
+
+// A summary with a link or a path in it is left out rather than posted in mochi's voice.
+func TestASummaryWithALinkOrAPathIsLeftOut(t *testing.T) {
+	for _, summary := range []string{"Players are sent to evil.com to log in.", "See https://example.com for it.", "The fix is in ~/projects/x.go."} {
+		f := forumFixture(t)
+		f.h.Split = answers(split.Answer{Decision: split.One, Title: "Login", Summary: summary,
+			Tasks: []split.Task{{Title: "Login", Instruction: "fix it"}}}, nil, nil)
+		f.h.Handle(f.mention(channel, 1, tim, "fix the login", nil))
+		if text := firstPost(t, f, postID(1)).Content; strings.Contains(text, "Summary") {
+			t.Errorf("%q was posted:\n%s", summary, text)
+		}
 	}
 }

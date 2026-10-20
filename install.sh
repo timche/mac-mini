@@ -132,6 +132,17 @@ else
        "keeps running the last binary it built" >&2
 fi
 
+# mochi's modules, into Go's own cache, so the wrapper's first build in a LaunchAgent
+# finds them there rather than fetching them inside its two minutes. Reported rather than
+# fatal: the build fetches what is missing itself, and a Mac offline now is not one that
+# has to stay without mochi.
+if (cd "$repo" && mise exec -- go -C "$repo/mochi" mod download) >/dev/null 2>&1; then
+  echo "mochi's Go modules are in the module cache"
+else
+  echo "mochi's Go modules could not be downloaded — its first build fetches them" \
+       "itself, or fails and keeps the last binary until it can" >&2
+fi
+
 # portless signs every https://<name>.localhost with a certificate authority of
 # its own, and a browser only believes it once that CA is in the system trust
 # store. portless offers to do this on its first run, which is a prompt for a
@@ -480,6 +491,21 @@ elif ! load_agent "$listen_label" "$listen_plist"; then
   echo "could not load $listen_label — the gui/$uid domain needs a GUI session" \
        "logged in on the Mac; until it is loaded a reply in Discord reaches" \
        "nobody and the on-call session is answered in herdr alone" >&2
+fi
+
+# mochi, the Discord listener that starts a Claude Code session when Tim mentions it.
+# Loaded unconditionally, like the listener above: a token that does not resolve yet is a
+# line in its log and a wait before the next `op run`, and hachiko's watch reports the
+# heartbeat it is not writing.
+mochi_label=io.github.timche.mochi
+mochi_plist="$HOME/Library/LaunchAgents/$mochi_label.plist"
+
+if [ ! -f "$mochi_plist" ]; then
+  echo "$mochi_plist is missing — mise links it from mise.toml" >&2
+elif ! load_agent "$mochi_label" "$mochi_plist"; then
+  echo "could not load $mochi_label — the gui/$uid domain needs a GUI session" \
+       "logged in on the Mac; until it is loaded a mention of mochi in Discord" \
+       "starts nothing" >&2
 fi
 
 # The daemon that carries edits upstream: `hachiko sync`, which commits and pushes

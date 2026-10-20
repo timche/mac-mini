@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Symlinked into ~/Library/LaunchAgents from the [dotfiles] entry in mise.toml, and
+     shaped like io.github.timche.hachiko-listen for the same reasons: launchd expands
+     neither ~ nor $HOME in a plist but hands a gui-domain agent a HOME, so the PATH and
+     the log move into a shell and this file names no account. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.github.timche.mochi</string>
+  <!-- The wrapper, the op that signs 1Password in with the service-account token, the
+       herdr a session is started through, and the mise that rebuilds the binary. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>export PATH="$HOME/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"; exec "$HOME/.local/bin/mochi" listen &gt;&gt;"$HOME/Library/Logs/mochi.log" 2&gt;&amp;1</string>
+  </array>
+  <!-- Unconditional: the gateway connection is the job, and the one way it exits on
+       purpose, for a new binary the wrapper built behind it, has to be restarted too. -->
+  <key>KeepAlive</key>
+  <true/>
+  <key>RunAtLoad</key>
+  <true/>
+  <!-- Five minutes from one start to the next, since every start is an `op run`. A
+       listener that has been up longer than this is restarted at once when it exits for
+       a new binary; the watch gives its heartbeat ten minutes to cover the rest. -->
+  <key>ThrottleInterval</key>
+  <integer>300</integer>
+</dict>
+</plist>

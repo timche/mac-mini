@@ -91,6 +91,13 @@ go = "1.27"
 "~/.config/hachiko/sync" = { source = "home/.config/hachiko/sync", mode = "symlink" }
 "~/Library/LaunchAgents/io.github.timche.hachiko-sync.plist" = { source = "home/Library/LaunchAgents/io.github.timche.hachiko-sync.plist", mode = "symlink" }
 
+# mochi, Tim's Claude Tag for Discord: the wrapper and its secrets' reference linked
+# together like hachiko's, the server mapping, and the agent that keeps the gateway open.
+"~/.local/bin/mochi" = { source = "home/.local/bin/mochi", mode = "symlink" }
+"~/.local/bin/mochi.env.op" = { source = "home/.local/bin/mochi.env.op", mode = "symlink" }
+"~/.config/mochi/config.toml" = { source = "home/.config/mochi/config.toml", mode = "symlink" }
+"~/Library/LaunchAgents/io.github.timche.mochi.plist" = { source = "home/Library/LaunchAgents/io.github.timche.mochi.plist", mode = "symlink" }
+
 # `screencapture -l` of one app's window, by owner name rather than window id.
 "~/.local/bin/window-shot" = { source = "home/.local/bin/window-shot", mode = "symlink" }
 

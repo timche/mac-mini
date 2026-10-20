@@ -997,6 +997,7 @@ gate_fixture() {
 
   cp "$repo/mise.toml" "$repo/mise.lock" "$dir/"
   cp -R "$repo/hachiko" "$dir/hachiko"
+  cp -R "$repo/mochi" "$dir/mochi"
   cp -R "$repo/home" "$dir/home"
 }
 export -f gate_fixture
@@ -1173,6 +1174,67 @@ check "the listener is kept alive and throttled to five minutes" \
    [ "$(plutil -extract ThrottleInterval raw -o - "$listen_plist")" = 300 ]'
 check "the listener agent is loaded" \
   'launchctl print "gui/$(id -u)/io.github.timche.hachiko-listen" >/dev/null'
+
+# mochi, the second compiled tool. Its behaviour is `go test ./...` in mochi/ against a fake
+# Discord and a fake herdr; what is left here is the wiring a Go test cannot see.
+check "mochi is a live symlink and runs through its wrapper" \
+  '[ -L "$HOME/.local/bin/mochi" ] && [ -x "$HOME/.local/bin/mochi" ] &&
+   [ "$HOME/.local/bin/mochi" -ef "$repo/home/.local/bin/mochi" ] &&
+   mochi --help | grep -q "post" &&
+   mochi --help | grep -q "history"'
+
+check "mochi's token is an op:// reference beside it, and nothing resolved" \
+  '[ -L "$HOME/.local/bin/mochi.env.op" ] && [ -e "$HOME/.local/bin/mochi.env.op" ] &&
+   grep -qx "MOCHI_DISCORD_BOT_TOKEN=op://dev/mochi-discord/bot token" \
+     "$HOME/.local/bin/mochi.env.op" &&
+   ! grep -qE "^[A-Z_]+=[^o]" "$HOME/.local/bin/mochi.env.op"'
+
+check "mochi's server mapping is linked and takes instructions from Tim alone" \
+  '[ -L "$HOME/.config/mochi/config.toml" ] && [ -e "$HOME/.config/mochi/config.toml" ] &&
+   grep -qx "user = \"94004892942741504\"" "$HOME/.config/mochi/config.toml"'
+
+export mochi_plist="$HOME/Library/LaunchAgents/io.github.timche.mochi.plist"
+
+check "the mochi agent is a link into the checkout and a valid plist" \
+  '[ -L "$mochi_plist" ] && [ -e "$mochi_plist" ] && plutil -lint "$mochi_plist" &&
+   [ "$mochi_plist" -ef "$repo/home/Library/LaunchAgents/io.github.timche.mochi.plist" ] &&
+   [ "$(plutil -extract Label raw "$mochi_plist")" = io.github.timche.mochi ]'
+check "the mochi agent runs mochi listen through a shell, with no key launchd leaves unexpanded" \
+  'c="$(plutil -extract ProgramArguments.2 raw -o - "$mochi_plist")" &&
+   [ "$(plutil -extract ProgramArguments.0 raw -o - "$mochi_plist")" = "/bin/sh" ] &&
+   printf "%s\n" "$c" | grep -qF "export PATH=\"\$HOME/.local/bin:/opt/homebrew/bin" &&
+   printf "%s\n" "$c" | grep -qF "exec \"\$HOME/.local/bin/mochi\" listen >>\"\$HOME/Library/Logs/mochi.log\" 2>&1" &&
+   ! plutil -extract StandardOutPath raw -o - "$mochi_plist" &&
+   ! plutil -extract EnvironmentVariables xml1 -o - "$mochi_plist" &&
+   ! plutil -extract WatchPaths xml1 -o - "$mochi_plist"'
+check "the mochi agent is kept alive and throttled to five minutes" \
+  'plutil -extract RunAtLoad xml1 -o - "$mochi_plist" | grep -q "<true/>" &&
+   plutil -extract KeepAlive xml1 -o - "$mochi_plist" | grep -q "<true/>" &&
+   [ "$(plutil -extract ThrottleInterval raw -o - "$mochi_plist")" = 300 ]'
+check "the mochi agent is loaded" \
+  'launchctl print "gui/$(id -u)/io.github.timche.mochi" >/dev/null'
+
+# What launchd hands the agent: a HOME, the plist's PATH, / as the working directory and
+# nothing else of a session's. The build has to come out of Go's module cache with the
+# network refused, which is what install.sh's `go mod download` is for, and with no
+# toolchain download either.
+check "the mochi wrapper builds under launchd's environment from the module cache alone" \
+  'd="$(mktemp -d)" && gate_fixture "$d" &&
+   (cd / && env -i HOME="$HOME" PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+      MISE_TRUSTED_CONFIG_PATHS="$d" MOCHI_CACHE_DIR="$d/cache" GOPROXY=off \
+      /bin/sh "$d/home/.local/bin/mochi" --help) | grep -q "history" &&
+   [ -x "$d/cache/mochi" ]'
+
+check "a mochi build whose tests fail leaves the binary that was already there" \
+  'd="$(mktemp -d)" && gate_fixture "$d" &&
+   export MISE_TRUSTED_CONFIG_PATHS="$d" MOCHI_CACHE_DIR="$d/cache" &&
+   "$d/home/.local/bin/mochi" --help >/dev/null &&
+   was="$(shasum -a 256 "$d/cache/mochi" | cut -d" " -f1)" &&
+   printf "package fence\n\nimport \"testing\"\n\nfunc TestTheGateMustCatchThis(t *testing.T) { t.Fatal(\"on purpose\") }\n" \
+     > "$d/mochi/internal/fence/zz_gate_test.go" &&
+   out="$("$d/home/.local/bin/mochi" --help 2>&1 >/dev/null)" &&
+   printf "%s" "$out" | grep -q "do not pass" &&
+   [ "$was" = "$(shasum -a 256 "$d/cache/mochi" | cut -d" " -f1)" ]'
 
 # The one check that is the agent rather than a description of it. Everything else here
 # runs hachiko as this session, which holds the privacy grants herdr was given — and that

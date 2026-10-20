@@ -144,16 +144,19 @@ type Roots func(guild string) ([]string, error)
 // A file goes up only from inside one of the session's own folders, by its real path once links
 // are followed, and never from a .git: a session cannot post a key, another repository's file
 // or git's configuration by naming it.
-func checkInside(files []string, guild string, roots Roots) error {
+//
+// It answers each file's real path, which is what is opened to send, so what was checked is
+// what goes up.
+func checkInside(files []string, guild string, roots Roots) ([]string, error) {
 	if len(files) == 0 {
-		return nil
+		return nil, nil
 	}
 	if roots == nil {
-		return errors.New("there is no checkout to check the files against")
+		return nil, errors.New("there is no checkout to check the files against")
 	}
 	bases, err := roots(guild)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var real []string
 	for _, b := range bases {
@@ -161,28 +164,30 @@ func checkInside(files []string, guild string, roots Roots) error {
 			real = append(real, r)
 		}
 	}
+	resolved := make([]string, 0, len(files))
 	for _, file := range files {
 		path, err := filepath.EvalSymlinks(file)
 		if err != nil {
-			return fmt.Errorf("%s is not a file", file)
+			return nil, fmt.Errorf("%s is not a file", file)
 		}
 		if path, err = filepath.Abs(path); err != nil {
-			return err
+			return nil, err
 		}
 		base, err := inside(path, real)
 		if err != nil {
-			return fmt.Errorf("%s %v", file, err)
+			return nil, fmt.Errorf("%s %v", file, err)
 		}
 		if err := plainFile(path); err != nil {
-			return fmt.Errorf("%s %v", file, err)
+			return nil, fmt.Errorf("%s %v", file, err)
 		}
 		// What git ignores in the checkout is where keys and local settings are kept; a
 		// screenshot, a recording or a build there is what a session means to post.
 		if len(real) > 0 && base == real[0] && !isMedia(path) && !strings.EqualFold(filepath.Ext(path), ".zip") && origin.Ignored(base, path) {
-			return fmt.Errorf("%s is a file git ignores in the checkout, so it is not posted: only images, videos and zips are taken from there", file)
+			return nil, fmt.Errorf("%s is a file git ignores in the checkout, so it is not posted: only images, videos and zips are taken from there", file)
 		}
+		resolved = append(resolved, path)
 	}
-	return nil
+	return resolved, nil
 }
 
 // Names a secret is kept under, matched on a file's own name in any case.
@@ -367,11 +372,12 @@ func Send(api chat.API, store state.Store, marks *mark.Marker, repos Repos, thre
 			return err
 		}
 	}
-	if err := checkInside(p.Files, guild, p.Roots); err != nil {
+	files, err := checkInside(p.Files, guild, p.Roots)
+	if err != nil {
 		return err
 	}
-	if len(p.Files) > 0 {
-		if err := checkSizes(p.Files, chat.UploadLimit(api, guild)); err != nil {
+	if len(files) > 0 {
+		if err := checkSizes(files, chat.UploadLimit(api, guild)); err != nil {
 			return err
 		}
 	}
@@ -402,7 +408,7 @@ func Send(api chat.API, store state.Store, marks *mark.Marker, repos Repos, thre
 			msg.Flags |= discordgo.MessageFlagsSuppressEmbeds
 		}
 		if i == len(parts)-1 {
-			for _, file := range p.Files {
+			for _, file := range files {
 				f, err := os.Open(file)
 				if err != nil {
 					return err

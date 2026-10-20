@@ -512,3 +512,21 @@ func TestSecretLookingAndIgnoredFilesAreNotPosted(t *testing.T) {
 		}
 	}
 }
+
+// What goes up is the file that was checked: a link's target, under its own name.
+func TestTheCheckedFileIsTheOneSent(t *testing.T) {
+	api, store := fixture(t)
+	checkout := t.TempDir()
+	target := filepath.Join(checkout, "after.png")
+	os.WriteFile(target, []byte("the real one"), 0o644)
+	link := filepath.Join(checkout, "shot.png")
+	os.Symlink(target, link)
+	roots := Roots(func(string) ([]string, error) { return []string{checkout}, nil })
+
+	if err := Send(api, store, nil, repeek, thread, Post{Text: "x", Files: []string{link}, Roots: roots}); err != nil {
+		t.Fatal(err)
+	}
+	if got := api.Sent[0].Files; len(got) != 1 || got["after.png"] != "the real one" {
+		t.Errorf("files = %v", got)
+	}
+}

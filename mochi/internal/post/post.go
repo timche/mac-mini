@@ -3,6 +3,7 @@
 package post
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -89,7 +90,7 @@ type Post struct {
 	PR string
 }
 
-var pullRequest = regexp.MustCompile(`\Ahttps://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/([0-9]+)/?\z`)
+var pullRequest = regexp.MustCompile(`\Ahttps://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)/?\z`)
 
 // The line a pull request gets: its number and its link, as `#<number> (<url>)`.
 func PRLine(url string) (string, error) {
@@ -97,7 +98,25 @@ func PRLine(url string) (string, error) {
 	if m == nil {
 		return "", fmt.Errorf("--pr takes a GitHub pull request's address, https://github.com/<owner>/<repo>/pull/<number>, not %s", url)
 	}
-	return "#" + m[1] + " (" + url + ")", nil
+	return "#" + m[2] + " (" + url + ")", nil
+}
+
+// Repos answers which "owner/repo" a server's sessions work in, so a pull request of any
+// other repository cannot be posted as one of theirs.
+type Repos func(guild string) (string, error)
+
+func checkRepo(url, guild string, repos Repos) error {
+	if repos == nil {
+		return errors.New("there is no repository to check the pull request against")
+	}
+	want, err := repos(guild)
+	if err != nil {
+		return err
+	}
+	if got := pullRequest.FindStringSubmatch(url)[1]; !strings.EqualFold(got, want) {
+		return fmt.Errorf("the pull request is in %s, not %s, which is this session's repository", got, want)
+	}
+	return nil
 }
 
 func (p Post) Check() error {
@@ -114,13 +133,18 @@ func (p Post) Check() error {
 
 // What the session was working on shows the post's state once it is up. A pull request's
 // line is added after the text, with embeds suppressed so Discord shows no preview of it.
-func Send(api chat.API, store state.Store, marks *mark.Marker, thread string, p Post) error {
+func Send(api chat.API, store state.Store, marks *mark.Marker, repos Repos, thread string, p Post) error {
 	rec, err := store.Session(thread)
 	if err != nil {
 		return err
 	}
 	if err := p.Check(); err != nil {
 		return err
+	}
+	if p.PR != "" {
+		if err := checkRepo(p.PR, rec.Guild, repos); err != nil {
+			return err
+		}
 	}
 	text := p.Text
 	if p.PR != "" {

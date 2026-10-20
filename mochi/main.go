@@ -25,6 +25,7 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/listen"
 	"github.com/timche/mac-mini/mochi/internal/mark"
 	"github.com/timche/mac-mini/mochi/internal/op"
+	"github.com/timche/mac-mini/mochi/internal/origin"
 	"github.com/timche/mac-mini/mochi/internal/post"
 	"github.com/timche/mac-mini/mochi/internal/self"
 	"github.com/timche/mac-mini/mochi/internal/split"
@@ -125,7 +126,14 @@ func run(args []string) error {
 			return err
 		}
 		marks := &mark.Marker{API: api, Path: cfg.MarksPath(), Now: time.Now, Log: log}
-		return post.Send(api, state.Store{Path: cfg.StatePath()}, marks, thread, p)
+		repos := func(guild string) (string, error) {
+			server, ok := cfg.Server(guild)
+			if !ok {
+				return "", errors.New("this session's server is no longer mapped")
+			}
+			return origin.Of(server.Repo)
+		}
+		return post.Send(api, state.Store{Path: cfg.StatePath()}, marks, repos, thread, p)
 
 	// Left out of the usage: it is for choosing the model in [split], and reads cases rather
 	// than Discord.

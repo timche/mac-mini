@@ -65,10 +65,13 @@ func Prompt(instruction string, replied *discordgo.Message) string {
 	b.WriteString(`You decide whether one instruction Tim gave a Discord bot is one task or several independent tasks. Each task becomes its own Claude Code session.
 
 Rules:
-- Several tasks only when the instruction asks for things to be done separately, one by one, in parallel, or each on its own, such as "research a, b and c separately". Otherwise return exactly one task: the instruction as he wrote it.
+- Several tasks when the instruction asks for things to be done separately, one by one, in parallel, or each on its own, such as "research a, b and c separately".
+- Several tasks also when it asks for plainly unrelated pieces of work, such as "look into a) and also debug the login timeout from yesterday", which is two.
+- Related work stays one task, however many items it names: comparing them ("compare a and b"), choosing between them ("read a, b and c and tell me which first"), steps of one job ("fix, test and open a PR"), or one result about all of them ("one plan", "a single summary").
+- Otherwise return exactly one task: the instruction as he wrote it.
 - For several tasks, each instruction has to stand on its own: Tim's shared lead-in followed by that one item, in his words. Add no requirement, detail or suggestion he did not write.
 - Resolve references such as "a, b and c" or "the three points" from the message he replied to, naming each item as that message does.
-- Each title is a short name for its task, at most 80 characters.
+- Each title names the subject of its task in at most 80 characters: what the work is about, not what Tim asked to be done with it. When his words do not name it, as with "have a look at this" in reply to a report that the FACEIT overlay blocks hover, take it from the message he replied to: "FACEIT overlay blocks hover". This holds for a single task too.
 - Return every task he asked for, however many there are.
 
 Tim's instruction follows between the two markers below.

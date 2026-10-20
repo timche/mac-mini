@@ -169,3 +169,24 @@ func TestClaudeRunsInAnEmptyFolderWithNoSecret(t *testing.T) {
 		t.Error("the folder was left behind")
 	}
 }
+
+// The rules the classifier is held to, as Tim set them: what splits, what stays one, and what a
+// title names.
+func TestThePromptCarriesTimsRules(t *testing.T) {
+	p := Prompt("have a look at this", nil)
+	for _, rule := range []string{
+		"research a, b and c separately",
+		"plainly unrelated pieces of work",
+		"debug the login timeout from yesterday",
+		"compare a and b",
+		"read a, b and c and tell me which first",
+		"fix, test and open a PR",
+		"names the subject of its task",
+		"FACEIT overlay blocks hover",
+		"Add no requirement, detail or suggestion he did not write",
+	} {
+		if !strings.Contains(p, rule) {
+			t.Errorf("the prompt lacks %q", rule)
+		}
+	}
+}

@@ -381,15 +381,14 @@ func (h *Handler) relay(server config.Server, ch *discordgo.Channel, rec state.S
 
 	files := h.files(rec.Thread, others)
 	deliver := func(answering bool) error {
-		path, err := h.brief(rec.Thread, "relay-"+m.ID+".md", followUp(m, instruction, others, files, answering))
-		if err != nil {
-			return err
-		}
+		// Pasted whole: Claude Code shows a long paste as a placeholder but hands the model all
+		// of it, and a follow-up has no slash command that a placeholder would hide.
+		text := followUp(m, instruction, others, files, answering)
 		if answering {
 			h.Log.Info("a follow-up answers the question a session was waiting on", "workspace", rec.Workspace, "tab", rec.Tab)
-			return herdr.Answer(h.Herdr, rec.Agent, relayPrompt(path, true), h.nap)
+			return herdr.Answer(h.Herdr, rec.Agent, text, h.nap)
 		}
-		return herdr.Prompt(h.Herdr, rec.Agent, relayPrompt(path, false))
+		return herdr.Prompt(h.Herdr, rec.Agent, text)
 	}
 	answering := status == herdr.Blocked
 	err = deliver(answering)
@@ -490,13 +489,6 @@ func (h *Handler) brief(thread, name, text string) (string, error) {
 
 func openingPrompt(path string) string {
 	return "/lead Tim mentioned mochi in Discord. Your brief is " + path + "; read all of it before anything else. It holds his instruction and the fenced Discord context, and says which skill to load first."
-}
-
-func relayPrompt(path string, answering bool) string {
-	if answering {
-		return "Tim answered in Discord instead of the question you asked him, which was cancelled so this could reach you: read " + path + " before anything else. It holds his answer and the fenced Discord context since his last message."
-	}
-	return "Tim followed up in Discord: read " + path + " before anything else. It holds his message and the fenced Discord context since his last one."
 }
 
 func (h *Handler) nap(d time.Duration) {

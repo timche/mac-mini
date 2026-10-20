@@ -92,7 +92,7 @@ func TestCleanTakesAwayHalfWrittenEvents(t *testing.T) {
 func TestAHeardFromMochisOwnPromptIsMarkedRelayed(t *testing.T) {
 	dir := t.TempDir()
 	in := env(map[string]string{ThreadVar: "t1"})
-	Write(strings.NewReader(`{"prompt":"Tim followed up in Discord: read /x.md"}`), in, dir, Heard, now)
+	Write(strings.NewReader(`{"prompt":"Tim followed up in this session's Discord thread (https://discord.com/channels/1/2/3).\n\nFollow the mochi skill"}`), in, dir, Heard, now)
 	Write(strings.NewReader(`{"prompt":"merge it"}`), in, dir, Heard, func() time.Time { return now().Add(time.Second) })
 	Write(strings.NewReader(`{}`), in, dir, Close, now)
 

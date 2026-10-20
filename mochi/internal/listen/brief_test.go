@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/timche/mac-mini/mochi/internal/event"
 )
 
 // Short enough that Claude Code takes it as typed and runs /lead, rather than as a paste.
@@ -66,7 +68,8 @@ func TestEverySplitSessionHasABriefOfItsOwn(t *testing.T) {
 	}
 }
 
-func TestAFollowUpIsAShortLineNamingItsOwnFile(t *testing.T) {
+// A follow-up is pasted whole, fenced, with no file to read and no command in front.
+func TestAFollowUpIsPastedWhole(t *testing.T) {
 	f := newFixture(t)
 	first := f.mention(channel, 1, tim, "start", nil)
 	f.h.Handle(first)
@@ -76,13 +79,14 @@ func TestAFollowUpIsAShortLineNamingItsOwnFile(t *testing.T) {
 	f.h.Handle(follow)
 
 	raw := f.herdr.raw["mochi-"+first.ID]
-	path := filepath.Join(f.cfg.SessionDir(first.ID), "relay-"+follow.ID+".md")
-	if len(raw) != 2 || raw[1] != "Tim followed up in Discord: read "+path+" before anything else. It holds his message and the fenced Discord context since his last one." {
-		t.Fatalf("pasted %q", raw)
+	if len(raw) != 2 || !strings.HasPrefix(raw[1], event.FollowedPrefix+" (") || !event.FromMochi(raw[1]) {
+		t.Fatalf("pasted %.200q", raw)
 	}
-	shortLine(t, raw[1])
-	if body, err := os.ReadFile(path); err != nil || !strings.Contains(string(body), "also b)") || !strings.Contains(string(body), "a long message") {
-		t.Errorf("the follow-up file: %v", err)
+	if !strings.Contains(between(t, raw[1], "INSTRUCTION FROM TIM"), "also b)") || !strings.Contains(between(t, raw[1], "DISCORD CONTEXT"), "a long message") {
+		t.Errorf("the follow-up is not all there:\n%.400s", raw[1])
+	}
+	if matches, _ := filepath.Glob(filepath.Join(f.cfg.SessionDir(first.ID), "relay-*")); len(matches) != 0 {
+		t.Errorf("a relay file was written: %v", matches)
 	}
 }
 

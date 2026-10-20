@@ -1,11 +1,15 @@
 package listen
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/bwmarrin/discordgo"
+
 	"github.com/timche/mac-mini/mochi/internal/event"
+	"github.com/timche/mac-mini/mochi/internal/gather"
 	"github.com/timche/mac-mini/mochi/internal/mark"
 )
 
@@ -34,7 +38,8 @@ func (f *fixture) prompted(thread, prompt string) {
 }
 
 func quoteJSON(s string) string {
-	return `"` + strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), `"`, `\"`) + `"`
+	b, _ := json.Marshal(s)
+	return string(b)
 }
 
 func (f *fixture) later(d time.Duration) {
@@ -92,7 +97,7 @@ func TestASessionTimLastTypedInStaysOpen(t *testing.T) {
 	g.prompted(other, "check this")
 	g.h.ConsumeEvents()
 	g.h.Handle(g.mention(other, 5, tim, "and merge", nil))
-	g.prompted(other, relayPrompt("/relay.md", false))
+	g.prompted(other, g.herdr.raw["mochi-"+other][len(g.herdr.raw["mochi-"+other])-1])
 	g.h.Marks.Settled(other, mark.Finished)
 	g.closeRequested(other)
 	g.h.ConsumeEvents()
@@ -172,7 +177,8 @@ func TestATabInUseIsNotClosedAndNotTriedAgain(t *testing.T) {
 
 // The prompts mochi pastes are recognised as its own, and Tim's typing is not.
 func TestMochisOwnPromptsAreToldFromTims(t *testing.T) {
-	for _, p := range []string{openingPrompt("/b.md"), relayPrompt("/r.md", false), relayPrompt("/r.md", true)} {
+	m := &discordgo.Message{ID: "3", ChannelID: "2", GuildID: "1"}
+	for _, p := range []string{openingPrompt("/b.md"), followUp(m, "x", gather.NewSet("1"), nil, false), followUp(m, "x", gather.NewSet("1"), nil, true)} {
 		if !event.FromMochi(p) {
 			t.Errorf("not recognised: %q", p)
 		}

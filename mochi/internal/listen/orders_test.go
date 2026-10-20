@@ -102,7 +102,7 @@ func TestTheBriefLoadsTheSkillAndRepeatsNoOrder(t *testing.T) {
 	if !strings.Contains(brief, "Its Discord thread, where `mochi post` posts, is https://discord.com/channels/"+guild+"/"+m.ID+".") {
 		t.Errorf("the brief does not say where the session posts:\n%.400s", brief)
 	}
-	if !strings.HasPrefix(relay, "Follow the mochi skill, as for everything in this session.\n\n") {
+	if !strings.Contains(relay, ").\n\nFollow the mochi skill, as for everything in this session.\n\n") {
 		t.Errorf("the follow-up does not point at the skill:\n%.200s", relay)
 	}
 	for _, text := range []string{brief, relay} {

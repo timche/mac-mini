@@ -540,7 +540,7 @@ func TestAFollowUpAnswersTheQuestionASessionIsWaitingOn(t *testing.T) {
 		t.Errorf("prompt = %q", raw[len(raw)-1])
 	}
 	brief := f.herdr.prompts[agent][len(f.herdr.prompts[agent])-1]
-	if !strings.HasPrefix(brief, skillAgain+"\n\nTim answered in Discord instead of the question") || !strings.Contains(brief, "go with b)") {
+	if !strings.HasPrefix(brief, "Tim answered in Discord instead of the question") || !strings.Contains(brief, skillAgain) || !strings.Contains(brief, "go with b)") {
 		t.Errorf("brief = %q", brief)
 	}
 	f.seenOnly(follow.ID)
@@ -564,7 +564,7 @@ func TestAFollowUpToAWorkingSessionIsPromptedWithoutAnEsc(t *testing.T) {
 		t.Error("an esc to a session with no question")
 	}
 	raw := f.herdr.raw["mochi-"+first.ID]
-	if !strings.HasPrefix(raw[len(raw)-1], "Tim followed up in Discord") {
+	if !strings.HasPrefix(raw[len(raw)-1], event.FollowedPrefix) {
 		t.Errorf("prompt = %q", raw[len(raw)-1])
 	}
 	brief := f.herdr.prompts["mochi-"+first.ID]

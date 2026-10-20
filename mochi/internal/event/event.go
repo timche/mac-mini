@@ -50,7 +50,13 @@ type Event struct {
 
 // How the prompts mochi pastes begin, which is how a submitted prompt is told to be one of
 // mochi's rather than Tim's own typing.
-var relayed = []string{"/lead Tim mentioned mochi in Discord", "Tim followed up in Discord", "Tim answered in Discord"}
+const (
+	OpeningPrefix  = "/lead Tim mentioned mochi in Discord"
+	FollowedPrefix = "Tim followed up in this session's Discord thread"
+	AnsweredPrefix = "Tim answered in Discord"
+)
+
+var relayed = []string{OpeningPrefix, FollowedPrefix, AnsweredPrefix}
 
 func FromMochi(prompt string) bool {
 	for _, prefix := range relayed {

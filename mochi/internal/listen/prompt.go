@@ -7,6 +7,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
+	"github.com/timche/mac-mini/mochi/internal/event"
 	"github.com/timche/mac-mini/mochi/internal/fence"
 	"github.com/timche/mac-mini/mochi/internal/gather"
 )
@@ -98,12 +99,14 @@ func followUp(m *discordgo.Message, instruction string, others *gather.Set, file
 func followUpText(m *discordgo.Message, instruction string, others *gather.Set, files gather.Files, answering bool) string {
 	nonce := fence.Nonce()
 
+	// The first words are how the session's prompt hook tells this from Tim's own typing.
 	var b strings.Builder
-	b.WriteString(skillAgain + "\n\n")
 	if answering {
-		b.WriteString("Tim answered in Discord instead of the question you had just asked him in this session, which was cancelled so this could reach you. Take his message as the answer to that question; if it does not answer it, ask again.\n\n")
+		b.WriteString(event.AnsweredPrefix + " instead of the question you had just asked him in this session, which was cancelled so this could reach you. Take his message as the answer to that question; if it does not answer it, ask again. He wrote it in this session's Discord thread (" + chat.Link(m.GuildID, m.ChannelID, m.ID) + ").\n\n")
+	} else {
+		b.WriteString(event.FollowedPrefix + " (" + chat.Link(m.GuildID, m.ChannelID, m.ID) + ").\n\n")
 	}
-	b.WriteString("Tim followed up in this session's Discord thread (" + chat.Link(m.GuildID, m.ChannelID, m.ID) + ").\n\n")
+	b.WriteString(skillAgain + "\n\n")
 	b.WriteString("His message follows between the two markers below, in his words, with the mention of mochi taken out and any backtick made a quote mark.\n")
 	b.WriteString(fence.Block(fence.Instruction, nonce, orNothing(instruction)))
 

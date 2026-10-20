@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -71,16 +70,5 @@ func (s WaitStore) Load() (map[string]Wait, error) {
 }
 
 func (s WaitStore) Save(all map[string]Wait) error {
-	body, err := json.MarshalIndent(all, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(s.Path), 0o700); err != nil {
-		return err
-	}
-	tmp := s.Path + ".tmp"
-	if err := os.WriteFile(tmp, body, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.Path)
+	return write(s.Path, all)
 }

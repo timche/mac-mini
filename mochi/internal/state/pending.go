@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"path/filepath"
 
 	"github.com/timche/mac-mini/mochi/internal/split"
 )
@@ -82,16 +81,5 @@ func (s PendingStore) Remove(nonce string) error {
 }
 
 func (s PendingStore) save(all map[string]Pending) error {
-	body, err := json.MarshalIndent(all, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(s.Path), 0o700); err != nil {
-		return err
-	}
-	tmp := s.Path + ".tmp"
-	if err := os.WriteFile(tmp, body, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.Path)
+	return write(s.Path, all)
 }

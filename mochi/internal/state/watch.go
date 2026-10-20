@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"path/filepath"
 )
 
 // Watch is a pull request a session posted, which mochi follows until it is merged or closed.
@@ -37,16 +36,5 @@ func (s WatchStore) Load() (map[string]Watch, error) {
 }
 
 func (s WatchStore) Save(all map[string]Watch) error {
-	body, err := json.MarshalIndent(all, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(s.Path), 0o700); err != nil {
-		return err
-	}
-	tmp := s.Path + ".tmp"
-	if err := os.WriteFile(tmp, body, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.Path)
+	return write(s.Path, all)
 }

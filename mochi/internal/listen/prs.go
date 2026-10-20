@@ -39,9 +39,14 @@ func (h *Handler) WatchPRs() {
 	if len(watches) == 0 || h.GH == nil {
 		return
 	}
+	sessions, err := h.Store.Load()
+	if err != nil {
+		h.Log.Error("the state file could not be read to follow pull requests", "error", err)
+		return
+	}
 	changed := false
 	for url, w := range watches {
-		rec, ok, _ := h.Store.Get(w.Thread)
+		rec, ok := sessions[w.Thread]
 		if !ok {
 			delete(watches, url)
 			changed = true

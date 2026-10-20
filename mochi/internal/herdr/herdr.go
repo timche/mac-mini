@@ -65,8 +65,11 @@ var (
 	ErrStillBlocked = errors.New("the agent is still on its question after the esc")
 )
 
-// The status herdr gives an agent waiting on a question.
-const Blocked = "blocked"
+// The statuses herdr gives an agent at work, and one waiting on a question.
+const (
+	Working = "working"
+	Blocked = "blocked"
+)
 
 // Measured against the real herdr for hachiko's on-call: `agent get` still answered blocked
 // on the first read after the esc and done on the second, about 150 ms later. The window is
@@ -234,7 +237,7 @@ func CloseTab(run Runner, agent, label string) error {
 		return fmt.Errorf("herdr named no tab for %s", agent)
 	}
 	switch status := r.Result.Agent.Status; status {
-	case "working", Blocked:
+	case Working, Blocked:
 		return fmt.Errorf("%s is %s, so its tab is left open", agent, status)
 	}
 	t, err := call(run, "tab", "get", tab)

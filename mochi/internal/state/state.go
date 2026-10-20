@@ -88,18 +88,22 @@ func (s Store) Remove(thread string) error {
 	return s.save(all)
 }
 
-// Renamed into place, so a reader never sees half a file.
 func (s Store) save(all map[string]Session) error {
-	body, err := json.MarshalIndent(all, "", "  ")
+	return write(s.Path, all)
+}
+
+// Renamed into place, so a reader never sees half a file.
+func write(path string, v any) error {
+	body, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(s.Path), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	tmp := s.Path + ".tmp"
+	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, body, 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, s.Path)
+	return os.Rename(tmp, path)
 }

@@ -167,7 +167,7 @@ func (h *Handler) stop(rec state.Session, m *discordgo.Message) {
 	case err != nil:
 		h.fail(m, rec.Thread, "the session could not be reached", err)
 		return
-	case status == "working" || status == herdr.Blocked:
+	case status == herdr.Working || status == herdr.Blocked:
 		if err := herdr.Interrupt(h.Herdr, rec.Agent); err != nil {
 			h.fail(m, rec.Thread, "the session could not be stopped", err)
 			return

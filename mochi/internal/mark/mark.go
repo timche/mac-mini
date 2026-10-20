@@ -96,6 +96,22 @@ func (k Marker) Set(ref state.Ref, emoji string) {
 	k.update(func(m *marks) { k.react(m, ref, emoji) })
 }
 
+// Clear takes mochi's reaction off a message, leaving none: a question that expired is not
+// waiting on anybody.
+func (k Marker) Clear(ref state.Ref) {
+	k.update(func(m *marks) {
+		was := m.Shown[key(ref)]
+		if was == "" {
+			return
+		}
+		if err := k.API.Unreact(ref.Channel, ref.Message, was); err != nil {
+			k.Log.Warn("a reaction could not be taken back", "emoji", was, "error", err)
+			return
+		}
+		delete(m.Shown, key(ref))
+	})
+}
+
 // A thread mochi just made, under the name it gave it. Only these carry the state in their
 // name: a thread somebody else made keeps the title they gave it, so it is never named here.
 func (k Marker) Named(thread, title, name string) {

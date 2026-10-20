@@ -199,6 +199,9 @@ func TestAnUnansweredQuestionExpiresAfterADay(t *testing.T) {
 	if len(f.pending()) != 0 {
 		t.Error("an expired question was kept")
 	}
+	if got := f.api.Showing(f.api.Sent[0].Msg.Reference.MessageID); len(got) != 0 {
+		t.Errorf("Tim's mention still shows %v", got)
+	}
 
 	press(f, tim, b[0].CustomID)
 	if len(f.herdr.calls) != 0 {

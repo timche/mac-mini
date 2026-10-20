@@ -218,6 +218,7 @@ func (h *Handler) ExpirePending() {
 
 func (h *Handler) expire(p state.Pending) {
 	h.closeQuestion(p, question+" Expired — mention mochi again.")
+	h.Marks.Clear(state.Ref{Channel: p.Channel, Message: p.Mention})
 	if err := h.Pending.Remove(p.Nonce); err != nil {
 		h.Log.Error("an expired question could not be forgotten", "error", err)
 	}

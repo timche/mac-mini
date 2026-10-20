@@ -54,7 +54,10 @@ func (h *Handler) WatchBlocked() {
 			delete(seen, thread)
 			continue
 		}
-		b.Polls++
+		// Counted only as far as it decides anything, so a long wait is one write, not one a poll.
+		if b.Polls < blockedPolls {
+			b.Polls++
+		}
 		if b.Polls >= blockedPolls && !b.Pinged {
 			b.Pinged = h.ping(thread)
 			if b.Pinged {

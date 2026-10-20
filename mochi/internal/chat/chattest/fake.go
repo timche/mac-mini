@@ -32,8 +32,11 @@ type Fake struct {
 	Sent      []Sent
 	Pages     []string
 
-	ThreadErr error
-	next      int
+	Standalone []string
+
+	ThreadErr  error
+	next       int
+	newThreads int
 }
 
 func New() *Fake {
@@ -138,6 +141,19 @@ func (f *Fake) StartThread(channel, message, name string) (*discordgo.Channel, e
 	thread := &discordgo.Channel{ID: message, GuildID: parent.GuildID, ParentID: channel, Name: name, Type: discordgo.ChannelTypeGuildPublicThread}
 	f.AddChannel(thread)
 	f.Threads = append(f.Threads, message+" "+name)
+	return thread, nil
+}
+
+// New threads are numbered from 800000 so a test can tell them from messages.
+func (f *Fake) NewThread(channel, name string) (*discordgo.Channel, error) {
+	if f.ThreadErr != nil {
+		return nil, f.ThreadErr
+	}
+	parent := f.Channels[channel]
+	f.newThreads++
+	thread := &discordgo.Channel{ID: ID(800_000 + f.newThreads), GuildID: parent.GuildID, ParentID: channel, Name: name, Type: discordgo.ChannelTypeGuildPublicThread}
+	f.AddChannel(thread)
+	f.Standalone = append(f.Standalone, channel+" "+name)
 	return thread, nil
 }
 

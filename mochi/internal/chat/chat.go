@@ -26,6 +26,9 @@ type API interface {
 
 	React(channel, message, emoji string) error
 	StartThread(channel, message, name string) (*discordgo.Channel, error)
+
+	// A public thread on no message, which is how one mention gets several.
+	NewThread(channel, name string) (*discordgo.Channel, error)
 	Send(channel string, msg *discordgo.MessageSend) (*discordgo.Message, error)
 
 	// An attachment's bytes off Discord's CDN, which needs no token.
@@ -141,6 +144,14 @@ func (l Live) React(channel, message, emoji string) error {
 func (l Live) StartThread(channel, message, name string) (*discordgo.Channel, error) {
 	return l.S.MessageThreadStartComplex(channel, message, &discordgo.ThreadStart{
 		Name:                name,
+		AutoArchiveDuration: 1440,
+	})
+}
+
+func (l Live) NewThread(channel, name string) (*discordgo.Channel, error) {
+	return l.S.ThreadStartComplex(channel, &discordgo.ThreadStart{
+		Name:                name,
+		Type:                discordgo.ChannelTypeGuildPublicThread,
 		AutoArchiveDuration: 1440,
 	})
 }

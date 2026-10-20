@@ -42,6 +42,12 @@ type Wait struct {
 	CloseAt int64 `json:"close_at,omitempty"`
 }
 
+// Lasting is what outlives one wait: when and how Tim last reached the session, a close that is
+// coming, and a thread that is gone.
+func (w Wait) Lasting() Wait {
+	return Wait{Dead: w.Dead, Heard: w.Heard, Discord: w.Discord, CloseAt: w.CloseAt}
+}
+
 type WaitStore struct{ Path string }
 
 // ErrCorrupt is a file that would not parse and has been moved aside: what it held is lost,

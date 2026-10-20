@@ -150,7 +150,7 @@ func (h *Handler) pingWaiting(waits map[string]state.Wait) {
 		if !w.Asked {
 			// The session may have said it is done while the grace ran.
 			if shown, _ := h.Marks.Session(thread); shown == mark.Finished {
-				waits[thread] = state.Wait{Heard: w.Heard, Discord: w.Discord, CloseAt: w.CloseAt}
+				waits[thread] = w.Lasting()
 				continue
 			}
 			h.Marks.Settled(thread, mark.Asking)
@@ -160,9 +160,12 @@ func (h *Handler) pingWaiting(waits map[string]state.Wait) {
 		err := h.ping(thread)
 		switch {
 		case err == nil:
-			w = state.Wait{Pinged: true, Asked: true, Seq: w.Seq, Heard: w.Heard, Discord: w.Discord, CloseAt: w.CloseAt}
+			seq := w.Seq
+			w = w.Lasting()
+			w.Pinged, w.Asked, w.Seq = true, true, seq
 		case chat.Gone(err):
-			w = state.Wait{Dead: true, Heard: w.Heard, Discord: w.Discord, CloseAt: w.CloseAt}
+			w = w.Lasting()
+			w.Dead = true
 			h.Log.Warn("the thread of a session waiting on Tim is gone, so it is pinged no more", "thread", thread)
 		default:
 			wait := max(pingBackoff, min(time.Duration(w.Backoff)*time.Second*2, pingBackoffMax))

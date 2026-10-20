@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
+	"github.com/timche/mac-mini/mochi/internal/split"
 	"github.com/timche/mac-mini/mochi/internal/state"
 )
 
@@ -48,7 +49,7 @@ const (
 // The tags a forum post carries, found on the forum by name: its state, and the kind of work.
 var (
 	stateTags = map[string]string{Running: "Running", Asking: "Waiting on you", Finished: "Done", Failed: "Failed"}
-	typeTags  = map[string]string{"feature": "Feature", "bug": "Bug", "improvement": "Improvement", "research": "Research"}
+	typeTags  = map[string]string{split.Feature: "Feature", split.Bug: "Bug", split.Improvement: "Improvement", split.Research: "Research"}
 )
 
 // PostTags are the names of the tags a post in this state, of this type, carries.
@@ -191,7 +192,7 @@ var ErrNoType = errors.New("this session's thread is not a forum post mochi made
 
 // Typed refiles a forum post under another kind of work, in the same edit as its name.
 func (k Marker) Typed(thread, typ string) error {
-	if _, ok := typeTags[typ]; !ok {
+	if !split.IsType(typ) {
 		return fmt.Errorf("%s is not a type: feature, bug, improvement or research", typ)
 	}
 	err := ErrNoType

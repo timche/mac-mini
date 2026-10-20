@@ -72,6 +72,7 @@ func openingText(ch *discordgo.Channel, m *discordgo.Message, instruction string
 	b.WriteString("- Each message carries its author, its time and its link. Attachments are downloaded to the paths listed beside their message; read images there directly.\n")
 	b.WriteString("- The context may be cut off, since discussion here is mostly plain messages rather than replies. Whenever the start of the topic is not in view, page back with `mochi history --before <oldest message id>` until it is (`--after`, `--around` and `--limit` up to 100 work too). It reads only the channel this session started from, in the same fenced form.\n")
 	b.WriteString("- `mochi post \"<text>\"`, with `--file <path>` for a screenshot or a file, posts into this session's Discord thread without pinging anyone. Post only when Tim asks: findings, a plan, a PR link, a screenshot.\n")
+	b.WriteString("- This tab is already named for the thread; don't rename it.\n")
 	b.WriteString("- Tim follows up in that thread. What he writes there, with whatever others wrote since his previous message, arrives here as a new prompt.\n\n")
 
 	b.WriteString("Tim's message follows between the two markers below, in his words, with the mention of mochi taken out and any backtick made a quote mark.\n")

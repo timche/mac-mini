@@ -79,6 +79,9 @@ type reply struct {
 		RootPane struct {
 			PaneID string `json:"pane_id"`
 		} `json:"root_pane"`
+		Tabs []struct {
+			Label string `json:"label"`
+		} `json:"tabs"`
 	} `json:"result"`
 	Error *struct {
 		Code    string `json:"code"`
@@ -128,6 +131,19 @@ func Workspace(run Runner, label, cwd string) (string, error) {
 		return "", fmt.Errorf("herdr made the %s workspace but did not name it", label)
 	}
 	return made.Result.Workspace.WorkspaceID, nil
+}
+
+// The labels of a workspace's tabs, so a new one can be told apart from them.
+func Tabs(run Runner, workspace string) ([]string, error) {
+	r, err := call(run, "tab", "list", "--workspace", workspace)
+	if err != nil {
+		return nil, err
+	}
+	labels := make([]string, 0, len(r.Result.Tabs))
+	for _, t := range r.Result.Tabs {
+		labels = append(labels, t.Label)
+	}
+	return labels, nil
 }
 
 // Never focused: Tim may be in the middle of something in that workspace.

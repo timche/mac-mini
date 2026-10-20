@@ -350,13 +350,17 @@ func (h *Handler) restart(server config.Server, ch *discordgo.Channel, rec state
 func (h *Handler) start(server config.Server, rec *state.Session, name, text string) error {
 	rec.Agent = "mochi-" + rec.Thread
 	rec.Workspace = server.Workspace
-	rec.Tab = tabLabel(name, h.Now())
 	rec.Updated = h.Now().Unix()
 
 	workspace, err := herdr.Workspace(h.Herdr, server.Workspace, server.Repo)
 	if err != nil {
 		return h.herdrFailed("the herdr workspace could not be found or made", err)
 	}
+	taken, err := herdr.Tabs(h.Herdr, workspace)
+	if err != nil {
+		h.Log.Warn("the workspace's tabs could not be listed, so the label may repeat one", "error", h.redact(err))
+	}
+	rec.Tab = tabLabel(name, taken)
 	pane, err := herdr.Tab(h.Herdr, workspace, rec.Tab, server.Repo, ThreadVar+"="+rec.Thread)
 	if err != nil {
 		return h.herdrFailed("a herdr tab could not be opened", err)
@@ -442,15 +446,31 @@ func (h *Handler) Prune(keep time.Duration) {
 
 var unslug = regexp.MustCompile(`[^a-z0-9]+`)
 
-func tabLabel(channel string, now time.Time) string {
-	slug := strings.Trim(unslug.ReplaceAllString(strings.ToLower(channel), "-"), "-")
-	if len(slug) > 30 {
-		slug = strings.TrimRight(slug[:30], "-")
-	}
+// The session's title as a herdr label, kebab-case and at most 30 characters, with a short
+// suffix when a tab in the workspace already has it. Sessions keep it: a tab with MOCHI_THREAD
+// set is not renamed.
+func tabLabel(name string, taken []string) string {
+	slug := strings.Trim(unslug.ReplaceAllString(strings.ToLower(name), "-"), "-")
 	if slug == "" {
 		slug = "discord"
 	}
-	return slug + "-" + now.Format("1504")
+	used := map[string]bool{}
+	for _, t := range taken {
+		used[t] = true
+	}
+	for n := 1; ; n++ {
+		suffix := ""
+		if n > 1 {
+			suffix = fmt.Sprintf("-%d", n)
+		}
+		label := slug
+		if len(label) > 30-len(suffix) {
+			label = strings.TrimRight(label[:30-len(suffix)], "-")
+		}
+		if label += suffix; !used[label] {
+			return label
+		}
+	}
 }
 
 func threadName(name string) string {

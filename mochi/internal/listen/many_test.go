@@ -70,7 +70,7 @@ func TestASplitIntoThreeOpensThreeThreadsAndTabsAndOneReply(t *testing.T) {
 	if len(f.api.Standalone) != 3 || f.api.Standalone[0] != channel+" mochi: Average elo per team" {
 		t.Fatalf("threads = %v", f.api.Standalone)
 	}
-	if got := f.herdr.called("tab create"); len(got) != 3 || got[0][5] != "average-elo-per-team-1504" {
+	if got := f.herdr.called("tab create"); len(got) != 3 || got[0][5] != "average-elo-per-team" {
 		t.Errorf("tabs = %v", got)
 	}
 
@@ -164,9 +164,9 @@ func TestAClassifierThatFailsIsOneSessionAsBefore(t *testing.T) {
 		if got := strings.TrimSpace(between(t, prompt, "INSTRUCTION FROM TIM")); got != "research a, b and c separately" {
 			t.Errorf("%s: instruction = %q", name, got)
 		}
-		tab := "research-a-b-and-c-separately-1504"
+		tab := "research-a-b-and-c-separately"
 		if name == "one task" {
-			tab = "research-1504"
+			tab = "research"
 		}
 		if posts := f.sentTo(m.ID); len(posts) != 1 || posts[0] != "session started in repeek: "+tab {
 			t.Errorf("%s: posts = %q", name, posts)
@@ -306,11 +306,11 @@ func TestASingleSessionIsNamedForItsTask(t *testing.T) {
 	}{
 		"the classifier's title": {
 			splitsInto([]split.Task{{Title: "FACEIT overlay blocks hover", Instruction: "have a look at this"}}, nil, nil),
-			"mochi: FACEIT overlay blocks hover", "faceit-overlay-blocks-hover-1504",
+			"mochi: FACEIT overlay blocks hover", "faceit-overlay-blocks-hover",
 		},
 		"the replied-to message when the classifier failed": {
 			splitsInto(nil, errors.New("claude did not answer"), nil),
-			"mochi: The FACEIT overlay blocks hover on the scoreboard since…", "the-faceit-overlay-blocks-hove-1504",
+			"mochi: The FACEIT overlay blocks hover on the scoreboard since…", "the-faceit-overlay-blocks-hove",
 		},
 	} {
 		f := newFixture(t)

@@ -42,6 +42,9 @@ type fakeHerdr struct {
 	prompts    map[string][]string
 	startFails bool
 
+	// Every tab's label, as `tab list` answers.
+	tabs []string
+
 	// The nth start and every one after it fail, when set.
 	starts, failFrom int
 
@@ -77,7 +80,14 @@ func (f *fakeHerdr) run(args ...string) ([]byte, error) {
 		f.workspaces[args[3]] = "w9"
 		return answer(map[string]any{"result": map[string]any{"workspace": map[string]string{"workspace_id": "w9"}}}), nil
 	case "tab create":
+		f.tabs = append(f.tabs, args[5])
 		return answer(map[string]any{"result": map[string]any{"root_pane": map[string]string{"pane_id": "p1"}}}), nil
+	case "tab list":
+		var tabs []map[string]string
+		for _, label := range f.tabs {
+			tabs = append(tabs, map[string]string{"label": label})
+		}
+		return answer(map[string]any{"result": map[string]any{"tabs": tabs}}), nil
 	case "agent start":
 		if f.started != nil {
 			f.started <- struct{}{}
@@ -222,7 +232,7 @@ func TestAReplyToAnOldMessageStartsALeadSessionWithTheDiscussion(t *testing.T) {
 
 	agent := "mochi-" + m.ID
 	if got := f.herdr.called("tab create"); len(got) != 1 || strings.Join(got[0], " ") !=
-		"tab create --workspace w4 --label qol-a-average-elo-per-team-b-m-1504 --cwd /repos/repeek --no-focus --env MOCHI_THREAD="+m.ID {
+		"tab create --workspace w4 --label qol-a-average-elo-per-team-b-m --cwd /repos/repeek --no-focus --env MOCHI_THREAD="+m.ID {
 		t.Errorf("tab create = %v", got)
 	}
 	if got := f.herdr.called("agent start"); len(got) != 1 || strings.Join(got[0], " ") !=
@@ -249,11 +259,11 @@ func TestAReplyToAnOldMessageStartsALeadSessionWithTheDiscussion(t *testing.T) {
 	}
 
 	thread := f.sentTo(m.ID)
-	if len(thread) != 1 || thread[0] != "session started in repeek: qol-a-average-elo-per-team-b-m-1504" {
+	if len(thread) != 1 || thread[0] != "session started in repeek: qol-a-average-elo-per-team-b-m" {
 		t.Errorf("thread posts = %q", thread)
 	}
 	rec := f.record(m.ID)
-	if rec.Source != channel || rec.Agent != agent || rec.LastMention != m.ID || rec.Tab != "qol-a-average-elo-per-team-b-m-1504" {
+	if rec.Source != channel || rec.Agent != agent || rec.LastMention != m.ID || rec.Tab != "qol-a-average-elo-per-team-b-m" {
 		t.Errorf("record = %+v", rec)
 	}
 	f.quiet()
@@ -279,7 +289,7 @@ func TestAMentionInAForumPostUsesThatPostAsTheThread(t *testing.T) {
 	if !strings.Contains(context, "Bug: elo resets after a draw") || strings.Count(context, "me too") != 20 {
 		t.Errorf("the whole post is not in the context:\n%s", context)
 	}
-	if got := f.sentTo(post); len(got) != 1 || got[0] != "session started in repeek: look-into-this-1504" {
+	if got := f.sentTo(post); len(got) != 1 || got[0] != "session started in repeek: look-into-this" {
 		t.Errorf("post replies = %q", got)
 	}
 	if rec := f.record(post); rec.Source != post {
@@ -405,7 +415,7 @@ func TestARelayToABlockedSessionFailsWithAReason(t *testing.T) {
 		t.Error("no ❌")
 	}
 	posts := f.sentTo(first.ID)
-	if !strings.Contains(posts[len(posts)-1], "❌ the session is waiting on a question in repeek: research-a-1504") {
+	if !strings.Contains(posts[len(posts)-1], "❌ the session is waiting on a question in repeek: research-a") {
 		t.Errorf("posts = %q", posts)
 	}
 	if f.record(first.ID).LastMention != first.ID {
@@ -442,7 +452,7 @@ func TestAHerdrFailureIsACrossAndAReason(t *testing.T) {
 		t.Errorf("reactions = %v", f.api.Reactions)
 	}
 	posts := f.sentTo(m.ID)
-	if len(posts) != 1 || posts[0] != "❌ Claude Code did not start in repeek: research-1504" {
+	if len(posts) != 1 || posts[0] != "❌ Claude Code did not start in repeek: research" {
 		t.Errorf("thread posts = %q", posts)
 	}
 	if _, ok, _ := f.h.Store.Get(m.ID); ok {

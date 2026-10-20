@@ -25,6 +25,7 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/config"
 	"github.com/timche/mac-mini/mochi/internal/event"
 	"github.com/timche/mac-mini/mochi/internal/history"
+	"github.com/timche/mac-mini/mochi/internal/leaks"
 	"github.com/timche/mac-mini/mochi/internal/listen"
 	"github.com/timche/mac-mini/mochi/internal/mark"
 	"github.com/timche/mac-mini/mochi/internal/op"
@@ -177,6 +178,7 @@ func run(args []string) error {
 			server, _ := cfg.Server(guild)
 			return []string{root, scratch(cfg.Home, root), scratch(cfg.Home, server.Repo)}, nil
 		}
+		p.Leaks = leaks.CLI
 		if err := post.Send(api, state.Store{Path: cfg.StatePath()}, marks, repos, thread, p); err != nil {
 			return err
 		}

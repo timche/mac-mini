@@ -15,6 +15,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
+	"github.com/timche/mac-mini/mochi/internal/leaks"
 	"github.com/timche/mac-mini/mochi/internal/mark"
 	"github.com/timche/mac-mini/mochi/internal/origin"
 	"github.com/timche/mac-mini/mochi/internal/state"
@@ -147,16 +148,12 @@ type Roots func(guild string) ([]string, error)
 //
 // It answers each file's real path, which is what is opened to send, so what was checked is
 // what goes up.
-func checkInside(files []string, guild string, roots Roots) ([]string, error) {
+func checkInside(files []string, bases []string) ([]string, error) {
 	if len(files) == 0 {
 		return nil, nil
 	}
-	if roots == nil {
+	if bases == nil {
 		return nil, errors.New("there is no checkout to check the files against")
-	}
-	bases, err := roots(guild)
-	if err != nil {
-		return nil, err
 	}
 	var real []string
 	for _, b := range bases {
@@ -188,6 +185,44 @@ func checkInside(files []string, guild string, roots Roots) ([]string, error) {
 		resolved = append(resolved, path)
 	}
 	return resolved, nil
+}
+
+// The scan refuses a post with what it found and where, never the secret, and refuses it as
+// well when it cannot run: a post it could not check is not sent. A project's own configuration
+// in its checkout is the one used.
+func scan(run leaks.Runner, bases []string, text string, files []string) error {
+	if run == nil {
+		return nil
+	}
+	s := leaks.Scanner{Run: run}
+	if len(bases) > 0 {
+		for _, name := range []string{".betterleaks.toml", ".gitleaks.toml"} {
+			if info, err := os.Stat(filepath.Join(bases[0], name)); err == nil && info.Mode().IsRegular() {
+				s.Config = filepath.Join(bases[0], name)
+				break
+			}
+		}
+	}
+	found, err := s.Text(text)
+	if err != nil {
+		return fmt.Errorf("the secret scan couldn't run, so nothing was posted: %v", err)
+	}
+	if len(found) > 0 {
+		return fmt.Errorf("the secret scan found %s in the post's text, so nothing was posted (the secret is not shown): tell Tim in this session", found[0].RuleID)
+	}
+	for _, file := range files {
+		if isMedia(file) {
+			continue
+		}
+		found, err := s.File(file)
+		if err != nil {
+			return fmt.Errorf("the secret scan couldn't run, so nothing was posted: %v", err)
+		}
+		if len(found) > 0 {
+			return fmt.Errorf("the secret scan found %s in %s, so nothing was posted (the secret is not shown): tell Tim in this session", found[0].RuleID, found[0].File)
+		}
+	}
+	return nil
 }
 
 // Names a secret is kept under, matched on a file's own name in any case.
@@ -308,6 +343,10 @@ type Post struct {
 	// The session's folders, one of which every attached file has to be inside; nil takes no
 	// file.
 	Roots Roots
+
+	// The secret scan the text and every attachment but images and videos go through before
+	// anything is sent; nil scans nothing.
+	Leaks leaks.Runner
 }
 
 var pullRequest = regexp.MustCompile(`\Ahttps://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)/?\z`)
@@ -380,8 +419,17 @@ func Send(api chat.API, store state.Store, marks *mark.Marker, repos Repos, thre
 			return err
 		}
 	}
-	files, err := checkInside(p.Files, guild, p.Roots)
+	var bases []string
+	if p.Roots != nil && (len(p.Files) > 0 || p.Leaks != nil) {
+		if bases, err = p.Roots(guild); err != nil {
+			return err
+		}
+	}
+	files, err := checkInside(p.Files, bases)
 	if err != nil {
+		return err
+	}
+	if err := scan(p.Leaks, bases, p.Text, files); err != nil {
 		return err
 	}
 	if len(files) > 0 {

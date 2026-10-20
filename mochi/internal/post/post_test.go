@@ -1,6 +1,7 @@
 package post
 
 import (
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -547,5 +548,56 @@ func TestFilesAreHeldToTheLimitTogether(t *testing.T) {
 	}
 	if len(api.Sent) != 0 {
 		t.Error("a post too large together went up")
+	}
+}
+
+// A post the scan finds a secret in, in its text or an attachment, is not sent and says what
+// rule matched where; images and videos are not scanned; a scan that cannot run sends nothing;
+// a checkout's own configuration is the one used.
+func TestTheSecretScanStandsBeforeAPost(t *testing.T) {
+	api, store := fixture(t)
+	checkout, _ := filepath.EvalSymlinks(t.TempDir())
+	os.WriteFile(filepath.Join(checkout, ".gitleaks.toml"), []byte(""), 0o644)
+	build := filepath.Join(checkout, "build.zip")
+	os.WriteFile(build, []byte("zip"), 0o644)
+	shot := filepath.Join(checkout, "after.png")
+	os.WriteFile(shot, []byte("png"), 0o644)
+	roots := Roots(func(string) ([]string, error) { return []string{checkout}, nil })
+
+	var scanned []string
+	leak := ""
+	run := func(_ context.Context, args []string, _ io.Reader) ([]byte, int, error) {
+		target := args[len(args)-1]
+		scanned = append(scanned, strings.Join(args, " "))
+		if leak != "" && (target == leak || (leak == "text" && args[0] == "stdin")) {
+			return []byte(`[{"RuleID":"aws-access-token","File":"` + target + `!config.txt","Secret":"REDACTED"}]`), 1, nil
+		}
+		return []byte("[]"), 0, nil
+	}
+
+	if err := Send(api, store, nil, repeek, thread, Post{Text: "ok", Files: []string{build, shot}, Roots: roots, Leaks: run}); err != nil {
+		t.Fatal(err)
+	}
+	if len(scanned) != 2 || !strings.HasPrefix(scanned[0], "stdin ") || !strings.HasSuffix(scanned[1], " "+build) || !strings.Contains(scanned[1], "--config "+filepath.Join(checkout, ".gitleaks.toml")) {
+		t.Errorf("scanned %q", scanned)
+	}
+
+	leak = build
+	err := Send(api, store, nil, repeek, thread, Post{Text: "ok", Files: []string{build}, Roots: roots, Leaks: run})
+	if err == nil || !strings.Contains(err.Error(), "found aws-access-token in "+build+"!config.txt") || strings.Contains(err.Error(), "REDACTED") {
+		t.Errorf("a leak in a file: %v", err)
+	}
+	leak = "text"
+	if err := Send(api, store, nil, repeek, thread, Post{Text: "the key", Roots: roots, Leaks: run}); err == nil || !strings.Contains(err.Error(), "in the post's text") {
+		t.Errorf("a leak in the text: %v", err)
+	}
+	broken := func(context.Context, []string, io.Reader) ([]byte, int, error) {
+		return nil, 0, errors.New("betterleaks is not on PATH")
+	}
+	if err := Send(api, store, nil, repeek, thread, Post{Text: "ok", Roots: roots, Leaks: broken}); err == nil || !strings.Contains(err.Error(), "the secret scan couldn't run") {
+		t.Errorf("a scan that cannot run: %v", err)
+	}
+	if len(api.Sent) != 1 {
+		t.Errorf("%d posts, want 1", len(api.Sent))
 	}
 }

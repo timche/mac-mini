@@ -19,7 +19,7 @@ var (
 	mu    sync.Mutex
 	cache = map[string]string{}
 
-	github = regexp.MustCompile(`\A(?:https://github\.com/|ssh://git@github\.com/|git@github\.com:)([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?/?\z`)
+	github = regexp.MustCompile(`\A(?:https://github\.com/|ssh://github\.com/|git@github\.com:)([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?/?\z`)
 )
 
 // "owner/repo" for the checkout at path. Kept once read: a remote does not move under a session.
@@ -46,7 +46,12 @@ func Of(path string) (string, error) {
 	return repo, nil
 }
 
+// A remote can carry credentials, https://user:token@host/…, which no error may echo and no
+// match needs.
+var userinfo = regexp.MustCompile(`\A([A-Za-z][A-Za-z0-9+.-]*://)[^/@]*@`)
+
 func Parse(remote string) (string, error) {
+	remote = userinfo.ReplaceAllString(remote, "$1")
 	m := github.FindStringSubmatch(remote)
 	if m == nil {
 		return "", fmt.Errorf("%s is not a GitHub remote", remote)

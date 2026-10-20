@@ -42,9 +42,29 @@ func (h *Handler) ConsumeEvents() {
 		before[k] = v
 	}
 
+	var watches map[string]state.Watch
 	for _, ev := range events {
-		h.waiting(ev, waits)
+		if ev.Kind != event.PR {
+			h.waiting(ev, waits)
+			event.Done(ev)
+			continue
+		}
+		if watches == nil {
+			var err error
+			if watches, err = h.Watches.Load(); err != nil {
+				// Left in the spool, for the next read.
+				h.Log.Error("the watched pull requests could not be read", "error", err)
+				watches = nil
+				continue
+			}
+		}
+		h.watch(ev, watches)
 		event.Done(ev)
+	}
+	if watches != nil {
+		if err := h.Watches.Save(watches); err != nil {
+			h.Log.Error("the watched pull requests could not be kept", "error", err)
+		}
 	}
 	h.pingWaiting(waits)
 	h.closeDone(waits)

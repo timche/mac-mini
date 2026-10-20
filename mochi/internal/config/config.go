@@ -80,6 +80,9 @@ func (c Config) PendingPath() string { return filepath.Join(c.CacheDir, "pending
 // Which sessions are waiting on Tim, and whether he has been told since his last word to them.
 func (c Config) WaitsPath() string { return filepath.Join(c.CacheDir, "waits.json") }
 
+// The pull requests sessions posted that mochi follows.
+func (c Config) WatchesPath() string { return filepath.Join(c.CacheDir, "prs.json") }
+
 // What mochi's reactions and thread names show, shared by the listener and `mochi post`.
 func (c Config) MarksPath() string { return filepath.Join(c.CacheDir, "marks.json") }
 

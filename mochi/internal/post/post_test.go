@@ -390,3 +390,13 @@ func TestEveryMediaKindCountsTowardItsHeading(t *testing.T) {
 		}
 	}
 }
+
+func TestAPullRequestAddressIsItsRepoAndNumber(t *testing.T) {
+	repo, n, ok := ParsePR("https://github.com/timche/repeek/pull/42")
+	if !ok || repo != "timche/repeek" || n != 42 {
+		t.Errorf("= %q %d %v", repo, n, ok)
+	}
+	if _, _, ok := ParsePR("https://github.com/timche/repeek/issues/42"); ok {
+		t.Error("an issue was taken for a pull request")
+	}
+}

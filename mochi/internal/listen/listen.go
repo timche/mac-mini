@@ -13,6 +13,7 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/config"
 	"github.com/timche/mac-mini/mochi/internal/event"
+	"github.com/timche/mac-mini/mochi/internal/gh"
 	"github.com/timche/mac-mini/mochi/internal/herdr"
 	"github.com/timche/mac-mini/mochi/internal/mark"
 	"github.com/timche/mac-mini/mochi/internal/op"
@@ -29,6 +30,7 @@ const (
 	retryAfter = 30 * time.Minute
 
 	beatEvery   = 30 * time.Second
+	prsEvery    = 2 * time.Minute
 	eventsEvery = time.Second
 	pruneEvery  = time.Hour
 	keepGone    = 7 * 24 * time.Hour
@@ -78,6 +80,8 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 		Store:   state.Store{Path: cfg.StatePath()},
 		Pending: state.PendingStore{Path: cfg.PendingPath()},
 		Waits:   state.WaitStore{Path: cfg.WaitsPath()},
+		Watches: state.WatchStore{Path: cfg.WatchesPath()},
+		GH:      gh.CLI,
 		Marks:   mark.Marker{API: chat.NewLive(s), Path: cfg.MarksPath(), Now: time.Now, Log: log},
 		Now:     time.Now,
 		Log:     log,
@@ -132,7 +136,7 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 
 	binary := self.Looking(self.Stat)
 	refresh := newRefresher(time.Now(), runWrapper(cfg.Home))
-	var pruned time.Time
+	var pruned, looked time.Time
 	var lost down
 	for {
 		time.Sleep(beatEvery)
@@ -149,6 +153,10 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 		h.Marks.Retry()
 		if err := refresh.tick(time.Now()); err != nil {
 			log.Warn("the wrapper could not be run to pick up a change to mochi", "error", err)
+		}
+		if time.Since(looked) > prsEvery {
+			h.WatchPRs()
+			looked = time.Now()
 		}
 		if time.Since(pruned) > pruneEvery {
 			h.Prune(keepGone)

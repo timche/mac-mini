@@ -20,6 +20,7 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/config"
 	"github.com/timche/mac-mini/mochi/internal/gather"
+	"github.com/timche/mac-mini/mochi/internal/gh"
 	"github.com/timche/mac-mini/mochi/internal/herdr"
 	"github.com/timche/mac-mini/mochi/internal/mark"
 	"github.com/timche/mac-mini/mochi/internal/split"
@@ -55,6 +56,10 @@ type Handler struct {
 	// The pause between reads of an agent's status after its question is cancelled; nil is
 	// time.Sleep.
 	Nap func(time.Duration)
+
+	// The pull requests sessions posted, and GitHub to follow them on; nil follows none.
+	Watches state.WatchStore
+	GH      gh.Runner
 
 	// One mention at a time: each is a handful of Discord calls and a herdr start, and two
 	// at once would race on the state file and on the agent name.
@@ -614,6 +619,7 @@ func (h *Handler) Prune(keep time.Duration) {
 		}
 		os.RemoveAll(h.Cfg.SessionDir(thread))
 		delete(all, thread)
+		h.unwatch(thread)
 		h.Log.Info("forgot a finished session and its attachments", "thread", thread, "agent", rec.Agent)
 	}
 	h.Marks.Prune(func(thread string) bool { _, ok := all[thread]; return ok })

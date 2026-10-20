@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -169,6 +170,16 @@ type Post struct {
 }
 
 var pullRequest = regexp.MustCompile(`\Ahttps://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)/?\z`)
+
+// ParsePR is a pull request address's "owner/repo" and number.
+func ParsePR(url string) (string, int, bool) {
+	m := pullRequest.FindStringSubmatch(url)
+	if m == nil {
+		return "", 0, false
+	}
+	n, err := strconv.Atoi(m[2])
+	return m[1], n, err == nil
+}
 
 // The line a pull request gets: its number and its link, as `#<number> (<url>)`.
 func PRLine(url string) (string, error) {

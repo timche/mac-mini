@@ -27,6 +27,10 @@ const (
 	// by a hook.
 	Close = "close"
 
+	// The session posted a pull request, which mochi follows from then on. Written by `mochi
+	// post`, never by a hook.
+	PR = "pr"
+
 	ThreadVar = "MOCHI_THREAD"
 )
 
@@ -45,6 +49,9 @@ type Event struct {
 	// rather than anything he typed there.
 	Relayed bool `json:"relayed,omitempty"`
 
+	// A pull request's address, for a PR event.
+	PR string `json:"pr,omitempty"`
+
 	file string
 }
 
@@ -54,9 +61,10 @@ const (
 	OpeningPrefix  = "Invoke the lead skill and the mochi skill before anything else."
 	FollowedPrefix = "Tim followed up in this session's Discord thread"
 	AnsweredPrefix = "Tim answered in Discord"
+	CIPrefix       = "CI failed on #"
 )
 
-var relayed = []string{OpeningPrefix, FollowedPrefix, AnsweredPrefix}
+var relayed = []string{OpeningPrefix, FollowedPrefix, AnsweredPrefix, CIPrefix}
 
 func FromMochi(prompt string) bool {
 	for _, prefix := range relayed {

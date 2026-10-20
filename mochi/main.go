@@ -156,9 +156,14 @@ func run(args []string) error {
 		if err := post.Send(api, state.Store{Path: cfg.StatePath()}, marks, repos, thread, p); err != nil {
 			return err
 		}
+		at := time.Now()
+		if p.PR != "" {
+			if err := event.Put(cfg.EventsDir(), event.Event{Thread: thread, Kind: event.PR, PR: p.PR, At: at.Unix(), Nanos: at.UnixNano()}); err != nil {
+				return err
+			}
+		}
 		if p.Close {
-			at := time.Now()
-			return event.Put(cfg.EventsDir(), event.Event{Thread: thread, Kind: event.Close, At: at.Unix(), Nanos: at.UnixNano()})
+			return event.Put(cfg.EventsDir(), event.Event{Thread: thread, Kind: event.Close, At: at.Unix(), Nanos: at.UnixNano() + 1})
 		}
 		return nil
 

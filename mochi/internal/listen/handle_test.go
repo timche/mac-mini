@@ -225,6 +225,7 @@ func newFixture(t *testing.T) *fixture {
 		Store:   state.Store{Path: cfg.StatePath()},
 		Pending: state.PendingStore{Path: cfg.PendingPath()},
 		Waits:   state.WaitStore{Path: cfg.WaitsPath()},
+		Watches: state.WatchStore{Path: cfg.WatchesPath()},
 		Now:     func() time.Time { return time.Date(2026, 10, 20, 15, 4, 0, 0, time.UTC) },
 		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Token:   "secret-token",

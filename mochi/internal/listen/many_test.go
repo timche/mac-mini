@@ -185,7 +185,7 @@ func TestMoreThanFiveTasksIsRefused(t *testing.T) {
 	if len(f.herdr.calls) != 0 || len(f.api.Threads) != 0 || len(f.api.Standalone) != 0 {
 		t.Error("something was started")
 	}
-	if reply := f.sentTo(channel); len(reply) != 1 || reply[0] != "❌ that is 6 tasks, and mochi starts at most 5 from one message" {
+	if reply := f.sentTo(channel); len(reply) != 1 || reply[0] != "❌ That is 6 tasks, and mochi starts at most 5 from one message." {
 		t.Errorf("reply = %q", reply)
 	}
 	if !f.api.ReactedWith(m.ID, "❌") {

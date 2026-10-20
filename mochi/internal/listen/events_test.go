@@ -17,7 +17,7 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/state"
 )
 
-const ping = "<@94004892942741504> the session is waiting on you."
+const ping = "The session is waiting on <@94004892942741504>."
 
 func startedSession(t *testing.T) (*fixture, string) {
 	t.Helper()

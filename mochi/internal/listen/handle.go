@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -523,7 +524,7 @@ func (h *Handler) fail(m *discordgo.Message, thread, reason string, err error) {
 	h.Log.Error(reason, "message", m.ID, "error", h.redact(err))
 	h.Marks.Set(ref(m), mark.Failed)
 
-	line := chat.Quiet("❌ " + reason)
+	line := chat.Quiet("❌ " + sentence(reason))
 	target := thread
 	if target == "" {
 		target = m.ChannelID
@@ -535,9 +536,24 @@ func (h *Handler) fail(m *discordgo.Message, thread, reason string, err error) {
 }
 
 func (h *Handler) say(thread, text string) {
-	if _, err := h.API.Send(thread, chat.Quiet(text)); err != nil {
+	if _, err := h.API.Send(thread, chat.Quiet(sentence(text))); err != nil {
 		h.Log.Error("could not post in the thread", "thread", thread, "error", h.redact(err))
 	}
+}
+
+// Everything mochi says in Discord reads as a sentence: a capital first, a stop at the end.
+// The reasons are written lower-case, since the log carries them too.
+func sentence(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return text
+	}
+	r := []rune(text)
+	r[0] = unicode.ToUpper(r[0])
+	if !strings.ContainsRune(".!?…", r[len(r)-1]) {
+		r = append(r, '.')
+	}
+	return string(r)
 }
 
 func ref(m *discordgo.Message) state.Ref {

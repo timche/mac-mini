@@ -3,8 +3,11 @@ package listen
 import (
 	"errors"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -61,6 +64,40 @@ func noTools(t *testing.T, name string, f *fixture) {
 	for _, text := range discordWords(f) {
 		if found := tools.FindString(text); found != "" {
 			t.Errorf("%s: %q names %q", name, text, found)
+		}
+	}
+}
+
+// What mochi writes itself, as against the thread names that carry somebody's title: posts,
+// edits, labels and answers to presses.
+func mochiLines(f *fixture) []string {
+	var out []string
+	for _, text := range discordWords(f) {
+		for _, line := range strings.Split(text, "\n") {
+			out = append(out, line)
+		}
+	}
+	return out[:len(out)-len(f.api.Threads)-len(f.api.Standalone)-len(f.api.Renames)]
+}
+
+var plainTim = regexp.MustCompile(`\bTim\b`)
+
+// Every line mochi writes reads as a sentence or a list entry: a capital or a number first,
+// never a mention or a lower-case word, and Tim is never named in words, only mentioned where
+// a ping is meant.
+func sentences(t *testing.T, name string, f *fixture) {
+	t.Helper()
+	for _, line := range mochiLines(f) {
+		rest := strings.TrimPrefix(line, "❌ ")
+		if rest == "" {
+			continue
+		}
+		first, _ := utf8.DecodeRuneInString(rest)
+		if !(unicode.IsUpper(first) || unicode.IsDigit(first) || strings.HasPrefix(rest, "<#")) {
+			t.Errorf("%s: %q does not start as a sentence", name, line)
+		}
+		if plainTim.MatchString(line) {
+			t.Errorf("%s: %q names Tim in words", name, line)
 		}
 	}
 }
@@ -138,6 +175,11 @@ func TestNothingPostedNamesTheToolsBehindIt(t *testing.T) {
 			f.event(first.ID, event.Stop, 0)
 			f.consume()
 		},
+		"a session in a forum post": func(f *fixture) {
+			f.api.AddChannel(&discordgo.Channel{ID: sessions, GuildID: guild, Type: discordgo.ChannelTypeGuildForum, AvailableTags: forumTags})
+			f.h.Cfg.Servers[0].Forum = sessions
+			f.h.Handle(f.mention(channel, 1, tim, "research", nil))
+		},
 		"a follow-up to a session that ended": func(f *fixture) {
 			first := f.mention(channel, 1, tim, "start", nil)
 			f.h.Handle(first)
@@ -152,5 +194,6 @@ func TestNothingPostedNamesTheToolsBehindIt(t *testing.T) {
 			t.Errorf("%s: nothing reached Discord, so nothing was checked", name)
 		}
 		noTools(t, name, f)
+		sentences(t, name, f)
 	}
 }

@@ -296,7 +296,7 @@ func (f *fixture) quiet() {
 
 // The first post in a thread mochi opened for Tim's message.
 func startedPost(message string) string {
-	return "<@" + tim.ID + "> Session started for [Tim's message](<https://discord.com/channels/" + guild + "/" + channel + "/" + message + ">)."
+	return "Session started for <@" + tim.ID + ">'s [message](<https://discord.com/channels/" + guild + "/" + channel + "/" + message + ">)."
 }
 
 func onlyPrompt(t *testing.T, hd *fakeHerdr, agent string) string {
@@ -584,7 +584,7 @@ func TestAQuestionThatWillNotCancelFailsWithAReason(t *testing.T) {
 		t.Error("no ❌")
 	}
 	posts := f.sentTo(first.ID)
-	if !strings.Contains(posts[len(posts)-1], "❌ the session is waiting on a question and would not take this as the answer") {
+	if !strings.Contains(posts[len(posts)-1], "❌ The session is waiting on a question and would not take this as the answer.") {
 		t.Errorf("posts = %q", posts)
 	}
 	if f.record(first.ID).LastMention != first.ID {
@@ -621,7 +621,7 @@ func TestAHerdrFailureIsACrossAndAReason(t *testing.T) {
 		t.Errorf("reactions = %v", f.api.Reactions)
 	}
 	posts := f.sentTo(m.ID)
-	if len(posts) != 1 || posts[0] != "❌ the session could not be started" {
+	if len(posts) != 1 || posts[0] != "❌ The session could not be started." {
 		t.Errorf("thread posts = %q", posts)
 	}
 	if _, ok, _ := f.h.Store.Get(m.ID); ok {
@@ -638,7 +638,7 @@ func TestAThreadThatCannotBeOpenedIsAReplyWithTheReason(t *testing.T) {
 	f.h.Handle(m)
 
 	posts := f.sentTo(channel)
-	if len(posts) != 1 || !strings.HasPrefix(posts[0], "❌ a thread could not be opened") {
+	if len(posts) != 1 || !strings.HasPrefix(posts[0], "❌ A thread could not be opened") {
 		t.Errorf("posts = %q", posts)
 	}
 	if ref := f.api.Sent[0].Msg.Reference; ref == nil || ref.MessageID != m.ID {

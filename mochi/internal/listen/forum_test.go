@@ -267,7 +267,7 @@ func TestAPostThatCannotBeOpenedFailsWithAReason(t *testing.T) {
 	if !f.api.ReactedWith(m.ID, "❌") || len(f.herdr.called("agent start")) != 0 {
 		t.Error("no ❌, or a session started anyway")
 	}
-	if replies := f.sentTo(channel); len(replies) != 1 || !strings.Contains(replies[0], "a post could not be opened") {
+	if replies := f.sentTo(channel); len(replies) != 1 || !strings.Contains(replies[0], "❌ A post could not be opened for this.") {
 		t.Errorf("replies = %q", replies)
 	}
 }

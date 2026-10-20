@@ -48,6 +48,8 @@ EOF
 
 ## What a post looks like
 
+Use these shapes exactly, so every post reads the same. The headings are fixed: don't rename them, add others, or switch their list style. Points under a heading are bullets; questions always go under **Questions** as a numbered list, 1., 2., …, even when there is only one, so people can answer "2: thumbs up" without quoting.
+
 A result:
 
 ```
@@ -63,19 +65,22 @@ A result:
 
 **Still to check**
 - <only if something is left, such as a check in a live match>
+
+**Questions**
+1. <only if the team or Tim has something to decide>
 ```
 
 A finding with a question:
 
 ```
-**Looked into average elo per team and lobby — one question for Tim**
+**Looked into average elo per team and lobby — one question**
 
 **What was found**
 - Repeek already shows each team's average elo in the matchroom, but it has gone missing after a change on FACEIT's side
 - FACEIT's match history shows no lobby average anywhere; the information is available for the 30 most recent matches without slowing anything down
 
-**Question**
-- Fix the matchroom team average and add the lobby average to each of the last 30 matches in match history, or only the matchroom fix first?
+**Questions**
+1. Fix the matchroom team average and add the lobby average to each of the last 30 matches in match history, or only the matchroom fix first?
 ```
 
 Keep it brief: Tim reads the details in this session and the pull request. At most three bullets under a heading; a blank line between sections; each bullet one line where it can be; leave out a section with nothing in it; number the screenshots in the order the files are attached. No technical detail — no pixel values, config or release mechanics, file or function names.

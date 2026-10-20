@@ -45,7 +45,7 @@ func (h *Handler) ask(m *discordgo.Message, instruction string, answer split.Ans
 	p.Question = posted.ID
 	h.Marks.Set(ref(m), mark.Asking)
 	if err := h.Pending.Put(p); err != nil {
-		h.closeQuestion(p, question+" It could not be kept — mention mochi again.")
+		h.closeQuestion(p, question+" This question could not be kept, so mention mochi again.")
 		h.fail(m, "", "the question could not be kept", err)
 	}
 }
@@ -106,7 +106,7 @@ func (h *Handler) Interaction(i *discordgo.Interaction) {
 		h.respond(i, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
-				Content:         "Only Tim can choose.",
+				Content:         "Only the person who asked can choose.",
 				Flags:           discordgo.MessageFlagsEphemeral,
 				AllowedMentions: chat.NoMentions(),
 			},
@@ -221,7 +221,7 @@ func (h *Handler) ExpirePending() {
 }
 
 func (h *Handler) expire(p state.Pending) {
-	h.closeQuestion(p, question+" Expired — mention mochi again.")
+	h.closeQuestion(p, question+" This question expired, so mention mochi again.")
 	h.Marks.Clear(state.Ref{Channel: p.Channel, Message: p.Mention})
 	if err := h.Pending.Remove(p.Nonce); err != nil {
 		h.Log.Error("an expired question could not be forgotten", "error", err)

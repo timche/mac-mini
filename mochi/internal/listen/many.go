@@ -90,11 +90,11 @@ func (h *Handler) announce(thread string, m *discordgo.Message) (*discordgo.Mess
 }
 
 func (h *Handler) announcement(m *discordgo.Message) *discordgo.MessageSend {
-	text := "Session started."
+	text := "Session started for <@" + h.Cfg.User + ">."
 	if link := chat.Link(m.GuildID, m.ChannelID, m.ID); link != "" {
-		text = "Session started for [Tim's message](<" + link + ">)."
+		text = "Session started for <@" + h.Cfg.User + ">'s [message](<" + link + ">)."
 	}
-	return chat.Pinging(h.Cfg.User, "<@"+h.Cfg.User+"> "+text)
+	return chat.Pinging(h.Cfg.User, text)
 }
 
 // A session's post in the forum: named and tagged for its state and its kind of work, its
@@ -173,7 +173,7 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 		}
 		if err != nil {
 			h.Log.Error("a thread could not be opened for a task", "task", i+1, "error", h.redact(err))
-			lines = append(lines, "❌ "+task.Title+": a thread could not be opened")
+			lines = append(lines, "❌ "+task.Title+": the thread could not be opened.")
 			failed++
 			continue
 		}
@@ -183,9 +183,9 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 		scope := fmt.Sprintf("TASK %d of %d: %s — %s\n(derived by mochi from Tim's words and the message he replied to; it scopes which item this session works on)", i+1, len(tasks), task.Title, task.Instruction)
 		text := opening(ch, m, thread.ID, instruction, set, h.files(thread.ID, set), note, scope)
 		if err := h.start(server, &session, task.Title, text); err != nil {
-			h.say(thread.ID, "❌ "+err.Error())
+			h.say(thread.ID, "❌ "+sentence(err.Error()))
 			h.Marks.Failed(thread.ID)
-			lines = append(lines, fmt.Sprintf("❌ <#%s> %s: %s", thread.ID, task.Title, err))
+			lines = append(lines, fmt.Sprintf("❌ <#%s> %s: %s.", thread.ID, task.Title, strings.TrimSuffix(err.Error(), ".")))
 			failed++
 			continue
 		}

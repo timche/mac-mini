@@ -205,7 +205,7 @@ func (h *Handler) saveWaits(waits map[string]state.Wait) {
 
 // Tim alone may be pinged, and only here.
 func (h *Handler) ping(thread string) error {
-	_, err := h.API.Send(thread, chat.Pinging(h.Cfg.User, fmt.Sprintf("<@%s> the session is waiting on you.", h.Cfg.User)))
+	_, err := h.API.Send(thread, chat.Pinging(h.Cfg.User, fmt.Sprintf("The session is waiting on <@%s>.", h.Cfg.User)))
 	if err != nil {
 		h.Log.Error("Tim could not be told a session waits on him", "thread", thread, "error", h.redact(err))
 	}

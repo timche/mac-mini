@@ -46,7 +46,9 @@ var orders = []string{
 	"1. Before — <what it shows>",
 	"**Still to check**",
 	"**What was found**",
-	"**Question**",
+	"Use these shapes exactly, so every post reads the same. The headings are fixed: don't rename them, add others, or switch their list style.",
+	"questions always go under **Questions** as a numbered list, 1., 2., …, even when there is only one",
+	"**Questions**\n1. Fix the matchroom team average",
 	"Keep it brief: Tim reads the details in this session and the pull request.",
 	"At most three bullets under a heading",
 	"number the screenshots in the order the files are attached",
@@ -72,6 +74,11 @@ func TestTheSkillHoldsTheStandingOrders(t *testing.T) {
 		if strings.Count(text, want) > 1 {
 			t.Errorf("the skill says %q twice", want)
 		}
+	}
+	// Both templates end on numbered questions, and no question is a bullet or under another
+	// heading.
+	if strings.Count(text, "**Questions**\n1. ") != 2 || strings.Contains(text, "**Question**\n") || strings.Contains(text, "Questions for") {
+		t.Error("the templates do not both put their questions under **Questions** as a numbered list")
 	}
 	if strings.Contains(text, "Post only when Tim asks") || strings.Contains(text, "a PR link") || strings.Contains(text, "never in Discord") {
 		t.Error("an old rule is in the skill")

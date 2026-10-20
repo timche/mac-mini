@@ -139,7 +139,7 @@ func TestOnlyTimCanChoose(t *testing.T) {
 		t.Fatalf("responses = %+v", f.api.Responses)
 	}
 	r := f.api.Responses[0]
-	if r.Type != discordgo.InteractionResponseChannelMessageWithSource || r.Data.Content != "Only Tim can choose." || r.Data.Flags != discordgo.MessageFlagsEphemeral {
+	if r.Type != discordgo.InteractionResponseChannelMessageWithSource || r.Data.Content != "Only the person who asked can choose." || r.Data.Flags != discordgo.MessageFlagsEphemeral {
 		t.Errorf("response = %+v", r.Data)
 	}
 	if len(f.herdr.calls) != 0 || len(f.api.Edits) != 0 || len(f.pending()) != 1 {
@@ -188,7 +188,7 @@ func TestAnUnansweredQuestionExpiresAfterADay(t *testing.T) {
 
 	f.h.Now = func() time.Time { return time.Date(2026, 10, 21, 15, 5, 0, 0, time.UTC) }
 	f.h.ExpirePending()
-	if len(f.api.Edits) != 1 || *f.api.Edits[0].Content != question+" Expired — mention mochi again." {
+	if len(f.api.Edits) != 1 || *f.api.Edits[0].Content != question+" This question expired, so mention mochi again." {
 		t.Fatalf("edits = %+v", f.api.Edits)
 	}
 	for _, button := range buttonsOf(t, *f.api.Edits[0].Components) {
@@ -217,7 +217,7 @@ func TestALatePressIsExpiredRatherThanStarted(t *testing.T) {
 
 	press(f, tim, b[0].CustomID)
 
-	if len(f.herdr.calls) != 0 || len(f.api.Edits) != 1 || !strings.Contains(*f.api.Edits[0].Content, "Expired") {
+	if len(f.herdr.calls) != 0 || len(f.api.Edits) != 1 || !strings.Contains(*f.api.Edits[0].Content, "This question expired") {
 		t.Errorf("edits = %+v", f.api.Edits)
 	}
 }

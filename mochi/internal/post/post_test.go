@@ -205,3 +205,37 @@ func TestAPostsStateReachesTheSession(t *testing.T) {
 		t.Errorf("after --done: %v", got)
 	}
 }
+
+func TestTheGuardCatchesEveryFormOfLinkAndPath(t *testing.T) {
+	for _, text := range []string{
+		"see example.com for it",
+		"the docs are at repeek.gg/faq",
+		"ask on support.faceit.com",
+		"try mochi.dev",
+		"it is on ftp://files.example/x",
+		"or ssh://host",
+		"mail mailto:tim@example.com",
+		"open file:report.pdf",
+		"the screenshot is in ~/Desktop",
+		"the binary is /usr",
+		"logged to /tmp/x",
+		"changed src/app/main.ts",
+		"see components/Elo.tsx today",
+		"(docs/README.md)",
+	} {
+		if err := CheckText(text); err == nil {
+			t.Errorf("%q passed", text)
+		}
+	}
+	for _, text := range []string{
+		"3/4 of maps, and/or per team, a/b tested",
+		"e.g. on 1080p, version v1.2 and 3.5 seconds",
+		"It works now. The overlay is gone.",
+		"win rate 50/50, ratio 2:1",
+		"Done, i.e. finished.",
+	} {
+		if err := CheckText(text); err != nil {
+			t.Errorf("%q was refused: %v", text, err)
+		}
+	}
+}

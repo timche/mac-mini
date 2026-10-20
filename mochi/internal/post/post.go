@@ -28,17 +28,34 @@ const (
 
 // A post is read in Discord by moderators, so it carries no link and no file path: anything
 // worth showing is an attachment. Refused here rather than trusted to the orders.
+//
+// Links are anything with a scheme, mailto: and file:, www., and a bare domain on a TLD Discord
+// turns into a link by itself; paths are ~/…, anything starting at /, and a relative path that
+// ends in a file name. "3/4", "and/or", "a/b", "e.g." and "v1.2" are none of those.
 var (
-	link = regexp.MustCompile(`(?i)\bhttps?://\S+|\bwww\.\S+|\bdiscord\.gg/\S+|\bdiscord(?:app)?\.com/invite/\S+`)
-	path = regexp.MustCompile(`(?:^|[\s"'(\x60])(~?/[^\s/]+/\S*)`)
+	links = []*regexp.Regexp{
+		regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://\S*`),
+		regexp.MustCompile(`(?i)\b(?:mailto|file):\S+`),
+		regexp.MustCompile(`(?i)\bwww\.\S+`),
+		regexp.MustCompile(`(?i)\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(?:com|org|net|io|dev|gg|app|co|me|xyz|ai|so|sh|tv|ly|to)\b(?:/\S*)?`),
+	}
+	paths = []*regexp.Regexp{
+		regexp.MustCompile(`(?:^|[\s"'(\x60])(~/\S*)`),
+		regexp.MustCompile(`(?:^|[\s"'(\x60])(/[A-Za-z0-9._~-]+\S*)`),
+		regexp.MustCompile(`(?:^|[\s"'(\x60])([A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+\.[A-Za-z][A-Za-z0-9]{0,5})\b`),
+	}
 )
 
 func CheckText(text string) error {
-	if found := link.FindString(text); found != "" {
-		return fmt.Errorf("a post is read in Discord by moderators, so it carries no links: say it in words and attach images instead (found %s)", found)
+	for _, re := range links {
+		if found := re.FindString(text); found != "" {
+			return fmt.Errorf("a post is read in Discord by moderators, so it carries no links: say it in words and attach images instead (found %s)", found)
+		}
 	}
-	if found := path.FindStringSubmatch(text); found != nil {
-		return fmt.Errorf("a post is read in Discord by moderators, so it carries no file paths: say it in words and attach images instead (found %s)", found[1])
+	for _, re := range paths {
+		if found := re.FindStringSubmatch(text); found != nil {
+			return fmt.Errorf("a post is read in Discord by moderators, so it carries no file paths: say it in words and attach images instead (found %s)", found[1])
+		}
 	}
 	return nil
 }

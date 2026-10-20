@@ -102,6 +102,9 @@ func CLI(ctx context.Context, stdin string, args []string) ([]byte, error) {
 	cmd.Env = op.Scrub(os.Environ())
 	cmd.Stdin = strings.NewReader(stdin)
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	// A child of claude's still holding the output pipe would otherwise keep Run waiting past
+	// the timeout, with the listener's one-mention-at-a-time lock held.
+	cmd.WaitDelay = 5 * time.Second
 	if err := cmd.Run(); err != nil {
 		line, _, _ := strings.Cut(strings.TrimSpace(stderr.String()), "\n")
 		return nil, fmt.Errorf("claude failed: %v %s", err, line)

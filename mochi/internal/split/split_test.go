@@ -121,6 +121,26 @@ func TestATimeoutIsAnError(t *testing.T) {
 	}
 }
 
+// claude killed at the deadline, and a child of it still holding stdout: the call returns
+// within the timeout and its wait delay rather than when the child does.
+func TestAGrandchildHoldingThePipeCannotOutlastTheTimeout(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte("#!/bin/sh\nsleep 60 &\nsleep 60\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":/usr/bin:/bin")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := CLI(ctx, "", nil); err == nil {
+		t.Error("a killed claude was not an error")
+	}
+	if took := time.Since(start); took > 10*time.Second {
+		t.Errorf("the call took %s", took)
+	}
+}
+
 // The real call, against a claude on PATH that records where and with what it ran.
 func TestClaudeRunsInAnEmptyFolderWithNoSecret(t *testing.T) {
 	dir := t.TempDir()

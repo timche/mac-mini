@@ -8,6 +8,7 @@ import (
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/event"
+	"github.com/timche/mac-mini/mochi/internal/herdr"
 	"github.com/timche/mac-mini/mochi/internal/mark"
 	"github.com/timche/mac-mini/mochi/internal/state"
 )
@@ -18,6 +19,9 @@ const (
 	pingBackoffMax = time.Hour
 
 	pingGrace = 3 * time.Second
+
+	// Long enough for Tim to see the done and say more in the session, which keeps it open.
+	closeAfter = time.Minute
 )
 
 // ConsumeEvents runs every second: a session whose turn ended, or that asked a question, is
@@ -43,6 +47,7 @@ func (h *Handler) ConsumeEvents() {
 		event.Done(ev)
 	}
 	h.pingWaiting(waits)
+	h.closeDone(waits)
 	if sessions, err := h.Store.Load(); err == nil {
 		for thread := range waits {
 			if _, ok := sessions[thread]; !ok {
@@ -62,8 +67,12 @@ func (h *Handler) waiting(ev event.Event, waits map[string]state.Wait) {
 		return
 	}
 	w := waits[ev.Thread]
-	if ev.Kind == event.Heard {
-		h.answered(ev.Thread, waits, ev.Nanos)
+	switch ev.Kind {
+	case event.Heard:
+		h.answered(ev.Thread, waits, ev.Nanos, ev.Relayed)
+		return
+	case event.Close:
+		h.closing(ev, rec, waits)
 		return
 	}
 	// A report from before Tim last reached the session, or before it last started, is stale.
@@ -83,16 +92,54 @@ func (h *Handler) waiting(ev event.Event, waits map[string]state.Wait) {
 	waits[ev.Thread] = w
 }
 
-// Tim reached the session, in it or through a follow-up: the wait is over, and the next one
-// pings again. The ❓ the ping set goes back to ⏳ unless something was set since.
-func (h *Handler) answered(thread string, waits map[string]state.Wait, at int64) {
+// Tim reached the session, in it or through a follow-up: the wait is over, the next one pings
+// again, and a close that was coming is not. The ❓ the ping set goes back to ⏳ unless
+// something was set since.
+func (h *Handler) answered(thread string, waits map[string]state.Wait, at int64, discord bool) {
 	w := waits[thread]
 	if w.Asked {
 		if _, seq := h.Marks.Session(thread); seq == w.Seq {
 			h.Marks.Settled(thread, mark.Running)
 		}
 	}
-	waits[thread] = state.Wait{Dead: w.Dead, Heard: max(at, w.Heard)}
+	if w.CloseAt != 0 {
+		h.Log.Info("Tim reached a session before its tab closed, so it stays open", "thread", thread)
+	}
+	if at < w.Heard {
+		discord = w.Discord
+	}
+	waits[thread] = state.Wait{Dead: w.Dead, Heard: max(at, w.Heard), Discord: discord}
+}
+
+// A session that finished and cleaned up has its tab closed a minute later, but only when
+// Tim's last word to it came from Discord: one he last typed in is one he is sitting at.
+func (h *Handler) closing(ev event.Event, rec state.Session, waits map[string]state.Wait) {
+	w := waits[ev.Thread]
+	if !w.Discord || ev.Nanos <= w.Heard {
+		h.Log.Info("a session finished, and Tim last reached it in the session, so its tab stays open", "thread", ev.Thread, "workspace", rec.Workspace, "tab", rec.Tab)
+		return
+	}
+	w.CloseAt = ev.Nanos + int64(closeAfter)
+	waits[ev.Thread] = w
+}
+
+func (h *Handler) closeDone(waits map[string]state.Wait) {
+	for thread, w := range waits {
+		if w.CloseAt == 0 || h.Now().UnixNano() < w.CloseAt {
+			continue
+		}
+		w.CloseAt = 0
+		waits[thread] = w
+		rec, ok, _ := h.Store.Get(thread)
+		if !ok {
+			continue
+		}
+		if err := herdr.CloseTab(h.Herdr, rec.Agent, rec.Tab); err != nil {
+			h.Log.Warn("the tab of a finished session was not closed", "workspace", rec.Workspace, "tab", rec.Tab, "error", h.redact(err))
+			continue
+		}
+		h.Log.Info("closed the tab of a session that finished from Discord", "workspace", rec.Workspace, "tab", rec.Tab, "thread", thread)
+	}
 }
 
 func (h *Handler) pingWaiting(waits map[string]state.Wait) {
@@ -103,7 +150,7 @@ func (h *Handler) pingWaiting(waits map[string]state.Wait) {
 		if !w.Asked {
 			// The session may have said it is done while the grace ran.
 			if shown, _ := h.Marks.Session(thread); shown == mark.Finished {
-				waits[thread] = state.Wait{Heard: w.Heard}
+				waits[thread] = state.Wait{Heard: w.Heard, Discord: w.Discord, CloseAt: w.CloseAt}
 				continue
 			}
 			h.Marks.Settled(thread, mark.Asking)
@@ -113,9 +160,9 @@ func (h *Handler) pingWaiting(waits map[string]state.Wait) {
 		err := h.ping(thread)
 		switch {
 		case err == nil:
-			w = state.Wait{Pinged: true, Asked: true, Seq: w.Seq, Heard: w.Heard}
+			w = state.Wait{Pinged: true, Asked: true, Seq: w.Seq, Heard: w.Heard, Discord: w.Discord, CloseAt: w.CloseAt}
 		case chat.Gone(err):
-			w = state.Wait{Dead: true, Heard: w.Heard}
+			w = state.Wait{Dead: true, Heard: w.Heard, Discord: w.Discord, CloseAt: w.CloseAt}
 			h.Log.Warn("the thread of a session waiting on Tim is gone, so it is pinged no more", "thread", thread)
 		default:
 			wait := max(pingBackoff, min(time.Duration(w.Backoff)*time.Second*2, pingBackoffMax))
@@ -131,7 +178,7 @@ func (h *Handler) heard(thread string) {
 	if !ok {
 		return
 	}
-	h.answered(thread, waits, h.Now().UnixNano())
+	h.answered(thread, waits, h.Now().UnixNano(), true)
 	h.saveWaits(waits)
 }
 

@@ -115,6 +115,9 @@ type Post struct {
 
 	// The kind of work a forum post is refiled as; a post with a type needs no text.
 	Type string
+
+	// With --done: the session has cleaned up, and its tab may be closed.
+	Close bool
 }
 
 var pullRequest = regexp.MustCompile(`\Ahttps://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)/?\z`)

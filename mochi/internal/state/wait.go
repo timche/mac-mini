@@ -34,6 +34,12 @@ type Wait struct {
 	// When Tim last reached the session, in nanoseconds: anything it reported from before
 	// then is out of date and pings nobody.
 	Heard int64 `json:"heard,omitempty"`
+
+	// Whether that last word came through Discord rather than typed in the session, and when
+	// a session that posted --done --close has its tab closed, in nanoseconds; only one Tim
+	// last reached from Discord is closed.
+	Discord bool  `json:"discord,omitempty"`
+	CloseAt int64 `json:"close_at,omitempty"`
 }
 
 type WaitStore struct{ Path string }

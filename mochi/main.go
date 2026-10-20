@@ -34,7 +34,7 @@ import (
 )
 
 const usage = `usage: mochi [listen]
-       mochi post [--review | --done] [--pr <url>] [--type <kind>] [--file <path>]... [<text>]
+       mochi post [--review | --done [--close]] [--pr <url>] [--type <kind>] [--file <path>]... [<text>]
        mochi history [--post] [--before <id> | --after <id> | --around <id>] [--limit <n>]
 
   listen    connect to Discord and start a Claude Code session in herdr whenever Tim
@@ -42,7 +42,9 @@ const usage = `usage: mochi [listen]
   post      post into this session's Discord thread, with no pings; --file attaches
             a screenshot, a recording or any other file, and may be given up to
             ten times; --review when it needs an answer, a result or a question
-            (❓), --done when the task is complete with nothing left for him (✅);
+            (❓), --done when the task is complete with nothing left for him (✅),
+            and --close with it once the session has cleaned up, for mochi to close
+            its tab a minute later when Tim last wrote from Discord;
             --pr adds a pull request as "#<number> (<url>)", the one link allowed;
             --type refiles a forum post as feature, bug, improvement or research,
             and needs no text; with no text argument the text is read from stdin
@@ -151,7 +153,14 @@ func run(args []string) error {
 			}
 			return origin.Of(server.Repo)
 		}
-		return post.Send(api, state.Store{Path: cfg.StatePath()}, marks, repos, thread, p)
+		if err := post.Send(api, state.Store{Path: cfg.StatePath()}, marks, repos, thread, p); err != nil {
+			return err
+		}
+		if p.Close {
+			at := time.Now()
+			return event.Put(cfg.EventsDir(), event.Event{Thread: thread, Kind: event.Close, At: at.Unix(), Nanos: at.UnixNano()})
+		}
+		return nil
 
 	// Left out of the usage: it is for choosing the model in [split], and reads cases rather
 	// than Discord.
@@ -221,6 +230,7 @@ func postArgs(args []string) (post.Post, error) {
 	fs.Func("file", "", func(path string) error { p.Files = append(p.Files, path); return nil })
 	fs.BoolVar(&review, "review", false, "")
 	fs.BoolVar(&done, "done", false, "")
+	fs.BoolVar(&p.Close, "close", false, "")
 	fs.StringVar(&p.PR, "pr", "", "")
 	fs.StringVar(&p.Type, "type", "", "")
 	if err := fs.Parse(args); err != nil {
@@ -232,6 +242,8 @@ func postArgs(args []string) (post.Post, error) {
 	switch {
 	case review && done:
 		return p, errors.New("post takes --review or --done, not both")
+	case p.Close && !done:
+		return p, errors.New("--close goes with --done, for a task complete and cleaned up")
 	case review:
 		p.Settles = mark.Asking
 	case done:

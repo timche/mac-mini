@@ -58,6 +58,9 @@ func TestPostTakesTextFilesAStateAndAPR(t *testing.T) {
 	if p, _ := postArgs([]string{"a note"}); p.Settles != "" {
 		t.Errorf("a plain post settles %q", p.Settles)
 	}
+	if p, err := postArgs([]string{"--done", "--close", "merged"}); err != nil || !p.Close || p.Settles != "✅" {
+		t.Errorf("--done --close: %+v, %v", p, err)
+	}
 	if p, err := postArgs([]string{"--type", "bug"}); err != nil || p.Type != "bug" || p.Text != "" {
 		t.Errorf("--type alone: %+v, %v", p, err)
 	}
@@ -69,6 +72,8 @@ func TestPostTakesTextFilesAStateAndAPR(t *testing.T) {
 		{"--review", "--done", "x"},
 		{"--pr", "https://github.com/timche/repeek/issues/42", "x"},
 		{"--type", "chore"},
+		{"--close", "x"},
+		{"--review", "--close", "x"},
 	} {
 		if _, err := postArgs(args); err == nil {
 			t.Errorf("%v parsed", args)

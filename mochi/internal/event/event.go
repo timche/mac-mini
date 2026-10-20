@@ -23,6 +23,10 @@ const (
 	// Tim answered in the session: a question answered, or a prompt submitted.
 	Heard = "heard"
 
+	// The session posted --done --close: its tab may be closed. Written by `mochi post`, never
+	// by a hook.
+	Close = "close"
+
 	ThreadVar = "MOCHI_THREAD"
 )
 
@@ -37,7 +41,24 @@ type Event struct {
 	At    int64 `json:"at"`
 	Nanos int64 `json:"nanos"`
 
+	// A prompt mochi itself pasted into the session, which carries Tim's word from Discord
+	// rather than anything he typed there.
+	Relayed bool `json:"relayed,omitempty"`
+
 	file string
+}
+
+// How the prompts mochi pastes begin, which is how a submitted prompt is told to be one of
+// mochi's rather than Tim's own typing.
+var relayed = []string{"/lead Tim mentioned mochi in Discord", "Tim followed up in Discord", "Tim answered in Discord"}
+
+func FromMochi(prompt string) bool {
+	for _, prefix := range relayed {
+		if strings.HasPrefix(prompt, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 var safeThread = regexp.MustCompile(`\A[A-Za-z0-9_-]+\z`)
@@ -51,22 +72,31 @@ func Write(stdin io.Reader, env func(string) string, dir, kind string, now func(
 	}
 	var input struct {
 		BackgroundTasks []json.RawMessage `json:"background_tasks"`
+		Prompt          string            `json:"prompt"`
 	}
 	if body, err := io.ReadAll(io.LimitReader(stdin, 1<<20)); err == nil {
 		json.Unmarshal(body, &input)
 	}
 
 	at := now()
-	body, _ := json.Marshal(Event{Thread: thread, Kind: kind, Background: len(input.BackgroundTasks), At: at.Unix(), Nanos: at.UnixNano()})
-	if os.MkdirAll(dir, 0o700) != nil {
-		return
+	Put(dir, Event{Thread: thread, Kind: kind, Background: len(input.BackgroundTasks), Relayed: kind == Heard && FromMochi(input.Prompt), At: at.Unix(), Nanos: at.UnixNano()})
+}
+
+// Put leaves one event in the spool, renamed into place so the listener never reads half.
+func Put(dir string, ev Event) error {
+	if !safeThread.MatchString(ev.Thread) {
+		return fmt.Errorf("%q is not a thread", ev.Thread)
 	}
-	path := filepath.Join(dir, fmt.Sprintf("%s-%d.json", thread, at.UnixNano()))
+	body, _ := json.Marshal(ev)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	path := filepath.Join(dir, fmt.Sprintf("%s-%d.json", ev.Thread, ev.Nanos))
 	tmp := path + ".tmp"
-	if os.WriteFile(tmp, body, 0o600) != nil {
-		return
+	if err := os.WriteFile(tmp, body, 0o600); err != nil {
+		return err
 	}
-	os.Rename(tmp, path)
+	return os.Rename(tmp, path)
 }
 
 // Read is every event waiting, oldest first; Done takes one away once handled.

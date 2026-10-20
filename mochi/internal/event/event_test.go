@@ -87,3 +87,17 @@ func TestCleanTakesAwayHalfWrittenEvents(t *testing.T) {
 		t.Errorf("events = %+v", events)
 	}
 }
+
+// A submitted prompt is marked as mochi's own when it is one of the prompts mochi pastes.
+func TestAHeardFromMochisOwnPromptIsMarkedRelayed(t *testing.T) {
+	dir := t.TempDir()
+	in := env(map[string]string{ThreadVar: "t1"})
+	Write(strings.NewReader(`{"prompt":"Tim followed up in Discord: read /x.md"}`), in, dir, Heard, now)
+	Write(strings.NewReader(`{"prompt":"merge it"}`), in, dir, Heard, func() time.Time { return now().Add(time.Second) })
+	Write(strings.NewReader(`{}`), in, dir, Close, now)
+
+	events := Read(dir)
+	if len(events) != 2 || !events[0].Relayed || events[1].Relayed {
+		t.Errorf("events = %+v", events)
+	}
+}

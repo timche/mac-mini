@@ -62,6 +62,10 @@ type fakeHerdr struct {
 	escaped    map[string]int
 	naps       int
 
+	// Each agent's tab label, from the tab it was started in, and the tabs closed.
+	agentTabs map[string]string
+	closed    []string
+
 	// The nth start and every one after it fail, when set.
 	starts, failFrom int
 
@@ -77,6 +81,7 @@ func newHerdr() *fakeHerdr {
 		prompts:    map[string][]string{},
 		raw:        map[string][]string{},
 		escaped:    map[string]int{},
+		agentTabs:  map[string]string{},
 	}
 }
 
@@ -117,6 +122,9 @@ func (f *fakeHerdr) run(args ...string) ([]byte, error) {
 			return refusal("agent_start_timeout"), nil
 		}
 		f.agents[args[2]] = "idle"
+		if len(f.tabs) > 0 {
+			f.agentTabs[args[2]] = f.tabs[len(f.tabs)-1]
+		}
 		return answer(map[string]any{"result": map[string]any{}}), nil
 	case "agent prompt":
 		if f.promptFails {
@@ -154,7 +162,20 @@ func (f *fakeHerdr) run(args ...string) ([]byte, error) {
 		if !ok {
 			return refusal("agent_not_found"), nil
 		}
-		return answer(map[string]any{"result": map[string]any{"agent": map[string]string{"agent_status": status}}}), nil
+		return answer(map[string]any{"result": map[string]any{"agent": map[string]string{"agent_status": status, "tab_id": "tab:" + args[2]}}}), nil
+	case "tab get":
+		agent, _ := strings.CutPrefix(args[2], "tab:")
+		label, ok := f.agentTabs[agent]
+		if !ok {
+			return refusal("tab_not_found"), nil
+		}
+		return answer(map[string]any{"result": map[string]any{"tab": map[string]string{"label": label, "tab_id": args[2]}}}), nil
+	case "tab close":
+		agent, _ := strings.CutPrefix(args[2], "tab:")
+		f.closed = append(f.closed, args[2])
+		delete(f.agents, agent)
+		delete(f.agentTabs, agent)
+		return answer(map[string]any{"result": map[string]any{}}), nil
 	}
 	return refusal("unknown_command"), nil
 }

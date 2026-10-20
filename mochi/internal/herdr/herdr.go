@@ -80,7 +80,11 @@ type reply struct {
 	Result struct {
 		Agent struct {
 			Status string `json:"agent_status"`
+			TabID  string `json:"tab_id"`
 		} `json:"agent"`
+		Tab struct {
+			Label string `json:"label"`
+		} `json:"tab"`
 		Workspaces []struct {
 			Label       string `json:"label"`
 			WorkspaceID string `json:"workspace_id"`
@@ -207,6 +211,28 @@ func Answer(run Runner, agent, text string, nap func(time.Duration)) error {
 		return ErrStillBlocked
 	}
 	return Prompt(run, agent, text)
+}
+
+// CloseTab closes the tab an agent runs in, and only while that tab carries the label mochi
+// gave it: a tab Tim renamed, or one the agent was moved into, is not mochi's to close.
+func CloseTab(run Runner, agent, label string) error {
+	r, err := call(run, "agent", "get", agent)
+	if err != nil {
+		return err
+	}
+	tab := r.Result.Agent.TabID
+	if tab == "" {
+		return fmt.Errorf("herdr named no tab for %s", agent)
+	}
+	t, err := call(run, "tab", "get", tab)
+	if err != nil {
+		return err
+	}
+	if t.Result.Tab.Label != label {
+		return fmt.Errorf("%s runs in a tab labelled %q rather than %q, which mochi did not open", agent, t.Result.Tab.Label, label)
+	}
+	_, err = call(run, "tab", "close", tab)
+	return err
 }
 
 // ErrGone for an agent herdr has never heard of, which is a session Tim closed.

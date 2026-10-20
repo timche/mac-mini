@@ -31,13 +31,14 @@ import (
 )
 
 const usage = `usage: mochi [listen]
-       mochi post [--file <path>] <text>
+       mochi post [--file <path>]... <text>
        mochi history [--before <id> | --after <id> | --around <id>] [--limit <n>]
 
   listen    connect to Discord and start a Claude Code session in herdr whenever Tim
             mentions mochi; what the LaunchAgent runs, and what no command means
   post      post into this session's Discord thread, with no pings; --file attaches
-            a screenshot or any other file
+            a screenshot, a recording or any other file, and may be given up to
+            ten times
   history   print more of the channel or thread this session started from, oldest
             first and fenced as data, with attachments downloaded; one of --before,
             --after or --around a message id, and --limit up to 100 (default 50)
@@ -106,7 +107,7 @@ func run(args []string) error {
 		return listen.Run(cfg, log)
 
 	case "post":
-		file, text, err := postArgs(args)
+		files, text, err := postArgs(args)
 		if err != nil {
 			return usageError{err}
 		}
@@ -120,7 +121,7 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		return post.Send(api, state.Store{Path: cfg.StatePath()}, thread, file, text)
+		return post.Send(api, state.Store{Path: cfg.StatePath()}, thread, files, text)
 
 	// Left out of the usage: it is for choosing the model in [split], and reads cases rather
 	// than Discord.
@@ -166,23 +167,18 @@ func rest() (chat.API, error) {
 	return chat.NewLive(s), nil
 }
 
-func postArgs(args []string) (file, text string, err error) {
+func postArgs(args []string) (files []string, text string, err error) {
 	fs := flag.NewFlagSet("post", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	fs.StringVar(&file, "file", "", "")
+	fs.Func("file", "", func(path string) error { files = append(files, path); return nil })
 	if err := fs.Parse(args); err != nil {
-		return "", "", err
+		return nil, "", err
 	}
 	text = strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if text == "" {
-		return "", "", errors.New("post takes the text to post")
+		return nil, "", errors.New("post takes the text to post")
 	}
-	if file != "" {
-		if info, err := os.Stat(file); err != nil || !info.Mode().IsRegular() {
-			return "", "", fmt.Errorf("%s is not a file", file)
-		}
-	}
-	return file, text, nil
+	return files, text, post.CheckFiles(files)
 }
 
 func splitArgs(s config.Split, args []string) (config.Split, error) {

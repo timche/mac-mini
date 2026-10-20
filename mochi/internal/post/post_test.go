@@ -30,7 +30,7 @@ func TestAPostGoesToTheSessionsThreadWithNoPings(t *testing.T) {
 	shot := filepath.Join(t.TempDir(), "shot.png")
 	os.WriteFile(shot, []byte("png"), 0o644)
 
-	if err := Send(api, store, thread, shot, "PR: https://github.com/x/y/pull/1 — @everyone <@94004892942741504>"); err != nil {
+	if err := Send(api, store, thread, []string{shot}, "PR: https://github.com/x/y/pull/1 — @everyone <@94004892942741504>"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -50,7 +50,7 @@ func TestALongPostIsSplitBetweenLines(t *testing.T) {
 	api, store := fixture(t)
 	text := strings.Repeat(strings.Repeat("x", 99)+"\n", 50)
 
-	if err := Send(api, store, thread, "", text); err != nil {
+	if err := Send(api, store, thread, nil, text); err != nil {
 		t.Fatal(err)
 	}
 	if len(api.Sent) != 3 {
@@ -72,11 +72,44 @@ func TestALongPostIsSplitBetweenLines(t *testing.T) {
 func TestAThreadMochiDidNotOpenIsRefused(t *testing.T) {
 	api, store := fixture(t)
 	for _, th := range []string{"", "1300000000000000099"} {
-		if err := Send(api, store, th, "", "hello"); err == nil {
+		if err := Send(api, store, th, nil, "hello"); err == nil {
 			t.Errorf("posted to %q", th)
 		}
 	}
 	if len(api.Sent) != 0 {
 		t.Error("something was sent")
+	}
+}
+
+func TestAPostCarriesSeveralFilesWithinDiscordsLimits(t *testing.T) {
+	api, store := fixture(t)
+	dir := t.TempDir()
+	var files []string
+	for _, name := range []string{"before.png", "after.png", "walkthrough.mp4"} {
+		p := filepath.Join(dir, name)
+		os.WriteFile(p, []byte(name), 0o644)
+		files = append(files, p)
+	}
+
+	if err := Send(api, store, thread, files, "Finished: the overlay no longer covers the scoreboard."); err != nil {
+		t.Fatal(err)
+	}
+	if got := api.Sent[0].Files; len(got) != 3 || got["after.png"] != "after.png" || got["walkthrough.mp4"] != "walkthrough.mp4" {
+		t.Errorf("files = %v", got)
+	}
+
+	eleven := make([]string, 11)
+	for i := range eleven {
+		eleven[i] = files[0]
+	}
+	big := filepath.Join(dir, "huge.mov")
+	os.WriteFile(big, make([]byte, MaxFileSize+1), 0o644)
+	for name, f := range map[string][]string{"eleven files": eleven, "a file over 10 MB": {big}, "no such file": {filepath.Join(dir, "gone.png")}} {
+		if err := Send(api, store, thread, f, "x"); err == nil {
+			t.Errorf("%s was posted", name)
+		}
+	}
+	if len(api.Sent) != 1 {
+		t.Errorf("%d posts, want 1", len(api.Sent))
 	}
 }

@@ -44,9 +44,9 @@ func TestPostTakesTextAndAFile(t *testing.T) {
 	shot := filepath.Join(t.TempDir(), "shot.png")
 	os.WriteFile(shot, []byte("png"), 0o644)
 
-	file, text, err := postArgs([]string{"--file", shot, "see", "this"})
-	if err != nil || file != shot || text != "see this" {
-		t.Errorf("%q %q %v", file, text, err)
+	files, text, err := postArgs([]string{"--file", shot, "--file", shot, "see", "this"})
+	if err != nil || len(files) != 2 || files[0] != shot || text != "see this" {
+		t.Errorf("%q %q %v", files, text, err)
 	}
 	for _, args := range [][]string{{}, {"--file", shot}, {"--file", "/nowhere", "hi"}} {
 		if _, _, err := postArgs(args); err == nil {

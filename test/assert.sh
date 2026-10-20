@@ -610,7 +610,7 @@ check "the kill guard refuses a kill by name or pattern wherever it runs" \
    killdenied "echo \`killall node\`" &&
    killdenied "bash -c \"pkill -f vite\""'
 
-check "the kill guard refuses a kill whose pids come from pgrep, lsof, ps or fuser" \
+check "the kill guard refuses a kill whose pids come from a process or port lookup" \
   'killdenied "kill \$(pgrep -f vite)" &&
    killdenied "kill \"\$(pgrep node)\"" &&
    killdenied "kill \`pidof node\`" &&
@@ -621,6 +621,12 @@ check "the kill guard refuses a kill whose pids come from pgrep, lsof, ps or fus
    killdenied "pid=\$(pgrep -f vite); kill \$pid" &&
    killdenied "for p in \$(pgrep node); do kill \$p; done" &&
    killdenied "pgrep node | while read p; do kill \$p; done" &&
+   killdenied "xargs kill < <(pgrep x)" &&
+   killdenied "while read p; do kill \$p; done < <(pgrep x)" &&
+   killdenied "read pid <<< \"\$(pgrep x)\"; kill \$pid" &&
+   killdenied "read -r pid <<< \$(lsof -ti :3000) && kill -9 \"\$pid\"" &&
+   killdenied "kill \$(netstat -anv | grep 3000 | awk '"'"'{print \$9}'"'"')" &&
+   killdenied "kill \$(ss -ltnp | grep 3000)" &&
    killdenied "fuser -k 3000/tcp"'
 
 check "the kill guard allows a kill by pid and a pkill that is only text" \
@@ -633,6 +639,9 @@ check "the kill guard allows a kill by pid and a pkill that is only text" \
    killallowed "pgrep -f vite" &&
    killallowed "lsof -ti :3000" &&
    killallowed "pgrep -f vite | head -1; kill \$SERVER_PID" &&
+   killallowed "docker compose kill" &&
+   killallowed "kill -0 \$pid" &&
+   killallowed "read pid < server.pid; kill \$pid" &&
    killallowed "git commit -m \"never pkill\"" &&
    killallowed "grep -n pkill file" &&
    killallowed "cat <<EOF

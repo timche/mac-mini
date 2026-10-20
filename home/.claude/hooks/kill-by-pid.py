@@ -17,7 +17,7 @@ import re
 import sys
 
 KILLERS_BY_NAME = {"pkill", "killall", "killall5", "skill"}
-FINDERS = {"pgrep", "pidof", "lsof", "fuser", "ps"}
+FINDERS = {"pgrep", "pidof", "lsof", "fuser", "ps", "netstat", "ss"}
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
 
 # Commands that run the command after them, each with the flags of its own that take a
@@ -62,6 +62,13 @@ class Word:
         self.text, self.raw, self.subs = text, raw, subs
 
 
+# What a segment reads from besides its arguments: a process substitution, or the
+# substitutions in a redirect's target such as a here-string.
+class Feed:
+    def __init__(self, subs):
+        self.subs = subs
+
+
 def closing_paren(s, i):
     depth = 0
     while i < len(s):
@@ -89,6 +96,26 @@ def closing_backtick(s, i):
     i += 1
     while s[i] != "`":
         i += 2 if s[i] == "\\" else 1
+    return i
+
+
+def word_end(s, i):
+    while i < len(s) and s[i] not in " \t\n;&|()<>":
+        if s.startswith("$(", i):
+            i = closing_paren(s, i + 1)
+        elif s[i] == "`":
+            i = closing_backtick(s, i)
+        elif s[i] == "'":
+            i = s.index("'", i + 1)
+        elif s[i] == '"':
+            i += 1
+            while s[i] != '"':
+                if s.startswith("$(", i):
+                    i = closing_paren(s, i + 1)
+                i += 2 if s[i] == "\\" else 1
+        elif s[i] == "\\":
+            i += 1
+        i += 1
     return i
 
 
@@ -168,6 +195,11 @@ def lex(s):
             text.append(s[i:end + 1])
             i = end + 1
             continue
+        if (s.startswith("<(", i) or s.startswith(">(", i)) and text is None:
+            end = closing_paren(s, i + 1)
+            tokens.append(Feed([s[i + 2:end]]))
+            i = end + 1
+            continue
         if c in "<>" or s.startswith("&>", i):
             # A redirect's fd (`2>`) is not an argument, and nor is what it points at.
             if text is not None and "".join(text).isdigit():
@@ -178,9 +210,14 @@ def lex(s):
             i += len(op)
             while i < n and s[i] in " \t":
                 i += 1
-            target = re.match(r"""(?:'[^']*'|"[^"]*"|[^\s;&|()<>])*""", s[i:]).group(0)
+            if s.startswith("<(", i):
+                continue
+            target = s[i:word_end(s, i)]
             if op in ("<<", "<<-"):
                 heredocs.append((target.replace("'", "").replace('"', "").replace("\\", ""), op == "<<-"))
+            elif "$(" in target or "`" in target:
+                tokens.append(Feed([sub for word in lex(target) if isinstance(word, Word)
+                                    for sub in word.subs]))
             i += len(target)
             continue
         op = next((o for o in OPERATORS if s.startswith(o, i)), None)
@@ -237,24 +274,30 @@ def command_of(words):
 
 
 def uses_finder(command):
-    for words, _ in segments(lex(command)):
+    for words, _, feeds in segments(lex(command)):
         at = command_of(words)
         if at is not None and os.path.basename(words[at].text) in FINDERS:
             return True
-        if any(uses_finder(sub) for word in words for sub in word.subs):
+        if any(uses_finder(sub) for part in words + feeds for sub in part.subs):
             return True
     return False
 
 
+def fed_by_finder(feeds):
+    return any(uses_finder(sub) for feed in feeds for sub in feed.subs)
+
+
 def segments(tokens):
-    out, current = [], []
+    out, words, feeds = [], [], []
     for token in tokens:
         if isinstance(token, str):
-            out.append((current, token))
-            current = []
+            out.append((words, token, feeds))
+            words, feeds = [], []
+        elif isinstance(token, Feed):
+            feeds.append(token)
         else:
-            current.append(token)
-    out.append((current, None))
+            words.append(token)
+    out.append((words, None, feeds))
     return out
 
 
@@ -289,15 +332,27 @@ def check_kill(args, tainted, piped):
 
 def check(command, piped=False, tainted=None):
     tainted = set() if tainted is None else tainted
+    parts = segments(lex(command))
+
+    # `done < <(pgrep x)` feeds a loop whose kill comes before the feed is read, so a
+    # finder feeding a closing keyword counts from the start of the command.
+    if any(fed_by_finder(feeds) for words, _, feeds in parts
+           if not words or words[0].text in CLOSERS):
+        piped = True
     depth, piped_at = 0, (0 if piped else None)
 
-    for words, end in segments(lex(command)):
+    for words, end, feeds in parts:
         if words:
             first = words[0].text
             if first in OPENERS:
                 depth += 1
             elif first in CLOSERS:
                 depth -= 1
+
+        fed = piped_at is not None or fed_by_finder(feeds)
+        for feed in feeds:
+            for sub in feed.subs:
+                check(sub, piped_at is not None)
 
         for word in words:
             for sub in word.subs:
@@ -319,11 +374,13 @@ def check(command, piped=False, tainted=None):
             if name == "fuser" and any(re.match(r"^-\w*k", a.text) for a in args):
                 raise Denied
             if name == "kill":
-                check_kill(args, tainted, piped_at is not None)
+                check_kill(args, tainted, fed)
+            if name == "read" and fed:
+                tainted.update(a.text for a in args if not a.text.startswith("-"))
             if name in SHELLS:
                 for j, arg in enumerate(args[:-1]):
                     if re.match(r"^-\w*c\w*$", arg.text):
-                        check(args[j + 1].text, piped_at is not None, tainted)
+                        check(args[j + 1].text, fed, tainted)
                         break
             if name in FINDERS and end in PIPES and piped_at is None:
                 piped_at = depth

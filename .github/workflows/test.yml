@@ -14,6 +14,7 @@ on:
       - Brewfile
       - mise.toml
       - hachiko/**
+      - mochi/**
       - shibuya/**
       - claude/**
       - launchd/**
@@ -124,6 +125,15 @@ jobs:
           "$mise" exec -C "$repo" -- go vet -C "$repo/hachiko" ./...
           "$mise" exec -C "$repo" -- go test -C "$repo/hachiko" ./...
           test -z "$("$mise" exec -C "$repo" -- gofmt -l "$repo/hachiko")"
+
+      # mochi the same way, its modules out of the cache install.sh filled above.
+      - name: go vet and go test in mochi/
+        run: |
+          mise="$HOME/.local/bin/mise"
+          repo="$GITHUB_WORKSPACE"
+          "$mise" exec -C "$repo" -- go vet -C "$repo/mochi" ./...
+          "$mise" exec -C "$repo" -- go test -C "$repo/mochi" ./...
+          test -z "$("$mise" exec -C "$repo" -- gofmt -l "$repo/mochi")"
 
       # shibuya, which needs no Mac: the tests run in workerd and would be happier on
       # ubuntu. They are here anyway, because this is the job that has mise's node — the

@@ -12,6 +12,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
+	"github.com/timche/mac-mini/mochi/internal/mark"
 	"github.com/timche/mac-mini/mochi/internal/state"
 )
 
@@ -58,23 +59,66 @@ func CheckFiles(files []string) error {
 	return nil
 }
 
-func Send(api chat.API, store state.Store, thread string, files []string, text string) error {
+// Post is one `mochi post`.
+type Post struct {
+	Text  string
+	Files []string
+
+	// A state the post puts the session in: ❓ for a result, proof or question handed to Tim,
+	// ✅ for a task done with nothing left for him; empty changes nothing.
+	Settles string
+
+	// A pull request, the one link a post may carry, which mochi adds as a line of its own.
+	PR string
+}
+
+var pullRequest = regexp.MustCompile(`\Ahttps://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/([0-9]+)/?\z`)
+
+// The line a pull request gets: its number and its link, as `#<number> (<url>)`.
+func PRLine(url string) (string, error) {
+	m := pullRequest.FindStringSubmatch(url)
+	if m == nil {
+		return "", fmt.Errorf("--pr takes a GitHub pull request's address, https://github.com/<owner>/<repo>/pull/<number>, not %s", url)
+	}
+	return "#" + m[1] + " (" + url + ")", nil
+}
+
+func (p Post) Check() error {
+	if err := CheckText(p.Text); err != nil {
+		return err
+	}
+	if p.PR != "" {
+		if _, err := PRLine(p.PR); err != nil {
+			return err
+		}
+	}
+	return CheckFiles(p.Files)
+}
+
+// What the session was working on shows the post's state once it is up. A pull request's
+// line is added after the text, with embeds suppressed so Discord shows no preview of it.
+func Send(api chat.API, store state.Store, marks *mark.Marker, thread string, p Post) error {
 	rec, err := store.Session(thread)
 	if err != nil {
 		return err
 	}
-	if err := CheckFiles(files); err != nil {
+	if err := p.Check(); err != nil {
 		return err
 	}
-	if err := CheckText(text); err != nil {
-		return err
+	text := p.Text
+	if p.PR != "" {
+		line, _ := PRLine(p.PR)
+		text = strings.TrimRight(text, "\n") + "\n" + line
 	}
 
 	parts := split(text)
 	for i, part := range parts {
 		msg := chat.Quiet(part)
+		if p.PR != "" {
+			msg.Flags |= discordgo.MessageFlagsSuppressEmbeds
+		}
 		if i == len(parts)-1 {
-			for _, file := range files {
+			for _, file := range p.Files {
 				f, err := os.Open(file)
 				if err != nil {
 					return err
@@ -86,6 +130,9 @@ func Send(api chat.API, store state.Store, thread string, files []string, text s
 		if _, err := api.Send(rec.Thread, msg); err != nil {
 			return err
 		}
+	}
+	if p.Settles != "" && marks != nil {
+		marks.Settled(rec.Thread, p.Settles)
 	}
 	return nil
 }

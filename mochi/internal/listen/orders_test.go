@@ -16,12 +16,15 @@ func TestTheOrdersSayWhenAndHowToPost(t *testing.T) {
 	orders := prompt[:strings.Index(prompt, "----- BEGIN INSTRUCTION FROM TIM")]
 	for _, want := range []string{
 		"may be given up to ten times, at most 10 MB a file",
-		"When you reach a result Tim would review",
-		"saying it is finished and what changed or was found",
+		"post it with `mochi post --review`",
+		"show ❓ until he answers",
 		"before-and-after screenshots, a recording or other images",
+		"post that with `mochi post --done`: they show ✅",
+		"add `--pr <url>` whenever there is a pull request",
+		"A post without either flag changes neither.",
 		"Post nothing else unprompted: no progress updates.",
 		"often not technical and without GitHub access",
-		"No pull request, GitHub or other links, no file paths, branch names, code or jargon, no secrets",
+		"No links but the pull request --pr adds, no file paths, branch names, code or jargon, no secrets",
 	} {
 		if !strings.Contains(orders, want) {
 			t.Errorf("the orders lack %q", want)

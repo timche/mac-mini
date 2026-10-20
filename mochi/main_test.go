@@ -40,16 +40,29 @@ func TestSplitEvalTakesAModelAndAnEffort(t *testing.T) {
 	}
 }
 
-func TestPostTakesTextAndAFile(t *testing.T) {
+func TestPostTakesTextFilesAStateAndAPR(t *testing.T) {
 	shot := filepath.Join(t.TempDir(), "shot.png")
 	os.WriteFile(shot, []byte("png"), 0o644)
 
-	files, text, err := postArgs([]string{"--file", shot, "--file", shot, "see", "this"})
-	if err != nil || len(files) != 2 || files[0] != shot || text != "see this" {
-		t.Errorf("%q %q %v", files, text, err)
+	p, err := postArgs([]string{"--review", "--pr", "https://github.com/timche/repeek/pull/42", "--file", shot, "--file", shot, "see", "this"})
+	if err != nil || len(p.Files) != 2 || p.Text != "see this" || p.Settles != "❓" || p.PR != "https://github.com/timche/repeek/pull/42" {
+		t.Errorf("%+v %v", p, err)
 	}
-	for _, args := range [][]string{{}, {"--file", shot}, {"--file", "/nowhere", "hi"}, {"see", "https://example.com"}} {
-		if _, _, err := postArgs(args); err == nil {
+	if p, _ := postArgs([]string{"--done", "merged"}); p.Settles != "✅" {
+		t.Errorf("--done settles %q", p.Settles)
+	}
+	if p, _ := postArgs([]string{"a note"}); p.Settles != "" {
+		t.Errorf("a plain post settles %q", p.Settles)
+	}
+	for _, args := range [][]string{
+		{},
+		{"--file", shot},
+		{"--file", "/nowhere", "hi"},
+		{"see", "https://example.com"},
+		{"--review", "--done", "x"},
+		{"--pr", "https://github.com/timche/repeek/issues/42", "x"},
+	} {
+		if _, err := postArgs(args); err == nil {
 			t.Errorf("%v parsed", args)
 		}
 	}

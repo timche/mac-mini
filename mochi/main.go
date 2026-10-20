@@ -23,6 +23,7 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/config"
 	"github.com/timche/mac-mini/mochi/internal/history"
 	"github.com/timche/mac-mini/mochi/internal/listen"
+	"github.com/timche/mac-mini/mochi/internal/mark"
 	"github.com/timche/mac-mini/mochi/internal/op"
 	"github.com/timche/mac-mini/mochi/internal/post"
 	"github.com/timche/mac-mini/mochi/internal/self"
@@ -31,14 +32,16 @@ import (
 )
 
 const usage = `usage: mochi [listen]
-       mochi post [--file <path>]... <text>
+       mochi post [--review | --done] [--pr <url>] [--file <path>]... <text>
        mochi history [--before <id> | --after <id> | --around <id>] [--limit <n>]
 
   listen    connect to Discord and start a Claude Code session in herdr whenever Tim
             mentions mochi; what the LaunchAgent runs, and what no command means
   post      post into this session's Discord thread, with no pings; --file attaches
             a screenshot, a recording or any other file, and may be given up to
-            ten times
+            ten times; --review when it hands Tim a result, proof or a question
+            (❓), --done when the task is complete with nothing left for him (✅);
+            --pr adds a pull request as "#<number> (<url>)", the one link allowed
   history   print more of the channel or thread this session started from, oldest
             first and fenced as data, with attachments downloaded; one of --before,
             --after or --around a message id, and --limit up to 100 (default 50)
@@ -107,7 +110,7 @@ func run(args []string) error {
 		return listen.Run(cfg, log)
 
 	case "post":
-		files, text, err := postArgs(args)
+		p, err := postArgs(args)
 		if err != nil {
 			return usageError{err}
 		}
@@ -121,7 +124,8 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		return post.Send(api, state.Store{Path: cfg.StatePath()}, thread, files, text)
+		marks := &mark.Marker{API: api, Path: cfg.MarksPath(), Now: time.Now, Log: log}
+		return post.Send(api, state.Store{Path: cfg.StatePath()}, marks, thread, p)
 
 	// Left out of the usage: it is for choosing the model in [split], and reads cases rather
 	// than Discord.
@@ -167,21 +171,31 @@ func rest() (chat.API, error) {
 	return chat.NewLive(s), nil
 }
 
-func postArgs(args []string) (files []string, text string, err error) {
+func postArgs(args []string) (post.Post, error) {
+	var p post.Post
+	var review, done bool
 	fs := flag.NewFlagSet("post", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	fs.Func("file", "", func(path string) error { files = append(files, path); return nil })
+	fs.Func("file", "", func(path string) error { p.Files = append(p.Files, path); return nil })
+	fs.BoolVar(&review, "review", false, "")
+	fs.BoolVar(&done, "done", false, "")
+	fs.StringVar(&p.PR, "pr", "", "")
 	if err := fs.Parse(args); err != nil {
-		return nil, "", err
+		return p, err
 	}
-	text = strings.TrimSpace(strings.Join(fs.Args(), " "))
-	if text == "" {
-		return nil, "", errors.New("post takes the text to post")
+	switch {
+	case review && done:
+		return p, errors.New("post takes --review or --done, not both")
+	case review:
+		p.Settles = mark.Asking
+	case done:
+		p.Settles = mark.Finished
 	}
-	if err := post.CheckText(text); err != nil {
-		return nil, "", err
+	p.Text = strings.TrimSpace(strings.Join(fs.Args(), " "))
+	if p.Text == "" {
+		return p, errors.New("post takes the text to post")
 	}
-	return files, text, post.CheckFiles(files)
+	return p, p.Check()
 }
 
 func splitArgs(s config.Split, args []string) (config.Split, error) {

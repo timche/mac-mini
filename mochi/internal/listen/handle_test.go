@@ -294,9 +294,14 @@ func (f *fixture) quiet() {
 	}
 }
 
-// The first post in a thread mochi opened for Tim's message.
+// The first line of the first post in a thread mochi opened for Tim's message.
 func startedPost(message string) string {
-	return "Session started for <@" + tim.ID + ">'s [message](<https://discord.com/channels/" + guild + "/" + channel + "/" + message + ">)."
+	return "Session started for <@" + tim.ID + ">'s message: https://discord.com/channels/" + guild + "/" + channel + "/" + message
+}
+
+func head(post string) string {
+	first, _, _ := strings.Cut(post, "\n")
+	return first
 }
 
 func onlyPrompt(t *testing.T, hd *fakeHerdr, agent string) string {
@@ -358,7 +363,7 @@ func TestAReplyToAnOldMessageStartsALeadSessionWithTheDiscussion(t *testing.T) {
 	}
 
 	thread := f.sentTo(m.ID)
-	if len(thread) != 1 || thread[0] != startedPost(m.ID) {
+	if len(thread) != 1 || head(thread[0]) != startedPost(m.ID) {
 		t.Errorf("thread posts = %q", thread)
 	}
 	rec := f.record(m.ID)

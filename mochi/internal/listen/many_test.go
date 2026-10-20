@@ -91,7 +91,7 @@ func TestASplitIntoThreeOpensThreeThreadsAndTabsAndOneReply(t *testing.T) {
 		if !strings.Contains(context, "QOL: a) average elo") || !strings.Contains(prompt, fmt.Sprintf("works on task %d of them alone", i+1)) {
 			t.Errorf("task %d lacks the shared context or its place", i+1)
 		}
-		if posts := f.sentTo(thread.ID); len(posts) != 1 || posts[0] != startedPost(m.ID) {
+		if posts := f.sentTo(thread.ID); len(posts) != 1 || head(posts[0]) != startedPost(m.ID) {
 			t.Errorf("thread %d posts = %q", i+1, posts)
 		}
 		if rec := f.record(thread.ID); rec.Source != channel || rec.LastMention != m.ID {
@@ -164,7 +164,7 @@ func TestAClassifierThatFailsIsOneSessionAsBefore(t *testing.T) {
 		if got := strings.TrimSpace(between(t, prompt, "INSTRUCTION FROM TIM")); got != "research a, b and c separately" {
 			t.Errorf("%s: instruction = %q", name, got)
 		}
-		if posts := f.sentTo(m.ID); len(posts) != 1 || posts[0] != startedPost(m.ID) {
+		if posts := f.sentTo(m.ID); len(posts) != 1 || head(posts[0]) != startedPost(m.ID) {
 			t.Errorf("%s: posts = %q", name, posts)
 		}
 		if len(f.sentTo(channel)) != 0 || !f.api.ReactedWith(m.ID, "⏳") {

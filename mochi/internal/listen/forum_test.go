@@ -52,7 +52,7 @@ func TestAMentionInAChannelOpensAForumPost(t *testing.T) {
 	if got := f.api.Tagged[p]; !reflect.DeepEqual(got, []string{"t-running", "t-bug"}) {
 		t.Errorf("tags = %v", got)
 	}
-	if posts := f.sentTo(p); len(posts) != 1 || posts[0] != startedPost(m.ID) {
+	if posts := f.sentTo(p); len(posts) != 1 || head(posts[0]) != startedPost(m.ID) {
 		t.Errorf("post's messages = %q", posts)
 	}
 	if !contains(f.api.Members, p+" "+tim.ID) {
@@ -197,7 +197,7 @@ func TestASplitOpensAPostPerTask(t *testing.T) {
 		if rec := f.record(postID(i)); rec.Origin.Channel != postID(i) || rec.Origin.Message != postID(i) {
 			t.Errorf("post %d's origin = %+v", i, rec.Origin)
 		}
-		if posts := f.sentTo(postID(i)); len(posts) != 1 || posts[0] != startedPost(m.ID) {
+		if posts := f.sentTo(postID(i)); len(posts) != 1 || head(posts[0]) != startedPost(m.ID) {
 			t.Errorf("post %d messages = %q", i, posts)
 		}
 	}

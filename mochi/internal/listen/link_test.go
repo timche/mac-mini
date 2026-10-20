@@ -42,7 +42,7 @@ func TestASessionStartedFromAnAnswerLinksWithItsGuild(t *testing.T) {
 		}
 	}
 	want := startedPost(m.ID)
-	if got := f.sentTo(chanID(0)); len(got) == 0 || got[0] != want {
+	if got := f.sentTo(chanID(0)); len(got) == 0 || head(got[0]) != want {
 		t.Errorf("first post = %q", got)
 	}
 }

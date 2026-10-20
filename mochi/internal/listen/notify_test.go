@@ -18,7 +18,7 @@ func TestEveryThreadMochiOpensReachesTim(t *testing.T) {
 	f.h.Handle(m)
 
 	first := f.api.Sent[0].Msg
-	if f.api.Sent[0].Channel != m.ID || first.Content != startedPost(m.ID) {
+	if f.api.Sent[0].Channel != m.ID || head(first.Content) != startedPost(m.ID) {
 		t.Errorf("first post %q in %s", first.Content, f.api.Sent[0].Channel)
 	}
 	if am := first.AllowedMentions; am == nil || !reflect.DeepEqual(am.Users, []string{tim.ID}) || len(am.Parse) != 0 {
@@ -38,7 +38,7 @@ func TestEveryThreadMochiOpensReachesTim(t *testing.T) {
 		t.Errorf("members = %v", g.api.Members)
 	}
 	for i := range abc {
-		if posts := g.sentTo(chanID(i)); len(posts) == 0 || posts[0] != startedPost(chattest.ID(1)) {
+		if posts := g.sentTo(chanID(i)); len(posts) == 0 || head(posts[0]) != startedPost(chattest.ID(1)) {
 			t.Errorf("thread %d first post = %q", i+1, posts)
 		}
 	}

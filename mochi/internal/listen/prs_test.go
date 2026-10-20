@@ -191,3 +191,20 @@ func TestWatchesOutliveARestartAndGoWithTheirSession(t *testing.T) {
 		t.Error("a pruned session's watch was kept")
 	}
 }
+
+// A session Tim stopped is not told its checks failed, and is told once he takes it up again.
+func TestAStoppedSessionIsNotToldItsChecksFailed(t *testing.T) {
+	f, thread, g := watched(t)
+	agent := "mochi-" + thread
+	g.checks = []map[string]string{{"name": "test", "status": "completed", "conclusion": "failure"}}
+	f.h.Handle(f.mention(thread, 5, tim, "stop", nil))
+	f.h.WatchPRs()
+	if len(f.herdr.prompts[agent]) != 1 {
+		t.Fatal("a stopped session was told")
+	}
+	f.h.Handle(f.mention(thread, 6, tim, "go on", nil))
+	f.h.WatchPRs()
+	if prompts := f.herdr.prompts[agent]; len(prompts) != 3 || !strings.HasPrefix(prompts[2], "CI failed on #42") {
+		t.Errorf("prompts = %q", prompts)
+	}
+}

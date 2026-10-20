@@ -83,9 +83,12 @@ func (h *Handler) WatchPRs() {
 }
 
 // Whether the head's checks were dealt with: failed and told to the session, or failed with no
-// session left to tell. Checks that have not failed, or a session on a question, are tried
-// again at the next look.
+// session left to tell. Checks that have not failed, a session on a question, or one Tim
+// stopped, are tried again at the next look.
 func (h *Handler) failedChecks(rec state.Session, w state.Watch, head string) bool {
+	if shown, _ := h.Marks.Session(rec.Thread); shown == mark.Stopped {
+		return false
+	}
 	failed, err := gh.Failed(h.GH, w.Repo, head)
 	if err != nil {
 		h.Log.Warn("a watched pull request's checks could not be read", "repo", w.Repo, "number", w.Number, "error", err)

@@ -12,6 +12,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/timche/mac-mini/mochi/internal/fence"
 )
 
 // Starting Claude Code is the longest call, and herdr is given 20 of these 30 seconds for
@@ -147,8 +149,10 @@ func Start(run Runner, agent, pane string) error {
 	return err
 }
 
+// Cleaned here as well as in the fence, so no part of a prompt, whoever wrote it, can end
+// the paste.
 func Prompt(run Runner, agent, text string) error {
-	_, err := call(run, "agent", "prompt", agent, text)
+	_, err := call(run, "agent", "prompt", agent, fence.Clean(text))
 	return err
 }
 

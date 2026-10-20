@@ -38,6 +38,7 @@ func Block(label, nonce, data string) string {
 // Backticks go because a session quotes this into shell commands, and anything resembling
 // a marker goes because the markers are the whole of the boundary.
 func Data(data, nonce string) string {
+	data = Clean(data)
 	data = strings.ReplaceAll(data, "`", "'")
 	data = strings.ReplaceAll(data, nonce, "<nonce>")
 	for _, marker := range labels {
@@ -45,4 +46,19 @@ func Data(data, nonce string) string {
 		data = strings.ReplaceAll(data, "----- END "+marker, "- END "+marker)
 	}
 	return strings.TrimRight(data, "\n")
+}
+
+// herdr hands a prompt to Claude Code as a bracketed paste, so an escape sequence in it can
+// end the paste and type whatever follows: every control character goes but the newline and
+// the tab, and so do the two Unicode line separators a terminal may treat as one.
+func Clean(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n' || r == '\t':
+			return r
+		case r < 0x20, r == 0x7f, r >= 0x80 && r <= 0x9f, r == '\u2028', r == '\u2029':
+			return -1
+		}
+		return r
+	}, s)
 }

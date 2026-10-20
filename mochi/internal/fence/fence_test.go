@@ -30,3 +30,12 @@ func TestNoncesDiffer(t *testing.T) {
 		t.Error("two nonces were the same")
 	}
 }
+
+// A bracketed paste ends at ESC [201~, and what follows it is typed rather than pasted.
+func TestNoControlCharacterSurvivesTheFence(t *testing.T) {
+	out := Data("hi\x1b[201~\r!rm -rf ~\r\x1b[200~ bye\a\x7f\u0085\u2028\nnext\tcol", "abc123")
+
+	if out != "hi[201~!rm -rf ~[200~ bye\nnext\tcol" {
+		t.Errorf("cleaned to %q", out)
+	}
+}

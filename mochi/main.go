@@ -21,6 +21,7 @@ import (
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/config"
+	"github.com/timche/mac-mini/mochi/internal/event"
 	"github.com/timche/mac-mini/mochi/internal/history"
 	"github.com/timche/mac-mini/mochi/internal/listen"
 	"github.com/timche/mac-mini/mochi/internal/mark"
@@ -74,6 +75,15 @@ func main() {
 }
 
 func run(args []string) error {
+	// Left out of the usage: Claude Code's Stop and AskUserQuestion hooks run it in every
+	// session, so it reads no config, needs no token and prints nothing.
+	if len(args) > 0 && args[0] == "session-event" {
+		if len(args) == 2 {
+			event.Write(os.Stdin, os.Getenv, config.EventsDirFromEnv(), args[1], time.Now)
+		}
+		return nil
+	}
+
 	withToken := len(args) > 0 && args[0] == op.WithToken
 	if withToken {
 		args = args[1:]

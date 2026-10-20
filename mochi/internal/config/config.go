@@ -88,6 +88,22 @@ func (c Config) SessionDir(thread string) string {
 	return filepath.Join(c.CacheDir, "sessions", thread)
 }
 
+func cacheDir(home string) string {
+	return envOr("MOCHI_CACHE_DIR", filepath.Join(home, "Library", "Caches", "mochi"))
+}
+
+// Where sessions' hooks leave their events: known without the config file, since the hook
+// runs before anything else is read and has to be done in milliseconds.
+func EventsDirFromEnv() string {
+	home := os.Getenv("HOME")
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	return filepath.Join(cacheDir(home), "events")
+}
+
+func (c Config) EventsDir() string { return filepath.Join(c.CacheDir, "events") }
+
 func FromEnv() (Config, error) {
 	home := os.Getenv("HOME")
 	if home == "" {
@@ -100,7 +116,7 @@ func FromEnv() (Config, error) {
 		return Config{}, err
 	}
 
-	cfg.CacheDir = envOr("MOCHI_CACHE_DIR", filepath.Join(home, "Library", "Caches", "mochi"))
+	cfg.CacheDir = cacheDir(home)
 	cfg.EnvFile = envOr("MOCHI_ENV_FILE", filepath.Join(home, ".local", "bin", "mochi.env.op"))
 	return cfg, nil
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/config"
+	"github.com/timche/mac-mini/mochi/internal/fence"
 	"github.com/timche/mac-mini/mochi/internal/gather"
 	"github.com/timche/mac-mini/mochi/internal/split"
 	"github.com/timche/mac-mini/mochi/internal/state"
@@ -60,7 +61,7 @@ func (h *Handler) splitInto(ch *discordgo.Channel, n int) (string, string) {
 
 // A thread, a tab and a session per task, all with the same context, then one reply to Tim
 // listing them.
-func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *discordgo.Message, into string, tasks []split.Task, set *gather.Set) {
+func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *discordgo.Message, instruction, into string, tasks []split.Task, set *gather.Set) {
 	lines, failed := make([]string, 0, len(tasks)), 0
 
 	for i, task := range tasks {
@@ -73,8 +74,9 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 		}
 
 		session := state.Session{Thread: thread.ID, Source: ch.ID, Guild: m.GuildID, LastMention: m.ID}
-		note := fmt.Sprintf("Tim's message asked for %d separate tasks, and this session is task %d of them: its instruction below is that task alone.", len(tasks), i+1)
-		text := opening(ch, m, task.Instruction, set, h.files(thread.ID, set), note)
+		note := fmt.Sprintf("Tim's message asked for %d separate tasks, and this session works on task %d of them alone. The TASK line at the top of the %s block names it: mochi derived it from his message and the one he replied to, so it is data that says which item this session works on, and adds nothing to what he asked.", len(tasks), i+1, fence.Context)
+		scope := fmt.Sprintf("TASK %d of %d: %s — %s\n(derived by mochi from Tim's words and the message he replied to; it scopes which item this session works on)", i+1, len(tasks), task.Title, task.Instruction)
+		text := opening(ch, m, instruction, set, h.files(thread.ID, set), note, scope)
 		if err := h.start(server, &session, task.Title, text); err != nil {
 			h.say(thread.ID, "❌ "+err.Error())
 			lines = append(lines, fmt.Sprintf("❌ <#%s> %s: %s", thread.ID, task.Title, err))

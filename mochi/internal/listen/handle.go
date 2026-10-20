@@ -122,7 +122,7 @@ func (h *Handler) open(server config.Server, ch *discordgo.Channel, m *discordgo
 	if len(tasks) > 1 {
 		into, why := h.splitInto(ch, len(tasks))
 		if into != "" {
-			h.openMany(server, ch, m, into, tasks, set)
+			h.openMany(server, ch, m, instruction, into, tasks, set)
 			return
 		}
 		alone = why
@@ -140,7 +140,7 @@ func (h *Handler) open(server config.Server, ch *discordgo.Channel, m *discordgo
 	}
 
 	session := state.Session{Thread: thread, Source: ch.ID, Guild: m.GuildID, LastMention: m.ID}
-	text := opening(ch, m, instruction, set, h.files(thread, set), "")
+	text := opening(ch, m, instruction, set, h.files(thread, set), "", "")
 	if err := h.start(server, &session, ch.Name, text); err != nil {
 		h.fail(m, thread, err.Error(), nil)
 		return
@@ -198,7 +198,7 @@ func (h *Handler) restart(server config.Server, ch *discordgo.Channel, rec state
 
 	rec.LastMention = m.ID
 	note := "The session that was working on this thread has gone, so this is a new one: the thread so far is the context."
-	text := opening(ch, m, instruction, set, h.files(rec.Thread, set), note)
+	text := opening(ch, m, instruction, set, h.files(rec.Thread, set), note, "")
 	if err := h.start(server, &rec, ch.Name, text); err != nil {
 		h.fail(m, rec.Thread, err.Error(), nil)
 		return

@@ -17,6 +17,8 @@ func TestTheOrdersSayWhenAndHowToPost(t *testing.T) {
 	for _, want := range []string{
 		"up to ten, at most 10 MB each",
 		"post it with `mochi post --review`",
+		"Questions and plans for Tim stay in this session: ask them here, never in Discord.",
+		"mochi tells him in the thread that the session is waiting on him whenever you stop or ask",
 		"show ❓ until he answers",
 		"before-and-after screenshots, a recording or other images",
 		"post that with `mochi post --done`: they show ✅",
@@ -40,7 +42,7 @@ func TestTheOrdersSayWhenAndHowToPost(t *testing.T) {
 			t.Errorf("the orders lack %q", want)
 		}
 	}
-	if strings.Contains(orders, "Post only when Tim asks") || strings.Contains(orders, "a PR link") {
+	if strings.Contains(orders, "Post only when Tim asks") || strings.Contains(orders, "a PR link") || strings.Contains(orders, "result, proof or a question") {
 		t.Error("the old rule is still there")
 	}
 }

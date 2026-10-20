@@ -105,7 +105,7 @@ type Post struct {
 	Text  string
 	Files []string
 
-	// A state the post puts the session in: ❓ for a result, proof or question handed to Tim,
+	// A state the post puts the session in: ❓ for a result ready for Tim's review,
 	// ✅ for a task done with nothing left for him; empty changes nothing.
 	Settles string
 

@@ -117,10 +117,10 @@ func (h *Handler) waiting(ev event.Event, waits map[string]state.Wait) {
 // something was set since.
 func (h *Handler) answered(thread string, waits map[string]state.Wait, at int64, discord bool) {
 	w := waits[thread]
-	if w.Asked {
-		if _, seq := h.Marks.Session(thread); seq == w.Seq {
-			h.Marks.Settled(thread, mark.Running)
-		}
+	// A stopped session Tim takes up again in the terminal is working again, as one he
+	// follows up from Discord is.
+	if shown, seq := h.Marks.Session(thread); shown == mark.Stopped || (w.Asked && seq == w.Seq) {
+		h.Marks.Settled(thread, mark.Running)
 	}
 	if w.CloseAt != 0 {
 		h.Log.Info("Tim reached a session before its tab closed, so it stays open", "thread", thread)

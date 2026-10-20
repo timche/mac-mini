@@ -124,3 +124,22 @@ func TestStopWithNoSessionStartsNothing(t *testing.T) {
 		t.Errorf("replies = %q", replies)
 	}
 }
+
+// Tim taking a stopped session up again in the terminal puts it back to ⏳, and a turn that
+// then ends on him pings again.
+func TestATypedWordAfterAStopResumesTheSession(t *testing.T) {
+	f := newFixture(t)
+	first := f.mention(channel, 1, tim, "research", nil)
+	f.h.Handle(first)
+	f.h.Handle(f.mention(first.ID, 2, tim, "stop", nil))
+	f.inState(first.ID, mark.Stopped)
+
+	f.prompted(first.ID, "carry on with a) only")
+	f.consume()
+	f.inState(first.ID, mark.Running)
+	f.event(first.ID, event.Stop, 0)
+	f.consume()
+	if f.pings(first.ID) != 1 {
+		t.Errorf("pings = %d after resuming", f.pings(first.ID))
+	}
+}

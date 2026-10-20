@@ -89,8 +89,12 @@ func UploadLimit(api API, guild string) int64 {
 	return 10 << 20
 }
 
-// What mochi shows on Tim's message while it handles it, and takes back after.
-const Eyes = "👀"
+// What mochi shows on Tim's message while it handles it, and takes back after; and what it
+// leaves there once what he asked has reached the session.
+const (
+	Eyes      = "👀"
+	Delivered = "👍"
+)
 
 // Every post mochi makes pings nobody: it quotes moderators' names and Tim's own mention
 // back, and a session posting findings is not a reason to wake a server.

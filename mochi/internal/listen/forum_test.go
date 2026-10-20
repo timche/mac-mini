@@ -79,7 +79,7 @@ func TestAMentionInAChannelOpensAForumPost(t *testing.T) {
 	if !strings.Contains(onlyPrompt(t, f.herdr, "mochi-"+p), "have a look") {
 		t.Error("the session was not handed Tim's words")
 	}
-	f.seenOnly(m.ID)
+	f.receipt(m.ID)
 	f.quiet()
 }
 

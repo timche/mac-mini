@@ -121,10 +121,10 @@ func (h *Handler) Handle(m *discordgo.Message) {
 		return
 	}
 
-	// 👀 for as long as the mention is being handled, and no reaction after: the reply, the
-	// question or the session's name says where it went.
-	h.react(m.ChannelID, m.ID)
-	defer h.unreact(m.ChannelID, m.ID)
+	// 👀 for as long as the mention is being handled, then 👍 once the session has what it
+	// asked, or nothing when it does not: the reply, the question or the ❌ says why.
+	h.react(m.ChannelID, m.ID, chat.Eyes)
+	defer h.unreact(m.ChannelID, m.ID, chat.Eyes)
 
 	ch, err := h.API.Channel(m.ChannelID)
 	if err != nil {
@@ -184,6 +184,7 @@ func (h *Handler) stop(rec state.Session, m *discordgo.Message) {
 		h.Log.Error("the stop was not recorded", "thread", rec.Thread, "error", h.redact(err))
 	}
 	h.heard(rec.Thread)
+	h.delivered(m)
 	h.Marks.Settled(rec.Thread, mark.Stopped)
 	h.say(rec.Thread, "Stopped. Mention mochi to continue.")
 }
@@ -385,6 +386,7 @@ func (h *Handler) begin(server config.Server, ch *discordgo.Channel, m *discordg
 	}
 	h.Marks.Started(thread)
 	h.heard(thread)
+	h.delivered(m)
 }
 
 // One session in a post of its own in the forum, and a reply to Tim saying where it went.
@@ -408,6 +410,7 @@ func (h *Handler) openPost(server config.Server, ch *discordgo.Channel, m *disco
 	}
 	h.Marks.Started(thread)
 	h.heard(thread)
+	h.delivered(m)
 }
 
 // Tim's message goes to the session with what everybody else wrote in the thread since his
@@ -464,6 +467,7 @@ func (h *Handler) relay(server config.Server, ch *discordgo.Channel, rec state.S
 	}
 	h.Marks.Started(rec.Thread)
 	h.heard(rec.Thread)
+	h.delivered(m)
 }
 
 // The session Tim closed is replaced by one that reads the whole thread, so nothing said in
@@ -487,6 +491,7 @@ func (h *Handler) restart(server config.Server, ch *discordgo.Channel, rec state
 	h.say(rec.Thread, "The previous session ended, so a new one started.")
 	h.Marks.Started(rec.Thread)
 	h.heard(rec.Thread)
+	h.delivered(m)
 }
 
 // The record is written as soon as the agent exists, so a follow-up finds it even when the
@@ -585,16 +590,21 @@ func sentence(text string) string {
 	return string(r)
 }
 
-func (h *Handler) react(channel, message string) {
-	if err := h.API.React(channel, message, chat.Eyes); err != nil {
+func (h *Handler) react(channel, message, emoji string) {
+	if err := h.API.React(channel, message, emoji); err != nil {
 		h.Log.Warn("could not react", "message", message, "error", h.redact(err))
 	}
 }
 
-func (h *Handler) unreact(channel, message string) {
-	if err := h.API.Unreact(channel, message, chat.Eyes); err != nil {
+func (h *Handler) unreact(channel, message, emoji string) {
+	if err := h.API.Unreact(channel, message, emoji); err != nil {
 		h.Log.Warn("a reaction could not be taken back", "message", message, "error", h.redact(err))
 	}
+}
+
+// The receipt: 👍 on Tim's message once herdr has taken what it asked, and kept.
+func (h *Handler) delivered(m *discordgo.Message) {
+	h.react(m.ChannelID, m.ID, chat.Delivered)
 }
 
 func (h *Handler) redact(err error) string { return chat.Redact(err, h.Token) }

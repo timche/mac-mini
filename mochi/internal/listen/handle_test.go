@@ -308,7 +308,7 @@ func TestAReplyToAnOldMessageStartsALeadSessionWithTheDiscussion(t *testing.T) {
 
 	f.h.Handle(m)
 
-	if !f.seenOnly(m.ID) {
+	if !f.receipt(m.ID) {
 		t.Errorf("reactions = %v", f.api.Reactions)
 	}
 	if len(f.api.Threads) != 1 || f.api.Threads[0] != m.ID+" ⏳ QOL: a) average elo per team b) map stats" {
@@ -442,7 +442,7 @@ func TestAMentionInASessionThreadIsRelayedWithOthersMessages(t *testing.T) {
 	if f.record(thread).LastMention != follow.ID {
 		t.Error("the relay was not recorded")
 	}
-	f.shows(follow.ID)
+	f.shows(follow.ID, chat.Delivered)
 
 	// The next relay starts after this mention, not the first.
 	f.api.Post(thread, 7, maker, "d) too")
@@ -524,7 +524,7 @@ func TestAFollowUpAnswersTheQuestionASessionIsWaitingOn(t *testing.T) {
 	if !strings.HasPrefix(brief, "Tim answered in Discord instead of the question") || !strings.Contains(brief, skillAgain) || !strings.Contains(brief, "go with b)") {
 		t.Errorf("brief = %q", brief)
 	}
-	f.seenOnly(follow.ID)
+	f.receipt(follow.ID)
 	f.inState(first.ID, mark.Running)
 	if f.record(first.ID).LastMention != follow.ID {
 		t.Error("the answer did not move the window on")

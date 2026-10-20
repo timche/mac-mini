@@ -148,6 +148,7 @@ func (h *Handler) splitInto(ch *discordgo.Channel, n int) (string, string) {
 func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *discordgo.Message, replied *discordgo.Message, instruction, into string, forum bool, tasks []split.Task, set *gather.Set) {
 	o := opener{mention: m, replied: replied, instruction: instruction}
 	lines := make([]string, 0, len(tasks))
+	all := true
 
 	for i, task := range tasks {
 		o.summary = task.Summary
@@ -165,6 +166,7 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 		if err != nil {
 			h.Log.Error("a thread could not be opened for a task", "task", i+1, "error", h.redact(err))
 			lines = append(lines, "❌ "+plain(task.Title)+": the thread could not be opened.")
+			all = false
 			continue
 		}
 
@@ -176,6 +178,7 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 			h.say(thread.ID, "❌ "+sentence(err.Error()))
 			h.Marks.Failed(thread.ID)
 			lines = append(lines, fmt.Sprintf("❌ <#%s> %s: %s.", thread.ID, plain(task.Title), strings.TrimSuffix(err.Error(), ".")))
+			all = false
 			continue
 		}
 
@@ -192,5 +195,8 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 	reply.Reference = &discordgo.MessageReference{MessageID: m.ID, ChannelID: m.ChannelID}
 	if _, err := h.API.Send(m.ChannelID, reply); err != nil {
 		h.Log.Error("the list of sessions could not be posted", "error", h.redact(err))
+	}
+	if all {
+		h.delivered(m)
 	}
 }

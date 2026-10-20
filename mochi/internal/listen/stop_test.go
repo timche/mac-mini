@@ -51,7 +51,7 @@ func TestStopInterruptsAWorkingSession(t *testing.T) {
 	if f.record(first.ID).LastMention != stop.ID {
 		t.Error("the stop did not move the window on")
 	}
-	f.seenOnly(stop.ID)
+	f.receipt(stop.ID)
 
 	// The turn it ended is no wait on Tim.
 	f.event(first.ID, event.Stop, 0)

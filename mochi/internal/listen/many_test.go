@@ -107,7 +107,7 @@ func TestASplitIntoThreeOpensThreeThreadsAndTabsAndOneReply(t *testing.T) {
 	if ref := f.api.Sent[len(f.api.Sent)-1].Msg.Reference; ref == nil || ref.MessageID != m.ID {
 		t.Error("the list is not a reply to Tim's message")
 	}
-	if !f.seenOnly(m.ID) {
+	if !f.receipt(m.ID) {
 		t.Errorf("reactions = %v", f.api.Reactions)
 	}
 	f.quiet()

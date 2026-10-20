@@ -41,4 +41,4 @@ Findings go back to the implementer that did the work, continued so it keeps its
 
 Push the branch and open the PR with `gh pr create --head <branch>`, closing the issue if the task came from one. Its body shows the proof's command with its output before the change, failing, and after, passing, and screenshots or a recording for anything judged by eye; then the change's risk and how to revert it. Independent branches get separate PRs; branches that have to land together are merged inside one implementer's worktree first.
 
-Put a check mark at the front of the tab name, then report under three headings, in this order: Blocked on you, with what you need from Tim or none; Changed, with the PR URL; Found, with what the proof showed, pre-existing bugs and anything else.
+Put a check mark in front of the tab's current name, keeping the name itself, unless `MOCHI_THREAD` is set, where the Discord post's title shows the state and the tab keeps mochi's name. Then report under three headings, in this order: Blocked on you, with what you need from Tim or none; Changed, with the PR URL; Found, with what the proof showed, pre-existing bugs and anything else.

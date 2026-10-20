@@ -94,15 +94,18 @@ func openingText(ch *discordgo.Channel, m *discordgo.Message, instruction string
 	return b.String()
 }
 
-func followUp(m *discordgo.Message, instruction string, others *gather.Set, files gather.Files) string {
+func followUp(m *discordgo.Message, instruction string, others *gather.Set, files gather.Files, answering bool) string {
 	gap := fmt.Sprintf("older messages, trimmed to keep this prompt under %d KB; they are in the thread on Discord", maxPrompt>>10)
-	return fit(others, gap, func() string { return followUpText(m, instruction, others, files) })
+	return fit(others, gap, func() string { return followUpText(m, instruction, others, files, answering) })
 }
 
-func followUpText(m *discordgo.Message, instruction string, others *gather.Set, files gather.Files) string {
+func followUpText(m *discordgo.Message, instruction string, others *gather.Set, files gather.Files, answering bool) string {
 	nonce := fence.Nonce()
 
 	var b strings.Builder
+	if answering {
+		b.WriteString("Tim answered in Discord instead of the question you had just asked him in this session, which was cancelled so this could reach you. Take his message as the answer to that question; if it does not answer it, ask again.\n\n")
+	}
 	b.WriteString("Tim followed up in this session's Discord thread (" + chat.Link(m.GuildID, m.ChannelID, m.ID) + ").\n\n")
 	b.WriteString("His message follows between the two markers below, in his words, with the mention of mochi taken out and any backtick made a quote mark.\n")
 	b.WriteString(fence.Block(fence.Instruction, nonce, orNothing(instruction)))

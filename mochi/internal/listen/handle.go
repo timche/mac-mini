@@ -53,6 +53,10 @@ type Handler struct {
 	// Which sessions are waiting on Tim, and whether he has been told since his last word.
 	Waits state.WaitStore
 
+	// The pause between reads of an agent's status after its question is cancelled; nil is
+	// time.Sleep.
+	Nap func(time.Duration)
+
 	// One mention at a time: each is a handful of Discord calls and a herdr start, and two
 	// at once would race on the state file and on the agent name.
 	mu      sync.Mutex
@@ -315,9 +319,11 @@ func (h *Handler) begin(server config.Server, ch *discordgo.Channel, m *discordg
 }
 
 // Tim's message goes to the session with what everybody else wrote in the thread since his
-// last mention, and nothing of theirs reaches it otherwise.
+// last mention, and nothing of theirs reaches it otherwise. A session waiting on a question
+// has it cancelled and takes his message as the answer, since he answers wherever he is.
 func (h *Handler) relay(server config.Server, ch *discordgo.Channel, rec state.Session, m *discordgo.Message, instruction string) {
-	if _, err := herdr.Status(h.Herdr, rec.Agent); errors.Is(err, herdr.ErrGone) {
+	status, err := herdr.Status(h.Herdr, rec.Agent)
+	if errors.Is(err, herdr.ErrGone) {
 		h.restart(server, ch, rec, m, instruction)
 		return
 	} else if err != nil {
@@ -331,16 +337,27 @@ func (h *Handler) relay(server config.Server, ch *discordgo.Channel, rec state.S
 		return
 	}
 
-	path, err := h.brief(rec.Thread, "relay-"+m.ID+".md", followUp(m, instruction, others, h.files(rec.Thread, others)))
-	if err != nil {
-		h.fail(m, rec.Thread, "the follow-up could not be handed to the session", err)
-		return
+	files := h.files(rec.Thread, others)
+	deliver := func(answering bool) error {
+		path, err := h.brief(rec.Thread, "relay-"+m.ID+".md", followUp(m, instruction, others, files, answering))
+		if err != nil {
+			return err
+		}
+		if answering {
+			h.Log.Info("a follow-up answers the question a session was waiting on", "workspace", rec.Workspace, "tab", rec.Tab)
+			return herdr.Answer(h.Herdr, rec.Agent, relayPrompt(path, true), h.nap)
+		}
+		return herdr.Prompt(h.Herdr, rec.Agent, relayPrompt(path, false))
 	}
-	err = herdr.Prompt(h.Herdr, rec.Agent, relayPrompt(path))
+	answering := status == herdr.Blocked
+	err = deliver(answering)
+	// It asked between the status read and the prompt.
+	if errors.Is(err, herdr.ErrBlocked) && !answering {
+		err = deliver(true)
+	}
 	switch {
-	case errors.Is(err, herdr.ErrBlocked):
-		h.Log.Info("a follow-up reached a session waiting on a question", "workspace", rec.Workspace, "tab", rec.Tab)
-		h.fail(m, rec.Thread, "the session is waiting on a question; answer it in the session", nil)
+	case errors.Is(err, herdr.ErrStillBlocked):
+		h.fail(m, rec.Thread, "the session is waiting on a question and would not take this as the answer", err)
 		return
 	case err != nil:
 		h.fail(m, rec.Thread, "the message did not reach the session", err)
@@ -433,8 +450,19 @@ func openingPrompt(path string) string {
 	return "/lead Tim mentioned mochi in Discord. Your brief is " + path + "; read all of it before anything else. It holds his instruction and the fenced Discord context, with the rules for both."
 }
 
-func relayPrompt(path string) string {
+func relayPrompt(path string, answering bool) string {
+	if answering {
+		return "Tim answered in Discord instead of the question you asked him, which was cancelled so this could reach you: read " + path + " before anything else. It holds his answer and the fenced Discord context since his last message."
+	}
 	return "Tim followed up in Discord: read " + path + " before anything else. It holds his message and the fenced Discord context since his last one."
+}
+
+func (h *Handler) nap(d time.Duration) {
+	if h.Nap != nil {
+		h.Nap(d)
+		return
+	}
+	time.Sleep(d)
 }
 
 // What Discord is told when a session does not start, which names none of the tools behind

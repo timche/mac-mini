@@ -16,6 +16,7 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/chat/chattest"
 	"github.com/timche/mac-mini/mochi/internal/config"
+	"github.com/timche/mac-mini/mochi/internal/event"
 	"github.com/timche/mac-mini/mochi/internal/mark"
 	"github.com/timche/mac-mini/mochi/internal/state"
 )
@@ -54,6 +55,13 @@ type fakeHerdr struct {
 	// Every prompt is refused, when set.
 	promptFails bool
 
+	// After an esc, how many more reads still say blocked, as the real herdr does for a
+	// moment; and whether the question stays up for good.
+	escLag     int
+	escIgnored bool
+	escaped    map[string]int
+	naps       int
+
 	// The nth start and every one after it fail, when set.
 	starts, failFrom int
 
@@ -68,6 +76,7 @@ func newHerdr() *fakeHerdr {
 		agents:     map[string]string{},
 		prompts:    map[string][]string{},
 		raw:        map[string][]string{},
+		escaped:    map[string]int{},
 	}
 }
 
@@ -122,7 +131,25 @@ func (f *fakeHerdr) run(args ...string) ([]byte, error) {
 		f.raw[args[2]] = append(f.raw[args[2]], args[3])
 		f.prompts[args[2]] = append(f.prompts[args[2]], expand(args[3]))
 		return answer(map[string]any{"result": map[string]any{}}), nil
+	case "agent send-keys":
+		if _, ok := f.agents[args[2]]; !ok {
+			return refusal("agent_not_found"), nil
+		}
+		if f.agents[args[2]] == "blocked" && args[3] == "esc" {
+			f.escaped[args[2]] = f.escLag
+		}
+		return answer(map[string]any{"result": map[string]any{}}), nil
 	case "agent get":
+		if lag, ok := f.escaped[args[2]]; ok {
+			if lag > 0 {
+				f.escaped[args[2]] = lag - 1
+			} else {
+				delete(f.escaped, args[2])
+				if !f.escIgnored {
+					f.agents[args[2]] = "idle"
+				}
+			}
+		}
 		status, ok := f.agents[args[2]]
 		if !ok {
 			return refusal("agent_not_found"), nil
@@ -193,6 +220,7 @@ func newFixture(t *testing.T) *fixture {
 		Now:     func() time.Time { return time.Date(2026, 10, 20, 15, 4, 0, 0, time.UTC) },
 		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Token:   "secret-token",
+		Nap:     func(time.Duration) { hd.naps++ },
 	}
 	h.Marks = mark.Marker{API: api, Path: cfg.MarksPath(), Now: func() time.Time { return h.Now() }, Log: h.Log}
 	h.SetBot(bot.ID)
@@ -445,11 +473,81 @@ func TestARelayToASessionTimClosedStartsANewOneWithTheThread(t *testing.T) {
 	}
 }
 
-func TestARelayToABlockedSessionFailsWithAReason(t *testing.T) {
+// Tim answers wherever he is: a follow-up to a session waiting on a question cancels it and
+// goes in as the answer, after herdr has stopped calling the agent blocked.
+func TestAFollowUpAnswersTheQuestionASessionIsWaitingOn(t *testing.T) {
+	f := newFixture(t)
+	first := f.mention(channel, 1, tim, "research a)", nil)
+	f.h.Handle(first)
+	agent := "mochi-" + first.ID
+	f.event(first.ID, event.Ask, 0)
+	f.h.ConsumeEvents()
+	f.herdr.agents[agent] = "blocked"
+	f.herdr.escLag = 2
+
+	follow := f.mention(first.ID, 2, tim, "go with b)", nil)
+	f.h.Handle(follow)
+
+	var order []string
+	for _, c := range f.herdr.calls {
+		if c[0] == "agent" && c[1] != "start" && len(c) > 2 && c[2] == agent {
+			order = append(order, c[1])
+		}
+	}
+	want := "get send-keys get get get prompt"
+	if got := strings.Join(order[len(order)-6:], " "); got != want {
+		t.Errorf("herdr calls = %q, want %q", got, want)
+	}
+	if f.herdr.naps != 2 {
+		t.Errorf("naps = %d", f.herdr.naps)
+	}
+	raw := f.herdr.raw[agent]
+	if !strings.HasPrefix(raw[len(raw)-1], "Tim answered in Discord instead of the question") {
+		t.Errorf("prompt = %q", raw[len(raw)-1])
+	}
+	brief := f.herdr.prompts[agent][len(f.herdr.prompts[agent])-1]
+	if !strings.HasPrefix(brief, "Tim answered in Discord instead of the question") || !strings.Contains(brief, "go with b)") {
+		t.Errorf("brief = %q", brief)
+	}
+	if f.api.ReactedWith(follow.ID, "❌") {
+		t.Error("❌ on an answer that was delivered")
+	}
+	f.shows(first.ID, mark.Running)
+	if f.record(first.ID).LastMention != follow.ID {
+		t.Error("the answer did not move the window on")
+	}
+	if w := f.waits()[first.ID]; w.Pinged || w.Pending {
+		t.Errorf("wait = %+v after the answer", w)
+	}
+}
+
+// A session that is not waiting on anything takes the follow-up as it always has, with no esc.
+func TestAFollowUpToAWorkingSessionIsPromptedWithoutAnEsc(t *testing.T) {
+	f := newFixture(t)
+	first := f.mention(channel, 1, tim, "research a)", nil)
+	f.h.Handle(first)
+	f.h.Handle(f.mention(first.ID, 2, tim, "also b)", nil))
+
+	if len(f.herdr.called("agent send-keys")) != 0 {
+		t.Error("an esc to a session with no question")
+	}
+	raw := f.herdr.raw["mochi-"+first.ID]
+	if !strings.HasPrefix(raw[len(raw)-1], "Tim followed up in Discord") {
+		t.Errorf("prompt = %q", raw[len(raw)-1])
+	}
+	brief := f.herdr.prompts["mochi-"+first.ID]
+	if strings.Contains(brief[len(brief)-1], "instead of the question") {
+		t.Error("a plain follow-up framed as an answer")
+	}
+}
+
+// A question still up when the window runs out is not prompted over: ❌ and a reason.
+func TestAQuestionThatWillNotCancelFailsWithAReason(t *testing.T) {
 	f := newFixture(t)
 	first := f.mention(channel, 1, tim, "research a)", nil)
 	f.h.Handle(first)
 	f.herdr.agents["mochi-"+first.ID] = "blocked"
+	f.herdr.escIgnored = true
 
 	follow := f.mention(first.ID, 2, tim, "also b)", nil)
 	f.h.Handle(follow)
@@ -458,7 +556,7 @@ func TestARelayToABlockedSessionFailsWithAReason(t *testing.T) {
 		t.Error("no ❌")
 	}
 	posts := f.sentTo(first.ID)
-	if !strings.Contains(posts[len(posts)-1], "❌ the session is waiting on a question; answer it in the session") {
+	if !strings.Contains(posts[len(posts)-1], "❌ the session is waiting on a question and would not take this as the answer") {
 		t.Errorf("posts = %q", posts)
 	}
 	if f.record(first.ID).LastMention != first.ID {

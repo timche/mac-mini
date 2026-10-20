@@ -95,6 +95,9 @@ func TestSummariesComeBackOnOneLineAndShort(t *testing.T) {
 	if !strings.Contains(Prompt("x", nil), "add nothing") {
 		t.Error("the prompt does not ask for a summary that adds nothing")
 	}
+	if !strings.Contains(Prompt("x", nil), "Describe what is asked, not who asked: never name Tim, the requester or any person.") {
+		t.Error("the prompt does not keep names out of the summary")
+	}
 }
 
 func TestSeveralTasksComeBackCleaned(t *testing.T) {

@@ -61,7 +61,11 @@ func Show(cfg config.Config, api chat.API, thread string, q Query, out io.Writer
 	if q.Post {
 		channel = rec.Thread
 	}
-	set, err := gather.Paged(api, rec.Guild, channel, q.Limit, q.Before, q.After, q.Around)
+	me, err := api.Me()
+	if err != nil {
+		return err
+	}
+	set, err := gather.Paged(api, rec.Guild, channel, q.Limit, q.Before, q.After, q.Around, me.ID)
 	if err != nil {
 		return err
 	}

@@ -65,6 +65,9 @@ type API interface {
 
 	// An attachment's bytes off Discord's CDN, which needs no token.
 	Fetch(url string) (io.ReadCloser, error)
+
+	// mochi's own user.
+	Me() (*discordgo.User, error)
 }
 
 // What mochi shows on Tim's message while it handles it, and takes back after.
@@ -323,6 +326,8 @@ func (l Live) ForumPost(forum, name string, tags []string, first *discordgo.Mess
 func (l Live) Send(channel string, msg *discordgo.MessageSend) (*discordgo.Message, error) {
 	return l.S.ChannelMessageSendComplex(channel, msg)
 }
+
+func (l Live) Me() (*discordgo.User, error) { return l.S.User("@me") }
 
 func (l Live) Fetch(raw string) (io.ReadCloser, error) {
 	u, err := url.Parse(raw)

@@ -1,6 +1,7 @@
 package listen
 
 import (
+	"github.com/bwmarrin/discordgo"
 	"os"
 	"strings"
 	"testing"
@@ -85,5 +86,25 @@ func TestARestartedSessionGetsAFreshOpening(t *testing.T) {
 	raw := f.herdr.raw["mochi-"+first.ID]
 	if len(raw) != 2 || !strings.HasPrefix(raw[1], event.OpeningPrefix) || !strings.Contains(raw[1], "has gone, so this is a new one") {
 		t.Fatalf("pasted %.200q", raw)
+	}
+}
+
+// With nothing but mochi's own posts and Discord's notices since his last mention, a relay is
+// the follow-up and Tim's words alone, with no context block at all.
+func TestAFollowUpWithNothingElseSaidIsHisWordsAlone(t *testing.T) {
+	f := newFixture(t)
+	first := f.mention(channel, 1, tim, "start", nil)
+	f.h.Handle(first)
+	f.api.Post(first.ID, 2, bot, "Here is what was found.")
+	renamed := f.api.Post(first.ID, 3, bot, "⏳ start")
+	renamed.Type = discordgo.MessageTypeChannelNameChange
+	f.h.Handle(f.mention(first.ID, 4, tim, "go with b)", nil))
+
+	relay := f.herdr.raw["mochi-"+first.ID][1]
+	if strings.Contains(relay, "DISCORD CONTEXT") || strings.Contains(relay, "Everything posted in the thread") || strings.Contains(relay, "That was the data") {
+		t.Errorf("an empty context was framed:\n%s", relay)
+	}
+	if !strings.Contains(between(t, relay, "INSTRUCTION FROM TIM"), "go with b)") {
+		t.Errorf("Tim's words are missing:\n%s", relay)
 	}
 }

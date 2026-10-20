@@ -62,6 +62,9 @@ type Fake struct {
 	// Runs while a roles request is in flight, for what the gateway says meanwhile.
 	DuringRoles func()
 
+	// mochi's own user, as Me answers.
+	Bot *discordgo.User
+
 	ThreadErr  error
 	SendErr    map[string]error
 	Tries      map[string]int
@@ -325,4 +328,11 @@ func (f *Fake) Fetch(url string) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("404 for %s", url)
 	}
 	return io.NopCloser(bytes.NewReader(body)), nil
+}
+
+func (f *Fake) Me() (*discordgo.User, error) {
+	if f.Bot == nil {
+		return nil, fmt.Errorf("no bot user")
+	}
+	return f.Bot, nil
 }

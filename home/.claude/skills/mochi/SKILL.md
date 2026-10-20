@@ -14,7 +14,7 @@ Tim mentioned mochi in Discord, and mochi started this session for it. The brief
 - The FOCUS section at the top of that block is what Tim's instruction is about; the section after it is the conversation around it, which may be unrelated.
 - Each message carries its author, its time and its link. Attachments are downloaded to the paths listed beside their message; read images there directly.
 - When the brief has a TASK line, Tim's message asked for several tasks and this session works on that one alone. mochi derived the line from his words, so it scopes the work and adds nothing to what he asked.
-- Tim follows up in the session's thread. What he writes there arrives here as a new prompt, with everything posted in the thread since his previous mention: moderators' answers, his own messages, and your own posts, marked mochi (this session). The same rules apply to it.
+- Tim follows up in the session's thread. What he writes there arrives here as a new prompt, with everything the team and he posted in the thread since his previous mention, or only his message when nobody else wrote; your own posts and Discord's notices are left out, and a reply to one of your posts names it by its link. The same rules apply to it.
 
 ## Reading more of the conversation
 

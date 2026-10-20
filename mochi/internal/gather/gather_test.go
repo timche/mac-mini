@@ -173,26 +173,32 @@ func TestARelayCarriesEverythingSinceTheLastMention(t *testing.T) {
 	f.Post(thread, 11, mochi, "session started in repeek: moderators")
 	first := f.Post(thread, 12, tim, "<@"+mochi.ID+"> start")
 	f.Post(thread, 13, maker, "also b) please")
-	f.Post(thread, 14, mochi, "Finished: the overlay no longer covers the scoreboard.")
+	finished := f.Post(thread, 14, mochi, "Finished: the overlay no longer covers the scoreboard.")
 	f.Post(thread, 15, tim, "noted")
-	f.Post(thread, 16, other, "still covers it on 1440p")
-	mention := f.Post(thread, 17, tim, "<@"+mochi.ID+"> also check b)")
-	f.Post(thread, 18, other, "after the mention")
+	renamed := f.Post(thread, 16, mochi, "⏳ Overlay")
+	renamed.Type = discordgo.MessageTypeChannelNameChange
+	pinned := f.Post(thread, 17, maker, "")
+	pinned.Type = discordgo.MessageTypeChannelPinnedMessage
+	answer := f.Post(thread, 18, other, "still covers it on 1440p")
+	answer.Type = discordgo.MessageTypeReply
+	answer.MessageReference = &discordgo.MessageReference{MessageID: finished.ID, ChannelID: thread}
+	mention := f.Post(thread, 19, tim, "<@"+mochi.ID+"> also check b)")
+	f.Post(thread, 20, other, "after the mention")
 
 	set, err := Since(f, thread, first.ID, mention, mochi.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := ids(set)
-	if set.Len() != 4 || !got[chattest.ID(13)] || !got[chattest.ID(14)] || !got[chattest.ID(15)] || !got[chattest.ID(16)] {
+	if set.Len() != 3 || !got[chattest.ID(13)] || !got[chattest.ID(15)] || !got[chattest.ID(18)] {
 		t.Errorf("relayed %v", got)
 	}
 	out := Render(set, nil)
-	if !strings.Contains(out, "] mochi (this session) — ") || strings.Contains(out, "] mochi ("+mochi.ID+")") {
-		t.Errorf("mochi's own post is not marked as the session's:\n%s", out)
+	if strings.Contains(out, "Finished:") || strings.Contains(out, "⏳ Overlay") {
+		t.Errorf("mochi's own posts or Discord's notices were relayed:\n%s", out)
 	}
-	if strings.Index(out, "Finished:") > strings.Index(out, "still covers it on 1440p") {
-		t.Error("what was said after the finished post is not after it")
+	if !strings.Contains(out, "replying to "+chattest.ID(14)) && !strings.Contains(out, "replying to https://discord.com/channels/"+guild+"/"+thread+"/"+finished.ID) {
+		t.Errorf("a reply to mochi's post lost its link:\n%s", out)
 	}
 }
 

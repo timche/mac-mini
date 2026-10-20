@@ -57,9 +57,6 @@ type Set struct {
 	focus map[string]bool
 	Gaps  []string
 
-	// mochi's own user, whose posts in a session's thread are the session's.
-	Self string
-
 	// Tim's account, labelled as the author of the instruction so a moderator who calls
 	// themselves Tim cannot pass for him.
 	Tim string
@@ -263,7 +260,6 @@ func Channel(api chat.API, mention *discordgo.Message) (*Set, error) {
 func Since(api chat.API, thread, after string, mention *discordgo.Message, self string) (*Set, error) {
 	set := NewSet(mention.GuildID)
 	set.Tim = authorID(mention)
-	set.Self = self
 
 	for page := 0; page < laterPages; page++ {
 		got, err := api.Messages(thread, Page, "", after, "")
@@ -278,7 +274,7 @@ func Since(api chat.API, thread, after string, mention *discordgo.Message, self 
 			if !chat.Before(m.ID, mention.ID) {
 				return set, nil
 			}
-			if m.Author != nil {
+			if said(m, self) {
 				set.Add(m)
 			}
 		}
@@ -289,16 +285,28 @@ func Since(api chat.API, thread, after string, mention *discordgo.Message, self 
 }
 
 // One page of a channel, which is what `mochi history` hands a session.
-func Paged(api chat.API, guild, channel string, limit int, before, after, around string) (*Set, error) {
+func Paged(api chat.API, guild, channel string, limit int, before, after, around, self string) (*Set, error) {
 	got, err := api.Messages(channel, limit, before, after, around)
 	if err != nil {
 		return nil, err
 	}
 	set := NewSet(guild)
 	for _, m := range got {
-		set.Add(m)
+		if said(m, self) {
+			set.Add(m)
+		}
 	}
 	return set, nil
+}
+
+// What somebody said, as against mochi's own posts — the session's, the pings, the moved
+// replies — and the notices Discord writes itself: a rename, a pin, a thread made. A reply
+// is said, and keeps the message it answers as a link, whoever wrote that.
+func said(m *discordgo.Message, self string) bool {
+	if m.Author == nil || (self != "" && m.Author.ID == self) {
+		return false
+	}
+	return m.Type == discordgo.MessageTypeDefault || m.Type == discordgo.MessageTypeReply
 }
 
 func markReplied(api chat.API, set *Set, mention *discordgo.Message) error {
@@ -414,8 +422,6 @@ func authorID(m *discordgo.Message) string {
 func (s *Set) author(m *discordgo.Message) string {
 	switch {
 	case m.Author == nil:
-	case s.Self != "" && m.Author.ID == s.Self:
-		return "mochi (this session)"
 	case s.Tim != "" && m.Author.ID == s.Tim:
 		return "Tim (instruction author)"
 	}

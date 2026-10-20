@@ -22,6 +22,7 @@ func fixture(t *testing.T) (config.Config, *chattest.Fake) {
 	t.Helper()
 	cfg := config.Config{CacheDir: t.TempDir()}
 	api := chattest.New()
+	api.Bot = &discordgo.User{ID: "1400000000000000003", Username: "mochi", Bot: true}
 	api.AddChannel(&discordgo.Channel{ID: source, GuildID: guild, Type: discordgo.ChannelTypeGuildText})
 	api.AddChannel(&discordgo.Channel{ID: other, GuildID: guild, Type: discordgo.ChannelTypeGuildText})
 	user := &discordgo.User{ID: "1400000000000000001", Username: "maker"}
@@ -112,5 +113,24 @@ func TestAQueryIsOneDirectionAndAPage(t *testing.T) {
 		if q.Check() == nil {
 			t.Errorf("%+v passed", q)
 		}
+	}
+}
+
+// History leaves out mochi's own posts and Discord's notices, as a relay does.
+func TestHistoryLeavesOutMochiAndDiscordsNotices(t *testing.T) {
+	cfg, api := fixture(t)
+	api.AddChannel(&discordgo.Channel{ID: session, GuildID: guild, Type: discordgo.ChannelTypeGuildPublicThread})
+	api.Post(session, 5000, api.Bot, "Session started for the message")
+	renamed := api.Post(session, 5001, api.Bot, "⏳ the title")
+	renamed.Type = discordgo.MessageTypeChannelNameChange
+	api.Post(session, 5002, &discordgo.User{ID: "1400000000000000002", Username: "mod"}, "a moderator's word")
+	var out strings.Builder
+
+	if err := Show(cfg, api, session, Query{Limit: 50, Post: true}, &out); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	if !strings.Contains(text, "a moderator's word") || strings.Contains(text, "Session started") || strings.Contains(text, "the title") {
+		t.Errorf("history:\n%s", text)
 	}
 }

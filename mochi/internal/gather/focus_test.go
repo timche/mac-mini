@@ -139,7 +139,7 @@ func TestTrimmingNeverTakesTheFocus(t *testing.T) {
 func TestASetWithNoFocusHasNoSections(t *testing.T) {
 	f := server()
 	f.Post(channel, 1, other, "hello")
-	set, err := Paged(f, guild, channel, 10, "", "", "")
+	set, err := Paged(f, guild, channel, 10, "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

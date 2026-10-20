@@ -11,10 +11,10 @@ import (
 
 func TestEvalScoresEachCaseThroughTheProductionCall(t *testing.T) {
 	answers := []string{
-		`{"is_error":false,"structured_output":{"tasks":[{"title":"A","instruction":"research a"},{"title":"B","instruction":"research b"}]}}`,
-		`{"is_error":false,"structured_output":{"tasks":[{"title":"All","instruction":"research a and b"}]}}`,
+		`{"is_error":false,"structured_output":{"decision":"many","title":"AB","tasks":[{"title":"A","instruction":"research a"},{"title":"B","instruction":"research b"}]}}`,
+		`{"is_error":false,"structured_output":{"decision":"one","title":"All","tasks":[{"title":"All","instruction":"research a and b"}]}}`,
 		`not json`,
-		`{"is_error":false,"structured_output":{"tasks":[` + strings.Repeat(`{"title":"x","instruction":"y"},`, 5) + `{"title":"x","instruction":"y"}]}}`,
+		`{"is_error":false,"structured_output":{"decision":"many","title":"x","tasks":[` + strings.Repeat(`{"title":"x","instruction":"y"},`, 5) + `{"title":"x","instruction":"y"}]}}`,
 	}
 	var stdins []string
 	var args [][]string

@@ -37,8 +37,12 @@ type Handler struct {
 	Log   *slog.Logger
 	Token string
 
-	// Whether a new-session mention is one task or several; nil is always one.
-	Split func(instruction string, replied *discordgo.Message) ([]split.Task, error)
+	// Whether a new-session mention is one task, several, or a question for Tim; nil is
+	// always one.
+	Split func(instruction string, replied *discordgo.Message) (split.Answer, error)
+
+	// The questions asked and not yet answered.
+	Pending state.PendingStore
 
 	// One mention at a time: each is a handful of Discord calls and a herdr start, and two
 	// at once would race on the state file and on the agent name.
@@ -86,6 +90,9 @@ func (h *Handler) Handle(m *discordgo.Message) {
 		return
 	}
 	instruction, mentioned := h.mentioned(m)
+	if h.textAnswer(m, instruction) {
+		return
+	}
 	if !mentioned {
 		if strings.Contains(strings.ToLower(m.Content), "mochi") {
 			h.Log.Info("a message from Tim names mochi without a mention mochi recognises, so it was ignored", "message", m.ID)
@@ -215,11 +222,21 @@ func (h *Handler) Gateway(event string, data []byte) {
 
 func (h *Handler) open(server config.Server, ch *discordgo.Channel, m *discordgo.Message, instruction string) {
 	replied := h.replied(m)
-	tasks, ok := h.tasks(m, instruction, replied)
+	answer, ok := h.classify(m, instruction, replied)
 	if !ok {
 		return
 	}
-	name := title(tasks, replied, instruction)
+	if answer.Decision == split.Ask {
+		h.ask(m, instruction, answer)
+		return
+	}
+	h.begin(server, ch, m, instruction, replied, answer, answer.Decision == split.Many)
+}
+
+// The sessions themselves, once it is settled whether they are one or several: straight from
+// a mention, or from Tim's answer to a question.
+func (h *Handler) begin(server config.Server, ch *discordgo.Channel, m *discordgo.Message, instruction string, replied *discordgo.Message, answer split.Answer, many bool) {
+	name := title(answer, replied, instruction)
 
 	var (
 		set *gather.Set
@@ -239,10 +256,10 @@ func (h *Handler) open(server config.Server, ch *discordgo.Channel, m *discordgo
 	}
 
 	var alone string
-	if len(tasks) > 1 {
-		into, why := h.splitInto(ch, len(tasks))
+	if many && len(answer.Tasks) > 1 {
+		into, why := h.splitInto(ch, len(answer.Tasks))
 		if into != "" {
-			h.openMany(server, ch, m, instruction, into, tasks, set)
+			h.openMany(server, ch, m, instruction, into, answer.Tasks, set)
 			return
 		}
 		alone = why

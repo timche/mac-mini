@@ -17,6 +17,7 @@ import (
 )
 
 type Sent struct {
+	ID      string
 	Channel string
 	Msg     *discordgo.MessageSend
 	Files   map[string]string
@@ -33,6 +34,9 @@ type Fake struct {
 	Pages     []string
 
 	Standalone []string
+
+	Edits     []*discordgo.MessageEdit
+	Responses []*discordgo.InteractionResponse
 
 	GuildRoles map[string][]chat.Role
 	RoleReads  int
@@ -169,9 +173,20 @@ func (f *Fake) Send(channel string, msg *discordgo.MessageSend) (*discordgo.Mess
 		body, _ := io.ReadAll(file.Reader)
 		files[file.Name] = string(body)
 	}
-	f.Sent = append(f.Sent, Sent{Channel: channel, Msg: msg, Files: files})
 	f.next++
-	return &discordgo.Message{ID: ID(900_000 + f.next), ChannelID: channel, Content: msg.Content}, nil
+	id := ID(900_000 + f.next)
+	f.Sent = append(f.Sent, Sent{ID: id, Channel: channel, Msg: msg, Files: files})
+	return &discordgo.Message{ID: id, ChannelID: channel, Content: msg.Content}, nil
+}
+
+func (f *Fake) Edit(edit *discordgo.MessageEdit) error {
+	f.Edits = append(f.Edits, edit)
+	return nil
+}
+
+func (f *Fake) Respond(i *discordgo.Interaction, r *discordgo.InteractionResponse) error {
+	f.Responses = append(f.Responses, r)
+	return nil
 }
 
 func (f *Fake) Roles(guild string) ([]chat.Role, error) {

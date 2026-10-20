@@ -13,9 +13,11 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-func answer(tasks string) []byte {
-	return []byte(`{"type":"result","is_error":false,"result":"","structured_output":{"tasks":` + tasks + `}}`)
+func decided(decision, tasks string) []byte {
+	return []byte(`{"type":"result","is_error":false,"result":"","structured_output":{"decision":"` + decision + `","title":"","tasks":` + tasks + `}}`)
 }
+
+func answer(tasks string) []byte { return decided("many", tasks) }
 
 type call struct {
 	stdin string
@@ -66,9 +68,10 @@ func TestSeveralTasksComeBackCleaned(t *testing.T) {
 		{"title":"`+long+`","instruction":"research b) map stats\u001b[201~"},
 		{"title":"","instruction":"research c) match history"}]`), nil)
 
-	tasks, err := s.Split("research a, b and c separately", nil)
-	if err != nil || len(tasks) != 3 {
-		t.Fatalf("%v, %v", tasks, err)
+	a, err := s.Split("research a, b and c separately", nil)
+	tasks := a.Tasks
+	if err != nil || len(tasks) != 3 || a.Decision != Many || a.Title != "Average elo" {
+		t.Fatalf("%+v, %v", a, err)
 	}
 	if len([]rune(tasks[1].Title)) != 80 || strings.Contains(tasks[1].Instruction, "\x1b") {
 		t.Errorf("task 2 = %+v", tasks[1])
@@ -100,6 +103,7 @@ func TestEveryOtherFailureIsAnError(t *testing.T) {
 		"no tasks":       {answer(`[]`), nil},
 		"no structure":   {[]byte(`{"is_error":false,"result":"{}"}`), nil},
 		"empty task":     {answer(`[{"title":"a","instruction":"  "}]`), nil},
+		"no decision":    {decided("maybe", `[{"title":"a","instruction":"b"}]`), nil},
 	} {
 		s, _ := splitter(t, c.out, c.err)
 		if _, err := s.Split("x", nil); err == nil {
@@ -187,6 +191,35 @@ func TestThePromptCarriesTimsRules(t *testing.T) {
 	} {
 		if !strings.Contains(p, rule) {
 			t.Errorf("the prompt lacks %q", rule)
+		}
+	}
+}
+
+func TestTheDecisionComesBackWithEveryItem(t *testing.T) {
+	three := `[{"title":"A","instruction":"look at a"},{"title":"B","instruction":"look at b"},{"title":"C","instruction":"look at c"}]`
+	for decision, want := range map[string]string{"one": One, "many": Many, "ask": Ask} {
+		s, _ := splitter(t, decided(decision, three), nil)
+		a, err := s.Split("take a look at the three suggestions", nil)
+		if err != nil || a.Decision != want || len(a.Tasks) != 3 {
+			t.Errorf("%s: %+v, %v", decision, a, err)
+		}
+	}
+
+	// One item is one session whatever was decided.
+	s, _ := splitter(t, decided("ask", `[{"title":"A","instruction":"look at a"}]`), nil)
+	if a, _ := s.Split("look at a", nil); a.Decision != One {
+		t.Errorf("a single item was decided %q", a.Decision)
+	}
+}
+
+// Only "many" is refused over five: a question can still offer them as one session.
+func TestOnlyManyIsCappedAtFive(t *testing.T) {
+	six := `[` + strings.Repeat(`{"title":"x","instruction":"y"},`, 5) + `{"title":"x","instruction":"y"}]`
+	for decision, refused := range map[string]bool{"many": true, "ask": false, "one": false} {
+		s, _ := splitter(t, decided(decision, six), nil)
+		_, err := s.Split("these six", nil)
+		if errors.As(err, new(TooMany)) != refused {
+			t.Errorf("%s: err = %v", decision, err)
 		}
 	}
 }

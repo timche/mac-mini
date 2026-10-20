@@ -11,21 +11,26 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// One case: what Tim wrote, the message he replied to, and how many sessions it should start.
+// One case: what Tim wrote, the message he replied to, how many sessions it should start, and
+// for a case where the right answer is to ask him, Decision "ask".
 type Case struct {
 	Instruction string `json:"instruction"`
 	Replied     string `json:"replied"`
 	Want        int    `json:"want"`
+	Decision    string `json:"decision,omitempty"`
 }
 
 type Result struct {
-	Case    int      `json:"case"`
-	Want    int      `json:"want"`
-	Got     int      `json:"got"`
-	Seconds float64  `json:"seconds"`
-	Pass    bool     `json:"pass"`
-	Titles  []string `json:"titles,omitempty"`
-	Error   string   `json:"error,omitempty"`
+	Case         int      `json:"case"`
+	Want         int      `json:"want"`
+	WantDecision string   `json:"want_decision,omitempty"`
+	Decision     string   `json:"decision,omitempty"`
+	Got          int      `json:"got"`
+	Seconds      float64  `json:"seconds"`
+	Pass         bool     `json:"pass"`
+	Title        string   `json:"title,omitempty"`
+	Titles       []string `json:"titles,omitempty"`
+	Error        string   `json:"error,omitempty"`
 }
 
 type Summary struct {
@@ -37,8 +42,10 @@ type Summary struct {
 }
 
 // `mochi split-eval`: the cases as JSON lines in, a result per case and a summary out, through
-// the same prompt, schema, flags and parsing as a mention. A case over the cap counts what
-// claude returned, so a case wanting six passes on six.
+// the same prompt, schema, flags and parsing as a mention. Got is the sessions the decision
+// would start, or for "ask" the items it would offer; a case over the cap counts what claude
+// returned, so a case wanting six passes on six. A case with a Decision passes on that
+// decision; any other passes on its count, and an "ask" for it is a miss.
 func Eval(in io.Reader, out io.Writer, s Splitter, now func() time.Time) error {
 	enc := json.NewEncoder(out)
 	sum := Summary{Model: s.Model, Effort: s.Effort}
@@ -56,22 +63,32 @@ func Eval(in io.Reader, out io.Writer, s Splitter, now func() time.Time) error {
 			replied = &discordgo.Message{Content: c.Replied}
 		}
 		start := now()
-		tasks, err := s.Split(c.Instruction, replied)
-		r := Result{Case: n, Want: c.Want, Seconds: now().Sub(start).Seconds()}
+		answer, err := s.Split(c.Instruction, replied)
+		r := Result{Case: n, Want: c.Want, WantDecision: c.Decision, Seconds: now().Sub(start).Seconds()}
 
 		var tooMany TooMany
 		switch {
 		case errors.As(err, &tooMany):
-			r.Got = tooMany.N
+			r.Decision, r.Got = Many, tooMany.N
 		case err != nil:
 			r.Error = err.Error()
 		default:
-			r.Got = len(tasks)
-			for _, t := range tasks {
+			r.Decision, r.Title = answer.Decision, answer.Title
+			r.Got = len(answer.Tasks)
+			if answer.Decision == One {
+				r.Got = 1
+			}
+			for _, t := range answer.Tasks {
 				r.Titles = append(r.Titles, t.Title)
 			}
 		}
-		r.Pass = r.Error == "" && r.Got == c.Want
+		switch {
+		case r.Error != "":
+		case c.Decision != "":
+			r.Pass = r.Decision == c.Decision
+		default:
+			r.Pass = r.Decision != Ask && r.Got == c.Want
+		}
 
 		sum.Cases++
 		sum.Seconds += r.Seconds

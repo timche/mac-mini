@@ -31,6 +31,12 @@ type API interface {
 	NewThread(channel, name string) (*discordgo.Channel, error)
 	Send(channel string, msg *discordgo.MessageSend) (*discordgo.Message, error)
 
+	// A message mochi posted, changed: a question's buttons disabled once it is answered.
+	Edit(edit *discordgo.MessageEdit) error
+
+	// The answer to a button press, which Discord wants within three seconds.
+	Respond(i *discordgo.Interaction, r *discordgo.InteractionResponse) error
+
 	// Every role of a guild, with the tags that say which one is a bot's.
 	Roles(guild string) ([]Role, error)
 
@@ -149,6 +155,15 @@ func (l Live) StartThread(channel, message, name string) (*discordgo.Channel, er
 		Name:                name,
 		AutoArchiveDuration: 1440,
 	})
+}
+
+func (l Live) Edit(edit *discordgo.MessageEdit) error {
+	_, err := l.S.ChannelMessageEditComplex(edit)
+	return err
+}
+
+func (l Live) Respond(i *discordgo.Interaction, r *discordgo.InteractionResponse) error {
+	return l.S.InteractionRespond(i, r)
 }
 
 func (l Live) NewThread(channel, name string) (*discordgo.Channel, error) {

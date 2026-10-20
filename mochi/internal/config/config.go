@@ -69,6 +69,10 @@ func (c Config) Server(guild string) (Server, bool) {
 func (c Config) StatePath() string { return filepath.Join(c.CacheDir, "state.json") }
 func (c Config) Heartbeat() string { return filepath.Join(c.CacheDir, "heartbeat") }
 
+// Questions mochi has asked Tim and not had answered, kept on disk so a restart can still take
+// the answer.
+func (c Config) PendingPath() string { return filepath.Join(c.CacheDir, "pending.json") }
+
 // The marker the outer half leaves before it hands over to `op run`, which the inner half
 // removes once it has a token: one still there on the next start means 1Password did not
 // answer last time.

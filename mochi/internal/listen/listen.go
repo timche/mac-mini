@@ -69,13 +69,14 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 	s.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsMessageContent
 
 	h := &Handler{
-		Cfg:   cfg,
-		API:   chat.NewLive(s),
-		Herdr: herdr.CLI,
-		Store: state.Store{Path: cfg.StatePath()},
-		Now:   time.Now,
-		Log:   log,
-		Token: token,
+		Cfg:     cfg,
+		API:     chat.NewLive(s),
+		Herdr:   herdr.CLI,
+		Store:   state.Store{Path: cfg.StatePath()},
+		Pending: state.PendingStore{Path: cfg.PendingPath()},
+		Now:     time.Now,
+		Log:     log,
+		Token:   token,
 		Split: split.Splitter{
 			Run:     split.CLI,
 			Model:   cfg.Split.Model,
@@ -89,6 +90,9 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 	})
 	s.AddHandler(func(_ *discordgo.Session, m *discordgo.MessageCreate) { h.Handle(m.Message) })
 	s.AddHandler(func(_ *discordgo.Session, e *discordgo.Event) { h.Gateway(e.Type, e.RawData) })
+	// A button press arrives over the gateway with no intent of its own, and is answered with
+	// its own token, so it needs no permission beyond what posting the question did.
+	s.AddHandler(func(_ *discordgo.Session, i *discordgo.InteractionCreate) { h.Interaction(i.Interaction) })
 
 	if err := s.Open(); err != nil {
 		log.Error("could not connect to Discord", "error", chat.Redact(err, token), "retry", retryAfter.String())
@@ -106,6 +110,7 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 		if connected(s) {
 			beat(cfg, time.Now())
 		}
+		h.ExpirePending()
 		if err := refresh.tick(time.Now()); err != nil {
 			log.Warn("the wrapper could not be run to pick up a change to mochi", "error", err)
 		}

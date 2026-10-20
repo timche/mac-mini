@@ -16,34 +16,37 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/state"
 )
 
-// The tasks a new-session mention asks for, one or several. False means Tim has been told no;
-// none means the classifier could not answer, which is one session with his own words, exactly
-// as without it.
-func (h *Handler) tasks(m *discordgo.Message, instruction string, replied *discordgo.Message) ([]split.Task, bool) {
+// How a new-session mention is to be worked. False means Tim has been told no; an empty answer
+// means the classifier could not say, which is one session with his own words, exactly as
+// without it.
+func (h *Handler) classify(m *discordgo.Message, instruction string, replied *discordgo.Message) (split.Answer, bool) {
 	if h.Split == nil {
-		return nil, true
+		return split.Answer{}, true
 	}
-	tasks, err := h.Split(instruction, replied)
+	answer, err := h.Split(instruction, replied)
 	var tooMany split.TooMany
 	switch {
 	case errors.As(err, &tooMany):
 		h.fail(m, "", tooMany.Error(), nil)
-		return nil, false
+		return split.Answer{}, false
 	case err != nil:
 		h.Log.Warn("the mention could not be split, so it is one session", "message", m.ID, "error", h.redact(err))
-		return nil, true
+		return split.Answer{}, true
 	}
-	return tasks, true
+	return answer, true
 }
 
 var mentionToken = regexp.MustCompile(`<(?:@[!&]?|#)[0-9]+>`)
 
-// A session's name in Discord and in herdr: the classifier's title for its task, and without
-// one the start of the message Tim replied to, then his own words. Display only; a session
-// sees it, if at all, inside the fence.
-func title(tasks []split.Task, replied *discordgo.Message, instruction string) string {
-	if len(tasks) == 1 && tasks[0].Title != "" {
-		return tasks[0].Title
+// A single session's name in Discord and in herdr: the classifier's title for the work, and
+// without one the start of the message Tim replied to, then his own words. Display only; a
+// session sees it, if at all, inside the fence.
+func title(answer split.Answer, replied *discordgo.Message, instruction string) string {
+	if answer.Title != "" {
+		return answer.Title
+	}
+	if len(answer.Tasks) == 1 && answer.Tasks[0].Title != "" {
+		return answer.Tasks[0].Title
 	}
 	if replied != nil {
 		if t := firstWords(replied.Content, 60); t != "" {

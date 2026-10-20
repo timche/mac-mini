@@ -139,13 +139,14 @@ func newFixture(t *testing.T) *fixture {
 	}
 	hd := newHerdr()
 	h := &Handler{
-		Cfg:   cfg,
-		API:   api,
-		Herdr: hd.run,
-		Store: state.Store{Path: cfg.StatePath()},
-		Now:   func() time.Time { return time.Date(2026, 10, 20, 15, 4, 0, 0, time.UTC) },
-		Log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Token: "secret-token",
+		Cfg:     cfg,
+		API:     api,
+		Herdr:   hd.run,
+		Store:   state.Store{Path: cfg.StatePath()},
+		Pending: state.PendingStore{Path: cfg.PendingPath()},
+		Now:     func() time.Time { return time.Date(2026, 10, 20, 15, 4, 0, 0, time.UTC) },
+		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Token:   "secret-token",
 	}
 	h.SetBot(bot.ID)
 	return &fixture{t: t, api: api, herdr: hd, h: h, cfg: cfg}

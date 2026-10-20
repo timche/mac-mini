@@ -36,9 +36,25 @@ type Task struct {
 	Instruction string `json:"instruction"`
 }
 
+// How a mention is to be worked: one session, one per task, or Tim is asked which.
+const (
+	One  = "one"
+	Many = "many"
+	Ask  = "ask"
+)
+
+// Answer is the classifier's reading of a mention. Tasks are the distinct items it covers,
+// whatever the decision, so that a question can offer them; Title names the work as one
+// session.
+type Answer struct {
+	Decision string `json:"decision"`
+	Title    string `json:"title"`
+	Tasks    []Task `json:"tasks"`
+}
+
 // No item limit in the schema: a model held to five would merge or drop tasks, and too many
 // is something to tell Tim rather than hide from him.
-const Schema = `{"type":"object","properties":{"tasks":{"type":"array","minItems":1,"items":{"type":"object","properties":{"title":{"type":"string","maxLength":80},"instruction":{"type":"string","minLength":1}},"required":["title","instruction"],"additionalProperties":false}}},"required":["tasks"],"additionalProperties":false}`
+const Schema = `{"type":"object","properties":{"decision":{"type":"string","enum":["one","many","ask"]},"title":{"type":"string","maxLength":80},"tasks":{"type":"array","minItems":1,"items":{"type":"object","properties":{"title":{"type":"string","maxLength":80},"instruction":{"type":"string","minLength":1}},"required":["title","instruction"],"additionalProperties":false}}},"required":["decision","title","tasks"],"additionalProperties":false}`
 
 // Headless, with no tools, no MCP servers, no settings and no saved session: the call reads
 // one instruction and one message and answers in the schema, nothing more.
@@ -62,17 +78,17 @@ func Prompt(instruction string, replied *discordgo.Message) string {
 	nonce := fence.Nonce()
 
 	var b strings.Builder
-	b.WriteString(`You decide whether one instruction Tim gave a Discord bot is one task or several independent tasks. Each task becomes its own Claude Code session.
+	b.WriteString(`You decide how one instruction Tim gave a Discord bot is worked: as one Claude Code session, as one session per item, or by asking him which.
 
 Rules:
-- Several tasks when the instruction asks for things to be done separately, one by one, in parallel, or each on its own, such as "research a, b and c separately".
-- Several tasks also when it asks for plainly unrelated pieces of work, such as "look into a) and also debug the login timeout from yesterday", which is two.
-- Related work stays one task, however many items it names: comparing them ("compare a and b"), choosing between them ("read a, b and c and tell me which first"), steps of one job ("fix, test and open a PR"), or one result about all of them ("one plan", "a single summary").
-- Otherwise return exactly one task: the instruction as he wrote it.
-- For several tasks, each instruction has to stand on its own: Tim's shared lead-in followed by that one item, in his words. Add no requirement, detail or suggestion he did not write.
+- List as tasks every distinct item the instruction covers, whatever you decide. When it covers one thing, that is one task.
+- decision "many" when he asks for the items to be done separately, one by one, in parallel, or each on its own, such as "research a, b and c separately"; or when they are plainly unrelated pieces of work, such as "look into a) and also debug the login timeout from yesterday".
+- decision "one" when there is a single item, or when the items are one piece of work however many they are: comparing them ("compare a and b"), choosing between them ("read a, b and c and tell me which first"), steps of one job ("fix, test and open a PR"), one result about all of them ("one plan", "a single summary"), or doing them together.
+- decision "ask" when his words cover several distinct items without saying whether to work them together or apart, such as "take a look at the three suggestions".
+- Each task's instruction has to stand on its own: Tim's shared lead-in followed by that one item, in his words. Add no requirement, detail or suggestion he did not write. A single task's instruction is his instruction as he wrote it.
 - Resolve references such as "a, b and c" or "the three points" from the message he replied to, naming each item as that message does.
-- Each title names the subject of its task in at most 80 characters: what the work is about, not what Tim asked to be done with it. When his words do not name it, as with "have a look at this" in reply to a report that the FACEIT overlay blocks hover, take it from the message he replied to: "FACEIT overlay blocks hover". This holds for a single task too.
-- Return every task he asked for, however many there are.
+- Each task's title names the subject of its task in at most 80 characters: what the work is about, not what Tim asked to be done with it. When his words do not name it, as with "have a look at this" in reply to a report that the FACEIT overlay blocks hover, take it from the message he replied to: "FACEIT overlay blocks hover". The top-level title names the work as a whole the same way, as one session would be named.
+- Return every item he covers, however many there are.
 
 Tim's instruction follows between the two markers below.
 `)
@@ -128,56 +144,65 @@ func (e TooMany) Error() string {
 }
 
 // TooMany is for Tim; any other error means one session with his own words.
-func (s Splitter) Split(instruction string, replied *discordgo.Message) ([]Task, error) {
+func (s Splitter) Split(instruction string, replied *discordgo.Message) (Answer, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.Timeout)
 	defer cancel()
 
 	out, err := s.Run(ctx, Prompt(instruction, replied), Args(s.Model, s.Effort))
 	if ctx.Err() != nil {
-		return nil, fmt.Errorf("claude did not answer within %s", s.Timeout)
+		return Answer{}, fmt.Errorf("claude did not answer within %s", s.Timeout)
 	}
 	if err != nil {
-		return nil, err
+		return Answer{}, err
 	}
 	return parse(out)
 }
 
-func parse(out []byte) ([]Task, error) {
+// A single item is one session whatever the decision says, and only "many" is refused for
+// more than five: a question can still offer them as one.
+func parse(out []byte) (Answer, error) {
 	var reply struct {
-		IsError    bool   `json:"is_error"`
-		Result     string `json:"result"`
-		Structured *struct {
-			Tasks []Task `json:"tasks"`
-		} `json:"structured_output"`
+		IsError    bool    `json:"is_error"`
+		Result     string  `json:"result"`
+		Structured *Answer `json:"structured_output"`
 	}
 	if err := json.Unmarshal(out, &reply); err != nil {
-		return nil, errors.New("claude answered something that is not JSON")
+		return Answer{}, errors.New("claude answered something that is not JSON")
 	}
 	if reply.IsError {
-		return nil, fmt.Errorf("claude reported an error: %.200s", reply.Result)
+		return Answer{}, fmt.Errorf("claude reported an error: %.200s", reply.Result)
 	}
 	if reply.Structured == nil || len(reply.Structured.Tasks) == 0 {
-		return nil, errors.New("claude returned no tasks")
+		return Answer{}, errors.New("claude returned no tasks")
 	}
 
-	tasks := reply.Structured.Tasks
-	if len(tasks) > MaxTasks {
-		return nil, TooMany{N: len(tasks)}
+	a := *reply.Structured
+	switch a.Decision {
+	case One, Many, Ask:
+	default:
+		return Answer{}, fmt.Errorf("claude decided %q, which is none of one, many and ask", a.Decision)
 	}
-	for i := range tasks {
-		tasks[i].Instruction = strings.TrimSpace(fence.Clean(tasks[i].Instruction))
-		if tasks[i].Instruction == "" {
-			return nil, errors.New("claude returned a task with no instruction")
+	for i := range a.Tasks {
+		a.Tasks[i].Instruction = strings.TrimSpace(fence.Clean(a.Tasks[i].Instruction))
+		if a.Tasks[i].Instruction == "" {
+			return Answer{}, errors.New("claude returned a task with no instruction")
 		}
-		tasks[i].Title = title(tasks[i])
+		a.Tasks[i].Title = title(a.Tasks[i].Title, a.Tasks[i].Instruction)
 	}
-	return tasks, nil
+	a.Title = title(a.Title, a.Tasks[0].Title)
+	if len(a.Tasks) == 1 {
+		a.Decision = One
+	}
+	if a.Decision == Many && len(a.Tasks) > MaxTasks {
+		return Answer{}, TooMany{N: len(a.Tasks)}
+	}
+	return a, nil
 }
 
-func title(t Task) string {
-	name := strings.Join(strings.Fields(fence.Clean(t.Title)), " ")
+func title(name, fallback string) string {
+	name = strings.Join(strings.Fields(fence.Clean(name)), " ")
 	if name == "" {
-		name = strings.Join(strings.Fields(t.Instruction), " ")
+		name = strings.Join(strings.Fields(fence.Clean(fallback)), " ")
 	}
 	if r := []rune(name); len(r) > maxTitle {
 		name = string(r[:maxTitle-1]) + "…"

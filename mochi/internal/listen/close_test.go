@@ -138,6 +138,38 @@ func TestNoCloseWithoutItAndNotATabMochiDidNotLabel(t *testing.T) {
 	}
 }
 
+// A tab somebody may be using is left open: a session still working or on a question, a tab
+// with another pane in it, or the one in front. The request is dropped, not tried again once
+// the tab would pass.
+func TestATabInUseIsNotClosedAndNotTriedAgain(t *testing.T) {
+	for name, inUse := range map[string]func(f *fixture, agent string){
+		"working":   func(f *fixture, agent string) { f.herdr.agents[agent] = "working" },
+		"blocked":   func(f *fixture, agent string) { f.herdr.agents[agent] = "blocked" },
+		"two panes": func(f *fixture, agent string) { f.herdr.panes = 2 },
+		"in front":  func(f *fixture, agent string) { f.herdr.focused = true },
+	} {
+		f, thread := startedSession(t)
+		agent := "mochi-" + thread
+		f.h.Marks.Settled(thread, mark.Finished)
+		f.closeRequested(thread)
+		f.h.ConsumeEvents()
+		inUse(f, agent)
+		f.later(closeAfter + time.Second)
+		if len(f.herdr.closed) != 0 {
+			t.Errorf("%s: closed = %v", name, f.herdr.closed)
+		}
+
+		f.herdr.agents[agent], f.herdr.panes, f.herdr.focused = "done", 1, false
+		f.later(closeAfter)
+		if len(f.herdr.closed) != 0 {
+			t.Errorf("%s: the close was tried again", name)
+		}
+		if w := f.waits()[thread]; w.CloseAt != 0 {
+			t.Errorf("%s: the close request was kept: %+v", name, w)
+		}
+	}
+}
+
 // The prompts mochi pastes are recognised as its own, and Tim's typing is not.
 func TestMochisOwnPromptsAreToldFromTims(t *testing.T) {
 	for _, p := range []string{openingPrompt("/b.md"), relayPrompt("/r.md", false), relayPrompt("/r.md", true)} {

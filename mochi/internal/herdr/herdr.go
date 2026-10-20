@@ -83,7 +83,9 @@ type reply struct {
 			TabID  string `json:"tab_id"`
 		} `json:"agent"`
 		Tab struct {
-			Label string `json:"label"`
+			Label     string `json:"label"`
+			PaneCount int    `json:"pane_count"`
+			Focused   bool   `json:"focused"`
 		} `json:"tab"`
 		Workspaces []struct {
 			Label       string `json:"label"`
@@ -213,8 +215,9 @@ func Answer(run Runner, agent, text string, nap func(time.Duration)) error {
 	return Prompt(run, agent, text)
 }
 
-// CloseTab closes the tab an agent runs in, and only while that tab carries the label mochi
-// gave it: a tab Tim renamed, or one the agent was moved into, is not mochi's to close.
+// CloseTab closes the tab an agent runs in, and only while it is still the tab mochi opened and
+// nobody is using it: the label mochi gave it, the one pane, not in front of Tim, and an agent
+// that is neither working nor waiting on a question.
 func CloseTab(run Runner, agent, label string) error {
 	r, err := call(run, "agent", "get", agent)
 	if err != nil {
@@ -224,12 +227,21 @@ func CloseTab(run Runner, agent, label string) error {
 	if tab == "" {
 		return fmt.Errorf("herdr named no tab for %s", agent)
 	}
+	switch status := r.Result.Agent.Status; status {
+	case "working", Blocked:
+		return fmt.Errorf("%s is %s, so its tab is left open", agent, status)
+	}
 	t, err := call(run, "tab", "get", tab)
 	if err != nil {
 		return err
 	}
-	if t.Result.Tab.Label != label {
+	switch {
+	case t.Result.Tab.Label != label:
 		return fmt.Errorf("%s runs in a tab labelled %q rather than %q, which mochi did not open", agent, t.Result.Tab.Label, label)
+	case t.Result.Tab.PaneCount != 1:
+		return fmt.Errorf("%s's tab has %d panes, so something else is in it", agent, t.Result.Tab.PaneCount)
+	case t.Result.Tab.Focused:
+		return fmt.Errorf("%s's tab is the one in front, so Tim may be at it", agent)
 	}
 	_, err = call(run, "tab", "close", tab)
 	return err

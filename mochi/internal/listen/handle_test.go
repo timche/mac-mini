@@ -62,9 +62,12 @@ type fakeHerdr struct {
 	escaped    map[string]int
 	naps       int
 
-	// Each agent's tab label, from the tab it was started in, and the tabs closed.
+	// Each agent's tab label, from the tab it was started in, and the tabs closed; the panes
+	// in a tab and whether it is focused, when a test sets them.
 	agentTabs map[string]string
 	closed    []string
+	panes     int
+	focused   bool
 
 	// The nth start and every one after it fail, when set.
 	starts, failFrom int
@@ -169,7 +172,11 @@ func (f *fakeHerdr) run(args ...string) ([]byte, error) {
 		if !ok {
 			return refusal("tab_not_found"), nil
 		}
-		return answer(map[string]any{"result": map[string]any{"tab": map[string]string{"label": label, "tab_id": args[2]}}}), nil
+		panes := f.panes
+		if panes == 0 {
+			panes = 1
+		}
+		return answer(map[string]any{"result": map[string]any{"tab": map[string]any{"label": label, "tab_id": args[2], "pane_count": panes, "focused": f.focused}}}), nil
 	case "tab close":
 		agent, _ := strings.CutPrefix(args[2], "tab:")
 		f.closed = append(f.closed, args[2])

@@ -112,8 +112,7 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 		}
 		if binary.Replaced() {
 			h.Lock()
-			log.Info("a new mochi binary is in place, so this one exits for it")
-			return self.ErrReplaced
+			return inPlace.run(s.Close, log)
 		}
 	}
 }

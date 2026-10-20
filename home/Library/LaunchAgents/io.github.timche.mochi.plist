@@ -16,15 +16,16 @@
     <string>-c</string>
     <string>export PATH="$HOME/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"; exec "$HOME/.local/bin/mochi" listen &gt;&gt;"$HOME/Library/Logs/mochi.log" 2&gt;&amp;1</string>
   </array>
-  <!-- Unconditional: the gateway connection is the job, and the one way it exits on
-       purpose, for a new binary the wrapper built behind it, has to be restarted too. -->
+  <!-- Unconditional: the gateway connection is the job. A new binary is exec'd in place,
+       so the one way it exits on purpose is that exec failing, which has to be restarted
+       too. -->
   <key>KeepAlive</key>
   <true/>
   <key>RunAtLoad</key>
   <true/>
-  <!-- Five minutes from one start to the next, since every start is an `op run`. A
-       listener that has been up longer than this is restarted at once when it exits for
-       a new binary; the watch gives its heartbeat ten minutes to cover the rest. -->
+  <!-- Five minutes from one start to the next, since every start is an `op run`: the guard
+       against a binary that crashes on start becoming a loop of them. The watch gives the
+       heartbeat ten minutes to cover it. -->
   <key>ThrottleInterval</key>
   <integer>300</integer>
 </dict>

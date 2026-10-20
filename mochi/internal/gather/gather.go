@@ -101,7 +101,7 @@ func Reply(api chat.API, mention *discordgo.Message) (*Set, error) {
 	set := NewSet(mention.GuildID)
 	channel := mention.ChannelID
 
-	target, err := referenced(api, mention)
+	target, err := Referenced(api, mention)
 	if err != nil {
 		return nil, fmt.Errorf("the message Tim replied to could not be read: %w", err)
 	}
@@ -109,7 +109,7 @@ func Reply(api chat.API, mention *discordgo.Message) (*Set, error) {
 
 	cur := target
 	for hop := 0; hop < chainHops && cur.MessageReference != nil; hop++ {
-		parent, err := referenced(api, cur)
+		parent, err := Referenced(api, cur)
 		if err != nil {
 			set.Gaps = append(set.Gaps, "the reply chain above "+chat.Link(set.Guild, channel, cur.ID)+" could not be read further")
 			break
@@ -253,7 +253,7 @@ func markReplied(api chat.API, set *Set, mention *discordgo.Message) error {
 	if mention.MessageReference == nil {
 		return nil
 	}
-	target, err := referenced(api, mention)
+	target, err := Referenced(api, mention)
 	if err != nil {
 		return errors.New("the message Tim replied to could not be read")
 	}
@@ -261,7 +261,7 @@ func markReplied(api chat.API, set *Set, mention *discordgo.Message) error {
 	return nil
 }
 
-func referenced(api chat.API, m *discordgo.Message) (*discordgo.Message, error) {
+func Referenced(api chat.API, m *discordgo.Message) (*discordgo.Message, error) {
 	if m.ReferencedMessage != nil {
 		return m.ReferencedMessage, nil
 	}

@@ -38,15 +38,7 @@ func (h *Handler) tasks(m *discordgo.Message, instruction string) ([]split.Task,
 
 // Only to resolve "a, b and c": the rest of the context is not the classifier's.
 func (h *Handler) replied(m *discordgo.Message) *discordgo.Message {
-	if m.ReferencedMessage != nil || m.MessageReference == nil {
-		return m.ReferencedMessage
-	}
-	ref := m.MessageReference
-	channel := ref.ChannelID
-	if channel == "" {
-		channel = m.ChannelID
-	}
-	got, err := h.API.Message(channel, ref.MessageID)
+	got, err := gather.Referenced(h.API, m)
 	if err != nil {
 		return nil
 	}

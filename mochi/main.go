@@ -33,7 +33,7 @@ import (
 )
 
 const usage = `usage: mochi [listen]
-       mochi post [--review | --done] [--pr <url>] [--file <path>]... <text>
+       mochi post [--review | --done] [--pr <url>] [--file <path>]... [<text>]
        mochi history [--before <id> | --after <id> | --around <id>] [--limit <n>]
 
   listen    connect to Discord and start a Claude Code session in herdr whenever Tim
@@ -42,7 +42,8 @@ const usage = `usage: mochi [listen]
             a screenshot, a recording or any other file, and may be given up to
             ten times; --review when it hands Tim a result, proof or a question
             (❓), --done when the task is complete with nothing left for him (✅);
-            --pr adds a pull request as "#<number> (<url>)", the one link allowed
+            --pr adds a pull request as "#<number> (<url>)", the one link allowed;
+            with no text argument the text is read from stdin
   history   print more of the channel or thread this session started from, oldest
             first and fenced as data, with attachments downloaded; one of --before,
             --after or --around a message id, and --limit up to 100 (default 50)
@@ -111,6 +112,11 @@ func run(args []string) error {
 		return listen.Run(cfg, log)
 
 	case "post":
+		if !withToken {
+			if args, err = postStdin(args, os.Stdin); err != nil {
+				return err
+			}
+		}
 		p, err := postArgs(args)
 		if err != nil {
 			return usageError{err}
@@ -179,6 +185,22 @@ func rest() (chat.API, error) {
 	return chat.NewLive(s), nil
 }
 
+var errNoText = errors.New("post takes the text to post, as an argument or on stdin")
+
+// With no text among the arguments, the text is stdin, so a post of several lines needs no
+// shell quoting. Read here, before `op run`, and handed on as the last argument, since the
+// process that runs under op cannot be given back a stdin this one has read.
+func postStdin(args []string, stdin io.Reader) ([]string, error) {
+	if _, err := postArgs(args); !errors.Is(err, errNoText) {
+		return args, nil
+	}
+	body, err := io.ReadAll(io.LimitReader(stdin, 64<<10))
+	if err != nil {
+		return nil, err
+	}
+	return append(append([]string{}, args...), "--", string(body)), nil
+}
+
 func postArgs(args []string) (post.Post, error) {
 	var p post.Post
 	var review, done bool
@@ -201,7 +223,7 @@ func postArgs(args []string) (post.Post, error) {
 	}
 	p.Text = strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if p.Text == "" {
-		return p, errors.New("post takes the text to post")
+		return p, errNoText
 	}
 	return p, p.Check()
 }

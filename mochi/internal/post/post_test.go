@@ -263,3 +263,15 @@ func TestAPullRequestOfAnotherRepositoryIsRefused(t *testing.T) {
 		t.Errorf("%d posts, want 1", len(api.Sent))
 	}
 }
+
+// Newlines reach Discord as written.
+func TestAPostKeepsItsLines(t *testing.T) {
+	api, store := fixture(t)
+	text := "**Average elo shows for each team**\n\n**What changed**\n- The lobby shows each team's average elo\n- Teams are compared at a glance\n\n**Screenshots**\n1. Before — no average\n2. After — the average beside each team"
+	if err := Send(api, store, nil, repeek, thread, Post{Text: text, PR: "https://github.com/timche/repeek/pull/9"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := api.Sent[0].Msg.Content; got != text+"\n#9 (https://github.com/timche/repeek/pull/9)" {
+		t.Errorf("content:\n%s", got)
+	}
+}

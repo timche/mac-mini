@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"strings"
 
 	"github.com/timche/mac-mini/mochi/internal/config"
 	"path/filepath"
@@ -78,6 +79,30 @@ func TestPostAndHistoryOutsideASessionStopBeforeOp(t *testing.T) {
 	for _, args := range [][]string{{"post", "hi"}, {"history"}} {
 		if err := run(args); err == nil || err.Error() == "no op on PATH, so the bot token cannot be resolved" {
 			t.Errorf("%v: %v", args, err)
+		}
+	}
+}
+
+// A post of several lines comes on stdin, and its lines reach the post as written.
+func TestPostTextCanComeOnStdin(t *testing.T) {
+	text := "**Average elo shows for each team**\n\n**What changed**\n- The lobby shows each team's average elo\n"
+	args, err := postStdin([]string{"--review"}, strings.NewReader(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := postArgs(args)
+	if err != nil || p.Text != strings.TrimSpace(text) || p.Settles != "❓" {
+		t.Errorf("%+v %v", p, err)
+	}
+
+	// Text given as an argument leaves stdin alone.
+	args, _ = postStdin([]string{"inline"}, strings.NewReader("not read"))
+	if p, _ := postArgs(args); p.Text != "inline" {
+		t.Errorf("text = %q", p.Text)
+	}
+	if args, _ := postStdin(nil, strings.NewReader("   ")); args != nil {
+		if _, err := postArgs(args); err == nil {
+			t.Error("an empty stdin was a post")
 		}
 	}
 }

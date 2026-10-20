@@ -1,5 +1,5 @@
-// Package post is `mochi post`, which a session runs to put findings, a plan, a PR link or a
-// screenshot into its own Discord thread.
+// Package post is `mochi post`, which a session runs to tell its own Discord thread, in plain
+// language, what it found or finished, with images or a recording as the proof.
 package post
 
 import (

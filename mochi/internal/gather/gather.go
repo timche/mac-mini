@@ -22,7 +22,11 @@ const (
 	ChannelWindow = 50
 
 	// What a mention that replies to nothing is about: the last few messages before it.
-	FocusWindow  = 5
+	FocusWindow = 5
+
+	// How many of the later replies to the message Tim replied to count as the focus.
+	FocusReplies = 50
+
 	ThreadWindow = 100
 
 	// A reply chain is followed this far up, and later replies to the message are searched
@@ -147,6 +151,7 @@ func Reply(api chat.API, mention *discordgo.Message) (*Set, error) {
 		set.Add(m)
 	}
 
+	var replies []*discordgo.Message
 	after, reached := target.ID, false
 	for page := 0; page < laterPages && !reached; page++ {
 		got, err := api.Messages(channel, Page, "", after, "")
@@ -161,13 +166,22 @@ func Reply(api chat.API, mention *discordgo.Message) (*Set, error) {
 				break
 			}
 			if m.MessageReference != nil && m.MessageReference.MessageID == target.ID {
-				set.Focus(m)
+				replies = append(replies, m)
 			}
 		}
 		after = got[len(got)-1].ID
 	}
 	if !reached {
 		set.Gaps = append(set.Gaps, "later replies to that message were searched only as far as "+chat.Link(set.Guild, channel, after))
+	}
+	// The most recent of them are the focus and the rest stay as surrounding, so a message
+	// replied to hundreds of times cannot make a focus the prompt cap has to break.
+	for i, m := range replies {
+		if i >= len(replies)-FocusReplies {
+			set.Focus(m)
+		} else {
+			set.Add(m)
+		}
 	}
 
 	set.Remove(mention.ID)

@@ -2,6 +2,7 @@ package listen
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
@@ -182,7 +183,7 @@ func (h *Handler) failedChecks(rec state.Session, w state.Watch, head string) (d
 	case status == herdr.Blocked:
 		return false, false
 	}
-	text := fmt.Sprintf("%s%d: %s. Fix it and push.", event.CIPrefix, w.Number, strings.Join(failed, ", "))
+	text := fmt.Sprintf("%s%d: %s. Fix it and push.", event.CIPrefix, w.Number, checkNames(failed))
 	if err := herdr.Prompt(h.Herdr, rec.Agent, text); err != nil {
 		h.Log.Warn("checks failed on a pull request and the session could not be told", "repo", w.Repo, "number", w.Number, "error", h.redact(err))
 		return false, false
@@ -205,4 +206,33 @@ func (h *Handler) unwatch(thread string) {
 	if err := h.Watches.Save(watches); err != nil {
 		h.Log.Error("the watched pull requests could not be kept", "error", err)
 	}
+}
+
+// A check's name is whatever the repository's workflows call it, and goes into a prompt as
+// mochi's own words, so only a short, plain form of a few of them does.
+var unsafeInName = regexp.MustCompile(`[^A-Za-z0-9 _./:-]+`)
+
+const (
+	maxCheckName = 60
+	maxChecks    = 10
+)
+
+func checkNames(failed []string) string {
+	var names []string
+	for _, name := range failed {
+		name = strings.Join(strings.Fields(unsafeInName.ReplaceAllString(name, " ")), " ")
+		if len(name) > maxCheckName {
+			name = strings.TrimSpace(name[:maxCheckName])
+		}
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return "a check"
+	}
+	if extra := len(names) - maxChecks; extra > 0 {
+		names = append(names[:maxChecks], fmt.Sprintf("+%d more", extra))
+	}
+	return strings.Join(names, ", ")
 }

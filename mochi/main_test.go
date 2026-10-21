@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/timche/mac-mini/mochi/internal/config"
@@ -173,6 +174,48 @@ func TestAnnounceTakesTextFilesAndAPROnly(t *testing.T) {
 	}
 	if p, err := announceArgs(args, nil); err != nil || p.Text != "**New**\n- elo" {
 		t.Errorf("%+v %v", p, err)
+	}
+}
+
+// The announce skill this repository ships: model-invocable, loaded only when the user asks to
+// share work with the team, and independent of mochi's own sessions.
+func TestTheAnnounceSkillSaysWhenAndHow(t *testing.T) {
+	_, here, _, _ := runtime.Caller(0)
+	body, err := os.ReadFile(filepath.Join(filepath.Dir(here), "..", "home", ".claude", "skills", "announce", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	end := strings.Index(text[4:], "\n---\n")
+	if !strings.HasPrefix(text, "---\nname: announce\ndescription: ") || end < 0 {
+		t.Fatalf("no frontmatter:\n%.300s", text)
+	}
+	front := text[:end+4]
+	for _, want := range []string{"share with the team", "announce this", "never otherwise"} {
+		if !strings.Contains(front, want) {
+			t.Errorf("the description lacks %q", want)
+		}
+	}
+	if strings.Contains(front, "disable-model-invocation") || strings.Contains(front, "MOCHI_THREAD") {
+		t.Errorf("the skill is not the session's to load whenever it is asked:\n%s", front)
+	}
+	for _, want := range []string{
+		"mochi announce",
+		"mostly moderators who are not technical",
+		"what players will notice",
+		"**Screenshots**",
+		"**Videos**",
+		"Post right away",
+		"the go-ahead",
+		"its link",
+		"No internals",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the skill lacks %q", want)
+		}
+	}
+	if strings.Contains(text, "mochi post") {
+		t.Error("the skill names mochi post, which is the mochi skill's")
 	}
 }
 

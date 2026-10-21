@@ -488,18 +488,22 @@ check "the on-call guard is wired to PreToolUse for Bash and the file tools" \
 # mochi's sessions tell it when they stop on Tim, with a Stop hook and a PreToolUse hook on
 # AskUserQuestion, and when Tim answers in the session, with a PostToolUse hook on
 # AskUserQuestion and a UserPromptSubmit hook; all run the cached binary's session-event.
+# They are the mochi plugin's, so only a project mochi serves has them, and none is left
+# in settings.json, where every session would.
 check "mochi's session hooks are wired to Stop, AskUserQuestion and UserPromptSubmit" \
-  'jq -e "[.hooks.Stop[].hooks[].command | select(contains(\"session-event stop\"))] | length == 1" "$HOME/.claude/settings.json" &&
-   jq -e "[.hooks.PreToolUse[] | select(.matcher == \"^AskUserQuestion$\") | .hooks[].command | select(contains(\"session-event ask\"))] | length == 1" "$HOME/.claude/settings.json" &&
-   jq -e "[.hooks.PostToolUse[] | select(.matcher == \"^AskUserQuestion$\") | .hooks[].command | select(contains(\"session-event heard\"))] | length == 1" "$HOME/.claude/settings.json" &&
-   jq -e "[.hooks.UserPromptSubmit[].hooks[].command | select(contains(\"session-event heard\"))] | length == 1" "$HOME/.claude/settings.json"'
+  'hooks="$repo/claude-plugins/mochi/hooks/hooks.json" &&
+   jq -e "[.hooks.Stop[].hooks[].command | select(contains(\"session-event stop\"))] | length == 1" "$hooks" &&
+   jq -e "[.hooks.PreToolUse[] | select(.matcher == \"^AskUserQuestion$\") | .hooks[].command | select(contains(\"session-event ask\"))] | length == 1" "$hooks" &&
+   jq -e "[.hooks.PostToolUse[] | select(.matcher == \"^AskUserQuestion$\") | .hooks[].command | select(contains(\"session-event heard\"))] | length == 1" "$hooks" &&
+   jq -e "[.hooks.UserPromptSubmit[].hooks[].command | select(contains(\"session-event heard\"))] | length == 1" "$hooks" &&
+   ! grep -q "session-event" "$HOME/.claude/settings.json"'
 
-# The commands as settings.json spells them, run the way Claude Code runs a hook: silent and
+# The commands as the plugin spells them, run the way Claude Code runs a hook: silent and
 # exit 0 outside a mochi session, with no binary built, and in one; and handing the binary
 # the right kind when there is one.
 check "mochi's session hooks never fail or speak, and hand the binary its event" \
   'd="$(mktemp -d)" && mkdir -p "$d/Library/Caches/mochi" &&
-   jq -r ".hooks[][].hooks[].command | select(contains(\"session-event \"))" "$HOME/.claude/settings.json" > "$d/wired" &&
+   jq -r ".hooks[][].hooks[].command | select(contains(\"session-event \"))" "$repo/claude-plugins/mochi/hooks/hooks.json" > "$d/wired" &&
    [ "$(wc -l < "$d/wired")" -eq 4 ] &&
    while IFS= read -r wired; do
      kind=$(printf "%s\n" "$wired" | sed -n "s/.*session-event \([a-z]*\).*/\1/p") &&

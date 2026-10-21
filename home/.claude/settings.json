@@ -89,6 +89,12 @@
     "padding": 0,
     "refreshInterval": 10
   },
+  "enabledPlugins": {
+    "claude-md-management@claude-plugins-official": true,
+    "frontend-design@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": false,
+    "mochi@mac-mini": false
+  },
   "extraKnownMarketplaces": {
     "mac-mini": {
       "source": {
@@ -96,12 +102,6 @@
         "path": "~/.mac-mini/claude-plugins"
       }
     }
-  },
-  "enabledPlugins": {
-    "claude-md-management@claude-plugins-official": true,
-    "frontend-design@claude-plugins-official": true,
-    "skill-creator@claude-plugins-official": false,
-    "mochi@mac-mini": false
   },
   "outputStyle": "Concise",
   "feedbackDrafts": "off",

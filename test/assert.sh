@@ -533,15 +533,14 @@ check "the mochi plugin is declared at user level and left off there" \
    jq -e ".enabledPlugins[\"mochi@mac-mini\"] == false" "$HOME/.claude/settings.json" &&
    jq -e ".defaultEnabled == false" "$repo/claude-plugins/mochi/.claude-plugin/plugin.json"'
 
-# Every repository mochi serves that is checked out here has it on, in a settings file git
-# ignores there; one not checked out yet is install.sh's to report.
+# Every repository mochi serves that is checked out here has it on; one not checked out yet,
+# and one whose ignore rules miss the file, are install.sh's to report.
 check "the mochi plugin is on in each repository mochi serves" \
   'config="$HOME/.config/mochi/config.json" && [ -f "$config" ] &&
    jq -r ".server[]?.repo" "$config" | while IFS= read -r r; do
      case $r in "~/"*) r="$HOME/${r#"~/"}" ;; esac
      git -C "$r" rev-parse --is-inside-work-tree >/dev/null 2>&1 || continue
-     jq -e ".enabledPlugins[\"mochi@mac-mini\"] == true" "$r/.claude/settings.local.json" &&
-     git -C "$r" check-ignore -q .claude/settings.local.json || exit 1
+     jq -e ".enabledPlugins[\"mochi@mac-mini\"] == true" "$r/.claude/settings.local.json" || exit 1
    done'
 
 # What install.sh runs to get there, against repositories of its own: a file that does not

@@ -242,6 +242,12 @@ mcp_server chrome-devtools "{
   \"env\": {\"CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS\": \"1\"}
 }"
 mcp_server context7 '{"type": "http", "url": "https://mcp.context7.com/mcp"}'
+
+# The mochi plugin, which settings.json leaves off, on in each repository mochi
+# serves; the script says why there rather than everywhere. Reported rather than
+# fatal, since the account side is no less set up without it.
+"$repo/claude/mochi-plugin.sh" ||
+  echo "could not turn the mochi plugin on in mochi's repositories; rerun claude/mochi-plugin.sh" >&2
 # A worktree's dev server reaches Tim's MacBook as https://<branch>.<app>.<tld>
 # for the second TLD in PORTLESS_TLD, whose wildcard DNS record points at this
 # Mac's tailnet address. Tailscale Serve hands the tailnet's port 443 to portless

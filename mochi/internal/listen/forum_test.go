@@ -14,6 +14,7 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/chat/chattest"
 	"github.com/timche/mac-mini/mochi/internal/mark"
+	"github.com/timche/mac-mini/mochi/internal/project"
 	"github.com/timche/mac-mini/mochi/internal/split"
 )
 
@@ -31,8 +32,14 @@ var forumTags = []discord.ForumTag{
 func forumFixture(t *testing.T) *fixture {
 	f := newFixture(t)
 	f.api.AddChannel(&discord.Channel{ID: sessions, GuildID: guild, Name: "mochi", Type: discord.ChannelTypeGuildForum, AvailableTags: forumTags})
-	f.h.Cfg.Servers[0].Forum = sessions
+	f.useForum(sessions)
 	return f
+}
+
+// The server's repository names forum as its sessions' forum.
+func (f *fixture) useForum(forum string) {
+	f.t.Helper()
+	withRepo(f.t, f, map[string]string{project.ConfigFile: `{"forum": "` + forum + `"}`})
 }
 
 func postID(n int) string { return chattest.ID(700_000 + n) }
@@ -268,7 +275,7 @@ func TestPostsAndThreadsMochiDidNotMakeForTheForumStayAsTheyAre(t *testing.T) {
 	first := g.mention(channel, 1, tim, "look at this", nil)
 	g.h.Handle(first)
 	g.api.AddChannel(&discord.Channel{ID: sessions, GuildID: guild, Type: discord.ChannelTypeGuildForum, AvailableTags: forumTags})
-	g.h.Cfg.Servers[0].Forum = sessions
+	g.useForum(sessions)
 	g.h.Handle(g.mention(first.ID, 2, tim, "and this", nil))
 	if len(g.api.Posts) != 0 || len(g.herdr.prompts["mochi-"+first.ID]) != 2 {
 		t.Errorf("an old thread's follow-up: posts %v, prompts %d", g.api.Posts, len(g.herdr.prompts["mochi-"+first.ID]))

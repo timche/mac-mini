@@ -8,10 +8,7 @@
     {
       "guild": "1220378778665095291",
       "workspace": "repeek",
-      "repo": "~/projects/repeek",
-      "forum": "1562152175927558292",
-      "announce": "1378670204795617340",
-      "links": ["chromewebstore.google.com", "addons.mozilla.org", "repeek.gg"]
+      "repo": "~/projects/repeek"
     }
   ]
 }

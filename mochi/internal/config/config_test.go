@@ -35,7 +35,7 @@ func TestTheShippedConfigMapsRepeek(t *testing.T) {
 		t.Errorf("user = %q", cfg.User)
 	}
 	s, ok := cfg.Server("1220378778665095291")
-	if !ok || s.Workspace != "repeek" || s.Repo != "/home/x/projects/repeek" || s.Forum != "1562152175927558292" {
+	if !ok || s.Workspace != "repeek" || s.Repo != "/home/x/projects/repeek" {
 		t.Errorf("repeek = %+v, %v", s, ok)
 	}
 	if _, ok := cfg.Server("1"); ok {
@@ -43,23 +43,6 @@ func TestTheShippedConfigMapsRepeek(t *testing.T) {
 	}
 	if cfg.Split.Model != "sonnet" || cfg.Split.Effort != "medium" {
 		t.Errorf("split = %+v", cfg.Split)
-	}
-	if strings.Join(s.Links, " ") != "chromewebstore.google.com addons.mozilla.org repeek.gg" {
-		t.Errorf("links = %v", s.Links)
-	}
-	if s.Announce != "1378670204795617340" {
-		t.Errorf("announce = %q", s.Announce)
-	}
-}
-
-// A domain is a host name alone, kept in lower case so a match needs no folding.
-func TestLinksAreHostNamesInLowerCase(t *testing.T) {
-	cfg, err := Load(write(t, `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "links": ["Repeek.GG"]}]}`), "/home/x")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s, _ := cfg.Server("1220378778665095291"); len(s.Links) != 1 || s.Links[0] != "repeek.gg" {
-		t.Errorf("links = %v", s.Links)
 	}
 }
 
@@ -84,16 +67,14 @@ func TestAConfigThatWouldMisdirectIsRefused(t *testing.T) {
 		"a guild twice": `{"user": "94004892942741504", "server": [` +
 			`{"guild": "1220378778665095291", "workspace": "w", "repo": "/r"},` +
 			`{"guild": "1220378778665095291", "workspace": "v", "repo": "/s"}]}`,
-		"no repo":                           `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w"}]}`,
-		"a bad user":                        `{"user": "tim"}`,
-		"a forum that is no id":             `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "forum": "#mochi"}]}`,
-		"a field kept for code":             `{"user": "94004892942741504", "Home": "/elsewhere"}`,
-		"two objects":                       `{"user": "94004892942741504"} {"user": "94004892942741504"}`,
-		"an announce channel that is no id": `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "announce": "#hq"}]}`,
-		"a link that is a URL":              `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "links": ["https://repeek.gg"]}]}`,
-		"a link with no dot":                `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "links": ["localhost"]}]}`,
-		"a link with a path":                `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "links": ["repeek.gg/faq"]}]}`,
-		"not JSON":                          "user = \"94004892942741504\"\n",
+		"no repo":                            `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w"}]}`,
+		"a bad user":                         `{"user": "tim"}`,
+		"a forum, which is the repository's": `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "forum": "1562152175927558292"}]}`,
+		"a field kept for code":              `{"user": "94004892942741504", "Home": "/elsewhere"}`,
+		"two objects":                        `{"user": "94004892942741504"} {"user": "94004892942741504"}`,
+		"an announce channel, which is the repository's": `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "announce": "1378670204795617340"}]}`,
+		"links, which are the repository's":              `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "links": ["repeek.gg"]}]}`,
+		"not JSON":                                       "user = \"94004892942741504\"\n",
 	} {
 		if _, err := Load(write(t, body), "/home/x"); err == nil {
 			t.Errorf("%s: loaded", name)
@@ -135,42 +116,39 @@ func repoWith(t *testing.T, config string) string {
 	return repo
 }
 
-// A repository's .mochi/config.json is what counts; one with none still has what this file says
-// for its server, logged once, and one with a broken file has neither.
+// A server's settings are its repository's .mochi/config.json: none when it has none, and an
+// error when it is broken.
 func TestTheProjectsSettingsComeFromItsRepository(t *testing.T) {
-	home := project.Settings{Forum: "1562152175927558292", Announce: "1378670204795617340", Links: []string{"repeek.gg"}}
-
-	s := Server{Repo: repoWith(t, `{"announce": "1378670204795617399"}`), Settings: home}
-	if p, err := s.Project(nil); err != nil || p.Forum != "" || p.Announce != "1378670204795617399" || p.Links != nil {
+	if p, err := (Server{Repo: repoWith(t, `{"announce": "1378670204795617399"}`)}).Project(nil); err != nil || p.Announce != "1378670204795617399" {
 		t.Errorf("from the repository: %+v, %v", p, err)
 	}
-
-	var out bytes.Buffer
-	log := slog.New(slog.NewTextHandler(&out, nil))
-	s = Server{Repo: repoWith(t, ""), Settings: home}
-	for range 2 {
-		if p, err := s.Project(log); err != nil || p.Forum != home.Forum || p.Announce != home.Announce || len(p.Links) != 1 {
-			t.Errorf("falling back: %+v, %v", p, err)
-		}
+	if p, err := (Server{Repo: repoWith(t, "")}).Project(nil); err != nil || p.Forum != "" || p.Announce != "" || p.Links != nil {
+		t.Errorf("none: %+v, %v", p, err)
 	}
-	if n := strings.Count(out.String(), "has no .mochi/config.json"); n != 1 {
-		t.Errorf("logged %d times:\n%s", n, out.String())
-	}
-
-	if p, err := (Server{Repo: repoWith(t, "")}).Project(nil); err != nil || p.Forum != "" || p.Links != nil {
-		t.Errorf("neither: %+v, %v", p, err)
-	}
-
-	s = Server{Repo: repoWith(t, `{"forum": "#mochi"}`), Settings: home}
-	if p, err := s.Project(nil); err == nil || p.Forum != "" || p.Links != nil {
+	if p, err := (Server{Repo: repoWith(t, `{"forum": "#mochi"}`)}).Project(nil); err == nil || p.Forum != "" {
 		t.Errorf("broken: %+v, %v", p, err)
 	}
 
 	dangling := repoWith(t, "")
 	os.Mkdir(filepath.Join(dangling, project.Dir), 0o755)
 	os.Symlink(filepath.Join(dangling, "gone.json"), filepath.Join(dangling, project.ConfigFile))
-	if p, err := (Server{Repo: dangling, Settings: home}).Project(nil); err == nil || p.Forum != "" {
-		t.Errorf("a link that leads nowhere fell back: %+v, %v", p, err)
+	if p, err := (Server{Repo: dangling}).Project(nil); err == nil || p.Forum != "" {
+		t.Errorf("a link that leads nowhere: %+v, %v", p, err)
+	}
+}
+
+// A mapped repository with no .mochi/config.json is logged once, so a forum missing for that
+// reason shows; one that has the file is not logged.
+func TestARepositoryWithNoSettingsIsLoggedOnce(t *testing.T) {
+	var out bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&out, nil))
+	none := Server{Repo: repoWith(t, "")}
+	for range 3 {
+		none.Project(log)
+	}
+	(Server{Repo: repoWith(t, `{}`)}).Project(log)
+	if n := strings.Count(out.String(), "has no .mochi/config.json"); n != 1 || !strings.Contains(out.String(), none.Repo) {
+		t.Errorf("logged %d times:\n%s", n, out.String())
 	}
 }
 
@@ -179,11 +157,12 @@ func TestTheProjectsSettingsComeFromItsRepository(t *testing.T) {
 func TestEveryServersLinksAreKnownUpFront(t *testing.T) {
 	cfg := Config{Servers: []Server{
 		{Repo: repoWith(t, `{"links": ["repeek.gg"]}`)},
-		{Repo: repoWith(t, ""), Settings: project.Settings{Links: []string{"example.org"}}},
+		{Repo: repoWith(t, `{"links": ["example.org"]}`)},
+		{Repo: repoWith(t, "")},
 		{Repo: repoWith(t, `{"links": "repeek.gg"}`)},
 	}}
 	links, err := cfg.Links()
-	if strings.Join(links, " ") != "repeek.gg example.org" || err == nil || !strings.Contains(err.Error(), cfg.Servers[2].Repo) {
+	if strings.Join(links, " ") != "repeek.gg example.org" || err == nil || !strings.Contains(err.Error(), cfg.Servers[3].Repo) {
 		t.Errorf("%v, %v", links, err)
 	}
 }

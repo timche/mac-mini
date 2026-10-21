@@ -61,9 +61,15 @@ func setup(t *testing.T) fixture {
 			t.Fatal(err)
 		}
 	}
+	repo := t.TempDir()
+	os.Mkdir(filepath.Join(repo, project.Dir), 0o755)
+	settings := `{"announce": "` + announce + `", "forum": "` + forum + `", "links": ["chromewebstore.google.com", "repeek.gg"]}`
+	if err := os.WriteFile(filepath.Join(repo, project.ConfigFile), []byte(settings), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	f := fixture{
 		api:   api,
-		scope: Scope{Servers: []config.Server{{Guild: guild, Repo: "/r", Announce: announce, Forum: forum, Links: []string{"chromewebstore.google.com", "repeek.gg"}}}, Store: store, Thread: session},
+		scope: Scope{Servers: []config.Server{{Guild: guild, Repo: repo}}, Store: store, Thread: session},
 		mine:  map[string]string{},
 		other: map[string]string{},
 	}
@@ -277,7 +283,7 @@ func TestTheRepositorysSettingsDecide(t *testing.T) {
 		t.Errorf("the repository's announce channel and domain: %v", err)
 	}
 	if err := Edit(f.api, f.scope, f.mine[announce], Change{Text: "x"}); err == nil {
-		t.Error("the home config's announce channel was still allowed")
+		t.Error("the previous announce channel was still allowed")
 	}
 
 	// An announce channel in another server is no announce channel of this one: the link's

@@ -17,12 +17,9 @@ const (
 	Context     = "DISCORD CONTEXT"
 	History     = "DISCORD HISTORY"
 	Project     = "PROJECT INSTRUCTIONS (from the repository's .mochi/instructions.md)"
-
-	// A repository with no .mochi/instructions.md yet, whose MOCHI.md stands in for it.
-	LegacyProject = "PROJECT INSTRUCTIONS (from the repository's MOCHI.md)"
 )
 
-var labels = []string{Instruction, Context, History, Project, LegacyProject}
+var labels = []string{Instruction, Context, History, Project}
 
 func Nonce() string {
 	b := make([]byte, 8)

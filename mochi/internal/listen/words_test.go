@@ -178,7 +178,7 @@ func TestNothingPostedNamesTheToolsBehindIt(t *testing.T) {
 		},
 		"a session in a forum post": func(f *fixture) {
 			f.api.AddChannel(&discord.Channel{ID: sessions, GuildID: guild, Type: discord.ChannelTypeGuildForum, AvailableTags: forumTags})
-			f.h.Cfg.Servers[0].Forum = sessions
+			f.useForum(sessions)
 			f.h.Handle(f.mention(channel, 1, tim, "research", nil))
 		},
 		"a stop": func(f *fixture) {

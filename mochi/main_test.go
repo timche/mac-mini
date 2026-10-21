@@ -115,10 +115,12 @@ func TestAnnounceFindsTheServerByTheCheckoutsOrigin(t *testing.T) {
 		t.Skip("no git")
 	}
 	mapped := gitCheckout(t, "git@github.com:timche/repeek.git")
+	os.Mkdir(filepath.Join(mapped, ".mochi"), 0o755)
+	os.WriteFile(filepath.Join(mapped, ".mochi", "config.json"), []byte(`{"announce": "1378670204795617340", "links": ["repeek.gg"]}`), 0o644)
 	other := gitCheckout(t, "git@github.com:timche/mac-mini.git")
 	cfg := filepath.Join(t.TempDir(), "config.json")
 	os.WriteFile(cfg, []byte(`{"user": "94004892942741504", "server": [`+
-		`{"guild": "1220378778665095291", "workspace": "repeek", "repo": "`+mapped+`", "announce": "1378670204795617340", "links": ["repeek.gg"]},`+
+		`{"guild": "1220378778665095291", "workspace": "repeek", "repo": "`+mapped+`"},`+
 		`{"guild": "1220378778665095292", "workspace": "mini", "repo": "`+other+`"}]}`), 0o644)
 	env := filepath.Join(t.TempDir(), "mochi.env.op")
 	os.WriteFile(env, []byte("MOCHI_DISCORD_BOT_TOKEN=op://dev/x/y\n"), 0o644)
@@ -255,8 +257,11 @@ func TestEditTakesALinkTextAndDropFiles(t *testing.T) {
 // that is no message's link, or text a post could not carry is refused before `op run`, which a
 // PATH with no op shows by being the one error left otherwise.
 func TestEditAndDeleteRefuseBeforeOp(t *testing.T) {
+	repo := t.TempDir()
+	os.Mkdir(filepath.Join(repo, ".mochi"), 0o755)
+	os.WriteFile(filepath.Join(repo, ".mochi", "config.json"), []byte(`{"announce": "1378670204795617340", "links": ["repeek.gg"]}`), 0o644)
 	cfg := filepath.Join(t.TempDir(), "config.json")
-	os.WriteFile(cfg, []byte(`{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "repeek", "repo": "/r", "announce": "1378670204795617340", "links": ["repeek.gg"]}]}`), 0o644)
+	os.WriteFile(cfg, []byte(`{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "repeek", "repo": "`+repo+`"}]}`), 0o644)
 	env := filepath.Join(t.TempDir(), "mochi.env.op")
 	os.WriteFile(env, []byte("MOCHI_DISCORD_BOT_TOKEN=op://dev/x/y\n"), 0o644)
 	t.Setenv("MOCHI_CONFIG", cfg)

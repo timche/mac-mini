@@ -131,19 +131,14 @@ func oneObject(body []byte) error {
 // it: cut at a line past MaxInstructions with a note saying so, and cleaned of what a terminal
 // would act on.
 func Instructions(repo string) (string, error) {
-	return Text(repo, InstructionsFile)
-}
-
-// Text is a file of the repository's own text read the way Instructions reads one.
-func Text(repo, file string) (string, error) {
-	body, err := read(repo, file, MaxInstructions)
+	body, err := read(repo, InstructionsFile, MaxInstructions)
 	if err != nil {
 		return "", err
 	}
 	text := strings.ToValidUTF8(string(body), "")
 	if len(body) > MaxInstructions {
 		text = strings.ToValidUTF8(string(body[:MaxInstructions]), "")
-		text = text[:strings.LastIndex(text, "\n")+1] + fmt.Sprintf("\n(%s goes on past %d KB; read the rest in the file)", file, MaxInstructions>>10)
+		text = text[:strings.LastIndex(text, "\n")+1] + fmt.Sprintf("\n(%s goes on past %d KB; read the rest in the file)", InstructionsFile, MaxInstructions>>10)
 	}
 	return strings.TrimSpace(fence.Clean(text)), nil
 }

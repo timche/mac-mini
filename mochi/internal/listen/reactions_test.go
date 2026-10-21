@@ -90,7 +90,7 @@ func TestAMentionShowsEyesThenAReceipt(t *testing.T) {
 		},
 		"a forum post": func(f *fixture) *discord.Message {
 			f.api.AddChannel(&discord.Channel{ID: sessions, GuildID: guild, Type: discord.ChannelTypeGuildForum, AvailableTags: forumTags})
-			f.h.Cfg.Servers[0].Forum = sessions
+			f.useForum(sessions)
 			m := f.mention(channel, 1, tim, "research", nil)
 			f.h.Handle(m)
 			f.shows(postID(1))

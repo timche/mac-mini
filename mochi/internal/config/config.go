@@ -22,28 +22,22 @@ type Server struct {
 	Guild     string `json:"guild"`
 	Workspace string `json:"workspace"`
 	Repo      string `json:"repo"`
-
-	// What a repository has no .mochi/config.json for yet still comes from here.
-	project.Settings
 }
 
-var fellBack sync.Map
+var unset sync.Map
 
 // Project is the settings in the server's repository, read afresh, and none when it has no
-// .mochi/config.json; such a repository still has the ones in this file, logged once per
-// repository when log is given.
+// .mochi/config.json, which is logged once per repository when log is given: otherwise a forum
+// missing for that reason would look like mochi ignoring it.
 func (s Server) Project(log *slog.Logger) (project.Settings, error) {
 	p, err := project.Load(s.Repo)
-	if !errors.Is(err, project.ErrMissing) {
-		return p, err
-	}
-	if s.Forum == "" && s.Announce == "" && s.Links == nil {
+	if errors.Is(err, project.ErrMissing) {
+		if _, logged := unset.LoadOrStore(s.Repo, true); !logged && log != nil {
+			log.Warn("the repository has no "+project.ConfigFile+", so it has no forum, announce channel or links", "repo", s.Repo)
+		}
 		return project.Settings{}, nil
 	}
-	if _, logged := fellBack.LoadOrStore(s.Repo, true); !logged && log != nil {
-		log.Warn("the repository has no "+project.ConfigFile+", so its forum, announce channel and links come from mochi's own config", "repo", s.Repo)
-	}
-	return s.Settings, nil
+	return p, err
 }
 
 // The model that decides whether a mention is one task or several, chosen by measuring
@@ -197,9 +191,6 @@ func Load(path, home string) (Config, error) {
 			return Config{}, fmt.Errorf("%s: guild %s names no herdr workspace", path, s.Guild)
 		case strings.TrimSpace(s.Repo) == "":
 			return Config{}, fmt.Errorf("%s: guild %s names no repository", path, s.Guild)
-		}
-		if err := cfg.Servers[i].Check(); err != nil {
-			return Config{}, fmt.Errorf("%s: guild %s: %w", path, s.Guild, err)
 		}
 		seen[s.Guild] = true
 		cfg.Servers[i].Repo = expand(s.Repo, home)

@@ -43,6 +43,8 @@ func TestARangeHoldsOnlyWhereEveryOneOfItsClausesDoes(t *testing.T) {
 		{"2.1.0", "= 2.1.0", true},
 		{"2.1.1", "= 2.1.0", false},
 		{"2026.10.15", ">= 2025.9.13", true},
+		{"2.1.306", "> 0.2.116 < 1.0.24", false},
+		{"1.0.0", "> 0.2.116 < 1.0.24", true},
 	} {
 		affected, read := inRange(c.version, c.spec)
 		harness.Equal(t, read, true, c.spec+" could be read")
@@ -65,6 +67,7 @@ func TestARangeInAShapeThisCannotReadIsNotOneSayingTheVersionIsSafe(t *testing.T
 func TestTheLowestPatchedVersionIsTheOneAnUpgradeHasToReach(t *testing.T) {
 	harness.Equal(t, firstPatched("2026.9.18, 2026.10.0"), "2026.9.18", "two fixed lines")
 	harness.Equal(t, firstPatched("2026.10.0"), "2026.10.0", "one")
+	harness.Equal(t, firstPatched("1.0.24 and above"), "1.0.24", "in words")
 	harness.Equal(t, firstPatched(""), "", "none")
 	harness.Equal(t, firstPatched(">= 2026.10.0"), "", "a range on its own")
 	harness.Equal(t, firstPatched(">= 2026.10.0, 2026.9.18"), "2026.9.18", "a range beside a version")

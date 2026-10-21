@@ -83,34 +83,42 @@ func compareSegment(a, b string) int {
 }
 
 // Whether an installed version falls in the range a GitHub advisory states, which is a
-// comma-separated list of clauses that all have to hold: `>= 1.0.0, < 1.2.3`, `<= 2026.9.18`,
-// `= 2.1.0`.
+// list of clauses that all have to hold: `>= 1.0.0, < 1.2.3`, `<= 2026.9.18`, `= 2.1.0`, and
+// with no comma at all, as Claude Code's GHSA-9f65-56v6-gxw7 writes `> 0.2.116 < 1.0.24`.
 //
 // The second value is whether the range could be read at all. A range in a shape this does
 // not know is not a range saying the version is safe, so it is answered as unreadable and the
 // advisory goes to the agent to read instead — the one thing that may not happen is a new
 // spelling upstream turning into silence here.
 func inRange(version, spec string) (affected, read bool) {
-	clauses := strings.Split(spec, ",")
-	if strings.TrimSpace(spec) == "" {
+	rest := strings.TrimSpace(spec)
+	if rest == "" {
 		return false, false
 	}
 
-	for _, clause := range clauses {
+	for rest != "" {
 		// The operator and the version, with or without a space between them: GitHub's own
 		// advisories are written both ways — `<= 2026.9.18` on one of mise's and `<2026.3.10`
 		// on another — so the operator is read as the leading run of its own characters rather
-		// than as a field.
-		clause = strings.TrimSpace(clause)
-		cut := strings.IndexFunc(clause, func(r rune) bool { return !strings.ContainsRune("<>=!", r) })
+		// than as a field, and the version ends where a space, a comma or the next operator
+		// starts.
+		cut := strings.IndexFunc(rest, func(r rune) bool { return !strings.ContainsRune("<>=!", r) })
 		if cut <= 0 {
 			return false, false
 		}
 
-		op, want := clause[:cut], strings.TrimSpace(clause[cut:])
-		if want == "" {
+		op := rest[:cut]
+		rest = strings.TrimLeft(rest[cut:], " ")
+		end := strings.IndexAny(rest, " ,<>=!")
+		if end < 0 {
+			end = len(rest)
+		}
+		if end == 0 {
 			return false, false
 		}
+
+		want := rest[:end]
+		rest = strings.TrimLeft(rest[end:], " ,")
 
 		n := compare(version, want)
 		switch op {
@@ -142,7 +150,7 @@ func firstPatched(patched string) string {
 	lowest := ""
 
 	for _, version := range strings.Split(patched, ",") {
-		version = strings.TrimSpace(version)
+		version = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(version), "and above"))
 		// A fix stated as a range rather than a version — GitHub allows both — is a fix whose
 		// version this cannot name, and naming the wrong one would be a message telling Tim to
 		// upgrade to something that does not exist.

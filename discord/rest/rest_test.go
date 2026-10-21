@@ -211,6 +211,23 @@ func TestAnUploadIsMultipartWithPayloadJSON(t *testing.T) {
 	}
 }
 
+// A name with a line break in it would write a header of its own into the part.
+func TestAFileNameCannotInjectAHeader(t *testing.T) {
+	s, c, _ := newServer(t, ok(`{"id":"1"}`))
+	c.Send("1", &discord.MessageSend{Files: []*discord.File{{Name: "a.png\r\nX-Evil: 1\r\n\x00x", Reader: strings.NewReader("PNG")}}})
+	h := s.hits[0]
+	_, params, _ := mime.ParseMediaType(h.ContentType)
+	r := multipart.NewReader(strings.NewReader(string(h.Body)), params["boundary"])
+	r.NextPart()
+	p, err := r.NextPart()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.FileName() != "a.pngX-Evil: 1x" || p.Header.Get("Content-Type") != "application/octet-stream" || len(p.Header) != 2 {
+		t.Errorf("file name %q, header %v", p.FileName(), p.Header)
+	}
+}
+
 func TestAForumPostWithFilesNestsTheMessageInPayloadJSON(t *testing.T) {
 	s, c, _ := newServer(t, ok(`{"id":"1"}`))
 	c.ForumPost("1", &discord.ThreadStart{Name: "p"}, &discord.MessageSend{Content: "first", Files: []*discord.File{{Name: "a.png", Reader: strings.NewReader("PNG")}}})

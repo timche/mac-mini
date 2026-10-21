@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/timche/mac-mini/discord"
 )
@@ -339,7 +340,7 @@ func multipartBody(payload any, files []*discord.File) (request, error) {
 
 	for i, f := range files {
 		h := textproto.MIMEHeader{}
-		h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="files[%d]"; filename="%s"`, i, quoteEscaper.Replace(f.Name)))
+		h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="files[%d]"; filename="%s"`, i, headerSafe(f.Name)))
 		contentType := f.ContentType
 		if contentType == "" {
 			contentType = "application/octet-stream"
@@ -360,3 +361,15 @@ func multipartBody(payload any, files []*discord.File) (request, error) {
 }
 
 var quoteEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`)
+
+// A file name goes into a part's header, where a line break would start a header of the
+// name's own choosing: every control character is dropped, and quotes are escaped.
+func headerSafe(name string) string {
+	name = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, name)
+	return quoteEscaper.Replace(name)
+}

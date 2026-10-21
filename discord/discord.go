@@ -64,9 +64,6 @@ type Channel struct {
 	Type          ChannelType `json:"type"`
 	AvailableTags []ForumTag  `json:"available_tags"`
 	AppliedTags   []string    `json:"applied_tags"`
-
-	// Who started a thread or a forum post.
-	OwnerID string `json:"owner_id"`
 }
 
 func (c *Channel) IsThread() bool {

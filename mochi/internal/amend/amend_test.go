@@ -20,9 +20,9 @@ const (
 	announce = "1378670204795617340"
 	forum    = "1562152175927558292"
 
-	forumPost = "1562152175927558301" // a forum post mochi made
+	forumPost = "1562152175927558301" // another session's forum post
 	theirs    = "1562152175927558302" // a thread somebody else started
-	session   = "1562152175927558303" // somebody else's thread a session of mochi's works in
+	session   = "1562152175927558303" // this session's own thread
 	general   = "1562152175927558304" // a channel mochi does not post in
 	away      = "1562152175927558305" // a channel in a server mochi is not mapped to
 )
@@ -45,21 +45,23 @@ func setup(t *testing.T) fixture {
 	api.Bot = bot
 	for _, c := range []*discord.Channel{
 		{ID: announce, GuildID: guild, Type: discord.ChannelTypeGuildText},
-		{ID: forumPost, GuildID: guild, ParentID: forum, Type: discord.ChannelTypeGuildPublicThread, OwnerID: bot.ID},
-		{ID: theirs, GuildID: guild, ParentID: general, Type: discord.ChannelTypeGuildPublicThread, OwnerID: tim.ID},
-		{ID: session, GuildID: guild, ParentID: general, Type: discord.ChannelTypeGuildPublicThread, OwnerID: tim.ID},
+		{ID: forumPost, GuildID: guild, ParentID: forum, Type: discord.ChannelTypeGuildPublicThread},
+		{ID: theirs, GuildID: guild, ParentID: general, Type: discord.ChannelTypeGuildPublicThread},
+		{ID: session, GuildID: guild, ParentID: general, Type: discord.ChannelTypeGuildPublicThread},
 		{ID: general, GuildID: guild, Type: discord.ChannelTypeGuildText},
 		{ID: away, GuildID: foreign, Type: discord.ChannelTypeGuildText},
 	} {
 		api.AddChannel(c)
 	}
 	store := state.Store{Path: filepath.Join(t.TempDir(), "state.json")}
-	if err := store.Put(state.Session{Thread: session, Source: general, Guild: guild}); err != nil {
-		t.Fatal(err)
+	for _, th := range []string{session, forumPost} {
+		if err := store.Put(state.Session{Thread: th, Source: general, Guild: guild}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	f := fixture{
 		api:   api,
-		scope: Scope{Servers: []config.Server{{Guild: guild, Repo: "/r", Announce: announce, Forum: forum, Links: []string{"chromewebstore.google.com", "repeek.gg"}}}, Store: store},
+		scope: Scope{Servers: []config.Server{{Guild: guild, Repo: "/r", Announce: announce, Forum: forum, Links: []string{"chromewebstore.google.com", "repeek.gg"}}}, Store: store, Thread: session},
 		mine:  map[string]string{},
 		other: map[string]string{},
 	}
@@ -83,16 +85,16 @@ func link(channel string, m *discord.Message) string {
 
 func repeek(string) (string, error) { return "timche/repeek", nil }
 
-// mochi's own message, in the announce channel, a post or thread it made, or a session's thread,
+// mochi's own message, in the announce channel or this session's own thread,
 // takes new text with nobody pinged and its attachments as they were.
 func TestMochisOwnMessageIsEdited(t *testing.T) {
 	f := setup(t)
-	for _, ch := range []string{announce, forumPost, session} {
+	for _, ch := range []string{announce, session} {
 		if err := Edit(f.api, f.scope, f.mine[ch], Change{Text: "**New** @everyone <@94004892942741504>", Repos: repeek}); err != nil {
 			t.Errorf("%s: %v", ch, err)
 		}
 	}
-	if len(f.api.Edits) != 3 {
+	if len(f.api.Edits) != 2 {
 		t.Fatalf("edits = %d", len(f.api.Edits))
 	}
 	e := f.api.Edits[0]
@@ -125,19 +127,19 @@ func TestDropFilesRemovesEveryAttachment(t *testing.T) {
 // alone keeps its preview.
 func TestAnEditCarriesAPullRequestAndAllowedLinks(t *testing.T) {
 	f := setup(t)
-	if err := Edit(f.api, f.scope, f.mine[forumPost], Change{Text: "Ready.", PR: "https://github.com/timche/repeek/pull/9", Repos: repeek}); err != nil {
+	if err := Edit(f.api, f.scope, f.mine[session], Change{Text: "Ready.", PR: "https://github.com/timche/repeek/pull/9", Repos: repeek}); err != nil {
 		t.Fatal(err)
 	}
 	if e := f.api.Edits[0]; *e.Content != "Ready.\n\n#9 (https://github.com/timche/repeek/pull/9)" || *e.Flags&discord.MessageFlagsSuppressEmbeds == 0 {
 		t.Errorf("edit = %q, %v", *e.Content, *e.Flags)
 	}
-	if err := Edit(f.api, f.scope, f.mine[forumPost], Change{Text: "Get it at https://chromewebstore.google.com/detail/x"}); err != nil {
+	if err := Edit(f.api, f.scope, f.mine[session], Change{Text: "Get it at https://chromewebstore.google.com/detail/x"}); err != nil {
 		t.Fatal(err)
 	}
 	if e := f.api.Edits[1]; *e.Flags != 0 {
 		t.Errorf("the allowed link's preview was suppressed: %v", *e.Flags)
 	}
-	if err := Edit(f.api, f.scope, f.mine[forumPost], Change{Text: "Ready.", PR: "https://github.com/timche/mac-mini/pull/9", Repos: repeek}); err == nil {
+	if err := Edit(f.api, f.scope, f.mine[session], Change{Text: "Ready.", PR: "https://github.com/timche/mac-mini/pull/9", Repos: repeek}); err == nil {
 		t.Error("another repository's pull request was edited in")
 	}
 }
@@ -177,6 +179,7 @@ func TestOnlyMochisMessagesWhereItPostsAreChanged(t *testing.T) {
 		"Tim's message in the announce channel":       f.other[announce],
 		"Tim's message in mochi's post":               f.other[forumPost],
 		"Tim's message in a session's thread":         f.other[session],
+		"mochi's message in another session's post":   f.mine[forumPost],
 		"mochi's message in somebody's thread":        f.mine[theirs],
 		"mochi's message in a plain channel":          f.mine[general],
 		"mochi's message in a foreign server":         f.mine[away],
@@ -206,17 +209,54 @@ func TestOnlyMochisMessagesWhereItPostsAreChanged(t *testing.T) {
 
 func TestMochisOwnMessageIsDeleted(t *testing.T) {
 	f := setup(t)
-	for _, ch := range []string{announce, forumPost, session} {
+	for _, ch := range []string{announce, session} {
 		if err := Delete(f.api, f.scope, f.mine[ch]); err != nil {
 			t.Errorf("%s: %v", ch, err)
 		}
 	}
-	if len(f.api.Deletes) != 3 || !strings.HasPrefix(f.api.Deletes[0], announce+" ") {
+	if len(f.api.Deletes) != 2 || !strings.HasPrefix(f.api.Deletes[0], announce+" ") {
 		t.Errorf("deletes = %v", f.api.Deletes)
 	}
 	for _, l := range []string{"https://ptb.discord.com/channels/", "https://canary.discord.com/channels/"} {
 		if _, err := Parse(l + guild + "/" + announce + "/1300000000000000001"); err != nil {
 			t.Errorf("%s: %v", l, err)
 		}
+	}
+}
+
+// A session mochi did not start, or one whose MOCHI_THREAD has no record, changes only what is in
+// the announce channel.
+func TestOutsideItsOwnThreadASessionChangesOnlyTheAnnounceChannel(t *testing.T) {
+	for _, thread := range []string{"", theirs} {
+		f := setup(t)
+		f.scope.Thread = thread
+		if err := Edit(f.api, f.scope, f.mine[session], Change{Text: "x"}); err == nil {
+			t.Errorf("thread %q: edited a session's thread", thread)
+		}
+		if err := Delete(f.api, f.scope, f.mine[theirs]); err == nil {
+			t.Errorf("thread %q: deleted in an unrecorded thread", thread)
+		}
+		if err := Edit(f.api, f.scope, f.mine[announce], Change{Text: "x"}); err != nil {
+			t.Errorf("thread %q: %v", thread, err)
+		}
+		if err := Delete(f.api, f.scope, f.mine[announce]); err != nil {
+			t.Errorf("thread %q: %v", thread, err)
+		}
+	}
+}
+
+// The message a thread or forum post starts with shares its id, and is edited but never deleted.
+func TestAStarterMessageIsEditedButNotDeleted(t *testing.T) {
+	f := setup(t)
+	f.api.Msgs[session] = append(f.api.Msgs[session], &discord.Message{ID: session, ChannelID: session, Author: bot, Content: "Session started"})
+	starter := "https://discord.com/channels/" + guild + "/" + session + "/" + session
+	if err := Delete(f.api, f.scope, starter); err == nil || !strings.Contains(err.Error(), "starts its thread") {
+		t.Errorf("delete: %v", err)
+	}
+	if err := Edit(f.api, f.scope, starter, Change{Text: "Session started"}); err != nil {
+		t.Errorf("edit: %v", err)
+	}
+	if len(f.api.Deletes) != 0 || len(f.api.Edits) != 1 {
+		t.Errorf("deletes %v, edits %d", f.api.Deletes, len(f.api.Edits))
 	}
 }

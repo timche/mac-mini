@@ -67,9 +67,9 @@ const usage = `usage: mochi [listen]
   edit      replace the text of a message mochi posted, held to what post is held
             to and pinging nobody; --drop-files removes its attachments too
   delete    take down a message mochi posted
-            edit and delete act only on mochi's own messages where it posts in a
-            mapped server: an announce channel, a thread or post it started, or
-            a session's thread
+            edit and delete act only on mochi's own messages in a mapped server's
+            announce channel, or in a mochi session's own thread or post; a
+            thread's or post's first message is edited, never deleted
 
 post and history run only inside a session mochi started; the rest in any session.
 `
@@ -286,7 +286,7 @@ func run(args []string) error {
 		if err != nil {
 			return usageError{err}
 		}
-		scope := amend.Scope{Servers: cfg.Servers, Store: state.Store{Path: cfg.StatePath()}}
+		scope := amend.Scope{Servers: cfg.Servers, Store: state.Store{Path: cfg.StatePath()}, Thread: thread}
 		_, server, err := scope.Server(link)
 		if err != nil {
 			return err

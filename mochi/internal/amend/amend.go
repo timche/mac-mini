@@ -34,11 +34,14 @@ func Parse(link string) (Target, error) {
 	return Target{Guild: m[1], Channel: m[2], Message: m[3]}, nil
 }
 
-// Scope is where mochi posts: each server's announce channel, the threads and forum posts it
-// started, and the threads its sessions work in.
+// Scope is where a session may change mochi's messages: its server's announce channel, which
+// any session posts to, and a session of mochi's own thread or post, which only it posts to.
 type Scope struct {
 	Servers []config.Server
 	Store   state.Store
+
+	// MOCHI_THREAD, empty in a session mochi did not start.
+	Thread string
 }
 
 // Server is the mapped server a link is in.
@@ -137,6 +140,11 @@ func Delete(api chat.API, s Scope, link string) error {
 	if err != nil {
 		return err
 	}
+	// Deleting a thread's or a forum post's first message leaves the post with nothing on
+	// top; an edit fixes it instead.
+	if t.Message == t.Channel {
+		return errors.New("the message starts its thread or post, so it is not deleted: change it with mochi edit instead")
+	}
 	return api.Delete(t.Channel, t.Message)
 }
 
@@ -158,13 +166,14 @@ func (s Scope) find(api chat.API, link string) (Target, config.Server, *discord.
 	if err != nil {
 		return t, server, nil, fmt.Errorf("mochi's own user could not be read: %v", err)
 	}
-	_, session, err := s.Store.Get(t.Channel)
-	if err != nil {
-		return t, server, nil, err
-	}
-	owned := ch.IsThread() && ch.OwnerID == me.ID
-	if t.Channel != server.Announce && !session && !owned {
-		return t, server, nil, errors.New("the message is not where mochi posts — its announce channel, a thread or forum post it started, or a session's thread — so it is not changed")
+	if t.Channel != server.Announce {
+		if s.Thread == "" || t.Channel != s.Thread {
+			return t, server, nil, errors.New("the message is neither in the server's announce channel nor in this session's own thread, so it is not changed")
+		}
+		// MOCHI_THREAD alone would let a session name any thread.
+		if _, ok, err := s.Store.Get(t.Channel); err != nil || !ok {
+			return t, server, nil, errors.New("MOCHI_THREAD names no thread mochi started a session for, so it is not changed")
+		}
 	}
 	m, err := api.Message(t.Channel, t.Message)
 	if err != nil {

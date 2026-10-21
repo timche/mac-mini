@@ -156,6 +156,51 @@ func TestAnnounceFindsTheServerByTheCheckoutsOrigin(t *testing.T) {
 	}
 }
 
+// The announce channel and the domains are the mapped repository's, from its
+// .mochi/config.json as it stands: none, or one that cannot be read, is no announcing.
+func TestAnnounceReadsTheRepositorysSettings(t *testing.T) {
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("no git")
+	}
+	mapped := gitCheckout(t, "git@github.com:timche/repeek.git")
+	cfg := filepath.Join(t.TempDir(), "config.json")
+	os.WriteFile(cfg, []byte(`{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "repeek", "repo": "`+mapped+`"}]}`), 0o644)
+	env := filepath.Join(t.TempDir(), "mochi.env.op")
+	os.WriteFile(env, []byte("MOCHI_DISCORD_BOT_TOKEN=op://dev/x/y\n"), 0o644)
+	bin := t.TempDir()
+	os.Symlink(git, filepath.Join(bin, "git"))
+	t.Setenv("MOCHI_CONFIG", cfg)
+	t.Setenv("MOCHI_ENV_FILE", env)
+	t.Setenv("MOCHI_THREAD", "")
+	t.Setenv("PATH", bin)
+	t.Chdir(gitCheckout(t, "https://github.com/timche/repeek"))
+
+	if err := run([]string{"announce", "hi"}); err == nil || err.Error() != "this project has no announce channel in .mochi/config.json" {
+		t.Errorf("no .mochi/config.json: %v", err)
+	}
+
+	os.Mkdir(filepath.Join(mapped, ".mochi"), 0o755)
+	settings := filepath.Join(mapped, ".mochi", "config.json")
+	os.WriteFile(settings, []byte(`{"announce": "1378670204795617340", "links": ["repeek.gg"]}`), 0o644)
+	if err := run([]string{"announce", "Average elo now shows for each team, see https://repeek.gg/elo"}); err == nil || err.Error() != "no op on PATH, so the bot token cannot be resolved" {
+		t.Errorf("from the repository's settings: %v", err)
+	}
+
+	os.WriteFile(settings, []byte(`{"links": ["repeek.gg"]}`), 0o644)
+	if err := run([]string{"announce", "hi"}); err == nil || err.Error() != "this project has no announce channel in .mochi/config.json" {
+		t.Errorf("no announce key: %v", err)
+	}
+
+	os.WriteFile(settings, []byte(`{"announce": "1378670204795617340", "links": ["repeek.gg"], "chanel": "1"}`), 0o644)
+	if err := run([]string{"announce", "hi"}); err == nil || !strings.Contains(err.Error(), "announce channel is not known") || !strings.Contains(err.Error(), "chanel") {
+		t.Errorf("broken: %v", err)
+	}
+	if err := run([]string{"announce", "see https://repeek.gg"}); err == nil || !strings.Contains(err.Error(), "found https://repeek.gg") || !strings.Contains(err.Error(), "chanel") {
+		t.Errorf("broken, a link: %v", err)
+	}
+}
+
 func TestAnnounceTakesTextFilesAndAPROnly(t *testing.T) {
 	shot := filepath.Join(t.TempDir(), "shot.png")
 	os.WriteFile(shot, []byte("png"), 0o644)
@@ -261,6 +306,10 @@ func TestTheAnnounceSkillSaysWhenAndHow(t *testing.T) {
 	}
 	if strings.Contains(front, "disable-model-invocation") || strings.Contains(front, "MOCHI_THREAD") {
 		t.Errorf("the skill is not the session's to load whenever it is asked:\n%s", front)
+	}
+	// Where the project's settings live is the mochi skill's to say, not this one's.
+	if strings.Contains(text, ".mochi") || strings.Contains(text, "MOCHI.md") {
+		t.Error("the announce skill says where the project's settings live")
 	}
 	for _, want := range []string{
 		"mochi announce",

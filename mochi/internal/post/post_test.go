@@ -634,7 +634,7 @@ func TestMediaIsKnownByItsBytes(t *testing.T) {
 
 var stores = []string{"chromewebstore.google.com", "addons.mozilla.org", "repeek.gg"}
 
-func allowed(string) []string { return stores }
+func allowed(string) ([]string, error) { return stores, nil }
 
 // A server's own domains may be linked over https, and their subdomains; a look-alike, any
 // other form of the same address and every other link are refused as before.
@@ -703,5 +703,22 @@ func TestAnAllowedLinkKeepsItsPreviewUnlessThereIsAPullRequest(t *testing.T) {
 	}
 	if err := Send(api, store, nil, repeek, thread, Post{Text: text}); err == nil {
 		t.Error("a link was posted with no domains allowed for the server")
+	}
+}
+
+// Settings that could not be read allow no links, and a refused link says why; a post without
+// one goes out as it would.
+func TestUnreadSettingsAllowNoLinksAndSaySo(t *testing.T) {
+	api, store := fixture(t)
+	unread := func(string) ([]string, error) { return nil, errors.New(".mochi/config.json: invalid character") }
+	err := Send(api, store, nil, repeek, thread, Post{Text: "See https://repeek.gg", Links: unread})
+	if err == nil || !strings.Contains(err.Error(), "found https://repeek.gg") || !strings.Contains(err.Error(), ".mochi/config.json: invalid character") {
+		t.Errorf("a link: %v", err)
+	}
+	if err := Send(api, store, nil, repeek, thread, Post{Text: "the docs are in ~/x/y.md", Links: unread}); err == nil || strings.Contains(err.Error(), "config.json") {
+		t.Errorf("a path: %v", err)
+	}
+	if err := Send(api, store, nil, repeek, thread, Post{Text: "Fixed.", Links: unread}); err != nil {
+		t.Errorf("no link: %v", err)
 	}
 }

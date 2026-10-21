@@ -3,6 +3,7 @@ package amend
 import (
 	"context"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/timche/mac-mini/mochi/internal/chat/chattest"
 	"github.com/timche/mac-mini/mochi/internal/config"
+	"github.com/timche/mac-mini/mochi/internal/project"
 	"github.com/timche/mac-mini/mochi/internal/state"
 )
 
@@ -258,5 +260,34 @@ func TestAStarterMessageIsEditedButNotDeleted(t *testing.T) {
 	}
 	if len(f.api.Deletes) != 0 || len(f.api.Edits) != 1 {
 		t.Errorf("deletes %v, edits %d", f.api.Deletes, len(f.api.Edits))
+	}
+}
+
+// The announce channel and the domains come from the repository's .mochi/config.json as it
+// stands; when it cannot be read there is neither, and the refusal says why.
+func TestTheRepositorysSettingsDecide(t *testing.T) {
+	f := setup(t)
+	repo := t.TempDir()
+	os.Mkdir(filepath.Join(repo, project.Dir), 0o755)
+	f.scope.Servers[0].Repo = repo
+	write := func(body string) { os.WriteFile(filepath.Join(repo, project.ConfigFile), []byte(body), 0o644) }
+
+	write(`{"announce": "` + general + `", "links": ["example.com"]}`)
+	if err := Edit(f.api, f.scope, f.mine[general], Change{Text: "See https://example.com"}); err != nil {
+		t.Errorf("the repository's announce channel and domain: %v", err)
+	}
+	if err := Edit(f.api, f.scope, f.mine[announce], Change{Text: "x"}); err == nil {
+		t.Error("the home config's announce channel was still allowed")
+	}
+
+	write(`{"announce": "#hq"}`)
+	if err := Edit(f.api, f.scope, f.mine[general], Change{Text: "x"}); err == nil || !strings.Contains(err.Error(), project.ConfigFile) {
+		t.Errorf("broken, the announce channel: %v", err)
+	}
+	if err := Edit(f.api, f.scope, f.mine[session], Change{Text: "See https://repeek.gg"}); err == nil || !strings.Contains(err.Error(), project.ConfigFile) {
+		t.Errorf("broken, a link: %v", err)
+	}
+	if err := Edit(f.api, f.scope, f.mine[session], Change{Text: "Fixed."}); err != nil {
+		t.Errorf("broken, this session's thread: %v", err)
 	}
 }

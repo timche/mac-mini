@@ -33,6 +33,7 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/op"
 	"github.com/timche/mac-mini/mochi/internal/origin"
 	"github.com/timche/mac-mini/mochi/internal/post"
+	"github.com/timche/mac-mini/mochi/internal/project"
 	"github.com/timche/mac-mini/mochi/internal/self"
 	"github.com/timche/mac-mini/mochi/internal/split"
 	"github.com/timche/mac-mini/mochi/internal/state"
@@ -155,9 +156,10 @@ func run(args []string) error {
 				return err
 			}
 		}
-		p, err := postArgs(args, cfg.Links())
+		links, unread := cfg.Links()
+		p, err := postArgs(args, links)
 		if err != nil {
-			return usageError{err}
+			return usageError{post.NoLinksBecause(err, unread)}
 		}
 		if !withToken {
 			if thread == "" {
@@ -205,9 +207,10 @@ func run(args []string) error {
 			return []string{root, scratch(me.HomeDir, root), scratch(me.HomeDir, server.Repo)}, nil
 		}
 		p.Leaks = leaks.CLI
-		p.Links = func(guild string) []string {
+		p.Links = func(guild string) ([]string, error) {
 			server, _ := cfg.Server(guild)
-			return server.Links
+			settings, err := server.Project(nil)
+			return settings.Links, err
 		}
 		if err := post.Send(api, state.Store{Path: cfg.StatePath()}, marks, repos, thread, p); err != nil {
 			return err
@@ -229,21 +232,26 @@ func run(args []string) error {
 				return err
 			}
 		}
-		p, err := announceArgs(args, cfg.Links())
+		links, unread := cfg.Links()
+		p, err := announceArgs(args, links)
 		if err != nil {
-			return usageError{err}
+			return usageError{post.NoLinksBecause(err, unread)}
 		}
 		server, root, err := announcing(cfg)
 		if err != nil {
 			return err
 		}
-		if err := p.Check(server.Links); err != nil {
-			return err
+		settings, unread := server.Project(nil)
+		if err := p.Check(settings.Links); err != nil {
+			return post.NoLinksBecause(err, unread)
+		}
+		if settings.Announce == "" {
+			if unread != nil {
+				return fmt.Errorf("this project's announce channel is not known, since %v", unread)
+			}
+			return errors.New("this project has no announce channel in " + project.ConfigFile)
 		}
 		if !withToken {
-			if server.Announce == "" {
-				return fmt.Errorf("the server for %s has no announce channel", root)
-			}
 			if p.PR != "" {
 				if err := post.CheckRepo(p.PR, server.Guild, repoOf(server)); err != nil {
 					return err
@@ -261,13 +269,13 @@ func run(args []string) error {
 		}
 		roots := []string{root, scratch(me.HomeDir, root)}
 		p.Roots = func(string) ([]string, error) { return roots, nil }
-		p.Links = func(string) []string { return server.Links }
+		p.Links = func(string) ([]string, error) { return settings.Links, nil }
 		p.Leaks = leaks.CLI
-		msg, err := post.Announce(api, server.Guild, server.Announce, repoOf(server), p)
+		msg, err := post.Announce(api, server.Guild, settings.Announce, repoOf(server), p)
 		if err != nil {
 			return err
 		}
-		fmt.Println(chat.Link(server.Guild, server.Announce, msg.ID))
+		fmt.Println(chat.Link(server.Guild, settings.Announce, msg.ID))
 		return nil
 
 	case "edit", "delete":
@@ -292,8 +300,9 @@ func run(args []string) error {
 			return err
 		}
 		if command == "edit" {
-			if err := change.Check(server.Links); err != nil {
-				return err
+			settings, unread := server.Project(nil)
+			if err := change.Check(settings.Links); err != nil {
+				return post.NoLinksBecause(err, unread)
 			}
 		}
 		if !withToken {

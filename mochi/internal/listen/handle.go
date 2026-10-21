@@ -22,6 +22,7 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/gh"
 	"github.com/timche/mac-mini/mochi/internal/herdr"
 	"github.com/timche/mac-mini/mochi/internal/mark"
+	"github.com/timche/mac-mini/mochi/internal/project"
 	"github.com/timche/mac-mini/mochi/internal/split"
 	"github.com/timche/mac-mini/mochi/internal/state"
 )
@@ -226,7 +227,7 @@ func (h *Handler) begin(server config.Server, ch *discord.Channel, m *discord.Me
 	// bury it; one in a thread or a post stays there, as below.
 	forum := ""
 	if !ch.IsThread() {
-		forum = server.Forum
+		forum = h.settings(server).Forum
 	}
 
 	var alone string
@@ -242,7 +243,7 @@ func (h *Handler) begin(server config.Server, ch *discord.Channel, m *discord.Me
 		alone = why
 	}
 	if forum != "" {
-		h.openPost(server, ch, m, opener{mention: m, replied: replied, instruction: instruction, summary: answer.Summary}, set, name, answer.Type)
+		h.openPost(server, forum, ch, m, opener{mention: m, replied: replied, instruction: instruction, summary: answer.Summary}, set, name, answer.Type)
 		return
 	}
 
@@ -284,10 +285,20 @@ func (h *Handler) begin(server config.Server, ch *discord.Channel, m *discord.Me
 	h.delivered(m)
 }
 
+// settings is the server's repository's settings as they stand now; ones that cannot be read are
+// logged and none.
+func (h *Handler) settings(server config.Server) project.Settings {
+	s, err := server.Project(h.Log)
+	if err != nil {
+		h.Log.Warn("the repository's settings are left out", "repo", server.Repo, "error", err)
+	}
+	return s
+}
+
 // One session in a post of its own in the forum, and a reply to Tim saying where it went.
-func (h *Handler) openPost(server config.Server, ch *discord.Channel, m *discord.Message, o opener, set *gather.Set, name, typ string) {
+func (h *Handler) openPost(server config.Server, forum string, ch *discord.Channel, m *discord.Message, o opener, set *gather.Set, name, typ string) {
 	instruction := o.instruction
-	post, err := h.post(server.Forum, name, typ, o)
+	post, err := h.post(forum, name, typ, o)
 	if err != nil {
 		h.fail(m, "", "a post could not be opened for this", err)
 		return

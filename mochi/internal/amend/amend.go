@@ -94,8 +94,9 @@ func Edit(api chat.API, s Scope, link string, c Change) error {
 	if err != nil {
 		return err
 	}
-	if err := c.Check(server.Links); err != nil {
-		return err
+	settings, unread := server.Project(nil)
+	if err := c.Check(settings.Links); err != nil {
+		return post.NoLinksBecause(err, unread)
 	}
 	if c.PR != "" {
 		if err := post.CheckRepo(c.PR, server.Guild, c.Repos); err != nil {
@@ -166,8 +167,12 @@ func (s Scope) find(api chat.API, link string) (Target, config.Server, *discord.
 	if err != nil {
 		return t, server, nil, fmt.Errorf("mochi's own user could not be read: %v", err)
 	}
-	if t.Channel != server.Announce {
+	settings, unread := server.Project(nil)
+	if t.Channel != settings.Announce {
 		if s.Thread == "" || t.Channel != s.Thread {
+			if unread != nil {
+				return t, server, nil, fmt.Errorf("the message is not in this session's own thread, and the server's announce channel is not known, since %v, so it is not changed", unread)
+			}
 			return t, server, nil, errors.New("the message is neither in the server's announce channel nor in this session's own thread, so it is not changed")
 		}
 		// MOCHI_THREAD alone would let a session name any thread.

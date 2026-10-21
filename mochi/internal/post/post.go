@@ -96,8 +96,19 @@ func CheckText(text string, allowed []string) error {
 	return nil
 }
 
+var errLink = errors.New("a post is read in Discord by moderators, so it carries no links but to the server's allowed domains: say it in words and attach images instead")
+
 func refusedLink(found string) error {
-	return fmt.Errorf("a post is read in Discord by moderators, so it carries no links but to the server's allowed domains: say it in words and attach images instead (found %s)", found)
+	return fmt.Errorf("%w (found %s)", errLink, found)
+}
+
+// NoLinksBecause adds to a refused link why the server allows none: its project's settings could
+// not be read.
+func NoLinksBecause(err, unread error) error {
+	if unread == nil || !errors.Is(err, errLink) {
+		return err
+	}
+	return fmt.Errorf("%w; and the server allows no links now, since %v", err, unread)
 }
 
 // An https link with no credentials or port, on one of the domains or a subdomain of one.
@@ -433,8 +444,9 @@ type Post struct {
 	// anything is sent; nil scans nothing.
 	Leaks leaks.Runner
 
-	// The domains a server's posts may link to; nil allows none.
-	Links func(guild string) []string
+	// The domains a server's posts may link to, and why there are none when they could not be
+	// read; nil allows none.
+	Links func(guild string) ([]string, error)
 }
 
 var pullRequest = regexp.MustCompile(`\Ahttps://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)/?\z`)
@@ -543,8 +555,9 @@ func Announce(api chat.API, guild, channel string, repos Repos, p Post) (*discor
 // ready runs every check a post gets in guild before anything is sent, and answers the real
 // paths of its files.
 func (p Post) ready(api chat.API, guild string, repos Repos) ([]string, error) {
-	if err := p.Check(p.links(guild)); err != nil {
-		return nil, err
+	links, unread := p.links(guild)
+	if err := p.Check(links); err != nil {
+		return nil, NoLinksBecause(err, unread)
 	}
 	if p.PR != "" {
 		if err := CheckRepo(p.PR, guild, repos); err != nil {
@@ -617,9 +630,9 @@ func deliver(api chat.API, channel, text string, suppress bool, files []string) 
 	return first, nil
 }
 
-func (p Post) links(guild string) []string {
+func (p Post) links(guild string) ([]string, error) {
 	if p.Links == nil {
-		return nil
+		return nil, nil
 	}
 	return p.Links(guild)
 }

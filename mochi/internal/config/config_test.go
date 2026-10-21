@@ -1,11 +1,15 @@
 package config
 
 import (
+	"bytes"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/timche/mac-mini/mochi/internal/project"
 )
 
 func write(t *testing.T, body string) string {
@@ -116,5 +120,63 @@ func TestPathsComeFromTheEnvironment(t *testing.T) {
 	}
 	if cfg.SessionDir("123") != filepath.Join(cfg.CacheDir, "sessions", "123") {
 		t.Errorf("session dir = %s", cfg.SessionDir("123"))
+	}
+}
+
+func repoWith(t *testing.T, config string) string {
+	t.Helper()
+	repo := t.TempDir()
+	if config != "" {
+		os.MkdirAll(filepath.Join(repo, project.Dir), 0o755)
+		if err := os.WriteFile(filepath.Join(repo, project.ConfigFile), []byte(config), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return repo
+}
+
+// A repository's .mochi/config.json is what counts; one with none still has what this file says
+// for its server, logged once, and one with a broken file has neither.
+func TestTheProjectsSettingsComeFromItsRepository(t *testing.T) {
+	home := project.Settings{Forum: "1562152175927558292", Announce: "1378670204795617340", Links: []string{"repeek.gg"}}
+
+	s := Server{Repo: repoWith(t, `{"announce": "1378670204795617399"}`), Settings: home}
+	if p, err := s.Project(nil); err != nil || p.Forum != "" || p.Announce != "1378670204795617399" || p.Links != nil {
+		t.Errorf("from the repository: %+v, %v", p, err)
+	}
+
+	var out bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&out, nil))
+	s = Server{Repo: repoWith(t, ""), Settings: home}
+	for range 2 {
+		if p, err := s.Project(log); err != nil || p.Forum != home.Forum || p.Announce != home.Announce || len(p.Links) != 1 {
+			t.Errorf("falling back: %+v, %v", p, err)
+		}
+	}
+	if n := strings.Count(out.String(), "has no .mochi/config.json"); n != 1 {
+		t.Errorf("logged %d times:\n%s", n, out.String())
+	}
+
+	if p, err := (Server{Repo: repoWith(t, "")}).Project(nil); err != nil || p.Forum != "" || p.Links != nil {
+		t.Errorf("neither: %+v, %v", p, err)
+	}
+
+	s = Server{Repo: repoWith(t, `{"forum": "#mochi"}`), Settings: home}
+	if p, err := s.Project(nil); err == nil || p.Forum != "" || p.Links != nil {
+		t.Errorf("broken: %+v, %v", p, err)
+	}
+}
+
+// The check a post gets before its server is known allows every repository's domains, and says
+// which repository's could not be read.
+func TestEveryServersLinksAreKnownUpFront(t *testing.T) {
+	cfg := Config{Servers: []Server{
+		{Repo: repoWith(t, `{"links": ["repeek.gg"]}`)},
+		{Repo: repoWith(t, ""), Settings: project.Settings{Links: []string{"example.org"}}},
+		{Repo: repoWith(t, `{"links": "repeek.gg"}`)},
+	}}
+	links, err := cfg.Links()
+	if strings.Join(links, " ") != "repeek.gg example.org" || err == nil || !strings.Contains(err.Error(), cfg.Servers[2].Repo) {
+		t.Errorf("%v, %v", links, err)
 	}
 }

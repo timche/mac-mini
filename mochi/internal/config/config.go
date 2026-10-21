@@ -6,11 +6,16 @@ package config
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+
+	"github.com/timche/mac-mini/mochi/internal/project"
 )
 
 type Server struct {
@@ -18,16 +23,27 @@ type Server struct {
 	Workspace string `json:"workspace"`
 	Repo      string `json:"repo"`
 
-	// The forum a session started from a channel gets a post in; with none, a thread on Tim's
-	// message.
-	Forum string `json:"forum"`
+	// What a repository has no .mochi/config.json for yet still comes from here.
+	project.Settings
+}
 
-	// Domains a post may link to over https, each with its subdomains: where the team finds the
-	// product, such as its store listings.
-	Links []string `json:"links"`
+var fellBack sync.Map
 
-	// The channel `mochi announce` posts to, for any session in a checkout of Repo.
-	Announce string `json:"announce"`
+// Project is the settings in the server's repository, read afresh, and none when it has no
+// .mochi/config.json; such a repository still has the ones in this file, logged once per
+// repository when log is given.
+func (s Server) Project(log *slog.Logger) (project.Settings, error) {
+	p, err := project.Load(s.Repo)
+	if !errors.Is(err, project.ErrMissing) {
+		return p, err
+	}
+	if s.Forum == "" && s.Announce == "" && s.Links == nil {
+		return project.Settings{}, nil
+	}
+	if _, logged := fellBack.LoadOrStore(s.Repo, true); !logged && log != nil {
+		log.Warn("the repository has no "+project.ConfigFile+", so its forum, announce channel and links come from mochi's own config", "repo", s.Repo)
+	}
+	return s.Settings, nil
 }
 
 // The model that decides whether a mention is one task or several, chosen by measuring
@@ -64,8 +80,6 @@ var (
 
 	// Both go to claude as flag values, so neither may look like a flag.
 	word = regexp.MustCompile(`\A[a-z0-9][a-z0-9.\[\]-]*\z`)
-
-	host = regexp.MustCompile(`\A(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*[a-z0-9]\z`)
 )
 
 func IsSnowflake(id string) bool { return snowflake.MatchString(id) }
@@ -79,13 +93,19 @@ func (c Config) Server(guild string) (Server, bool) {
 	return Server{}, false
 }
 
-// Every domain any server allows, for the check a post gets before its server is known.
-func (c Config) Links() []string {
+// Every domain any server allows, for the check a post gets before its server is known, and
+// why a repository's allow none.
+func (c Config) Links() ([]string, error) {
 	var all []string
+	var errs []error
 	for _, s := range c.Servers {
-		all = append(all, s.Links...)
+		p, err := s.Project(nil)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", s.Repo, err))
+		}
+		all = append(all, p.Links...)
 	}
-	return all
+	return all, errors.Join(errs...)
 }
 
 func (c Config) StatePath() string { return filepath.Join(c.CacheDir, "state.json") }
@@ -177,17 +197,9 @@ func Load(path, home string) (Config, error) {
 			return Config{}, fmt.Errorf("%s: guild %s names no herdr workspace", path, s.Guild)
 		case strings.TrimSpace(s.Repo) == "":
 			return Config{}, fmt.Errorf("%s: guild %s names no repository", path, s.Guild)
-		case s.Forum != "" && !IsSnowflake(s.Forum):
-			return Config{}, fmt.Errorf("%s: guild %s has a forum that is not a Discord id", path, s.Guild)
-		case s.Announce != "" && !IsSnowflake(s.Announce):
-			return Config{}, fmt.Errorf("%s: guild %s has an announce channel that is not a Discord id", path, s.Guild)
 		}
-		for j, link := range s.Links {
-			link = strings.ToLower(link)
-			if !host.MatchString(link) {
-				return Config{}, fmt.Errorf("%s: guild %s links to %q, which is not a domain", path, s.Guild, s.Links[j])
-			}
-			cfg.Servers[i].Links[j] = link
+		if err := cfg.Servers[i].Check(); err != nil {
+			return Config{}, fmt.Errorf("%s: guild %s: %w", path, s.Guild, err)
 		}
 		seen[s.Guild] = true
 		cfg.Servers[i].Repo = expand(s.Repo, home)

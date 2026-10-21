@@ -109,6 +109,9 @@ func TestEveryEndpointIsTheOneDiscordDocuments(t *testing.T) {
 	c.ForumPost(ch, &discord.ThreadStart{Name: "p", AppliedTags: tags}, &discord.MessageSend{Content: "first"})
 	c.AddThreadMember(ch, user)
 	c.Respond(&discord.Interaction{ID: "55", Token: "interaction-token"}, &discord.InteractionResponse{Type: discord.InteractionResponseDeferredMessageUpdate})
+	none, flags := []discord.MessageAttachment{}, discord.MessageFlags(0)
+	c.EditMessage(&discord.MessageEdit{ID: msg, Channel: ch, Content: &content, Flags: &flags, Attachments: &none})
+	c.DeleteMessage(ch, msg)
 
 	want := []string{
 		"GET /gateway",
@@ -126,6 +129,8 @@ func TestEveryEndpointIsTheOneDiscordDocuments(t *testing.T) {
 		"POST /channels/" + ch + `/threads {"name":"p","applied_tags":["7"],"message":{"content":"first"}}`,
 		"PUT /channels/" + ch + "/thread-members/" + user,
 		`POST /interactions/55/interaction-token/callback {"type":6}`,
+		"PATCH /channels/" + ch + "/messages/" + msg + ` {"content":"closed","attachments":[],"flags":0}`,
+		"DELETE /channels/" + ch + "/messages/" + msg,
 	}
 	if len(s.hits) != len(want) {
 		t.Fatalf("%d requests, want %d", len(s.hits), len(want))

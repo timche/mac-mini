@@ -58,6 +58,7 @@ var orders = []string{
 	"No technical detail — no pixel values, config or release mechanics, file or function names",
 	"No links except the pull request --pr adds and the server's allowed domains (mochi tells you if one is refused), no file paths, branch names, code or jargon, no secrets",
 	"Name none of the tools or services behind the work",
+	"If something posted shouldn't be there, fix it with `mochi edit <link>` (or `mochi delete <link>`) right away and tell the user.",
 	"This tab is already named for the thread; don't rename it.",
 }
 

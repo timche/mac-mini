@@ -45,6 +45,7 @@ EOF
 - A post with neither flag is an update about the product that needs no answer, and changes neither. Post no more than that needs: no progress chatter.
 - Whenever you stop or ask Tim something here, mochi tells him in the thread that the session is waiting on him; there is nothing to post for that.
 - Attach proof as before-and-after screenshots, a recording or other images, and add `--pr <url>` to a --review or --done post whenever there is a pull request; mochi adds the "#<number> (<url>)" line itself, so do not write it.
+- If something posted shouldn't be there, fix it with `mochi edit <link>` (or `mochi delete <link>`) right away and tell the user. `mochi edit` takes the new text the same way as a post and is held to the same rules; `--drop-files` removes the attachments too.
 - When the thread is a forum post, it is tagged with the kind of work: feature, bug, improvement or research. When Tim says it is another kind, such as "this is a bug", or the work shows it is one, refile it with `mochi post --type <kind>`, which needs no text.
 
 ## What a post looks like

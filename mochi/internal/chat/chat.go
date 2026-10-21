@@ -58,6 +58,9 @@ type API interface {
 	// A message mochi posted, changed: a question's buttons disabled once it is answered.
 	Edit(edit *discord.MessageEdit) error
 
+	// A message mochi posted, taken down by the session that posted it.
+	Delete(channel, message string) error
+
 	// The answer to a button press, which Discord wants within three seconds.
 	Respond(i *discord.Interaction, r *discord.InteractionResponse) error
 
@@ -307,6 +310,10 @@ func (l Live) StartThread(channel, message, name string) (*discord.Channel, erro
 func (l Live) Edit(edit *discord.MessageEdit) error {
 	_, err := l.REST.EditMessage(edit)
 	return err
+}
+
+func (l Live) Delete(channel, message string) error {
+	return l.REST.DeleteMessage(channel, message)
 }
 
 func (l Live) Respond(i *discord.Interaction, r *discord.InteractionResponse) error {

@@ -54,6 +54,7 @@ type Fake struct {
 	PostEdits int
 
 	Edits     []*discord.MessageEdit
+	Deletes   []string
 	Responses []*discord.InteractionResponse
 
 	// mochi's own user, as Me answers, and each guild's boost tier.
@@ -297,6 +298,11 @@ func (f *Fake) Send(channel string, msg *discord.MessageSend) (*discord.Message,
 
 func (f *Fake) Edit(edit *discord.MessageEdit) error {
 	f.Edits = append(f.Edits, edit)
+	return nil
+}
+
+func (f *Fake) Delete(channel, message string) error {
+	f.Deletes = append(f.Deletes, channel+" "+message)
 	return nil
 }
 

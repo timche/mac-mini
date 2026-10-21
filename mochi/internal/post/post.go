@@ -229,7 +229,7 @@ func checkInside(files []string, bases []string) ([]string, error) {
 // The scan refuses a post with what it found and where, never the secret, and refuses it as
 // well when it cannot run: a post it could not check is not sent. A project's own configuration
 // in its checkout is the one used.
-func scan(run leaks.Runner, bases []string, text string, files []string) error {
+func Scan(run leaks.Runner, bases []string, text string, files []string) error {
 	if run == nil {
 		return nil
 	}
@@ -453,7 +453,7 @@ func PRLine(url string) (string, error) {
 // other repository cannot be posted as one of theirs.
 type Repos func(guild string) (string, error)
 
-func checkRepo(url, guild string, repos Repos) error {
+func CheckRepo(url, guild string, repos Repos) error {
 	if repos == nil {
 		return errors.New("there is no repository to check the pull request against")
 	}
@@ -538,7 +538,7 @@ func (p Post) ready(api chat.API, guild string, repos Repos) ([]string, error) {
 		return nil, err
 	}
 	if p.PR != "" {
-		if err := checkRepo(p.PR, guild, repos); err != nil {
+		if err := CheckRepo(p.PR, guild, repos); err != nil {
 			return nil, err
 		}
 	}
@@ -553,7 +553,7 @@ func (p Post) ready(api chat.API, guild string, repos Repos) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := scan(p.Leaks, bases, p.Text, files); err != nil {
+	if err := Scan(p.Leaks, bases, p.Text, files); err != nil {
 		return nil, err
 	}
 	if len(files) > 0 {

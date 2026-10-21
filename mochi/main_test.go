@@ -168,12 +168,75 @@ func TestAnnounceTakesTextFilesAndAPROnly(t *testing.T) {
 			t.Errorf("%v parsed", args)
 		}
 	}
-	args, err := textStdin([]string{"--file", shot}, strings.NewReader("**New**\n- elo\n"), announceArgs)
+	args, err := textStdin([]string{"--file", shot}, strings.NewReader("**New**\n- elo\n"), func(a []string) error { _, err := announceArgs(a, nil); return err })
 	if err != nil {
 		t.Fatal(err)
 	}
 	if p, err := announceArgs(args, nil); err != nil || p.Text != "**New**\n- elo" {
 		t.Errorf("%+v %v", p, err)
+	}
+}
+
+const ownLink = "https://discord.com/channels/1220378778665095291/1378670204795617340/1400000000000000001"
+
+func TestEditTakesALinkTextAndDropFiles(t *testing.T) {
+	link, c, err := editArgs([]string{"--drop-files", "--pr", "https://github.com/timche/repeek/pull/4", ownLink, "fixed", "text"})
+	if err != nil || link != ownLink || c.Text != "fixed text" || !c.DropFiles || c.PR != "https://github.com/timche/repeek/pull/4" {
+		t.Errorf("%q %+v %v", link, c, err)
+	}
+	args, err := textStdin([]string{ownLink}, strings.NewReader("-- **Fixed**\n- now\n"), func(a []string) error { _, _, err := editArgs(a); return err })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, c, err := editArgs(args); err != nil || c.Text != "-- **Fixed**\n- now" {
+		t.Errorf("%+v %v", c, err)
+	}
+	for _, args := range [][]string{{}, {ownLink}, {"--drop-files", ownLink}, {"--review", ownLink, "x"}} {
+		if _, _, err := editArgs(args); err == nil {
+			t.Errorf("%v parsed", args)
+		}
+	}
+	if link, err := deleteArgs([]string{ownLink}); err != nil || link != ownLink {
+		t.Errorf("%q %v", link, err)
+	}
+	for _, args := range [][]string{{}, {ownLink, "x"}, {"--drop-files", ownLink}} {
+		if _, err := deleteArgs(args); err == nil {
+			t.Errorf("delete %v parsed", args)
+		}
+	}
+}
+
+// Any session may fix what it posted, with no MOCHI_THREAD; a link outside a mapped server, one
+// that is no message's link, or text a post could not carry is refused before `op run`, which a
+// PATH with no op shows by being the one error left otherwise.
+func TestEditAndDeleteRefuseBeforeOp(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "config.json")
+	os.WriteFile(cfg, []byte(`{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "repeek", "repo": "/r", "announce": "1378670204795617340", "links": ["repeek.gg"]}]}`), 0o644)
+	env := filepath.Join(t.TempDir(), "mochi.env.op")
+	os.WriteFile(env, []byte("MOCHI_DISCORD_BOT_TOKEN=op://dev/x/y\n"), 0o644)
+	t.Setenv("MOCHI_CONFIG", cfg)
+	t.Setenv("MOCHI_ENV_FILE", env)
+	t.Setenv("MOCHI_THREAD", "")
+	t.Setenv("PATH", t.TempDir())
+
+	const reachedOp = "no op on PATH, so the bot token cannot be resolved"
+	for _, args := range [][]string{{"edit", ownLink, "Fixed, see https://repeek.gg/elo"}, {"delete", ownLink}} {
+		if err := run(args); err == nil || err.Error() != reachedOp {
+			t.Errorf("%v: %v", args, err)
+		}
+	}
+	foreign := strings.Replace(ownLink, "1220378778665095291", "1220378778665095299", 1)
+	for _, args := range [][]string{
+		{"edit", foreign, "x"},
+		{"delete", foreign},
+		{"edit", "https://discord.gg/abc", "x"},
+		{"delete", ownLink + "/x"},
+		{"edit", ownLink, "see https://example.com"},
+		{"edit", ownLink, "it is in ~/Library/Logs/mochi.log"},
+	} {
+		if err := run(args); err == nil || err.Error() == reachedOp {
+			t.Errorf("%v: %v", args, err)
+		}
 	}
 }
 
@@ -209,6 +272,7 @@ func TestTheAnnounceSkillSaysWhenAndHow(t *testing.T) {
 		"the go-ahead",
 		"its link",
 		"No internals",
+		"If something posted shouldn't be there, fix it with `mochi edit <link>` (or `mochi delete <link>`) right away and tell the user.",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the skill lacks %q", want)

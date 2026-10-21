@@ -89,6 +89,10 @@ func (c *Client) EditMessage(edit *discord.MessageEdit) (*discord.Message, error
 	return orNil(&m, c.call(http.MethodPatch, messages(edit.Channel)+"/"+url.PathEscape(edit.ID), edit, &m))
 }
 
+func (c *Client) DeleteMessage(channel, id string) error {
+	return c.call(http.MethodDelete, messages(channel)+"/"+url.PathEscape(id), nil, nil)
+}
+
 func (c *Client) ReactionAdd(channel, message, emoji string) error {
 	return c.call(http.MethodPut, reaction(channel, message, emoji), nil, nil)
 }

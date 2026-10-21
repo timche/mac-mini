@@ -54,3 +54,5 @@ EOF
 `--pr <url>` adds a pull request of this repository as its own line, when the user wants it shared. mochi refuses a post with a link it does not allow, a file path, a file that looks like a secret, a file too large for the server, or anything the secret scan finds; fix what it names and post again, or tell the user what it said.
 
 It prints the posted message's link. Then tell the user what was posted and give its link.
+
+If something posted shouldn't be there, fix it with `mochi edit <link>` (or `mochi delete <link>`) right away and tell the user. `mochi edit` takes the new text the same way and is held to the same rules; `--drop-files` removes the attachments too.

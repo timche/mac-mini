@@ -64,6 +64,9 @@ type Channel struct {
 	Type          ChannelType `json:"type"`
 	AvailableTags []ForumTag  `json:"available_tags"`
 	AppliedTags   []string    `json:"applied_tags"`
+
+	// Who started a thread or a forum post.
+	OwnerID string `json:"owner_id"`
 }
 
 func (c *Channel) IsThread() bool {
@@ -177,6 +180,12 @@ type MessageEdit struct {
 	Content         *string                 `json:"content,omitempty"`
 	Components      *[]MessageComponent     `json:"components,omitempty"`
 	AllowedMentions *MessageAllowedMentions `json:"allowed_mentions,omitempty"`
+
+	// The attachments to keep; an empty list removes them all, and nil leaves them alone.
+	Attachments *[]MessageAttachment `json:"attachments,omitempty"`
+
+	// Only the suppress-embeds flag may change on an edit.
+	Flags *MessageFlags `json:"flags,omitempty"`
 }
 
 type ComponentType int

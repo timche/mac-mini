@@ -22,6 +22,7 @@ import (
 
 	discordrest "github.com/timche/mac-mini/discord/rest"
 
+	"github.com/timche/mac-mini/mochi/internal/amend"
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/config"
 	"github.com/timche/mac-mini/mochi/internal/event"
@@ -41,6 +42,8 @@ const usage = `usage: mochi [listen]
        mochi post [--review | --done [--close]] [--pr <url>] [--type <kind>] [--file <path>]... [<text>]
        mochi history [--post] [--before <id> | --after <id> | --around <id>] [--limit <n>]
        mochi announce [--pr <url>] [--file <path>]... [<text>]
+       mochi edit [--drop-files] [--pr <url>] <message link> [<text>]
+       mochi delete <message link>
 
   listen    connect to Discord and start a Claude Code session in herdr whenever Tim
             mentions mochi; what the LaunchAgent runs, and what no command means
@@ -61,8 +64,14 @@ const usage = `usage: mochi [listen]
   announce  post to the announce channel of the server whose repository this checkout
             is of, with no pings, held to everything post is held to; prints the
             message's link
+  edit      replace the text of a message mochi posted, held to what post is held
+            to and pinging nobody; --drop-files removes its attachments too
+  delete    take down a message mochi posted
+            edit and delete act only on mochi's own messages where it posts in a
+            mapped server: an announce channel, a thread or post it started, or
+            a session's thread
 
-post and history run only inside a session mochi started; announce in any session.
+post and history run only inside a session mochi started; the rest in any session.
 `
 
 type usageError struct{ error }
@@ -216,7 +225,7 @@ func run(args []string) error {
 
 	case "announce":
 		if !withToken {
-			if args, err = textStdin(args, os.Stdin, announceArgs); err != nil {
+			if args, err = textStdin(args, os.Stdin, func(a []string) error { _, err := announceArgs(a, nil); return err }); err != nil {
 				return err
 			}
 		}
@@ -235,9 +244,9 @@ func run(args []string) error {
 			if server.Announce == "" {
 				return fmt.Errorf("the server for %s has no announce channel", root)
 			}
-			if repo, _, _ := post.ParsePR(p.PR); p.PR != "" {
-				if want, err := origin.Of(server.Repo); err != nil || !strings.EqualFold(repo, want) {
-					return fmt.Errorf("the pull request is in %s, not %s, which is this checkout's repository", repo, want)
+			if p.PR != "" {
+				if err := post.CheckRepo(p.PR, server.Guild, repoOf(server)); err != nil {
+					return err
 				}
 			}
 			return op.Reenter(cfg.EnvFile, append([]string{"announce"}, args...))
@@ -254,12 +263,58 @@ func run(args []string) error {
 		p.Roots = func(string) ([]string, error) { return roots, nil }
 		p.Links = func(string) []string { return server.Links }
 		p.Leaks = leaks.CLI
-		repos := func(string) (string, error) { return origin.Of(server.Repo) }
-		msg, err := post.Announce(api, server.Guild, server.Announce, repos, p)
+		msg, err := post.Announce(api, server.Guild, server.Announce, repoOf(server), p)
 		if err != nil {
 			return err
 		}
 		fmt.Println(chat.Link(server.Guild, server.Announce, msg.ID))
+		return nil
+
+	case "edit", "delete":
+		var link string
+		var change amend.Change
+		if command == "edit" {
+			if !withToken {
+				if args, err = textStdin(args, os.Stdin, func(a []string) error { _, _, err := editArgs(a); return err }); err != nil {
+					return err
+				}
+			}
+			link, change, err = editArgs(args)
+		} else {
+			link, err = deleteArgs(args)
+		}
+		if err != nil {
+			return usageError{err}
+		}
+		scope := amend.Scope{Servers: cfg.Servers, Store: state.Store{Path: cfg.StatePath()}}
+		_, server, err := scope.Server(link)
+		if err != nil {
+			return err
+		}
+		if command == "edit" {
+			if err := change.Check(server.Links); err != nil {
+				return err
+			}
+		}
+		if !withToken {
+			return op.Reenter(cfg.EnvFile, append([]string{command}, args...))
+		}
+		api, err := rest()
+		if err != nil {
+			return err
+		}
+		if command == "delete" {
+			return amend.Delete(api, scope, link)
+		}
+		change.Leaks = leaks.CLI
+		change.Repos = repoOf(server)
+		if wd, err := os.Getwd(); err == nil {
+			change.Base, _ = origin.Toplevel(wd)
+		}
+		if err := amend.Edit(api, scope, link, change); err != nil {
+			return err
+		}
+		fmt.Println(link)
 		return nil
 
 	// Left out of the usage: it is for choosing the split model, and reads cases rather
@@ -315,14 +370,14 @@ func rest() (chat.API, error) {
 var errNoText = errors.New("the text to post goes as an argument or on stdin")
 
 func postStdin(args []string, stdin io.Reader) ([]string, error) {
-	return textStdin(args, stdin, postArgs)
+	return textStdin(args, stdin, func(a []string) error { _, err := postArgs(a, nil); return err })
 }
 
 // With no text among the arguments, the text is stdin, so a post of several lines needs no
 // shell quoting. Read here, before `op run`, and handed on as the last argument, since the
 // process that runs under op cannot be given back a stdin this one has read.
-func textStdin(args []string, stdin io.Reader, parse func(args, links []string) (post.Post, error)) ([]string, error) {
-	if _, err := parse(args, nil); !errors.Is(err, errNoText) {
+func textStdin(args []string, stdin io.Reader, parse func(args []string) error) ([]string, error) {
+	if err := parse(args); !errors.Is(err, errNoText) {
 		return args, nil
 	}
 	body, err := io.ReadAll(io.LimitReader(stdin, 64<<10))
@@ -381,6 +436,41 @@ func announceArgs(args []string, links []string) (post.Post, error) {
 		return p, errNoText
 	}
 	return p, p.Check(links)
+}
+
+func repoOf(server config.Server) post.Repos {
+	return func(string) (string, error) { return origin.Of(server.Repo) }
+}
+
+func editArgs(args []string) (string, amend.Change, error) {
+	var c amend.Change
+	fs := flag.NewFlagSet("edit", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.BoolVar(&c.DropFiles, "drop-files", false, "")
+	fs.StringVar(&c.PR, "pr", "", "")
+	if err := fs.Parse(args); err != nil {
+		return "", c, err
+	}
+	if fs.NArg() == 0 {
+		return "", c, errors.New("edit takes the link of the message to change")
+	}
+	text := fs.Args()[1:]
+	// textStdin hands the text on after a "--", which flag parsing has already stopped before,
+	// at the link.
+	if len(text) > 0 && text[0] == "--" {
+		text = text[1:]
+	}
+	if c.Text = strings.TrimSpace(strings.Join(text, " ")); c.Text == "" {
+		return "", c, errNoText
+	}
+	return fs.Arg(0), c, nil
+}
+
+func deleteArgs(args []string) (string, error) {
+	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
+		return "", errors.New("delete takes the link of the message to take down, and nothing else")
+	}
+	return args[0], nil
 }
 
 // The server whose repository the working directory is a checkout of, found by origin rather

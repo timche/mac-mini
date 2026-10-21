@@ -108,7 +108,7 @@ func TestAPullRequestPostedAgainIsWatchedOnce(t *testing.T) {
 	asked := len(g.calls)
 	f.h.WatchPRs()
 	f.h.WatchPRs()
-	if n := count(f.sentTo(thread), "#42 merged."); n != 1 {
+	if n := count(f.sentTo(thread), "Merged #42."); n != 1 {
 		t.Errorf("merged posts %d: %q", n, f.sentTo(thread))
 	}
 	if f.watching() != 0 || f.watches() != 1 || len(g.calls) != asked {
@@ -151,7 +151,7 @@ func TestAMergedPullRequestIsTheSessionDone(t *testing.T) {
 		t.Fatal("the posted pull request is not watched")
 	}
 	f.h.WatchPRs()
-	if f.watching() != 1 || f.sentTo(thread)[len(f.sentTo(thread))-1] == "#42 merged." {
+	if f.watching() != 1 || f.sentTo(thread)[len(f.sentTo(thread))-1] == "Merged #42." {
 		t.Fatal("an open pull request was taken for merged")
 	}
 
@@ -164,7 +164,7 @@ func TestAMergedPullRequestIsTheSessionDone(t *testing.T) {
 	}
 	merged := 0
 	for _, p := range f.sentTo(thread) {
-		if p == "#42 merged." {
+		if p == "Merged #42." {
 			merged++
 		}
 	}
@@ -204,7 +204,7 @@ func TestAClosedPullRequestIsSaid(t *testing.T) {
 	f.h.WatchPRs()
 	closed := 0
 	for _, p := range f.sentTo(thread) {
-		if p == "#42 closed without merging." {
+		if p == "Closed #42 without merging." {
 			closed++
 		}
 	}

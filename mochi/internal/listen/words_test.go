@@ -187,6 +187,28 @@ func TestNothingPostedNamesTheToolsBehindIt(t *testing.T) {
 			f.h.Handle(f.mention(first.ID, 2, tim, "stop", nil))
 			f.h.Handle(f.mention(channel, 3, tim, "stop", nil))
 		},
+		"a watched pull request merged, and another closed": func(f *fixture) {
+			g := &fakeGH{state: "open", head: "sha1"}
+			f.h.GH = g.run
+			f.h.Origin = func(string) (string, error) { return "timche/repeek", nil }
+			merged := f.mention(channel, 1, tim, "start", nil)
+			f.h.Handle(merged)
+			f.postPR(merged.ID, prURL)
+			f.h.WatchPRs()
+			g.state, g.merged = "closed", true
+			f.h.WatchPRs()
+
+			g.state, g.merged = "open", false
+			closed := f.mention(channel, 2, tim, "again", nil)
+			f.h.Handle(closed)
+			f.postPR(closed.ID, prURL)
+			f.h.WatchPRs()
+			g.state = "closed"
+			f.h.WatchPRs()
+			if count(f.sentTo(merged.ID), "Merged #42.") != 1 || count(f.sentTo(closed.ID), "Closed #42 without merging.") != 1 {
+				f.t.Errorf("merged thread %q, closed thread %q", f.sentTo(merged.ID), f.sentTo(closed.ID))
+			}
+		},
 		"a follow-up to a session that ended": func(f *fixture) {
 			first := f.mention(channel, 1, tim, "start", nil)
 			f.h.Handle(first)

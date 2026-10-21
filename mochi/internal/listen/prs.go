@@ -151,12 +151,12 @@ func (h *Handler) apply(looks map[string]look) {
 		case l.merged:
 			h.Marks.Settled(w.Thread, mark.Finished)
 			if w.Open {
-				h.say(w.Thread, fmt.Sprintf("#%d merged.", w.Number))
+				h.say(w.Thread, fmt.Sprintf("Merged #%d.", w.Number))
 			}
 			w.Done = true
 		case l.closed:
 			if w.Open {
-				h.say(w.Thread, fmt.Sprintf("#%d closed without merging.", w.Number))
+				h.say(w.Thread, fmt.Sprintf("Closed #%d without merging.", w.Number))
 			}
 			w.Done = true
 		case !l.open || (w.Open && l.told == ""):

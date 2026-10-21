@@ -101,8 +101,17 @@ func refusedLink(found string) error {
 }
 
 // An https link with no credentials or port, on one of the domains or a subdomain of one.
+//
+// The match runs to the next space, so it can swallow markdown after the link, a masked link to
+// somewhere else included, as in `https://repeek.gg/x](https://evil.com)`: a second scheme or
+// any markdown bracket inside it refuses the whole of it.
 func isAllowed(link string, allowed []string) bool {
-	u, err := url.Parse(strings.TrimRight(link, `.,;:!?)]}'"`))
+	link = strings.TrimRight(link, `.,;:!?)]}'"`)
+	_, rest, _ := strings.Cut(link, "://")
+	if strings.Contains(rest, "://") || strings.ContainsAny(rest, "[]()<>") {
+		return false
+	}
+	u, err := url.Parse(link)
 	if err != nil || u.Scheme != "https" || u.User != nil || u.Port() != "" || u.Opaque != "" {
 		return false
 	}

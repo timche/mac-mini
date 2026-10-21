@@ -644,6 +644,7 @@ func TestAServersDomainsMayBeLinked(t *testing.T) {
 		"On Firefox: https://addons.mozilla.org/en-US/firefox/addon/repeek/",
 		"See https://repeek.gg and https://www.repeek.gg/faq, or (https://play.repeek.gg).",
 		"HTTPS://Repeek.GG/download",
+		"https://repeek.gg/download?ref=discord&lang=en#top",
 		"Store: https://chromewebstore.google.com/detail/x, and repeek.gg as a name.",
 	} {
 		if err := CheckText(text, stores); err != nil {
@@ -667,6 +668,9 @@ func TestAServersDomainsMayBeLinked(t *testing.T) {
 		"ftp://repeek.gg/x",
 		"https://repeek.gg/x then ~/Desktop/shot.png",
 		"https://repeek.gg\\@evil.com",
+		"https://repeek.gg/x)[evil](https://evil.com)",
+		"https://repeek.gg/x](https://evil.com)",
+		"https://repeek.gg/x<https://evil.com>",
 	} {
 		if err := CheckText(text, stores); err == nil {
 			t.Errorf("%q passed", text)

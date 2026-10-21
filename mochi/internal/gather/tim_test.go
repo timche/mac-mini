@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/chat/chattest"
 )
@@ -14,8 +14,8 @@ import (
 func TestTimsOwnMessagesAreLabelledAsHis(t *testing.T) {
 	f := server()
 	thread := chattest.ID(10)
-	f.AddChannel(&discordgo.Channel{ID: thread, GuildID: guild, ParentID: channel, Type: discordgo.ChannelTypeGuildPublicThread})
-	impostor := &discordgo.User{ID: "1400000000000000007", Username: "tim", GlobalName: "Tim"}
+	f.AddChannel(&discord.Channel{ID: thread, GuildID: guild, ParentID: channel, Type: discord.ChannelTypeGuildPublicThread})
+	impostor := &discord.User{ID: "1400000000000000007", Username: "tim", GlobalName: "Tim"}
 
 	first := f.Post(thread, 11, tim, "<@"+mochi.ID+"> start")
 	f.Post(thread, 12, tim, "real Tim, not a mention")

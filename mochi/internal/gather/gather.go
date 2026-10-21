@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 )
@@ -52,7 +52,7 @@ const (
 // some of them and what was left out.
 type Set struct {
 	Guild string
-	msgs  map[string]*discordgo.Message
+	msgs  map[string]*discord.Message
 	notes map[string][]string
 	focus map[string]bool
 	Gaps  []string
@@ -63,11 +63,11 @@ type Set struct {
 }
 
 func NewSet(guild string) *Set {
-	return &Set{Guild: guild, msgs: map[string]*discordgo.Message{}, notes: map[string][]string{}, focus: map[string]bool{}}
+	return &Set{Guild: guild, msgs: map[string]*discord.Message{}, notes: map[string][]string{}, focus: map[string]bool{}}
 }
 
 // What Tim's instruction is about, rendered first under its own heading and never trimmed.
-func (s *Set) Focus(m *discordgo.Message, notes ...string) {
+func (s *Set) Focus(m *discord.Message, notes ...string) {
 	if m == nil {
 		return
 	}
@@ -75,7 +75,7 @@ func (s *Set) Focus(m *discordgo.Message, notes ...string) {
 	s.focus[m.ID] = true
 }
 
-func (s *Set) Add(m *discordgo.Message, notes ...string) {
+func (s *Set) Add(m *discord.Message, notes ...string) {
 	if m == nil {
 		return
 	}
@@ -111,8 +111,8 @@ func (s *Set) DropOldest() bool {
 	return false
 }
 
-func (s *Set) Messages() []*discordgo.Message {
-	out := make([]*discordgo.Message, 0, len(s.msgs))
+func (s *Set) Messages() []*discord.Message {
+	out := make([]*discord.Message, 0, len(s.msgs))
 	for _, m := range s.msgs {
 		out = append(out, m)
 	}
@@ -123,7 +123,7 @@ func (s *Set) Messages() []*discordgo.Message {
 // Tim replied to a message in a channel: the message, the chain of replies it answers, the
 // discussion either side of it, and anything later that replied to it. Tim's own mention is
 // the instruction and is not part of the context.
-func Reply(api chat.API, mention *discordgo.Message) (*Set, error) {
+func Reply(api chat.API, mention *discord.Message) (*Set, error) {
 	set := NewSet(mention.GuildID)
 	set.Tim = authorID(mention)
 	channel := mention.ChannelID
@@ -156,7 +156,7 @@ func Reply(api chat.API, mention *discordgo.Message) (*Set, error) {
 		set.Add(m)
 	}
 
-	var replies []*discordgo.Message
+	var replies []*discord.Message
 	after, reached := target.ID, false
 	for page := 0; page < laterPages && !reached; page++ {
 		got, err := api.Messages(channel, Page, "", after, "")
@@ -196,7 +196,7 @@ func Reply(api chat.API, mention *discordgo.Message) (*Set, error) {
 // A mention inside a thread or a forum post: the whole of it from its starter, as far as
 // one page before the mention reaches, and the starter on its own when it does not. The
 // focus is the starter and the mention itself, with what it replies to.
-func Thread(api chat.API, thread *discordgo.Channel, mention *discordgo.Message) (*Set, error) {
+func Thread(api chat.API, thread *discord.Channel, mention *discord.Message) (*Set, error) {
 	set := NewSet(mention.GuildID)
 	set.Tim = authorID(mention)
 
@@ -235,7 +235,7 @@ func Thread(api chat.API, thread *discordgo.Channel, mention *discordgo.Message)
 
 // A mention in a channel that answers nothing in particular: the recent conversation, the
 // last few messages of it the focus.
-func Channel(api chat.API, mention *discordgo.Message) (*Set, error) {
+func Channel(api chat.API, mention *discord.Message) (*Set, error) {
 	set := NewSet(mention.GuildID)
 	set.Tim = authorID(mention)
 
@@ -257,7 +257,7 @@ func Channel(api chat.API, mention *discordgo.Message) (*Set, error) {
 // Everything posted in a session's thread between Tim's last mention and this one: the
 // moderators' answers, his own messages, and what the session itself posted, marked as its own
 // so it can tell what it said from what was said back.
-func Since(api chat.API, thread, after string, mention *discordgo.Message, self string) (*Set, error) {
+func Since(api chat.API, thread, after string, mention *discord.Message, self string) (*Set, error) {
 	set := NewSet(mention.GuildID)
 	set.Tim = authorID(mention)
 
@@ -302,14 +302,14 @@ func Paged(api chat.API, guild, channel string, limit int, before, after, around
 // What somebody said, as against mochi's own posts — the session's, the pings, the moved
 // replies — and the notices Discord writes itself: a rename, a pin, a thread made. A reply
 // is said, and keeps the message it answers as a link, whoever wrote that.
-func said(m *discordgo.Message, self string) bool {
+func said(m *discord.Message, self string) bool {
 	if m.Author == nil || (self != "" && m.Author.ID == self) {
 		return false
 	}
-	return m.Type == discordgo.MessageTypeDefault || m.Type == discordgo.MessageTypeReply
+	return m.Type == discord.MessageTypeDefault || m.Type == discord.MessageTypeReply
 }
 
-func markReplied(api chat.API, set *Set, mention *discordgo.Message) error {
+func markReplied(api chat.API, set *Set, mention *discord.Message) error {
 	if mention.MessageReference == nil {
 		return nil
 	}
@@ -321,7 +321,7 @@ func markReplied(api chat.API, set *Set, mention *discordgo.Message) error {
 	return nil
 }
 
-func Referenced(api chat.API, m *discordgo.Message) (*discordgo.Message, error) {
+func Referenced(api chat.API, m *discord.Message) (*discord.Message, error) {
 	if m.ReferencedMessage != nil {
 		return m.ReferencedMessage, nil
 	}
@@ -349,7 +349,7 @@ func Render(set *Set, files Files) string {
 		b.WriteString("\n")
 	}
 
-	var focus, rest []*discordgo.Message
+	var focus, rest []*discord.Message
 	for _, m := range set.Messages() {
 		if set.focus[m.ID] {
 			focus = append(focus, m)
@@ -371,7 +371,7 @@ func Render(set *Set, files Files) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func writeMessages(b *strings.Builder, set *Set, msgs []*discordgo.Message, files Files) {
+func writeMessages(b *strings.Builder, set *Set, msgs []*discord.Message, files Files) {
 	for i, m := range msgs {
 		if i > 0 {
 			b.WriteString("\n")
@@ -380,7 +380,7 @@ func writeMessages(b *strings.Builder, set *Set, msgs []*discordgo.Message, file
 		for _, n := range set.notes[m.ID] {
 			b.WriteString("(" + n + ")\n")
 		}
-		if ref := m.MessageReference; ref != nil && ref.MessageID != "" && m.Type != discordgo.MessageTypeThreadStarterMessage {
+		if ref := m.MessageReference; ref != nil && ref.MessageID != "" && m.Type != discord.MessageTypeThreadStarterMessage {
 			channel := ref.ChannelID
 			if channel == "" {
 				channel = m.ChannelID
@@ -412,14 +412,14 @@ func quote(text string) string {
 
 // A display name is the author's to choose, so it is one line, without the characters that
 // frame a record, and followed by the account id it cannot choose.
-func authorID(m *discordgo.Message) string {
+func authorID(m *discord.Message) string {
 	if m.Author == nil {
 		return ""
 	}
 	return m.Author.ID
 }
 
-func (s *Set) author(m *discordgo.Message) string {
+func (s *Set) author(m *discord.Message) string {
 	switch {
 	case m.Author == nil:
 	case s.Tim != "" && m.Author.ID == s.Tim:
@@ -428,7 +428,7 @@ func (s *Set) author(m *discordgo.Message) string {
 	return author(m)
 }
 
-func author(m *discordgo.Message) string {
+func author(m *discord.Message) string {
 	name := strings.Map(func(r rune) rune {
 		switch r {
 		case '[', ']', '—', '>', '(', ')':

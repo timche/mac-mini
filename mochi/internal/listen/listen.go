@@ -2,13 +2,17 @@ package listen
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
+	gw "github.com/timche/mac-mini/discord/gateway"
+	"github.com/timche/mac-mini/discord/rest"
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/config"
@@ -65,24 +69,18 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 	}
 	os.Remove(cfg.OpAttempt())
 
-	s, err := discordgo.New("Bot " + token)
-	if err != nil {
-		return errors.New(chat.Redact(err, token))
-	}
-	// Guilds for each guild's roles and their changes, which is how a mention of mochi's
-	// managed role is recognised.
-	s.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsMessageContent
-
+	client := rest.New(token)
+	live := chat.NewLive(client)
 	h := &Handler{
 		Cfg:     cfg,
-		API:     chat.NewLive(s),
+		API:     live,
 		Herdr:   herdr.CLI,
 		Store:   state.Store{Path: cfg.StatePath()},
 		Pending: state.PendingStore{Path: cfg.PendingPath()},
 		Waits:   state.WaitStore{Path: cfg.WaitsPath()},
 		Watches: state.WatchStore{Path: cfg.WatchesPath()},
 		GH:      gh.CLI,
-		Marks:   mark.Marker{API: chat.NewLive(s), Path: cfg.MarksPath(), Now: time.Now, Log: log},
+		Marks:   mark.Marker{API: live, Path: cfg.MarksPath(), Now: time.Now, Log: log},
 		Now:     time.Now,
 		Log:     log,
 		Token:   token,
@@ -93,36 +91,58 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 			Timeout: split.Timeout,
 		}.Split,
 	}
-	s.AddHandler(func(_ *discordgo.Session, r *discordgo.Ready) {
-		h.SetBot(r.User.ID)
-		log.Info("connected to Discord", "as", r.User.Username, "servers", len(r.Guilds))
-	})
-	s.AddHandler(func(_ *discordgo.Session, m *discordgo.MessageCreate) { h.Handle(m.Message) })
-	s.AddHandler(func(_ *discordgo.Session, e *discordgo.Event) { h.Gateway(e.Type, e.RawData) })
-	// A button press arrives over the gateway with no intent of its own, and is answered with
-	// its own token, so it needs no permission beyond what posting the question did.
-	s.AddHandler(func(_ *discordgo.Session, i *discordgo.InteractionCreate) { h.Interaction(i.Interaction) })
 
-	err = gateway{
+	// Guilds for each guild's roles and their changes, which is how a mention of mochi's
+	// managed role is recognised.
+	s := gw.New(token, discord.IntentsGuilds|discord.IntentsGuildMessages|discord.IntentsMessageContent)
+	s.Log = log
+	s.Handlers = gw.Handlers{
+		Ready: func(r *discord.Ready) {
+			h.SetBot(r.User.ID)
+			log.Info("connected to Discord", "as", r.User.Username, "servers", len(r.Guilds))
+		},
+		MessageCreate: h.Handle,
+		// A button press arrives over the gateway with no intent of its own, and is answered
+		// with its own token, so it needs no permission beyond what posting the question did.
+		InteractionCreate: h.Interaction,
+		GuildCreate:       h.GuildCreate,
+		GuildRoleCreate:   h.RoleChanged,
+		GuildRoleUpdate:   h.RoleChanged,
+		GuildRoleDelete:   h.RoleDeleted,
+	}
+
+	g := gateway{
 		open: func() error {
-			if err := s.Open(); !errors.Is(err, discordgo.ErrWSAlreadyOpen) {
+			addr, err := client.Gateway()
+			if err != nil {
 				return err
 			}
-			return nil
+			s.URL = addr
+			return s.Open()
 		},
 		sleep: time.Sleep,
 		now:   time.Now,
 		stamp: filepath.Join(cfg.CacheDir, "identify"),
 		log:   log,
 		scrub: func(err error) string { return chat.Redact(err, token) },
-	}.connect()
+	}
+	// connect spaces the first identify itself; one the session makes later, after Discord
+	// dropped it, is spaced here.
+	var opened atomic.Bool
+	s.BeforeIdentify = func() {
+		if opened.Load() {
+			g.spaceIdentify()
+		}
+	}
+	err := g.connect()
 	if errors.Is(err, ErrRefused) {
-		log.Error("Discord refused the bot token, so mochi starts again for a fresh one", "retry", retryAfter.String())
+		log.Error("Discord refused the connection for good, so mochi starts again for a fresh token", "retry", retryAfter.String())
 		time.Sleep(retryAfter)
 	}
 	if err != nil {
 		return err
 	}
+	opened.Store(true)
 	defer s.Close()
 
 	// A session's hooks leave an event the moment its turn ends; read every second, which is a
@@ -141,6 +161,12 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 	for {
 		time.Sleep(beatEvery)
 
+		if err := s.Err(); err != nil {
+			log.Error("Discord closed the gateway for good, so mochi starts again for a fresh token", "error", chat.Redact(err, token), "retry", retryAfter.String())
+			time.Sleep(retryAfter)
+			h.Lock()
+			return fmt.Errorf("%w: %s", ErrRefused, chat.Redact(err, token))
+		}
 		up := connected(s)
 		if up {
 			beat(cfg, time.Now())
@@ -171,10 +197,9 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 
 // A beat is a gateway Discord is answering, not a process that is running: a listener
 // whose connection has died and not come back is the stoppage the watch is there to see.
-func connected(s *discordgo.Session) bool {
-	s.RLock()
-	defer s.RUnlock()
-	return s.DataReady && time.Since(s.LastHeartbeatAck) < 3*time.Minute
+func connected(s *gw.Session) bool {
+	ready, ack := s.Status()
+	return ready && time.Since(ack) < 3*time.Minute
 }
 
 func beat(cfg config.Config, at time.Time) {

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/event"
@@ -51,12 +51,12 @@ func contains(list []string, s string) bool {
 //
 // project is the repository's MOCHI.md, its instructions for the sessions mochi starts in it,
 // or nothing.
-func opening(ch *discordgo.Channel, m *discordgo.Message, thread, instruction, project string, set *gather.Set, files gather.Files, note, scope string) string {
+func opening(ch *discord.Channel, m *discord.Message, thread, instruction, project string, set *gather.Set, files gather.Files, note, scope string) string {
 	gap := fmt.Sprintf("older messages, trimmed to keep this prompt under %d KB; mochi history --before <the oldest id shown> reaches them", maxPrompt>>10)
 	return fit(set, gap, func() string { return openingText(ch, m, thread, instruction, project, set, files, note, scope) })
 }
 
-func openingText(ch *discordgo.Channel, m *discordgo.Message, thread, instruction, project string, set *gather.Set, files gather.Files, note, scope string) string {
+func openingText(ch *discord.Channel, m *discord.Message, thread, instruction, project string, set *gather.Set, files gather.Files, note, scope string) string {
 	nonce := fence.Nonce()
 
 	// A channel's or a thread's name is chosen by whoever made it, so it is data like any
@@ -155,12 +155,12 @@ const (
 	skillAgain = "Follow the mochi skill, as for everything in this session."
 )
 
-func followUp(m *discordgo.Message, instruction string, others *gather.Set, files gather.Files, answering bool) string {
+func followUp(m *discord.Message, instruction string, others *gather.Set, files gather.Files, answering bool) string {
 	gap := fmt.Sprintf("older messages, trimmed to keep this prompt under %d KB; they are in the thread on Discord", maxPrompt>>10)
 	return fit(others, gap, func() string { return followUpText(m, instruction, others, files, answering) })
 }
 
-func followUpText(m *discordgo.Message, instruction string, others *gather.Set, files gather.Files, answering bool) string {
+func followUpText(m *discord.Message, instruction string, others *gather.Set, files gather.Files, answering bool) string {
 	nonce := fence.Nonce()
 
 	// The first words are how the session's prompt hook tells this from Tim's own typing.

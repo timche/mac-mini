@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/fence"
 	"github.com/timche/mac-mini/mochi/internal/op"
@@ -104,7 +104,7 @@ func Args(model, effort string) []string {
 
 // Tim's instruction is the task; the message he replied to is only there to resolve "a, b
 // and c", and is fenced like every other message somebody else wrote.
-func Prompt(instruction string, replied *discordgo.Message) string {
+func Prompt(instruction string, replied *discord.Message) string {
 	nonce := fence.Nonce()
 
 	var b strings.Builder
@@ -176,7 +176,7 @@ func (e TooMany) Error() string {
 }
 
 // TooMany is for Tim; any other error means one session with his own words.
-func (s Splitter) Split(instruction string, replied *discordgo.Message) (Answer, error) {
+func (s Splitter) Split(instruction string, replied *discord.Message) (Answer, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.Timeout)
 	defer cancel()
 

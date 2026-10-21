@@ -1,5 +1,5 @@
 // Package chattest is an in-memory Discord for the tests of every package that talks to one,
-// answering in discordgo's own types and paging the way the API documents.
+// answering in the shared client's own types and paging the way the API documents.
 package chattest
 
 import (
@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 )
@@ -20,13 +20,13 @@ import (
 type Sent struct {
 	ID      string
 	Channel string
-	Msg     *discordgo.MessageSend
+	Msg     *discord.MessageSend
 	Files   map[string]string
 }
 
 type Fake struct {
-	Channels map[string]*discordgo.Channel
-	Msgs     map[string][]*discordgo.Message
+	Channels map[string]*discord.Channel
+	Msgs     map[string][]*discord.Message
 	Files    map[string][]byte
 
 	Reactions []string
@@ -53,8 +53,8 @@ type Fake struct {
 	TagErr    error
 	PostEdits int
 
-	Edits     []*discordgo.MessageEdit
-	Responses []*discordgo.InteractionResponse
+	Edits     []*discord.MessageEdit
+	Responses []*discord.InteractionResponse
 
 	GuildRoles map[string][]chat.Role
 	RoleReads  int
@@ -63,8 +63,8 @@ type Fake struct {
 	DuringRoles func()
 
 	// mochi's own user, as Me answers, and each guild's boost tier.
-	Bot   *discordgo.User
-	Tiers map[string]discordgo.PremiumTier
+	Bot   *discord.User
+	Tiers map[string]discord.PremiumTier
 
 	ThreadErr  error
 	SendErr    map[string]error
@@ -75,8 +75,8 @@ type Fake struct {
 
 func New() *Fake {
 	return &Fake{
-		Channels:  map[string]*discordgo.Channel{},
-		Msgs:      map[string][]*discordgo.Message{},
+		Channels:  map[string]*discord.Channel{},
+		Msgs:      map[string][]*discord.Message{},
 		Files:     map[string][]byte{},
 		RenameErr: map[string]error{},
 		Tagged:    map[string][]string{},
@@ -91,10 +91,10 @@ var Epoch = time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 // every id sorts in the order it was posted.
 func ID(n int) string { return strconv.Itoa(1_000_000_000_000_000_000 + n) }
 
-func (f *Fake) AddChannel(c *discordgo.Channel) { f.Channels[c.ID] = c }
+func (f *Fake) AddChannel(c *discord.Channel) { f.Channels[c.ID] = c }
 
-func (f *Fake) Post(channel string, n int, author *discordgo.User, content string) *discordgo.Message {
-	m := &discordgo.Message{
+func (f *Fake) Post(channel string, n int, author *discord.User, content string) *discord.Message {
+	m := &discord.Message{
 		ID:        ID(n),
 		ChannelID: channel,
 		Content:   content,
@@ -109,7 +109,7 @@ func (f *Fake) Post(channel string, n int, author *discordgo.User, content strin
 	return m
 }
 
-func (f *Fake) Channel(id string) (*discordgo.Channel, error) {
+func (f *Fake) Channel(id string) (*discord.Channel, error) {
 	if c, ok := f.Channels[id]; ok {
 		return c, nil
 	}
@@ -117,7 +117,7 @@ func (f *Fake) Channel(id string) (*discordgo.Channel, error) {
 }
 
 // As Discord answers a message fetched by id: without its guild.
-func (f *Fake) Message(channel, id string) (*discordgo.Message, error) {
+func (f *Fake) Message(channel, id string) (*discord.Message, error) {
 	for _, m := range f.Msgs[channel] {
 		if m.ID == id {
 			fetched := *m
@@ -130,7 +130,7 @@ func (f *Fake) Message(channel, id string) (*discordgo.Message, error) {
 
 // Newest first, except for an after, which is how Discord documents it and why nothing may
 // rely on the order a page arrives in.
-func (f *Fake) Messages(channel string, limit int, before, after, around string) ([]*discordgo.Message, error) {
+func (f *Fake) Messages(channel string, limit int, before, after, around string) ([]*discord.Message, error) {
 	if _, ok := f.Channels[channel]; !ok {
 		return nil, fmt.Errorf("unknown channel %s", channel)
 	}
@@ -140,7 +140,7 @@ func (f *Fake) Messages(channel string, limit int, before, after, around string)
 	}
 
 	all := f.Msgs[channel]
-	var out []*discordgo.Message
+	var out []*discord.Message
 	switch {
 	case around != "":
 		pivot := sort.Search(len(all), func(i int) bool { return !chat.Before(all[i].ID, around) })
@@ -162,7 +162,7 @@ func (f *Fake) Messages(channel string, limit int, before, after, around string)
 		}
 		out = out[max(0, len(out)-limit):]
 	}
-	reversed := make([]*discordgo.Message, len(out))
+	reversed := make([]*discord.Message, len(out))
 	for i, m := range out {
 		reversed[len(out)-1-i] = m
 	}
@@ -241,14 +241,14 @@ func (f *Fake) Archive(thread string) error {
 }
 
 // Posts are numbered from 700000, and the first message is sent into the post under its id.
-func (f *Fake) ForumPost(forum, name string, tags []string, first *discordgo.MessageSend) (*discordgo.Channel, error) {
+func (f *Fake) ForumPost(forum, name string, tags []string, first *discord.MessageSend) (*discord.Channel, error) {
 	if f.ThreadErr != nil {
 		return nil, f.ThreadErr
 	}
 	parent := f.Channels[forum]
 	f.newThreads++
 	id := ID(700_000 + f.newThreads)
-	post := &discordgo.Channel{ID: id, GuildID: parent.GuildID, ParentID: forum, Name: name, Type: discordgo.ChannelTypeGuildPublicThread, AppliedTags: tags}
+	post := &discord.Channel{ID: id, GuildID: parent.GuildID, ParentID: forum, Name: name, Type: discord.ChannelTypeGuildPublicThread, AppliedTags: tags}
 	f.AddChannel(post)
 	f.Posts = append(f.Posts, forum+" "+name)
 	f.Tagged[id] = tags
@@ -256,25 +256,25 @@ func (f *Fake) ForumPost(forum, name string, tags []string, first *discordgo.Mes
 	return post, nil
 }
 
-func (f *Fake) StartThread(channel, message, name string) (*discordgo.Channel, error) {
+func (f *Fake) StartThread(channel, message, name string) (*discord.Channel, error) {
 	if f.ThreadErr != nil {
 		return nil, f.ThreadErr
 	}
 	parent := f.Channels[channel]
-	thread := &discordgo.Channel{ID: message, GuildID: parent.GuildID, ParentID: channel, Name: name, Type: discordgo.ChannelTypeGuildPublicThread}
+	thread := &discord.Channel{ID: message, GuildID: parent.GuildID, ParentID: channel, Name: name, Type: discord.ChannelTypeGuildPublicThread}
 	f.AddChannel(thread)
 	f.Threads = append(f.Threads, message+" "+name)
 	return thread, nil
 }
 
 // New threads are numbered from 800000 so a test can tell them from messages.
-func (f *Fake) NewThread(channel, name string) (*discordgo.Channel, error) {
+func (f *Fake) NewThread(channel, name string) (*discord.Channel, error) {
 	if f.ThreadErr != nil {
 		return nil, f.ThreadErr
 	}
 	parent := f.Channels[channel]
 	f.newThreads++
-	thread := &discordgo.Channel{ID: ID(800_000 + f.newThreads), GuildID: parent.GuildID, ParentID: channel, Name: name, Type: discordgo.ChannelTypeGuildPublicThread}
+	thread := &discord.Channel{ID: ID(800_000 + f.newThreads), GuildID: parent.GuildID, ParentID: channel, Name: name, Type: discord.ChannelTypeGuildPublicThread}
 	f.AddChannel(thread)
 	f.Standalone = append(f.Standalone, channel+" "+name)
 	return thread, nil
@@ -285,7 +285,7 @@ func (f *Fake) AddMember(thread, user string) error {
 	return nil
 }
 
-func (f *Fake) Send(channel string, msg *discordgo.MessageSend) (*discordgo.Message, error) {
+func (f *Fake) Send(channel string, msg *discord.MessageSend) (*discord.Message, error) {
 	f.Tries[channel]++
 	if err := f.SendErr[channel]; err != nil {
 		return nil, err
@@ -298,15 +298,15 @@ func (f *Fake) Send(channel string, msg *discordgo.MessageSend) (*discordgo.Mess
 	f.next++
 	id := ID(900_000 + f.next)
 	f.Sent = append(f.Sent, Sent{ID: id, Channel: channel, Msg: msg, Files: files})
-	return &discordgo.Message{ID: id, ChannelID: channel, Content: msg.Content}, nil
+	return &discord.Message{ID: id, ChannelID: channel, Content: msg.Content}, nil
 }
 
-func (f *Fake) Edit(edit *discordgo.MessageEdit) error {
+func (f *Fake) Edit(edit *discord.MessageEdit) error {
 	f.Edits = append(f.Edits, edit)
 	return nil
 }
 
-func (f *Fake) Respond(i *discordgo.Interaction, r *discordgo.InteractionResponse) error {
+func (f *Fake) Respond(i *discord.Interaction, r *discord.InteractionResponse) error {
 	f.Responses = append(f.Responses, r)
 	return nil
 }
@@ -331,13 +331,13 @@ func (f *Fake) Fetch(url string) (io.ReadCloser, error) {
 	return io.NopCloser(bytes.NewReader(body)), nil
 }
 
-func (f *Fake) Me() (*discordgo.User, error) {
+func (f *Fake) Me() (*discord.User, error) {
 	if f.Bot == nil {
 		return nil, fmt.Errorf("no bot user")
 	}
 	return f.Bot, nil
 }
 
-func (f *Fake) Guild(id string) (*discordgo.Guild, error) {
-	return &discordgo.Guild{ID: id, PremiumTier: f.Tiers[id]}, nil
+func (f *Fake) Guild(id string) (*discord.Guild, error) {
+	return &discord.Guild{ID: id, PremiumTier: f.Tiers[id]}, nil
 }

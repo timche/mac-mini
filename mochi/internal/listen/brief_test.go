@@ -1,7 +1,7 @@
 package listen
 
 import (
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 	"os"
 	"strings"
 	"testing"
@@ -97,7 +97,7 @@ func TestAFollowUpWithNothingElseSaidIsHisWordsAlone(t *testing.T) {
 	f.h.Handle(first)
 	f.api.Post(first.ID, 2, bot, "Here is what was found.")
 	renamed := f.api.Post(first.ID, 3, bot, "⏳ start")
-	renamed.Type = discordgo.MessageTypeChannelNameChange
+	renamed.Type = discord.MessageTypeChannelNameChange
 	f.h.Handle(f.mention(first.ID, 4, tim, "go with b)", nil))
 
 	relay := f.herdr.raw["mochi-"+first.ID][1]

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 )
@@ -43,7 +43,7 @@ func TestASessionStartedFromAnAnswerLinksWithItsGuild(t *testing.T) {
 
 // Every post with a link in it shows no preview card.
 func TestAPostWithALinkHasNoPreview(t *testing.T) {
-	if chat.Quiet("Session started for [Tim's message](<https://discord.com/channels/1/2/3>).").Flags&discordgo.MessageFlagsSuppressEmbeds == 0 {
+	if chat.Quiet("Session started for [Tim's message](<https://discord.com/channels/1/2/3>).").Flags&discord.MessageFlagsSuppressEmbeds == 0 {
 		t.Error("a post with a link would show a preview")
 	}
 	if chat.Quiet("Session started.").Flags != 0 {

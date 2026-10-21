@@ -15,7 +15,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/leaks"
@@ -501,7 +501,7 @@ func Send(api chat.API, store state.Store, marks *mark.Marker, repos Repos, thre
 	for i, part := range parts {
 		msg := chat.Quiet(part)
 		if p.PR != "" {
-			msg.Flags |= discordgo.MessageFlagsSuppressEmbeds
+			msg.Flags |= discord.MessageFlagsSuppressEmbeds
 		}
 		if i == len(parts)-1 {
 			for _, file := range files {
@@ -510,7 +510,7 @@ func Send(api chat.API, store state.Store, marks *mark.Marker, repos Repos, thre
 					return err
 				}
 				defer f.Close()
-				msg.Files = append(msg.Files, &discordgo.File{Name: filepath.Base(file), Reader: f})
+				msg.Files = append(msg.Files, &discord.File{Name: filepath.Base(file), Reader: f})
 			}
 		}
 		if _, err := api.Send(rec.Thread, msg); err != nil {

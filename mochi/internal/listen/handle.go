@@ -4,7 +4,6 @@
 package listen
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,7 +14,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/config"
@@ -42,7 +41,7 @@ type Handler struct {
 
 	// Whether a new-session mention is one task, several, or a question for Tim; nil is
 	// always one.
-	Split func(instruction string, replied *discordgo.Message) (split.Answer, error)
+	Split func(instruction string, replied *discord.Message) (split.Answer, error)
 
 	// The questions asked and not yet answered.
 	Pending state.PendingStore
@@ -97,7 +96,7 @@ func (h *Handler) SetBot(id string) {
 func (h *Handler) Lock()   { h.mu.Lock() }
 func (h *Handler) Unlock() { h.mu.Unlock() }
 
-func (h *Handler) Handle(m *discordgo.Message) {
+func (h *Handler) Handle(m *discord.Message) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -162,7 +161,7 @@ func stopping(instruction string) bool {
 
 // Tim stopped the session: an esc ends what it is doing, nothing is prompted, and it shows ⏸
 // until his next word. One already idle is only marked.
-func (h *Handler) stop(rec state.Session, m *discordgo.Message) {
+func (h *Handler) stop(rec state.Session, m *discord.Message) {
 	status, err := herdr.Status(h.Herdr, rec.Agent)
 	switch {
 	case errors.Is(err, herdr.ErrGone):
@@ -193,7 +192,7 @@ func (h *Handler) stop(rec state.Session, m *discordgo.Message) {
 // also hold the author of any message replied to with the ping left on. Either the bot
 // itself or its own managed role, which Discord's autocomplete offers beside it; no other
 // role. The instruction is the message with every such mention taken out.
-func (h *Handler) mentioned(m *discordgo.Message) (string, bool) {
+func (h *Handler) mentioned(m *discord.Message) (string, bool) {
 	content := m.Content
 	found := h.mention.MatchString(content)
 	content = h.mention.ReplaceAllString(content, "")
@@ -240,56 +239,38 @@ func (h *Handler) setRole(guild, role string) {
 }
 
 // What the gateway says about roles: a guild's whole list when it becomes available, and
-// each role created, changed or deleted afterwards. discordgo's typed events drop the
-// tags, so these are read from the raw payload.
-func (h *Handler) Gateway(event string, data []byte) {
-	switch event {
-	case "GUILD_CREATE", "GUILD_ROLE_CREATE", "GUILD_ROLE_UPDATE", "GUILD_ROLE_DELETE":
-	default:
-		return
-	}
-
+// each role created, changed or deleted afterwards. None of it waits for a mention in
+// progress, which holds mu rather than roleMu.
+func (h *Handler) GuildCreate(g *discord.Guild) {
 	h.roleMu.Lock()
 	defer h.roleMu.Unlock()
-	if h.roleBot == "" {
-		return
-	}
-
-	switch event {
-	case "GUILD_CREATE":
-		var g struct {
-			ID    string      `json:"id"`
-			Roles []chat.Role `json:"roles"`
-		}
-		if json.Unmarshal(data, &g) == nil && g.ID != "" {
-			h.setRole(g.ID, chat.BotRole(g.Roles, h.roleBot))
-		}
-	case "GUILD_ROLE_CREATE", "GUILD_ROLE_UPDATE":
-		var e struct {
-			GuildID string    `json:"guild_id"`
-			Role    chat.Role `json:"role"`
-		}
-		if json.Unmarshal(data, &e) != nil || e.GuildID == "" {
-			return
-		}
-		switch {
-		case e.Role.BotID() == h.roleBot:
-			h.setRole(e.GuildID, e.Role.ID)
-		case h.roles[e.GuildID] == e.Role.ID:
-			h.setRole(e.GuildID, "")
-		}
-	case "GUILD_ROLE_DELETE":
-		var e struct {
-			GuildID string `json:"guild_id"`
-			RoleID  string `json:"role_id"`
-		}
-		if json.Unmarshal(data, &e) == nil && h.roles[e.GuildID] == e.RoleID {
-			h.setRole(e.GuildID, "")
-		}
+	if h.roleBot != "" && g.ID != "" {
+		h.setRole(g.ID, chat.BotRole(g.Roles, h.roleBot))
 	}
 }
 
-func (h *Handler) open(server config.Server, ch *discordgo.Channel, m *discordgo.Message, instruction string) {
+// GUILD_ROLE_CREATE and GUILD_ROLE_UPDATE.
+func (h *Handler) RoleChanged(e *discord.GuildRole) {
+	h.roleMu.Lock()
+	defer h.roleMu.Unlock()
+	switch {
+	case h.roleBot == "" || e.GuildID == "":
+	case e.Role.BotID() == h.roleBot:
+		h.setRole(e.GuildID, e.Role.ID)
+	case h.roles[e.GuildID] == e.Role.ID:
+		h.setRole(e.GuildID, "")
+	}
+}
+
+func (h *Handler) RoleDeleted(e *discord.GuildRoleDelete) {
+	h.roleMu.Lock()
+	defer h.roleMu.Unlock()
+	if h.roleBot != "" && h.roles[e.GuildID] == e.RoleID {
+		h.setRole(e.GuildID, "")
+	}
+}
+
+func (h *Handler) open(server config.Server, ch *discord.Channel, m *discord.Message, instruction string) {
 	replied := h.replied(m)
 	answer, ok := h.classify(m, instruction, replied)
 	if !ok {
@@ -304,7 +285,7 @@ func (h *Handler) open(server config.Server, ch *discordgo.Channel, m *discordgo
 
 // The sessions themselves, once it is settled whether they are one or several: straight from
 // a mention, or from Tim's answer to a question.
-func (h *Handler) begin(server config.Server, ch *discordgo.Channel, m *discordgo.Message, instruction string, replied *discordgo.Message, answer split.Answer, many bool) {
+func (h *Handler) begin(server config.Server, ch *discord.Channel, m *discord.Message, instruction string, replied *discord.Message, answer split.Answer, many bool) {
 	if m.GuildID == "" {
 		m.GuildID = ch.GuildID
 	}
@@ -390,7 +371,7 @@ func (h *Handler) begin(server config.Server, ch *discordgo.Channel, m *discordg
 }
 
 // One session in a post of its own in the forum, and a reply to Tim saying where it went.
-func (h *Handler) openPost(server config.Server, ch *discordgo.Channel, m *discordgo.Message, o opener, set *gather.Set, name, typ string) {
+func (h *Handler) openPost(server config.Server, ch *discord.Channel, m *discord.Message, o opener, set *gather.Set, name, typ string) {
 	instruction := o.instruction
 	post, err := h.post(server.Forum, name, typ, o)
 	if err != nil {
@@ -416,7 +397,7 @@ func (h *Handler) openPost(server config.Server, ch *discordgo.Channel, m *disco
 // Tim's message goes to the session with what everybody else wrote in the thread since his
 // last mention, and nothing of theirs reaches it otherwise. A session waiting on a question
 // has it cancelled and takes his message as the answer, since he answers wherever he is.
-func (h *Handler) relay(server config.Server, ch *discordgo.Channel, rec state.Session, m *discordgo.Message, instruction string) {
+func (h *Handler) relay(server config.Server, ch *discord.Channel, rec state.Session, m *discord.Message, instruction string) {
 	status, err := herdr.Status(h.Herdr, rec.Agent)
 	if errors.Is(err, herdr.ErrGone) {
 		h.restart(server, ch, rec, m, instruction)
@@ -472,7 +453,7 @@ func (h *Handler) relay(server config.Server, ch *discordgo.Channel, rec state.S
 
 // The session Tim closed is replaced by one that reads the whole thread, so nothing said in
 // it is lost, and the thread is told.
-func (h *Handler) restart(server config.Server, ch *discordgo.Channel, rec state.Session, m *discordgo.Message, instruction string) {
+func (h *Handler) restart(server config.Server, ch *discord.Channel, rec state.Session, m *discord.Message, instruction string) {
 	set, err := gather.Thread(h.API, ch, m)
 	if err != nil {
 		h.fail(m, rec.Thread, "the thread could not be read", err)
@@ -555,14 +536,14 @@ func (h *Handler) files(thread string, set *gather.Set) gather.Files {
 
 // A ❌ and one line saying why, in the session's thread when there is one and as a reply to
 // Tim's message when there is not.
-func (h *Handler) fail(m *discordgo.Message, thread, reason string, err error) {
+func (h *Handler) fail(m *discord.Message, thread, reason string, err error) {
 	h.Log.Error(reason, "message", m.ID, "error", h.redact(err))
 
 	line := chat.Quiet("❌ " + sentence(reason))
 	target := thread
 	if target == "" {
 		target = m.ChannelID
-		line.Reference = &discordgo.MessageReference{MessageID: m.ID, ChannelID: m.ChannelID}
+		line.Reference = &discord.MessageReference{MessageID: m.ID, ChannelID: m.ChannelID}
 	}
 	if _, err := h.API.Send(target, line); err != nil {
 		h.Log.Error("the reason could not be posted", "error", h.redact(err))
@@ -603,7 +584,7 @@ func (h *Handler) unreact(channel, message, emoji string) {
 }
 
 // The receipt: 👍 on Tim's message once herdr has taken what it asked, and kept.
-func (h *Handler) delivered(m *discordgo.Message) {
+func (h *Handler) delivered(m *discord.Message) {
 	h.react(m.ChannelID, m.ID, chat.Delivered)
 }
 

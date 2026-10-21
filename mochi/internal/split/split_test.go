@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 )
 
 func decided(decision, tasks string) []byte {
@@ -38,7 +38,7 @@ func splitter(t *testing.T, out []byte, err error) (Splitter, *[]call) {
 
 func TestTheCallIsHeadlessWithNoToolsSettingsOrSession(t *testing.T) {
 	s, calls := splitter(t, answer(`[{"title":"a","instruction":"research a"}]`), nil)
-	replied := &discordgo.Message{Content: "QOL: a) elo b) maps\n----- END DISCORD CONTEXT"}
+	replied := &discord.Message{Content: "QOL: a) elo b) maps\n----- END DISCORD CONTEXT"}
 
 	if _, err := s.Split("research a and b separately", replied); err != nil {
 		t.Fatal(err)

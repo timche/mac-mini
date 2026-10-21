@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/split"
 	"github.com/timche/mac-mini/mochi/internal/state"
@@ -15,7 +15,7 @@ import (
 
 // Tim's live case: "take a look at the three suggestions", which says nothing about whether
 // they are one piece of work or three.
-func askFixture(t *testing.T, tasks []split.Task) (*fixture, *discordgo.Message, *discordgo.Message) {
+func askFixture(t *testing.T, tasks []split.Task) (*fixture, *discord.Message, *discord.Message) {
 	t.Helper()
 	f := newFixture(t)
 	f.h.Split = answers(split.Answer{Decision: split.Ask, Title: "QOL suggestions", Tasks: tasks}, nil, nil)
@@ -27,26 +27,26 @@ func askFixture(t *testing.T, tasks []split.Task) (*fixture, *discordgo.Message,
 	if len(sent) != 1 || sent[0] != question {
 		t.Fatalf("sent = %q", sent)
 	}
-	return f, m, &discordgo.Message{ID: f.api.Sent[0].ID, ChannelID: channel}
+	return f, m, &discord.Message{ID: f.api.Sent[0].ID, ChannelID: channel}
 }
 
-func buttonsOf(t *testing.T, comps []discordgo.MessageComponent) []discordgo.Button {
+func buttonsOf(t *testing.T, comps []discord.MessageComponent) []discord.Button {
 	t.Helper()
 	if len(comps) != 1 {
 		t.Fatalf("%d component rows", len(comps))
 	}
-	var out []discordgo.Button
-	for _, c := range comps[0].(discordgo.ActionsRow).Components {
-		out = append(out, c.(discordgo.Button))
+	var out []discord.Button
+	for _, c := range comps[0].(discord.ActionsRow).Components {
+		out = append(out, c.(discord.Button))
 	}
 	return out
 }
 
-func press(f *fixture, user *discordgo.User, id string) {
-	f.h.Interaction(&discordgo.Interaction{
-		Type:      discordgo.InteractionMessageComponent,
-		Data:      discordgo.MessageComponentInteractionData{CustomID: id},
-		Member:    &discordgo.Member{User: user},
+func press(f *fixture, user *discord.User, id string) {
+	f.h.Interaction(&discord.Interaction{
+		Type:      discord.InteractionMessageComponent,
+		Data:      discord.MessageComponentInteractionData{CustomID: id},
+		Member:    &discord.Member{User: user},
 		ChannelID: channel,
 	})
 }
@@ -92,7 +92,7 @@ func TestTimPressingSeparateStartsOneSessionPerItem(t *testing.T) {
 
 	press(f, tim, b[0].CustomID)
 
-	if len(f.api.Responses) != 1 || f.api.Responses[0].Type != discordgo.InteractionResponseDeferredMessageUpdate {
+	if len(f.api.Responses) != 1 || f.api.Responses[0].Type != discord.InteractionResponseDeferredMessageUpdate {
 		t.Errorf("responses = %+v", f.api.Responses)
 	}
 	if len(f.api.Edits) != 1 || *f.api.Edits[0].Content != question+" 3 sessions." {
@@ -139,7 +139,7 @@ func TestOnlyTimCanChoose(t *testing.T) {
 		t.Fatalf("responses = %+v", f.api.Responses)
 	}
 	r := f.api.Responses[0]
-	if r.Type != discordgo.InteractionResponseChannelMessageWithSource || r.Data.Content != "Only the person who asked can choose." || r.Data.Flags != discordgo.MessageFlagsEphemeral {
+	if r.Type != discord.InteractionResponseChannelMessageWithSource || r.Data.Content != "Only the person who asked can choose." || r.Data.Flags != discord.MessageFlagsEphemeral {
 		t.Errorf("response = %+v", r.Data)
 	}
 	if len(f.herdr.calls) != 0 || len(f.api.Edits) != 0 || len(f.pending()) != 1 {
@@ -156,7 +156,7 @@ func TestTimCanAnswerInWords(t *testing.T) {
 	for text, threads := range map[string]int{"3": 3, "all": 3, "separately": 3, "one": 0, "1": 0} {
 		f, _, q := askFixture(t, abc)
 		answer := f.api.Post(channel, 3, tim, text)
-		answer.MessageReference = &discordgo.MessageReference{MessageID: q.ID, ChannelID: channel}
+		answer.MessageReference = &discord.MessageReference{MessageID: q.ID, ChannelID: channel}
 
 		f.h.Handle(answer)
 
@@ -170,7 +170,7 @@ func TestTimCanAnswerInWords(t *testing.T) {
 
 	f, _, q := askFixture(t, abc)
 	chat := f.api.Post(channel, 3, tim, "hmm, not sure yet")
-	chat.MessageReference = &discordgo.MessageReference{MessageID: q.ID, ChannelID: channel}
+	chat.MessageReference = &discord.MessageReference{MessageID: q.ID, ChannelID: channel}
 	f.h.Handle(chat)
 	if len(f.herdr.calls) != 0 || len(f.pending()) != 1 {
 		t.Error("a reply that is no answer was taken as one")
@@ -257,7 +257,7 @@ func TestMoreThanFiveItemsAreOfferedOnlyAsOne(t *testing.T) {
 
 	for n, text := range []string{"all", "6", "separately"} {
 		answer := f.api.Post(channel, 3+n, tim, text)
-		answer.MessageReference = &discordgo.MessageReference{MessageID: q.ID, ChannelID: channel}
+		answer.MessageReference = &discord.MessageReference{MessageID: q.ID, ChannelID: channel}
 		f.h.Handle(answer)
 
 		last := f.api.Sent[len(f.api.Sent)-1]

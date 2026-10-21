@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/fence"
@@ -22,7 +22,7 @@ const (
 
 // When the classifier cannot tell whether Tim means the items together or apart, it is his
 // call: a question under his message, with a button for each answer.
-func (h *Handler) ask(m *discordgo.Message, instruction string, answer split.Answer) {
+func (h *Handler) ask(m *discord.Message, instruction string, answer split.Answer) {
 	p := state.Pending{
 		Nonce:       fence.Nonce(),
 		Guild:       m.GuildID,
@@ -33,7 +33,7 @@ func (h *Handler) ask(m *discordgo.Message, instruction string, answer split.Ans
 		Created:     h.Now().Unix(),
 	}
 	msg := chat.Quiet(question)
-	msg.Reference = &discordgo.MessageReference{MessageID: m.ID, ChannelID: m.ChannelID}
+	msg.Reference = &discord.MessageReference{MessageID: m.ID, ChannelID: m.ChannelID}
 	msg.Components = buttons(p, false)
 
 	posted, err := h.API.Send(m.ChannelID, msg)
@@ -49,23 +49,23 @@ func (h *Handler) ask(m *discordgo.Message, instruction string, answer split.Ans
 }
 
 // More than five items is never offered as separate sessions: only one.
-func buttons(p state.Pending, disabled bool) []discordgo.MessageComponent {
-	var row []discordgo.MessageComponent
+func buttons(p state.Pending, disabled bool) []discord.MessageComponent {
+	var row []discord.MessageComponent
 	if n := len(p.Answer.Tasks); n > 1 && n <= split.MaxTasks {
-		row = append(row, discordgo.Button{
+		row = append(row, discord.Button{
 			Label:    manyLabel(p.Answer.Tasks),
-			Style:    discordgo.PrimaryButton,
+			Style:    discord.PrimaryButton,
 			CustomID: idPrefix + p.Nonce + ":" + split.Many,
 			Disabled: disabled,
 		})
 	}
-	row = append(row, discordgo.Button{
+	row = append(row, discord.Button{
 		Label:    "1 session",
-		Style:    discordgo.SecondaryButton,
+		Style:    discord.SecondaryButton,
 		CustomID: idPrefix + p.Nonce + ":" + split.One,
 		Disabled: disabled,
 	})
-	return []discordgo.MessageComponent{discordgo.ActionsRow{Components: row}}
+	return []discord.MessageComponent{discord.ActionsRow{Components: row}}
 }
 
 // Discord's limit on a button's label is 80 characters.
@@ -83,8 +83,8 @@ func manyLabel(tasks []split.Task) string {
 
 // A button press. Discord wants an answer within three seconds, so it is answered before the
 // handler's lock, which a mention in progress can hold for a minute.
-func (h *Handler) Interaction(i *discordgo.Interaction) {
-	if i.Type != discordgo.InteractionMessageComponent {
+func (h *Handler) Interaction(i *discord.Interaction) {
+	if i.Type != discord.InteractionMessageComponent {
 		return
 	}
 	rest, ok := strings.CutPrefix(i.MessageComponentData().CustomID, idPrefix)
@@ -101,17 +101,17 @@ func (h *Handler) Interaction(i *discordgo.Interaction) {
 		user = i.Member.User
 	}
 	if user == nil || user.ID != h.Cfg.User {
-		h.respond(i, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
+		h.respond(i, &discord.InteractionResponse{
+			Type: discord.InteractionResponseChannelMessageWithSource,
+			Data: &discord.InteractionResponseData{
 				Content:         "Only the person who asked can choose.",
-				Flags:           discordgo.MessageFlagsEphemeral,
+				Flags:           discord.MessageFlagsEphemeral,
 				AllowedMentions: chat.NoMentions(),
 			},
 		})
 		return
 	}
-	h.respond(i, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseDeferredMessageUpdate})
+	h.respond(i, &discord.InteractionResponse{Type: discord.InteractionResponseDeferredMessageUpdate})
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -127,7 +127,7 @@ func (h *Handler) Interaction(i *discordgo.Interaction) {
 
 // Tim answering in words: a reply to the question with the number of items or "all" or
 // "separately" for separate sessions, "1" or "one" for one. False when it is not an answer.
-func (h *Handler) textAnswer(m *discordgo.Message, text string) bool {
+func (h *Handler) textAnswer(m *discord.Message, text string) bool {
 	if m.MessageReference == nil {
 		return false
 	}
@@ -143,7 +143,7 @@ func (h *Handler) textAnswer(m *discordgo.Message, text string) bool {
 	case many && n > split.MaxTasks:
 		// The question offered only one session; saying so beats silence.
 		reply := chat.Quiet(fmt.Sprintf("Only 1 session is offered here (more than %d items).", split.MaxTasks))
-		reply.Reference = &discordgo.MessageReference{MessageID: m.ID, ChannelID: m.ChannelID}
+		reply.Reference = &discord.MessageReference{MessageID: m.ID, ChannelID: m.ChannelID}
 		if _, err := h.API.Send(m.ChannelID, reply); err != nil {
 			h.Log.Error("the reply to an answer could not be posted", "error", h.redact(err))
 		}
@@ -227,7 +227,7 @@ func (h *Handler) expire(p state.Pending) {
 
 func (h *Handler) closeQuestion(p state.Pending, content string) {
 	components := buttons(p, true)
-	err := h.API.Edit(&discordgo.MessageEdit{
+	err := h.API.Edit(&discord.MessageEdit{
 		ID:              p.Question,
 		Channel:         p.Channel,
 		Content:         &content,
@@ -239,7 +239,7 @@ func (h *Handler) closeQuestion(p state.Pending, content string) {
 	}
 }
 
-func (h *Handler) respond(i *discordgo.Interaction, r *discordgo.InteractionResponse) {
+func (h *Handler) respond(i *discord.Interaction, r *discord.InteractionResponse) {
 	if err := h.API.Respond(i, r); err != nil {
 		h.Log.Error("a button press could not be answered", "error", h.redact(err))
 	}

@@ -1102,6 +1102,7 @@ gate_fixture() {
   cp "$repo/mise.toml" "$repo/mise.lock" "$dir/"
   cp -R "$repo/hachiko" "$dir/hachiko"
   cp -R "$repo/mochi" "$dir/mochi"
+  cp -R "$repo/discord" "$dir/discord"
   cp -R "$repo/home" "$dir/home"
 }
 export -f gate_fixture
@@ -1320,10 +1321,9 @@ check "the mochi agent is loaded" \
   'launchctl print "gui/$(id -u)/io.github.timche.mochi" >/dev/null'
 
 # What launchd hands the agent: a HOME, the plist's PATH, / as the working directory and
-# nothing else of a session's. The build has to come out of Go's module cache with the
-# network refused, which is what install.sh's `go mod download` is for, and with no
-# toolchain download either.
-check "the mochi wrapper builds under launchd's environment from the module cache alone" \
+# nothing else of a session's. The build has to come out of the checkout alone, with the
+# network refused for modules and no toolchain download either.
+check "the mochi wrapper builds under launchd's environment from the checkout alone" \
   'd="$(mktemp -d)" && gate_fixture "$d" &&
    (cd / && env -i HOME="$HOME" PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
       MISE_TRUSTED_CONFIG_PATHS="$d" MOCHI_CACHE_DIR="$d/cache" GOPROXY=off \
@@ -1340,6 +1340,27 @@ check "a mochi build whose tests fail leaves the binary that was already there" 
    out="$("$d/home/.local/bin/mochi" --help 2>&1 >/dev/null)" &&
    printf "%s" "$out" | grep -q "do not pass" &&
    [ "$was" = "$(shasum -a 256 "$d/cache/mochi" | cut -d" " -f1)" ]'
+
+# The Discord client beside it is built into the same binary, so its tests are the same gate.
+check "a mochi build whose Discord client fails its tests leaves the binary that was already there" \
+  'd="$(mktemp -d)" && gate_fixture "$d" &&
+   export MISE_TRUSTED_CONFIG_PATHS="$d" MOCHI_CACHE_DIR="$d/cache" &&
+   "$d/home/.local/bin/mochi" --help >/dev/null &&
+   was="$(shasum -a 256 "$d/cache/mochi" | cut -d" " -f1)" &&
+   printf "package rest\n\nimport \"testing\"\n\nfunc TestTheGateMustCatchThis(t *testing.T) { t.Fatal(\"on purpose\") }\n" \
+     > "$d/discord/rest/zz_gate_test.go" &&
+   out="$("$d/home/.local/bin/mochi" --help 2>&1 >/dev/null)" &&
+   printf "%s" "$out" | grep -q "do not pass" &&
+   [ "$was" = "$(shasum -a 256 "$d/cache/mochi" | cut -d" " -f1)" ]'
+
+# Every module mochi builds with is a folder of this checkout: nothing to fetch, nothing in a
+# go.sum to pin.
+check "mochi requires no module from outside this checkout" \
+  '[ ! -e "$repo/mochi/go.sum" ] &&
+   [ "$(grep -c "^require" "$repo/mochi/go.mod")" = 1 ] && ! grep -q "^require (" "$repo/mochi/go.mod" &&
+   grep -qx "require github.com/timche/mac-mini/discord v0.0.0" "$repo/mochi/go.mod" &&
+   grep -qx "replace github.com/timche/mac-mini/discord => ../discord" "$repo/mochi/go.mod" &&
+   [ ! -e "$repo/discord/go.sum" ] && ! grep -q "^require" "$repo/discord/go.mod"'
 
 # The one check that is the agent rather than a description of it. Everything else here
 # runs hachiko as this session, which holds the privacy grants herdr was given — and that

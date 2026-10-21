@@ -9,7 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/event"
 	"github.com/timche/mac-mini/mochi/internal/split"
@@ -23,14 +23,14 @@ var tools = regexp.MustCompile(`(?i)\b(herdr|claude|claude code|anthropic|lead|t
 // presses, thread names.
 func discordWords(f *fixture) []string {
 	var out []string
-	components := func(comps []discordgo.MessageComponent) {
+	components := func(comps []discord.MessageComponent) {
 		for _, row := range comps {
-			r, ok := row.(discordgo.ActionsRow)
+			r, ok := row.(discord.ActionsRow)
 			if !ok {
 				continue
 			}
 			for _, c := range r.Components {
-				if b, ok := c.(discordgo.Button); ok {
+				if b, ok := c.(discord.Button); ok {
 					out = append(out, b.Label)
 				}
 			}
@@ -136,8 +136,8 @@ func TestNothingPostedNamesTheToolsBehindIt(t *testing.T) {
 		},
 		"a forum post that asks for a split": func(f *fixture) {
 			f.h.Split = splitsInto(abc, nil, nil)
-			f.api.AddChannel(&discordgo.Channel{ID: forum, GuildID: guild, Type: discordgo.ChannelTypeGuildForum})
-			f.api.AddChannel(&discordgo.Channel{ID: post, GuildID: guild, ParentID: forum, Name: "Ideas", Type: discordgo.ChannelTypeGuildPublicThread})
+			f.api.AddChannel(&discord.Channel{ID: forum, GuildID: guild, Type: discord.ChannelTypeGuildForum})
+			f.api.AddChannel(&discord.Channel{ID: post, GuildID: guild, ParentID: forum, Name: "Ideas", Type: discord.ChannelTypeGuildPublicThread})
 			f.h.Handle(f.mention(post, 1, tim, "research a, b and c separately", nil))
 		},
 		"a question, pressed by others and by Tim": func(f *fixture) {
@@ -161,7 +161,7 @@ func TestNothingPostedNamesTheToolsBehindIt(t *testing.T) {
 			f.h.Split = answers(split.Answer{Decision: split.Ask, Tasks: six}, nil, nil)
 			f.h.Handle(f.mention(channel, 1, tim, "look at these", nil))
 			answer := f.api.Post(channel, 2, tim, "all")
-			answer.MessageReference = &discordgo.MessageReference{MessageID: f.api.Sent[0].ID, ChannelID: channel}
+			answer.MessageReference = &discord.MessageReference{MessageID: f.api.Sent[0].ID, ChannelID: channel}
 			f.h.Handle(answer)
 		},
 		"a follow-up to a session waiting on a question": func(f *fixture) {
@@ -177,7 +177,7 @@ func TestNothingPostedNamesTheToolsBehindIt(t *testing.T) {
 			f.consume()
 		},
 		"a session in a forum post": func(f *fixture) {
-			f.api.AddChannel(&discordgo.Channel{ID: sessions, GuildID: guild, Type: discordgo.ChannelTypeGuildForum, AvailableTags: forumTags})
+			f.api.AddChannel(&discord.Channel{ID: sessions, GuildID: guild, Type: discord.ChannelTypeGuildForum, AvailableTags: forumTags})
 			f.h.Cfg.Servers[0].Forum = sessions
 			f.h.Handle(f.mention(channel, 1, tim, "research", nil))
 		},

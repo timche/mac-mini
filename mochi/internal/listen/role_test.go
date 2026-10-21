@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/timche/mac-mini/discord"
+
 	"github.com/timche/mac-mini/mochi/internal/chat"
 )
 
@@ -17,9 +19,7 @@ const (
 func role(id, bot string) chat.Role {
 	r := chat.Role{ID: id}
 	if bot != "" {
-		r.Tags = &struct {
-			BotID string `json:"bot_id"`
-		}{BotID: bot}
+		r.Tags = &discord.RoleTags{BotID: bot}
 	}
 	return r
 }
@@ -87,21 +87,21 @@ func TestEveryFormOfMentionIsTakenOutOfTheInstruction(t *testing.T) {
 func TestTheGatewayKeepsTheRoleCurrent(t *testing.T) {
 	f := newFixture(t)
 
-	f.h.Gateway("GUILD_CREATE", []byte(`{"id":"`+guild+`","roles":[{"id":"`+botRole+`","tags":{"bot_id":"`+bot.ID+`"}},{"id":"`+otherRole+`"}]}`))
+	f.h.GuildCreate(&discord.Guild{ID: guild, Roles: []discord.Role{role(botRole, bot.ID), role(otherRole, "")}})
 	m := f.api.Post(channel, 1, tim, "<@&"+botRole+"> look")
 	f.h.Handle(m)
 	if f.api.RoleReads != 0 || len(f.herdr.prompts["mochi-"+m.ID]) != 1 {
 		t.Errorf("reads %d, prompts %v", f.api.RoleReads, f.herdr.prompts)
 	}
 
-	f.h.Gateway("GUILD_ROLE_DELETE", []byte(`{"guild_id":"`+guild+`","role_id":"`+botRole+`"}`))
+	f.h.RoleDeleted(&discord.GuildRoleDelete{GuildID: guild, RoleID: botRole})
 	gone := f.api.Post(channel, 2, tim, "<@&"+botRole+"> look again")
 	f.h.Handle(gone)
 	if len(f.herdr.prompts["mochi-"+gone.ID]) != 0 {
 		t.Error("a deleted role still triggers")
 	}
 
-	f.h.Gateway("GUILD_ROLE_CREATE", []byte(`{"guild_id":"`+guild+`","role":{"id":"`+otherRole+`","tags":{"bot_id":"`+bot.ID+`"}}}`))
+	f.h.RoleChanged(&discord.GuildRole{GuildID: guild, Role: role(otherRole, bot.ID)})
 	again := f.api.Post(channel, 3, tim, "<@&"+otherRole+"> the new role")
 	f.h.Handle(again)
 	if len(f.herdr.prompts["mochi-"+again.ID]) != 1 {
@@ -139,7 +139,7 @@ func TestARoleEventIsAppliedWhileAMentionIsInProgress(t *testing.T) {
 
 	applied := make(chan struct{})
 	go func() {
-		f.h.Gateway("GUILD_ROLE_CREATE", []byte(`{"guild_id":"`+guild+`","role":{"id":"`+botRole+`","tags":{"bot_id":"`+bot.ID+`"}}}`))
+		f.h.RoleChanged(&discord.GuildRole{GuildID: guild, Role: role(botRole, bot.ID)})
 		close(applied)
 	}()
 	select {
@@ -155,16 +155,15 @@ func TestARoleEventIsAppliedWhileAMentionIsInProgress(t *testing.T) {
 	<-handled
 }
 
-// Everything else the gateway sends is not looked at, let alone locked for.
-func TestOtherGatewayEventsAreIgnored(t *testing.T) {
+// A guild's roles arriving are not locked for either.
+func TestAGuildsRolesDoNotWaitForTheHandlersLock(t *testing.T) {
 	f := newFixture(t)
 	f.h.Lock()
 	defer f.h.Unlock()
 
 	done := make(chan struct{})
 	go func() {
-		f.h.Gateway("MESSAGE_CREATE", []byte(`{}`))
-		f.h.Gateway("GUILD_CREATE", []byte(`{"id":"`+guild+`","roles":[]}`))
+		f.h.GuildCreate(&discord.Guild{ID: guild})
 		close(done)
 	}()
 	select {
@@ -180,7 +179,7 @@ func TestAFetchDoesNotOverwriteANewerGatewayUpdate(t *testing.T) {
 	f := newFixture(t)
 	withRoles(f)
 	f.api.DuringRoles = func() {
-		f.h.Gateway("GUILD_ROLE_CREATE", []byte(`{"guild_id":"`+guild+`","role":{"id":"`+otherRole+`","tags":{"bot_id":"`+bot.ID+`"}}}`))
+		f.h.RoleChanged(&discord.GuildRole{GuildID: guild, Role: role(otherRole, bot.ID)})
 	}
 
 	if got := f.h.botRole(guild); got != otherRole {

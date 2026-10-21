@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/chat/chattest"
 	"github.com/timche/mac-mini/mochi/internal/config"
@@ -22,10 +22,10 @@ func fixture(t *testing.T) (config.Config, *chattest.Fake) {
 	t.Helper()
 	cfg := config.Config{CacheDir: t.TempDir()}
 	api := chattest.New()
-	api.Bot = &discordgo.User{ID: "1400000000000000003", Username: "mochi", Bot: true}
-	api.AddChannel(&discordgo.Channel{ID: source, GuildID: guild, Type: discordgo.ChannelTypeGuildText})
-	api.AddChannel(&discordgo.Channel{ID: other, GuildID: guild, Type: discordgo.ChannelTypeGuildText})
-	user := &discordgo.User{ID: "1400000000000000001", Username: "maker"}
+	api.Bot = &discord.User{ID: "1400000000000000003", Username: "mochi", Bot: true}
+	api.AddChannel(&discord.Channel{ID: source, GuildID: guild, Type: discord.ChannelTypeGuildText})
+	api.AddChannel(&discord.Channel{ID: other, GuildID: guild, Type: discord.ChannelTypeGuildText})
+	user := &discord.User{ID: "1400000000000000001", Username: "maker"}
 	for n := 1; n <= 300; n++ {
 		api.Post(source, n, user, "topic message")
 		api.Post(other, 1000+n, user, "private channel")
@@ -39,8 +39,8 @@ func fixture(t *testing.T) (config.Config, *chattest.Fake) {
 // --post reads the session's own thread or post, and still nothing else.
 func TestHistoryReadsTheSessionsOwnPost(t *testing.T) {
 	cfg, api := fixture(t)
-	api.AddChannel(&discordgo.Channel{ID: session, GuildID: guild, Type: discordgo.ChannelTypeGuildPublicThread})
-	api.Post(session, 5000, &discordgo.User{ID: "1400000000000000002", Username: "mod"}, "in the post")
+	api.AddChannel(&discord.Channel{ID: session, GuildID: guild, Type: discord.ChannelTypeGuildPublicThread})
+	api.Post(session, 5000, &discord.User{ID: "1400000000000000002", Username: "mod"}, "in the post")
 	var out strings.Builder
 
 	if err := Show(cfg, api, session, Query{Limit: 50, Post: true}, &out); err != nil {
@@ -119,11 +119,11 @@ func TestAQueryIsOneDirectionAndAPage(t *testing.T) {
 // History leaves out mochi's own posts and Discord's notices, as a relay does.
 func TestHistoryLeavesOutMochiAndDiscordsNotices(t *testing.T) {
 	cfg, api := fixture(t)
-	api.AddChannel(&discordgo.Channel{ID: session, GuildID: guild, Type: discordgo.ChannelTypeGuildPublicThread})
+	api.AddChannel(&discord.Channel{ID: session, GuildID: guild, Type: discord.ChannelTypeGuildPublicThread})
 	api.Post(session, 5000, api.Bot, "Session started for the message")
 	renamed := api.Post(session, 5001, api.Bot, "⏳ the title")
-	renamed.Type = discordgo.MessageTypeChannelNameChange
-	api.Post(session, 5002, &discordgo.User{ID: "1400000000000000002", Username: "mod"}, "a moderator's word")
+	renamed.Type = discord.MessageTypeChannelNameChange
+	api.Post(session, 5002, &discord.User{ID: "1400000000000000002", Username: "mod"}, "a moderator's word")
 	var out strings.Builder
 
 	if err := Show(cfg, api, session, Query{Limit: 50, Post: true}, &out); err != nil {

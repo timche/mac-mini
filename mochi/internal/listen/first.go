@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/fence"
@@ -18,8 +18,8 @@ const maxFirstPost = 1950
 // What a session's first post is about: Tim's mention, the words of it that are his
 // instruction, and the message he replied to, if any.
 type opener struct {
-	mention     *discordgo.Message
-	replied     *discordgo.Message
+	mention     *discord.Message
+	replied     *discord.Message
 	instruction string
 
 	// The classifier's account of what the messages ask for, for this session; empty when it
@@ -31,7 +31,7 @@ type opener struct {
 // keeps Discord's notifications to mentions, and links his message, which Discord shows as a
 // pill and a forum shows on its card; then the messages it is about, quoted, so the team sees
 // what the session is for without leaving it, and the classifier's summary of it.
-func (h *Handler) announcement(o opener) *discordgo.MessageSend {
+func (h *Handler) announcement(o opener) *discord.MessageSend {
 	m := o.mention
 	head := "Session started for <@" + h.Cfg.User + ">'s message."
 	if link := chat.Link(m.GuildID, m.ChannelID, m.ID); link != "" {
@@ -116,7 +116,7 @@ func plain(text string) string {
 
 // A message as a Discord block quote under its author's name, every line of it quoted, with
 // what would ping a crowd or a role made inert and attachments as a count.
-func quote(author, text string, files []*discordgo.MessageAttachment) string {
+func quote(author, text string, files []*discord.MessageAttachment) string {
 	text = inert(strings.TrimSpace(lines(text)))
 	if note := attached(files); note != "" {
 		text = strings.TrimSpace(text + " " + note)
@@ -131,7 +131,7 @@ func quote(author, text string, files []*discordgo.MessageAttachment) string {
 
 // The quote, its text shortened with "…" until it fits within budget code units; nothing
 // when even the author alone does not.
-func quoteWithin(author, text string, files []*discordgo.MessageAttachment, budget int) string {
+func quoteWithin(author, text string, files []*discord.MessageAttachment, budget int) string {
 	q := quote(author, text, files)
 	r := []rune(strings.TrimSpace(text))
 	for units(q) > budget && len(r) > 0 {
@@ -151,7 +151,7 @@ var crowd = strings.NewReplacer("@everyone", "@\u200beveryone", "@here", "@\u200
 // allowed mentions say.
 func inert(text string) string { return crowd.Replace(text) }
 
-func attached(files []*discordgo.MessageAttachment) string {
+func attached(files []*discord.MessageAttachment) string {
 	images, others := 0, 0
 	for _, f := range files {
 		if strings.HasPrefix(f.ContentType, "image/") {

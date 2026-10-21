@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/mark"
@@ -75,8 +75,8 @@ func (f *fixture) inState(thread, want string) {
 // one, several, or the ones his answer to a question started — and nothing after a failure,
 // which says why. The state is in the thread's name.
 func TestAMentionShowsEyesThenAReceipt(t *testing.T) {
-	flows := map[string]func(f *fixture) *discordgo.Message{
-		"a session": func(f *fixture) *discordgo.Message {
+	flows := map[string]func(f *fixture) *discord.Message{
+		"a session": func(f *fixture) *discord.Message {
 			m := f.mention(channel, 1, tim, "research", nil)
 			f.h.Handle(m)
 			if f.api.Threads[0] != m.ID+" ⏳ research" {
@@ -88,22 +88,22 @@ func TestAMentionShowsEyesThenAReceipt(t *testing.T) {
 			}
 			return m
 		},
-		"a forum post": func(f *fixture) *discordgo.Message {
-			f.api.AddChannel(&discordgo.Channel{ID: sessions, GuildID: guild, Type: discordgo.ChannelTypeGuildForum, AvailableTags: forumTags})
+		"a forum post": func(f *fixture) *discord.Message {
+			f.api.AddChannel(&discord.Channel{ID: sessions, GuildID: guild, Type: discord.ChannelTypeGuildForum, AvailableTags: forumTags})
 			f.h.Cfg.Servers[0].Forum = sessions
 			m := f.mention(channel, 1, tim, "research", nil)
 			f.h.Handle(m)
 			f.shows(postID(1))
 			return m
 		},
-		"a question": func(f *fixture) *discordgo.Message {
+		"a question": func(f *fixture) *discord.Message {
 			f.h.Split = answers(split.Answer{Decision: split.Ask, Title: "QOL", Tasks: abc}, nil, nil)
 			m := f.mention(channel, 1, tim, "take a look", nil)
 			f.h.Handle(m)
 			press(f, tim, buttonsOf(t, f.api.Sent[0].Msg.Components)[1].CustomID)
 			return m
 		},
-		"several sessions": func(f *fixture) *discordgo.Message {
+		"several sessions": func(f *fixture) *discord.Message {
 			f.h.Split = splitsInto(abc, nil, nil)
 			m := f.mention(channel, 1, tim, "research a, b and c separately", nil)
 			f.h.Handle(m)
@@ -116,7 +116,7 @@ func TestAMentionShowsEyesThenAReceipt(t *testing.T) {
 			}
 			return m
 		},
-		"a failure": func(f *fixture) *discordgo.Message {
+		"a failure": func(f *fixture) *discord.Message {
 			f.herdr.startFails = true
 			m := f.mention(channel, 1, tim, "research", nil)
 			f.h.Handle(m)
@@ -128,7 +128,7 @@ func TestAMentionShowsEyesThenAReceipt(t *testing.T) {
 			}
 			return m
 		},
-		"a split that fails in part": func(f *fixture) *discordgo.Message {
+		"a split that fails in part": func(f *fixture) *discord.Message {
 			f.h.Split = answers(split.Answer{Decision: split.Many, Tasks: abc}, nil, nil)
 			f.herdr.failFrom = 3
 			m := f.mention(channel, 1, tim, "research a, b and c separately", nil)
@@ -163,8 +163,8 @@ func TestAFollowUpShowsAReceiptOnceTheSessionHasIt(t *testing.T) {
 	}
 
 	g := newFixture(t)
-	g.api.AddChannel(&discordgo.Channel{ID: forum, GuildID: guild, Type: discordgo.ChannelTypeGuildForum})
-	g.api.AddChannel(&discordgo.Channel{ID: post, GuildID: guild, ParentID: forum, Name: "Ideas", Type: discordgo.ChannelTypeGuildPublicThread})
+	g.api.AddChannel(&discord.Channel{ID: forum, GuildID: guild, Type: discord.ChannelTypeGuildForum})
+	g.api.AddChannel(&discord.Channel{ID: post, GuildID: guild, ParentID: forum, Name: "Ideas", Type: discord.ChannelTypeGuildPublicThread})
 	g.h.Handle(g.mention(post, 1, tim, "look at this", nil))
 	again := g.mention(post, 2, tim, "and this", nil)
 	g.h.Handle(again)
@@ -174,8 +174,8 @@ func TestAFollowUpShowsAReceiptOnceTheSessionHasIt(t *testing.T) {
 // A forum post Tim mentioned mochi in is the session's thread but not mochi's: its title stays.
 func TestAForumPostKeepsItsTitle(t *testing.T) {
 	f := newFixture(t)
-	f.api.AddChannel(&discordgo.Channel{ID: forum, GuildID: guild, Type: discordgo.ChannelTypeGuildForum})
-	f.api.AddChannel(&discordgo.Channel{ID: post, GuildID: guild, ParentID: forum, Name: "Bug: elo resets", Type: discordgo.ChannelTypeGuildPublicThread})
+	f.api.AddChannel(&discord.Channel{ID: forum, GuildID: guild, Type: discord.ChannelTypeGuildForum})
+	f.api.AddChannel(&discord.Channel{ID: post, GuildID: guild, ParentID: forum, Name: "Bug: elo resets", Type: discord.ChannelTypeGuildPublicThread})
 	m := f.mention(post, 1, tim, "look into this", nil)
 
 	f.h.Handle(m)

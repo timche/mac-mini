@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/split"
 )
@@ -21,10 +21,10 @@ var abc = []split.Task{
 
 type classified struct {
 	instruction string
-	replied     *discordgo.Message
+	replied     *discord.Message
 }
 
-func splitsInto(tasks []split.Task, err error, seen *[]classified) func(string, *discordgo.Message) (split.Answer, error) {
+func splitsInto(tasks []split.Task, err error, seen *[]classified) func(string, *discord.Message) (split.Answer, error) {
 	decision := split.One
 	if len(tasks) > 1 {
 		decision = split.Many
@@ -32,8 +32,8 @@ func splitsInto(tasks []split.Task, err error, seen *[]classified) func(string, 
 	return answers(split.Answer{Decision: decision, Tasks: tasks}, err, seen)
 }
 
-func answers(a split.Answer, err error, seen *[]classified) func(string, *discordgo.Message) (split.Answer, error) {
-	return func(instruction string, replied *discordgo.Message) (split.Answer, error) {
+func answers(a split.Answer, err error, seen *[]classified) func(string, *discord.Message) (split.Answer, error) {
+	return func(instruction string, replied *discord.Message) (split.Answer, error) {
 		if seen != nil {
 			*seen = append(*seen, classified{instruction, replied})
 		}
@@ -42,7 +42,7 @@ func answers(a split.Answer, err error, seen *[]classified) func(string, *discor
 }
 
 // The classifier's own parsing, with claude answering whatever the test says.
-func claudeSays(out string) func(string, *discordgo.Message) (split.Answer, error) {
+func claudeSays(out string) func(string, *discord.Message) (split.Answer, error) {
 	return split.Splitter{Model: "sonnet", Effort: "medium", Timeout: time.Second,
 		Run: func(context.Context, string, []string) ([]byte, error) { return []byte(out), nil },
 	}.Split
@@ -144,7 +144,7 @@ func TestAStartThatFailsIsNamedInTheReplyAndCrossed(t *testing.T) {
 // Anything the classifier could not answer is one session with Tim's own words, exactly as
 // without it.
 func TestAClassifierThatFailsIsOneSessionAsBefore(t *testing.T) {
-	for name, classifier := range map[string]func(string, *discordgo.Message) (split.Answer, error){
+	for name, classifier := range map[string]func(string, *discord.Message) (split.Answer, error){
 		"an error":   splitsInto(nil, errors.New("claude did not answer within 1m0s"), nil),
 		"bad json":   claudeSays("Sure! Three tasks."),
 		"no tasks":   claudeSays(`{"is_error":false,"structured_output":{"decision":"one","title":"","tasks":[]}}`),
@@ -198,7 +198,7 @@ func TestASplitInsideAThreadGoesToItsParentChannel(t *testing.T) {
 	f := newFixture(t)
 	f.h.Split = splitsInto(abc[:2], nil, nil)
 	thread := "1300000000000000007"
-	f.api.AddChannel(&discordgo.Channel{ID: thread, GuildID: guild, ParentID: channel, Name: "ideas", Type: discordgo.ChannelTypeGuildPublicThread})
+	f.api.AddChannel(&discord.Channel{ID: thread, GuildID: guild, ParentID: channel, Name: "ideas", Type: discord.ChannelTypeGuildPublicThread})
 	f.api.Post(thread, 1, maker, "a) elo b) maps")
 	m := f.mention(thread, 2, tim, "research a and b separately", nil)
 
@@ -218,8 +218,8 @@ func TestASplitInsideAThreadGoesToItsParentChannel(t *testing.T) {
 func TestASplitInAForumPostIsOneSessionThatSaysSo(t *testing.T) {
 	f := newFixture(t)
 	f.h.Split = splitsInto(abc, nil, nil)
-	f.api.AddChannel(&discordgo.Channel{ID: forum, GuildID: guild, Type: discordgo.ChannelTypeGuildForum})
-	f.api.AddChannel(&discordgo.Channel{ID: post, GuildID: guild, ParentID: forum, Name: "Ideas", Type: discordgo.ChannelTypeGuildPublicThread})
+	f.api.AddChannel(&discord.Channel{ID: forum, GuildID: guild, Type: discord.ChannelTypeGuildForum})
+	f.api.AddChannel(&discord.Channel{ID: post, GuildID: guild, ParentID: forum, Name: "Ideas", Type: discord.ChannelTypeGuildPublicThread})
 	m := f.mention(post, 1, tim, "research a, b and c separately", nil)
 
 	f.h.Handle(m)
@@ -240,7 +240,7 @@ func TestAThreadWhoseParentCannotBeReadIsOneSessionThatSaysWhy(t *testing.T) {
 	f := newFixture(t)
 	f.h.Split = splitsInto(abc, nil, nil)
 	thread := "1300000000000000008"
-	f.api.AddChannel(&discordgo.Channel{ID: thread, GuildID: guild, ParentID: "1300000000000000099", Name: "orphan", Type: discordgo.ChannelTypeGuildPublicThread})
+	f.api.AddChannel(&discord.Channel{ID: thread, GuildID: guild, ParentID: "1300000000000000099", Name: "orphan", Type: discord.ChannelTypeGuildPublicThread})
 	f.h.Handle(f.mention(thread, 1, tim, "research a, b and c separately", nil))
 
 	posts := f.sentTo(thread)
@@ -296,7 +296,7 @@ func TestAnInjectionInTheRepliedMessageStaysInsideTheFence(t *testing.T) {
 func TestASingleSessionIsNamedForItsTask(t *testing.T) {
 	report := "The FACEIT overlay blocks hover on the scoreboard since yesterday's patch, see screenshot"
 	for name, c := range map[string]struct {
-		split  func(string, *discordgo.Message) (split.Answer, error)
+		split  func(string, *discord.Message) (split.Answer, error)
 		thread string
 		tab    string
 	}{
@@ -333,7 +333,7 @@ func TestWithNothingElseTimsWordsNameTheSession(t *testing.T) {
 	if got := title(split.Answer{}, nil, "<@1400000000000000003>   look   into the login timeout"); got != "look into the login timeout" {
 		t.Errorf("title = %q", got)
 	}
-	if got := title(split.Answer{}, &discordgo.Message{Content: "  "}, "fallback"); got != "fallback" {
+	if got := title(split.Answer{}, &discord.Message{Content: "  "}, "fallback"); got != "fallback" {
 		t.Errorf("an empty replied message named it %q", got)
 	}
 }

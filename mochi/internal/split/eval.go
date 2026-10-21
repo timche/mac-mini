@@ -8,7 +8,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 )
 
 // One case: what Tim wrote, the message he replied to, how many sessions it should start, and
@@ -72,9 +72,9 @@ func Eval(in io.Reader, out io.Writer, s Splitter, now func() time.Time) error {
 			return fmt.Errorf("line %d is not a case with an instruction", n)
 		}
 
-		var replied *discordgo.Message
+		var replied *discord.Message
 		if c.Replied != "" {
-			replied = &discordgo.Message{Content: c.Replied}
+			replied = &discord.Message{Content: c.Replied}
 		}
 		start := now()
 		answer, err := s.Split(c.Instruction, replied)

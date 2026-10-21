@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	gw "github.com/timche/mac-mini/discord/gateway"
 )
 
 type fakeGateway struct {
@@ -42,7 +44,7 @@ func (f *fakeGateway) gateway(stamp string) gateway {
 func TestAFailedConnectIsRetriedInSeconds(t *testing.T) {
 	f := &fakeGateway{
 		fails: []error{
-			errors.New("websocket: close 1000 (normal)"),
+			&gw.CloseError{Code: gw.CloseNormal},
 			errors.New("dial tcp: i/o timeout"),
 			errors.New("dial tcp: i/o timeout"),
 		},
@@ -114,10 +116,21 @@ func TestTheBackoffStopsAtFiveMinutes(t *testing.T) {
 
 // A token Discord turns away is not tried again: the process exits for a fresh `op run`.
 func TestARefusedTokenEndsTheConnect(t *testing.T) {
-	f := &fakeGateway{fails: []error{errors.New("websocket: close 4004: Authentication failed.")}, clock: time.Unix(1792500000, 0)}
+	f := &fakeGateway{fails: []error{&gw.CloseError{Code: gw.CloseAuthenticationFailed, Reason: "Authentication failed."}}, clock: time.Unix(1792500000, 0)}
 	err := f.gateway(filepath.Join(t.TempDir(), "identify")).connect()
 	if !errors.Is(err, ErrRefused) || f.opens != 1 || len(f.slept) != 0 {
 		t.Errorf("err = %v after %d opens and %v asleep", err, f.opens, f.slept)
+	}
+}
+
+// The intents, the shard and the API version are as fatal as the token: nothing tries again.
+func TestEveryFatalCloseEndsTheConnect(t *testing.T) {
+	for _, code := range []gw.CloseCode{gw.CloseInvalidShard, gw.CloseShardingRequired, gw.CloseInvalidAPIVersion, gw.CloseInvalidIntents, gw.CloseDisallowedIntents} {
+		f := &fakeGateway{fails: []error{&gw.CloseError{Code: code}}, clock: time.Unix(1792500000, 0)}
+		err := f.gateway(filepath.Join(t.TempDir(), "identify")).connect()
+		if !errors.Is(err, ErrRefused) || f.opens != 1 || len(f.slept) != 0 {
+			t.Errorf("%d: err = %v after %d opens and %v asleep", code, err, f.opens, f.slept)
+		}
 	}
 }
 

@@ -2,10 +2,8 @@ module github.com/timche/mac-mini/mochi
 
 go 1.27
 
-require github.com/bwmarrin/discordgo v0.29.0
+require github.com/timche/mac-mini/discord v0.0.0
 
-require (
-	github.com/gorilla/websocket v1.4.2 // indirect
-	golang.org/x/crypto v0.0.0-20210421170649-83a5a9bb288b // indirect
-	golang.org/x/sys v0.0.0-20201119102817-f84b799fce68 // indirect
-)
+// The Discord client is this repository's own, built from the checkout beside mochi: nothing
+// is fetched, and go.sum has nothing to pin.
+replace github.com/timche/mac-mini/discord => ../discord

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/chat/chattest"
@@ -22,7 +22,7 @@ import (
 // got is shown to be skipped.
 const sessions = "1300000000000000005"
 
-var forumTags = []discordgo.ForumTag{
+var forumTags = []discord.ForumTag{
 	{ID: "t-running", Name: "Running"}, {ID: "t-waiting", Name: "Waiting on you"},
 	{ID: "t-done", Name: "Done"}, {ID: "t-failed", Name: "Failed"},
 	{ID: "t-feature", Name: "Feature"}, {ID: "t-bug", Name: "Bug"}, {ID: "t-improvement", Name: "Improvement"},
@@ -30,7 +30,7 @@ var forumTags = []discordgo.ForumTag{
 
 func forumFixture(t *testing.T) *fixture {
 	f := newFixture(t)
-	f.api.AddChannel(&discordgo.Channel{ID: sessions, GuildID: guild, Name: "mochi", Type: discordgo.ChannelTypeGuildForum, AvailableTags: forumTags})
+	f.api.AddChannel(&discord.Channel{ID: sessions, GuildID: guild, Name: "mochi", Type: discord.ChannelTypeGuildForum, AvailableTags: forumTags})
 	f.h.Cfg.Servers[0].Forum = sessions
 	return f
 }
@@ -69,7 +69,7 @@ func TestAMentionInAChannelOpensAForumPost(t *testing.T) {
 	if ref := f.api.Sent[len(f.api.Sent)-1].Msg.Reference; ref == nil || ref.MessageID != m.ID {
 		t.Error("the reply does not answer Tim's message")
 	}
-	if f.api.Sent[len(f.api.Sent)-1].Msg.Flags&discordgo.MessageFlagsSuppressEmbeds == 0 {
+	if f.api.Sent[len(f.api.Sent)-1].Msg.Flags&discord.MessageFlagsSuppressEmbeds == 0 {
 		t.Error("the reply's link shows a preview")
 	}
 	rec := f.record(p)
@@ -257,8 +257,8 @@ func TestADonePostIsArchivedAfterThreeDays(t *testing.T) {
 // a thread opened before the forum was set up goes on as a thread.
 func TestPostsAndThreadsMochiDidNotMakeForTheForumStayAsTheyAre(t *testing.T) {
 	f := forumFixture(t)
-	f.api.AddChannel(&discordgo.Channel{ID: forum, GuildID: guild, Type: discordgo.ChannelTypeGuildForum})
-	f.api.AddChannel(&discordgo.Channel{ID: post, GuildID: guild, ParentID: forum, Name: "Ideas", Type: discordgo.ChannelTypeGuildPublicThread})
+	f.api.AddChannel(&discord.Channel{ID: forum, GuildID: guild, Type: discord.ChannelTypeGuildForum})
+	f.api.AddChannel(&discord.Channel{ID: post, GuildID: guild, ParentID: forum, Name: "Ideas", Type: discord.ChannelTypeGuildPublicThread})
 	f.h.Handle(f.mention(post, 1, tim, "look at this", nil))
 	if len(f.api.Posts) != 0 || f.record(post).Agent != "mochi-"+post {
 		t.Errorf("posts = %v", f.api.Posts)
@@ -267,7 +267,7 @@ func TestPostsAndThreadsMochiDidNotMakeForTheForumStayAsTheyAre(t *testing.T) {
 	g := newFixture(t)
 	first := g.mention(channel, 1, tim, "look at this", nil)
 	g.h.Handle(first)
-	g.api.AddChannel(&discordgo.Channel{ID: sessions, GuildID: guild, Type: discordgo.ChannelTypeGuildForum, AvailableTags: forumTags})
+	g.api.AddChannel(&discord.Channel{ID: sessions, GuildID: guild, Type: discord.ChannelTypeGuildForum, AvailableTags: forumTags})
 	g.h.Cfg.Servers[0].Forum = sessions
 	g.h.Handle(g.mention(first.ID, 2, tim, "and this", nil))
 	if len(g.api.Posts) != 0 || len(g.herdr.prompts["mochi-"+first.ID]) != 2 {

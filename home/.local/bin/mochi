@@ -8,12 +8,12 @@
 # one line; and the binary it execs depends on nothing, so the listener keeps running
 # while mise or Homebrew is what broke.
 #
-# What mochi has that hachiko does not is modules. go.mod and go.sum are hashed with the
-# sources, so a dependency bump is a rebuild. The modules come from Go's own cache, which
-# install.sh fills with `go mod download`; one that is missing there is fetched by the
-# build itself, checked against go.sum, within the same two minutes. A toolchain never
-# is: GOTOOLCHAIN=local, so a go.mod asking for a newer go is a failed build and one line,
-# never a download from inside a LaunchAgent.
+# What mochi has that hachiko does not is the Discord client in discord/ beside it, a
+# module of this checkout that mochi's go.mod replaces with that folder. Its sources are
+# hashed with mochi's, so an edit to either is a rebuild, and its tests are part of the
+# gate. Nothing is fetched: there is no module from anywhere else, and no toolchain either,
+# since GOTOOLCHAIN=local makes a go.mod asking for a newer go a failed build and one line
+# rather than a download from inside a LaunchAgent.
 
 set -u
 
@@ -34,6 +34,7 @@ self=$(cd "$(dirname "$self")" && pwd)/$(basename "$self")
 bindir=$(dirname "$self")
 repo=$(cd "$bindir/../../.." && pwd)
 src="$repo/mochi"
+lib="$repo/discord"
 
 # Beside this script, which is where mise links both of them, so the token has a
 # reference to resolve without the binary in the cache knowing where the checkout is.
@@ -65,10 +66,10 @@ if [ ! -d "$src" ]; then
   run_binary "$@"
 fi
 
-# The sources' contents and their names, go.mod and go.sum among them, so a rename, a
-# deletion or a dependency bump counts as a change.
+# The sources' contents and their names, mochi's and the Discord client's, go.mod among
+# them, so a rename or a deletion in either counts as a change.
 hash=$(
-  find "$src" -type f \( -name '*.go' -o -name go.mod -o -name go.sum \) 2>/dev/null |
+  find "$src" "$lib" -type f \( -name '*.go' -o -name go.mod -o -name go.sum \) 2>/dev/null |
     sort | xargs shasum -a 256 2>/dev/null | shasum -a 256 | cut -d' ' -f1
 )
 
@@ -133,9 +134,10 @@ if [ -n "$hash" ] && [ "$hash" != "$(cat "$stamp" 2>/dev/null)" ]; then
     # The hash is deliberately not recorded, so the next run tries the build again.
     say "the sources in $src do not build, so this is the last binary that did: $(head -1 "$out" 2>/dev/null)"
   # Between the build and the move, so a binary that compiles but does not work never
-  # reaches the listener.
+  # reaches the listener. The client's packages are named by module, which is how a go
+  # command in mochi reaches the folder its go.mod replaces the module with.
   elif ! bounded "$test_timeout" "$out" \
-    "$mise" exec -C "$repo" -- go test -C "$src" ./...; then
+    "$mise" exec -C "$repo" -- go test -C "$src" ./... github.com/timche/mac-mini/discord/...; then
     rm -f "$cache/mochi.$$"
     say "the tests in $src do not pass, so this is the last binary whose did: $(grep -m 1 -E '^(---|FAIL|panic)' "$out" 2>/dev/null)"
   else

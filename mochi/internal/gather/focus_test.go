@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/chat/chattest"
 )
@@ -63,8 +63,8 @@ func TestAReplysFocusIsTheMessageItsChainAndItsReplies(t *testing.T) {
 
 func TestAThreadsFocusIsItsStarterAndTimsMention(t *testing.T) {
 	f := server()
-	f.AddChannel(&discordgo.Channel{ID: forum, GuildID: guild, Type: discordgo.ChannelTypeGuildForum})
-	thread := &discordgo.Channel{ID: post, GuildID: guild, ParentID: forum, Type: discordgo.ChannelTypeGuildPublicThread}
+	f.AddChannel(&discord.Channel{ID: forum, GuildID: guild, Type: discord.ChannelTypeGuildForum})
+	thread := &discord.Channel{ID: post, GuildID: guild, ParentID: forum, Type: discord.ChannelTypeGuildPublicThread}
 	f.AddChannel(thread)
 	starter := f.Post(post, 0, maker, "Bug: elo resets after a draw")
 	starter.ID = post

@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/chat/chattest"
 )
@@ -24,7 +24,7 @@ func TestEveryThreadMochiOpensReachesTim(t *testing.T) {
 	if am := first.AllowedMentions; am == nil || !reflect.DeepEqual(am.Users, []string{tim.ID}) || len(am.Parse) != 0 {
 		t.Errorf("allowed mentions = %+v", am)
 	}
-	if first.Flags&discordgo.MessageFlagsSuppressEmbeds == 0 {
+	if first.Flags&discord.MessageFlagsSuppressEmbeds == 0 {
 		t.Error("the first post would show a preview")
 	}
 	if !reflect.DeepEqual(f.api.Members, []string{m.ID + " " + tim.ID}) {
@@ -48,8 +48,8 @@ func TestEveryThreadMochiOpensReachesTim(t *testing.T) {
 // A thread Tim is already in — one he mentioned mochi inside — gets no mention and no member.
 func TestAnAdoptedThreadIsNotAnnounced(t *testing.T) {
 	f := newFixture(t)
-	f.api.AddChannel(&discordgo.Channel{ID: forum, GuildID: guild, Type: discordgo.ChannelTypeGuildForum})
-	f.api.AddChannel(&discordgo.Channel{ID: post, GuildID: guild, ParentID: forum, Name: "Ideas", Type: discordgo.ChannelTypeGuildPublicThread})
+	f.api.AddChannel(&discord.Channel{ID: forum, GuildID: guild, Type: discord.ChannelTypeGuildForum})
+	f.api.AddChannel(&discord.Channel{ID: post, GuildID: guild, ParentID: forum, Name: "Ideas", Type: discord.ChannelTypeGuildPublicThread})
 	f.h.Handle(f.mention(post, 1, tim, "look into this", nil))
 
 	if got := f.sentTo(post); len(got) != 1 || got[0] != "Session started." {

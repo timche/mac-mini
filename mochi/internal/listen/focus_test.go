@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/chat/chattest"
 	"github.com/timche/mac-mini/mochi/internal/gather"
@@ -38,7 +38,7 @@ func TestTrimmingAPromptTakesTheSurroundingChannelNotTheFocus(t *testing.T) {
 		f.api.Post(channel, n, other, chattest.ID(n)+" "+strings.Repeat("x", 1500))
 	}
 	target := f.api.Post(channel, 41, maker, "QOL "+strings.Repeat("q", 1500))
-	target.MessageReference = &discordgo.MessageReference{MessageID: parent.ID, ChannelID: channel}
+	target.MessageReference = &discord.MessageReference{MessageID: parent.ID, ChannelID: channel}
 	for n := 42; n <= 80; n++ {
 		f.api.Post(channel, n, other, chattest.ID(n)+" "+strings.Repeat("y", 1500))
 	}

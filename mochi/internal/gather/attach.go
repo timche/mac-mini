@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/atomicfile"
 	"github.com/timche/mac-mini/mochi/internal/chat"
@@ -38,7 +38,7 @@ func SessionFiles(api chat.API, dir string) Downloader {
 
 var unsafeName = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
-func (d Downloader) Fetch(msgs []*discordgo.Message) Files {
+func (d Downloader) Fetch(msgs []*discord.Message) Files {
 	files := Files{}
 	if err := os.MkdirAll(d.Dir, 0o700); err != nil {
 		for _, m := range msgs {
@@ -58,7 +58,7 @@ func (d Downloader) Fetch(msgs []*discordgo.Message) Files {
 	return files
 }
 
-func (d Downloader) one(m *discordgo.Message, a *discordgo.MessageAttachment, used *int64) string {
+func (d Downloader) one(m *discord.Message, a *discord.MessageAttachment, used *int64) string {
 	name := unsafeName.ReplaceAllString(filepath.Base(a.Filename), "_")
 	path := filepath.Join(d.Dir, m.ID+"-"+a.ID+"-"+name)
 	describe := func(size int64) string {
@@ -120,7 +120,7 @@ func folderSize(dir string) int64 {
 	return total
 }
 
-func kind(a *discordgo.MessageAttachment) string {
+func kind(a *discord.MessageAttachment) string {
 	if a.ContentType != "" {
 		return a.ContentType
 	}

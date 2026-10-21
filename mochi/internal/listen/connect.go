@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	gw "github.com/timche/mac-mini/discord/gateway"
 )
 
 // Discord allows one identify every five seconds, and a listener that exec'd its new build
@@ -26,9 +28,10 @@ const (
 	connectWindow   = 30 * time.Minute
 )
 
-// ErrRefused is Discord turning the token away, close code 4004: no retry with the same token
+// ErrRefused is Discord turning the connection away for good, the token with close 4004 or
+// the intents, shard or API version with another fatal close: no retry of the same process
 // will get in.
-var ErrRefused = errors.New("Discord refused the bot token")
+var ErrRefused = errors.New("Discord refused the connection")
 
 // gateway is the connect step, so a test can fail it.
 type gateway struct {
@@ -48,13 +51,7 @@ func (g gateway) connect() error {
 	backoff := connectBackoff
 	first := g.now()
 	for attempt := 0; ; attempt++ {
-		if last, ok := g.lastIdentify(); ok {
-			if wait := identifyGap - g.now().Sub(last); wait > 0 {
-				g.sleep(wait)
-			}
-		}
-		g.markIdentify()
-
+		g.spaceIdentify()
 		err := g.open()
 		if err == nil {
 			return nil
@@ -76,14 +73,20 @@ func (g gateway) connect() error {
 	}
 }
 
-// The websocket library says it as "websocket: close 1000 (normal)"; read off the text so its
-// error type is not one more dependency.
-func normalClose(err error) bool { return strings.Contains(err.Error(), "close 1000") }
+func normalClose(err error) bool {
+	var closed *gw.CloseError
+	return errors.As(err, &closed) && closed.Code == gw.CloseNormal
+}
 
-func refused(err error) bool { return strings.Contains(err.Error(), "close 4004") }
+// A close no reconnect gets past: the token, close 4004, or the intents, the shard or the
+// API version.
+func refused(err error) bool {
+	var closed *gw.CloseError
+	return errors.As(err, &closed) && closed.Code.Fatal()
+}
 
-// down tells a connection that dropped and stayed down, which discordgo would retry for ever
-// with the token it has, from one that is being re-established.
+// down tells a connection that dropped and stayed down, which the gateway would retry for
+// ever with the token it has, from one that is being re-established.
 type down struct{ since time.Time }
 
 func (d *down) observe(up bool, now time.Time) error {
@@ -101,6 +104,17 @@ func (d *down) observe(up bool, now time.Time) error {
 // Up to a fifth either way, so several things waiting on Discord do not all come back at once.
 func jitter(d time.Duration) time.Duration {
 	return d + time.Duration((rand.Float64()*0.4-0.2)*float64(d))
+}
+
+// spaceIdentify waits out the gap since the last identify of any mochi process, and stamps
+// the one about to be sent.
+func (g gateway) spaceIdentify() {
+	if last, ok := g.lastIdentify(); ok {
+		if wait := identifyGap - g.now().Sub(last); wait > 0 {
+			g.sleep(wait)
+		}
+	}
+	g.markIdentify()
 }
 
 func (g gateway) lastIdentify() (time.Time, bool) {

@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/config"
@@ -20,7 +20,7 @@ import (
 // How a new-session mention is to be worked. False means Tim has been told no; an empty answer
 // means the classifier could not say, which is one session with his own words, exactly as
 // without it.
-func (h *Handler) classify(m *discordgo.Message, instruction string, replied *discordgo.Message) (split.Answer, bool) {
+func (h *Handler) classify(m *discord.Message, instruction string, replied *discord.Message) (split.Answer, bool) {
 	if h.Split == nil {
 		return split.Answer{}, true
 	}
@@ -42,7 +42,7 @@ var mentionToken = regexp.MustCompile(`<(?:@[!&]?|#)[0-9]+>`)
 // A single session's name in Discord and in herdr: the classifier's title for the work, and
 // without one the start of the message Tim replied to, then his own words. Display only; a
 // session sees it, if at all, inside the fence.
-func title(answer split.Answer, replied *discordgo.Message, instruction string) string {
+func title(answer split.Answer, replied *discord.Message, instruction string) string {
 	if answer.Title != "" {
 		return answer.Title
 	}
@@ -74,7 +74,7 @@ func firstWords(text string, max int) string {
 }
 
 // Only to resolve "a, b and c": the rest of the context is not the classifier's.
-func (h *Handler) replied(m *discordgo.Message) *discordgo.Message {
+func (h *Handler) replied(m *discord.Message) *discord.Message {
 	got, err := gather.Referenced(h.API, m)
 	if err != nil {
 		return nil
@@ -85,13 +85,13 @@ func (h *Handler) replied(m *discordgo.Message) *discordgo.Message {
 // The first post in a thread mochi opened: started, and for which message as a masked link,
 // mentioning Tim, who keeps Discord's notifications to mentions — this is what subscribes
 // him to the thread and tells him it exists.
-func (h *Handler) announce(thread string, o opener) (*discordgo.Message, error) {
+func (h *Handler) announce(thread string, o opener) (*discord.Message, error) {
 	return h.API.Send(thread, h.announcement(o))
 }
 
 // A session's post in the forum: named for its state and tagged with its kind of work, its
 // first message the announcement, and Tim a member of it.
-func (h *Handler) post(forum, title, typ string, o opener) (*discordgo.Channel, error) {
+func (h *Handler) post(forum, title, typ string, o opener) (*discord.Channel, error) {
 	name := mark.ThreadName(mark.Running, title)
 	tags, err := chat.TagIDs(h.API, forum, mark.PostTags(typ))
 	if err != nil {
@@ -107,13 +107,13 @@ func (h *Handler) post(forum, title, typ string, o opener) (*discordgo.Channel, 
 }
 
 // The reply to Tim's mention that says where its session went.
-func (h *Handler) moved(m *discordgo.Message, title, post string) {
+func (h *Handler) moved(m *discord.Message, title, post string) {
 	text := "Moved to <#" + post + ">."
 	if link := chat.Link(m.GuildID, post, ""); link != "" {
 		text = "Moved to [" + plain(title) + "](<" + link + ">)."
 	}
 	reply := chat.Quiet(text)
-	reply.Reference = &discordgo.MessageReference{MessageID: m.ID, ChannelID: m.ChannelID}
+	reply.Reference = &discord.MessageReference{MessageID: m.ID, ChannelID: m.ChannelID}
 	if _, err := h.API.Send(m.ChannelID, reply); err != nil {
 		h.Log.Error("could not say where the session went", "post", post, "error", h.redact(err))
 	}
@@ -128,7 +128,7 @@ func (h *Handler) follow(thread string) {
 
 // Where the threads of a split go: the channel, or a thread's parent, since a thread holds no
 // threads. A forum's parent holds only posts, so there the answer is no channel and why.
-func (h *Handler) splitInto(ch *discordgo.Channel, n int) (string, string) {
+func (h *Handler) splitInto(ch *discord.Channel, n int) (string, string) {
 	if !ch.IsThread() {
 		return ch.ID, ""
 	}
@@ -137,7 +137,7 @@ func (h *Handler) splitInto(ch *discordgo.Channel, n int) (string, string) {
 	case err != nil:
 		h.Log.Warn("the channel a thread is in could not be read", "thread", ch.ID, "error", h.redact(err))
 		return "", fmt.Sprintf("this asked for %d separate tasks, but the channel this thread is in could not be read, so it is one session with the whole instruction", n)
-	case parent.Type == discordgo.ChannelTypeGuildForum || parent.Type == discordgo.ChannelTypeGuildMedia:
+	case parent.Type == discord.ChannelTypeGuildForum || parent.Type == discord.ChannelTypeGuildMedia:
 		return "", fmt.Sprintf("this asked for %d separate tasks, but threads cannot be opened beside a forum post, so it is one session with the whole instruction", n)
 	}
 	return parent.ID, ""
@@ -145,7 +145,7 @@ func (h *Handler) splitInto(ch *discordgo.Channel, n int) (string, string) {
 
 // A thread or a forum post, a tab and a session per task, all with the same context, then one
 // reply to Tim listing them.
-func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *discordgo.Message, replied *discordgo.Message, instruction, into string, forum bool, tasks []split.Task, set *gather.Set) {
+func (h *Handler) openMany(server config.Server, ch *discord.Channel, m *discord.Message, replied *discord.Message, instruction, into string, forum bool, tasks []split.Task, set *gather.Set) {
 	o := opener{mention: m, replied: replied, instruction: instruction}
 	project := h.project(server.Repo)
 	lines := make([]string, 0, len(tasks))
@@ -153,7 +153,7 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 
 	for i, task := range tasks {
 		o.summary = task.Summary
-		var thread *discordgo.Channel
+		var thread *discord.Channel
 		var err error
 		if forum {
 			thread, err = h.post(into, task.Title, task.Type, o)
@@ -193,7 +193,7 @@ func (h *Handler) openMany(server config.Server, ch *discordgo.Channel, m *disco
 	}
 
 	reply := chat.Quiet(strings.Join(lines, "\n"))
-	reply.Reference = &discordgo.MessageReference{MessageID: m.ID, ChannelID: m.ChannelID}
+	reply.Reference = &discord.MessageReference{MessageID: m.ID, ChannelID: m.ChannelID}
 	if _, err := h.API.Send(m.ChannelID, reply); err != nil {
 		h.Log.Error("the list of sessions could not be posted", "error", h.redact(err))
 	}

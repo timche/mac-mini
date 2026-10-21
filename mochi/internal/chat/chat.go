@@ -1,5 +1,5 @@
-// Package chat is the few Discord calls mochi makes, behind an interface a test can fake
-// with discordgo's own types, and the live implementation of them over a discordgo session.
+// Package chat is the few Discord calls mochi makes, behind an interface a test can fake with
+// the shared client's own types, and the live implementation of them over its REST client.
 package chat
 
 import (
@@ -14,17 +14,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
+	"github.com/timche/mac-mini/discord/rest"
 
 	"github.com/timche/mac-mini/mochi/internal/state"
 )
 
 type API interface {
-	Channel(id string) (*discordgo.Channel, error)
-	Message(channel, id string) (*discordgo.Message, error)
+	Channel(id string) (*discord.Channel, error)
+	Message(channel, id string) (*discord.Message, error)
 
 	// One page of at most 100, in whatever order Discord sends it; Sort puts it right.
-	Messages(channel string, limit int, before, after, around string) ([]*discordgo.Message, error)
+	Messages(channel string, limit int, before, after, around string) ([]*discord.Message, error)
 
 	React(channel, message, emoji string) error
 
@@ -34,14 +35,14 @@ type API interface {
 	// A thread's new name. ErrRateLimited when Discord says to wait, ErrForbidden when the
 	// thread is not mochi's to rename.
 	RenameThread(thread, name string) error
-	StartThread(channel, message, name string) (*discordgo.Channel, error)
+	StartThread(channel, message, name string) (*discord.Channel, error)
 
 	// A public thread on no message, which is how one mention gets several.
-	NewThread(channel, name string) (*discordgo.Channel, error)
+	NewThread(channel, name string) (*discord.Channel, error)
 
 	// A post in a forum, with its tags and its first message; the post's id is that
 	// message's id too.
-	ForumPost(forum, name string, tags []string, first *discordgo.MessageSend) (*discordgo.Channel, error)
+	ForumPost(forum, name string, tags []string, first *discord.MessageSend) (*discord.Channel, error)
 
 	// A forum post's name and tags in one edit, which Discord limits as it does a rename; the
 	// errors are RenameThread's.
@@ -52,13 +53,13 @@ type API interface {
 
 	// Makes a user a member of a thread, so they follow it.
 	AddMember(thread, user string) error
-	Send(channel string, msg *discordgo.MessageSend) (*discordgo.Message, error)
+	Send(channel string, msg *discord.MessageSend) (*discord.Message, error)
 
 	// A message mochi posted, changed: a question's buttons disabled once it is answered.
-	Edit(edit *discordgo.MessageEdit) error
+	Edit(edit *discord.MessageEdit) error
 
 	// The answer to a button press, which Discord wants within three seconds.
-	Respond(i *discordgo.Interaction, r *discordgo.InteractionResponse) error
+	Respond(i *discord.Interaction, r *discord.InteractionResponse) error
 
 	// Every role of a guild, with the tags that say which one is a bot's.
 	Roles(guild string) ([]Role, error)
@@ -67,10 +68,10 @@ type API interface {
 	Fetch(url string) (io.ReadCloser, error)
 
 	// mochi's own user.
-	Me() (*discordgo.User, error)
+	Me() (*discord.User, error)
 
 	// A guild, for its boost tier.
-	Guild(id string) (*discordgo.Guild, error)
+	Guild(id string) (*discord.Guild, error)
 }
 
 // UploadLimit is the most one file may be in a guild, by its boost tier: Discord's own 10 MB,
@@ -81,9 +82,9 @@ func UploadLimit(api API, guild string) int64 {
 		return 10 << 20
 	}
 	switch g.PremiumTier {
-	case discordgo.PremiumTier3:
+	case discord.PremiumTier3:
 		return 100 << 20
-	case discordgo.PremiumTier2:
+	case discord.PremiumTier2:
 		return 50 << 20
 	}
 	return 10 << 20
@@ -99,24 +100,24 @@ const (
 // Every post mochi makes pings nobody: it quotes moderators' names and Tim's own mention
 // back, and a session posting findings is not a reason to wake a server.
 // A link in a post is for following, not for a preview card moderators have to scroll past.
-func Quiet(content string) *discordgo.MessageSend {
-	msg := &discordgo.MessageSend{Content: content, AllowedMentions: NoMentions()}
+func Quiet(content string) *discord.MessageSend {
+	msg := &discord.MessageSend{Content: content, AllowedMentions: NoMentions()}
 	if strings.Contains(content, "://") {
-		msg.Flags |= discordgo.MessageFlagsSuppressEmbeds
+		msg.Flags |= discord.MessageFlagsSuppressEmbeds
 	}
 	return msg
 }
 
-func NoMentions() *discordgo.MessageAllowedMentions {
-	return &discordgo.MessageAllowedMentions{Parse: []discordgo.AllowedMentionType{}}
+func NoMentions() *discord.MessageAllowedMentions {
+	return &discord.MessageAllowedMentions{Parse: []discord.AllowedMentionType{}}
 }
 
 // Pinging is a post that may mention one user and nobody else: Tim, in the two places mochi
 // does — a thread it opened, and a session waiting on him.
-func Pinging(user, content string) *discordgo.MessageSend {
+func Pinging(user, content string) *discord.MessageSend {
 	msg := Quiet(content)
-	msg.AllowedMentions = &discordgo.MessageAllowedMentions{
-		Parse: []discordgo.AllowedMentionType{},
+	msg.AllowedMentions = &discord.MessageAllowedMentions{
+		Parse: []discord.AllowedMentionType{},
 		Users: []string{user},
 	}
 	return msg
@@ -177,11 +178,11 @@ func Before(a, b string) bool {
 	return x < y
 }
 
-func Sort(msgs []*discordgo.Message) {
+func Sort(msgs []*discord.Message) {
 	sort.SliceStable(msgs, func(i, j int) bool { return Before(msgs[i].ID, msgs[j].ID) })
 }
 
-func Name(m *discordgo.Message) string {
+func Name(m *discord.Message) string {
 	if m.Member != nil && m.Member.Nick != "" {
 		return m.Member.Nick
 	}
@@ -191,28 +192,23 @@ func Name(m *discordgo.Message) string {
 	return m.Author.DisplayName()
 }
 
-// Taken out of every error text before it is logged or posted, whatever the library put
-// in it.
+// Taken out of every error text before it is logged or posted, whatever put it there.
 func Redact(err error, token string) string {
 	if err == nil {
 		return ""
 	}
-	text := err.Error()
-	if token != "" {
-		text = strings.ReplaceAll(text, token, "<token>")
-	}
-	return text
+	return discord.Redact(err.Error(), token)
 }
 
 type Live struct {
-	S *discordgo.Session
+	REST *rest.Client
 
-	// Attachments can be tens of megabytes, which discordgo's own client times out on.
+	// Attachments can be tens of megabytes, which the API client's timeout is not for.
 	Download *http.Client
 }
 
-func NewLive(s *discordgo.Session) Live {
-	return Live{S: s, Download: &http.Client{Timeout: 2 * time.Minute, CheckRedirect: stayOnCDN}}
+func NewLive(c *rest.Client) Live {
+	return Live{REST: c, Download: &http.Client{Timeout: 2 * time.Minute, CheckRedirect: stayOnCDN}}
 }
 
 // An attachment's URL is in a message somebody else wrote, so mochi fetches only from
@@ -233,35 +229,33 @@ func stayOnCDN(req *http.Request, via []*http.Request) error {
 	return nil
 }
 
-func (l Live) Channel(id string) (*discordgo.Channel, error) { return l.S.Channel(id) }
+func (l Live) Channel(id string) (*discord.Channel, error) { return l.REST.Channel(id) }
 
-func (l Live) Message(channel, id string) (*discordgo.Message, error) {
-	return l.S.ChannelMessage(channel, id)
+func (l Live) Message(channel, id string) (*discord.Message, error) {
+	return l.REST.Message(channel, id)
 }
 
-func (l Live) Messages(channel string, limit int, before, after, around string) ([]*discordgo.Message, error) {
-	return l.S.ChannelMessages(channel, limit, before, after, around)
+func (l Live) Messages(channel string, limit int, before, after, around string) ([]*discord.Message, error) {
+	return l.REST.Messages(channel, limit, before, after, around)
 }
 
 func (l Live) React(channel, message, emoji string) error {
-	return l.S.MessageReactionAdd(channel, message, emoji)
+	return l.REST.ReactionAdd(channel, message, emoji)
 }
 
 func (l Live) Unreact(channel, message, emoji string) error {
-	return l.S.MessageReactionRemove(channel, message, emoji, "@me")
+	return l.REST.ReactionRemove(channel, message, emoji)
 }
 
 // Gone says Discord no longer has the channel, a thread somebody deleted: nothing sent to it
 // will ever land.
 func Gone(err error) bool {
-	var rest *discordgo.RESTError
+	var refused *rest.Error
 	switch {
 	case errors.Is(err, ErrUnknownChannel):
 		return true
-	case errors.As(err, &rest) && rest.Message != nil && rest.Message.Code == discordgo.ErrCodeUnknownChannel:
-		return true
-	case errors.As(err, &rest) && rest.Response != nil && rest.Response.StatusCode == http.StatusNotFound:
-		return true
+	case errors.As(err, &refused):
+		return refused.Code == rest.CodeUnknownChannel || refused.Status == http.StatusNotFound
 	}
 	return false
 }
@@ -272,35 +266,33 @@ var (
 	ErrForbidden      = errors.New("the thread is not mochi's to rename")
 )
 
-// Without discordgo's own retry, which would wait out a ten-minute rename limit inside the
-// call; the caller schedules the rename instead.
+// Without waiting out a limit inside the call, which for a rename is ten minutes; the caller
+// schedules the rename instead.
 func (l Live) RenameThread(thread, name string) error {
-	return l.edit(thread, &discordgo.ChannelEdit{Name: name})
+	return l.edit(thread, &discord.ChannelEdit{Name: name})
 }
 
 func (l Live) EditPost(thread, name string, tags []string) error {
-	return l.edit(thread, &discordgo.ChannelEdit{Name: name, AppliedTags: &tags})
+	return l.edit(thread, &discord.ChannelEdit{Name: name, AppliedTags: &tags})
 }
 
 func (l Live) Archive(thread string) error {
 	archived := true
-	return l.edit(thread, &discordgo.ChannelEdit{Archived: &archived})
+	return l.edit(thread, &discord.ChannelEdit{Archived: &archived})
 }
 
-func (l Live) edit(thread string, e *discordgo.ChannelEdit) error {
-	_, err := l.S.ChannelEditComplex(thread, e, discordgo.WithRetryOnRatelimit(false))
-	var limited *discordgo.RateLimitError
-	var rest *discordgo.RESTError
+func (l Live) edit(thread string, e *discord.ChannelEdit) error {
+	_, err := l.REST.EditChannel(thread, e, rest.NoWait())
+	var limited *rest.RateLimitError
+	var refused *rest.Error
 	switch {
 	case err == nil:
 		return nil
 	case errors.As(err, &limited):
 		return ErrRateLimited
-	case errors.As(err, &rest) && rest.Response != nil && rest.Response.StatusCode == http.StatusTooManyRequests:
-		return ErrRateLimited
-	case errors.As(err, &rest) && rest.Response != nil && rest.Response.StatusCode == http.StatusForbidden:
+	case errors.As(err, &refused) && refused.Status == http.StatusForbidden:
 		return ErrForbidden
-	case errors.As(err, &rest) && rest.Message != nil && (rest.Message.Code == discordgo.ErrCodeMissingAccess || rest.Message.Code == discordgo.ErrCodeMissingPermissions):
+	case errors.As(err, &refused) && (refused.Code == rest.CodeMissingAccess || refused.Code == rest.CodeMissingPermissions):
 		return ErrForbidden
 	}
 	return err
@@ -308,51 +300,53 @@ func (l Live) edit(thread string, e *discordgo.ChannelEdit) error {
 
 // A day, which is long enough for a session's findings to land in a thread Discord has not
 // hidden yet; a post into an archived thread unarchives it anyway.
-func (l Live) StartThread(channel, message, name string) (*discordgo.Channel, error) {
-	return l.S.MessageThreadStartComplex(channel, message, &discordgo.ThreadStart{
+func (l Live) StartThread(channel, message, name string) (*discord.Channel, error) {
+	return l.REST.StartThread(channel, message, &discord.ThreadStart{
 		Name:                name,
 		AutoArchiveDuration: 1440,
 	})
 }
 
-func (l Live) Edit(edit *discordgo.MessageEdit) error {
-	_, err := l.S.ChannelMessageEditComplex(edit)
+func (l Live) Edit(edit *discord.MessageEdit) error {
+	_, err := l.REST.EditMessage(edit)
 	return err
 }
 
-func (l Live) Respond(i *discordgo.Interaction, r *discordgo.InteractionResponse) error {
-	return l.S.InteractionRespond(i, r)
+func (l Live) Respond(i *discord.Interaction, r *discord.InteractionResponse) error {
+	return l.REST.Respond(i, r)
 }
 
 func (l Live) AddMember(thread, user string) error {
-	return l.S.ThreadMemberAdd(thread, user)
+	return l.REST.AddThreadMember(thread, user)
 }
 
-func (l Live) NewThread(channel, name string) (*discordgo.Channel, error) {
-	return l.S.ThreadStartComplex(channel, &discordgo.ThreadStart{
+func (l Live) NewThread(channel, name string) (*discord.Channel, error) {
+	return l.REST.NewThread(channel, &discord.ThreadStart{
 		Name:                name,
-		Type:                discordgo.ChannelTypeGuildPublicThread,
+		Type:                discord.ChannelTypeGuildPublicThread,
 		AutoArchiveDuration: 1440,
 	})
 }
 
 // A week, the longest Discord offers, since a post whose session is still working should stay
 // in the forum's list; mochi archives one itself three days after it is done.
-func (l Live) ForumPost(forum, name string, tags []string, first *discordgo.MessageSend) (*discordgo.Channel, error) {
-	return l.S.ForumThreadStartComplex(forum, &discordgo.ThreadStart{
+func (l Live) ForumPost(forum, name string, tags []string, first *discord.MessageSend) (*discord.Channel, error) {
+	return l.REST.ForumPost(forum, &discord.ThreadStart{
 		Name:                name,
 		AutoArchiveDuration: 10080,
 		AppliedTags:         tags,
 	}, first)
 }
 
-func (l Live) Send(channel string, msg *discordgo.MessageSend) (*discordgo.Message, error) {
-	return l.S.ChannelMessageSendComplex(channel, msg)
+func (l Live) Send(channel string, msg *discord.MessageSend) (*discord.Message, error) {
+	return l.REST.Send(channel, msg)
 }
 
-func (l Live) Me() (*discordgo.User, error) { return l.S.User("@me") }
+func (l Live) Me() (*discord.User, error) { return l.REST.Me() }
 
-func (l Live) Guild(id string) (*discordgo.Guild, error) { return l.S.Guild(id) }
+func (l Live) Guild(id string) (*discord.Guild, error) { return l.REST.Guild(id) }
+
+func (l Live) Roles(guild string) ([]Role, error) { return l.REST.GuildRoles(guild) }
 
 func (l Live) Fetch(raw string) (io.ReadCloser, error) {
 	u, err := url.Parse(raw)

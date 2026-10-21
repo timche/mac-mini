@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/event"
 	"github.com/timche/mac-mini/mochi/internal/gather"
@@ -177,7 +177,7 @@ func TestATabInUseIsNotClosedAndNotTriedAgain(t *testing.T) {
 
 // The prompts mochi pastes are recognised as its own, and Tim's typing is not.
 func TestMochisOwnPromptsAreToldFromTims(t *testing.T) {
-	m := &discordgo.Message{ID: "3", ChannelID: "2", GuildID: "1"}
+	m := &discord.Message{ID: "3", ChannelID: "2", GuildID: "1"}
 	for _, p := range []string{skillFirst + "\n\nTim mentioned mochi", followUp(m, "x", gather.NewSet("1"), nil, false), followUp(m, "x", gather.NewSet("1"), nil, true)} {
 		if !event.FromMochi(p) {
 			t.Errorf("not recognised: %q", p)

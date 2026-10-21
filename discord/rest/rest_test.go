@@ -153,8 +153,8 @@ func TestAllowedMentionsAreAlwaysSent(t *testing.T) {
 	c.Send("1", &discord.MessageSend{Content: "@everyone", AllowedMentions: &discord.MessageAllowedMentions{}})
 	c.Send("1", &discord.MessageSend{Content: "@everyone", AllowedMentions: &discord.MessageAllowedMentions{Users: []string{"94004892942741504"}}, Reference: &discord.MessageReference{MessageID: "3", ChannelID: "1"}, Flags: discord.MessageFlagsSuppressEmbeds})
 	want := []string{
-		`{"content":"@everyone","allowed_mentions":{"parse":[]}}`,
-		`{"content":"@everyone","allowed_mentions":{"parse":[],"users":["94004892942741504"]},"message_reference":{"message_id":"3","channel_id":"1"},"flags":4}`,
+		`{"content":"@everyone","allowed_mentions":{"parse":[],"replied_user":false}}`,
+		`{"content":"@everyone","allowed_mentions":{"parse":[],"users":["94004892942741504"],"replied_user":false},"message_reference":{"message_id":"3","channel_id":"1"},"flags":4}`,
 	}
 	for i, h := range s.hits {
 		if string(h.Body) != want[i] {
@@ -231,7 +231,7 @@ func TestInteractionCallbacks(t *testing.T) {
 	})
 	want := []string{
 		`{"type":6}`,
-		`{"type":4,"data":{"content":"Only the person who asked can choose.","flags":64,"allowed_mentions":{"parse":[]}}}`,
+		`{"type":4,"data":{"content":"Only the person who asked can choose.","flags":64,"allowed_mentions":{"parse":[],"replied_user":false}}}`,
 	}
 	for n, h := range s.hits {
 		if h.Path != "/interactions/55/tok/callback" || string(h.Body) != want[n] {

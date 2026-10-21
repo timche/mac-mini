@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/chat/chattest"
 )
@@ -19,20 +19,20 @@ const (
 )
 
 var (
-	tim   = &discordgo.User{ID: "94004892942741504", Username: "tim"}
-	maker = &discordgo.User{ID: "1400000000000000001", Username: "maker", GlobalName: "Maker-sama"}
-	other = &discordgo.User{ID: "1400000000000000002", Username: "other"}
-	mochi = &discordgo.User{ID: "1400000000000000003", Username: "mochi", Bot: true}
+	tim   = &discord.User{ID: "94004892942741504", Username: "tim"}
+	maker = &discord.User{ID: "1400000000000000001", Username: "maker", GlobalName: "Maker-sama"}
+	other = &discord.User{ID: "1400000000000000002", Username: "other"}
+	mochi = &discord.User{ID: "1400000000000000003", Username: "mochi", Bot: true}
 )
 
 func server() *chattest.Fake {
 	f := chattest.New()
-	f.AddChannel(&discordgo.Channel{ID: channel, GuildID: guild, Name: "moderators", Type: discordgo.ChannelTypeGuildText})
+	f.AddChannel(&discord.Channel{ID: channel, GuildID: guild, Name: "moderators", Type: discord.ChannelTypeGuildText})
 	return f
 }
 
-func reply(m *discordgo.Message, to *discordgo.Message) *discordgo.Message {
-	m.MessageReference = &discordgo.MessageReference{MessageID: to.ID, ChannelID: to.ChannelID}
+func reply(m *discord.Message, to *discord.Message) *discord.Message {
+	m.MessageReference = &discord.MessageReference{MessageID: to.ID, ChannelID: to.ChannelID}
 	return m
 }
 
@@ -69,7 +69,7 @@ func TestAReplyToAnOldMessageGathersTheDiscussionAroundIt(t *testing.T) {
 	}
 	got := ids(set)
 
-	for _, want := range []*discordgo.Message{qol, parent, late, far} {
+	for _, want := range []*discord.Message{qol, parent, late, far} {
 		if !got[want.ID] {
 			t.Errorf("missing %s (%q)", want.ID, want.Content)
 		}
@@ -101,8 +101,8 @@ func TestAReplyToAnOldMessageGathersTheDiscussionAroundIt(t *testing.T) {
 
 func TestAMentionInAForumPostIsHandedTheWholePost(t *testing.T) {
 	f := server()
-	f.AddChannel(&discordgo.Channel{ID: forum, GuildID: guild, Type: discordgo.ChannelTypeGuildForum})
-	thread := &discordgo.Channel{ID: post, GuildID: guild, ParentID: forum, Type: discordgo.ChannelTypeGuildPublicThread}
+	f.AddChannel(&discord.Channel{ID: forum, GuildID: guild, Type: discord.ChannelTypeGuildForum})
+	thread := &discord.Channel{ID: post, GuildID: guild, ParentID: forum, Type: discord.ChannelTypeGuildPublicThread}
 	f.AddChannel(thread)
 
 	starter := f.Post(post, 0, maker, "Bug: elo resets after a draw")
@@ -127,7 +127,7 @@ func TestAMentionInAForumPostIsHandedTheWholePost(t *testing.T) {
 
 func TestALongThreadKeepsItsStarterAndSaysWhatIsMissing(t *testing.T) {
 	f := server()
-	thread := &discordgo.Channel{ID: chattest.ID(0), GuildID: guild, ParentID: channel, Type: discordgo.ChannelTypeGuildPublicThread}
+	thread := &discord.Channel{ID: chattest.ID(0), GuildID: guild, ParentID: channel, Type: discord.ChannelTypeGuildPublicThread}
 	f.AddChannel(thread)
 	starter := f.Post(channel, 0, maker, "the idea")
 	for n := 1; n <= 150; n++ {
@@ -169,19 +169,19 @@ func TestAMentionThatRepliesToNothingIsHandedTheRecentChannel(t *testing.T) {
 func TestARelayCarriesEverythingSinceTheLastMention(t *testing.T) {
 	f := server()
 	thread := chattest.ID(10)
-	f.AddChannel(&discordgo.Channel{ID: thread, GuildID: guild, ParentID: channel, Type: discordgo.ChannelTypeGuildPublicThread})
+	f.AddChannel(&discord.Channel{ID: thread, GuildID: guild, ParentID: channel, Type: discord.ChannelTypeGuildPublicThread})
 	f.Post(thread, 11, mochi, "session started in repeek: moderators")
 	first := f.Post(thread, 12, tim, "<@"+mochi.ID+"> start")
 	f.Post(thread, 13, maker, "also b) please")
 	finished := f.Post(thread, 14, mochi, "Finished: the overlay no longer covers the scoreboard.")
 	f.Post(thread, 15, tim, "noted")
 	renamed := f.Post(thread, 16, mochi, "⏳ Overlay")
-	renamed.Type = discordgo.MessageTypeChannelNameChange
+	renamed.Type = discord.MessageTypeChannelNameChange
 	pinned := f.Post(thread, 17, maker, "")
-	pinned.Type = discordgo.MessageTypeChannelPinnedMessage
+	pinned.Type = discord.MessageTypeChannelPinnedMessage
 	answer := f.Post(thread, 18, other, "still covers it on 1440p")
-	answer.Type = discordgo.MessageTypeReply
-	answer.MessageReference = &discordgo.MessageReference{MessageID: finished.ID, ChannelID: thread}
+	answer.Type = discord.MessageTypeReply
+	answer.MessageReference = &discord.MessageReference{MessageID: finished.ID, ChannelID: thread}
 	mention := f.Post(thread, 19, tim, "<@"+mochi.ID+"> also check b)")
 	f.Post(thread, 20, other, "after the mention")
 
@@ -207,7 +207,7 @@ func TestAttachmentsAreDownloadedWithinTheirCaps(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "sessions", "123")
 
 	m := f.Post(channel, 1, maker, "screens")
-	m.Attachments = []*discordgo.MessageAttachment{
+	m.Attachments = []*discord.MessageAttachment{
 		{ID: "a1", Filename: "shot one.png", URL: "https://cdn/1", Size: 400, ContentType: "image/png"},
 		{ID: "a2", Filename: "huge.mp4", URL: "https://cdn/2", Size: 5000},
 		{ID: "a3", Filename: "../../etc/passwd", URL: "https://cdn/3", Size: 400},
@@ -219,7 +219,7 @@ func TestAttachmentsAreDownloadedWithinTheirCaps(t *testing.T) {
 	f.Files["https://cdn/4"] = []byte(strings.Repeat("z", 2000))
 	f.Files["https://cdn/5"] = []byte(strings.Repeat("w", 400))
 
-	files := Downloader{API: f, Dir: dir, PerFile: 1000, Total: 1000}.Fetch([]*discordgo.Message{m})
+	files := Downloader{API: f, Dir: dir, PerFile: 1000, Total: 1000}.Fetch([]*discord.Message{m})
 
 	shot := filepath.Join(dir, m.ID+"-a1-shot_one.png")
 	if body, err := os.ReadFile(shot); err != nil || len(body) != 400 {
@@ -244,7 +244,7 @@ func TestAttachmentsAreDownloadedWithinTheirCaps(t *testing.T) {
 		t.Error("a download past the limit was kept")
 	}
 
-	out := Render(&Set{Guild: guild, msgs: map[string]*discordgo.Message{m.ID: m}, notes: map[string][]string{}}, files)
+	out := Render(&Set{Guild: guild, msgs: map[string]*discord.Message{m.ID: m}, notes: map[string][]string{}}, files)
 	if !strings.Contains(out, "attachment: "+shot) || !strings.Contains(out, "attachment: skipped huge.mp4") {
 		t.Errorf("the transcript does not list the files:\n%s", out)
 	}
@@ -252,7 +252,7 @@ func TestAttachmentsAreDownloadedWithinTheirCaps(t *testing.T) {
 	// Already there is not downloaded again, which is what lets a relay or a page of history
 	// share the folder.
 	delete(f.Files, "https://cdn/1")
-	again := Downloader{API: f, Dir: dir, PerFile: 1000, Total: 1000}.Fetch([]*discordgo.Message{m})
+	again := Downloader{API: f, Dir: dir, PerFile: 1000, Total: 1000}.Fetch([]*discord.Message{m})
 	if again["a1"] != files["a1"] {
 		t.Errorf("a file already downloaded was fetched again: %q", again["a1"])
 	}

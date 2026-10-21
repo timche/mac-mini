@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	discordrest "github.com/timche/mac-mini/discord/rest"
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/config"
@@ -246,11 +246,7 @@ func rest() (chat.API, error) {
 	if token == "" {
 		return nil, errors.New("the bot token did not resolve")
 	}
-	s, err := discordgo.New("Bot " + token)
-	if err != nil {
-		return nil, errors.New(chat.Redact(err, token))
-	}
-	return chat.NewLive(s), nil
+	return chat.NewLive(discordrest.New(token)), nil
 }
 
 var errNoText = errors.New("post takes the text to post, as an argument or on stdin")

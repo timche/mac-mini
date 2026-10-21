@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/chat/chattest"
 	"github.com/timche/mac-mini/mochi/internal/mark"
@@ -24,7 +24,7 @@ const thread = "1300000000000000005"
 func fixture(t *testing.T) (*chattest.Fake, state.Store) {
 	t.Helper()
 	api := chattest.New()
-	api.AddChannel(&discordgo.Channel{ID: thread, Type: discordgo.ChannelTypeGuildPublicThread})
+	api.AddChannel(&discord.Channel{ID: thread, Type: discord.ChannelTypeGuildPublicThread})
 	store := state.Store{Path: filepath.Join(t.TempDir(), "state.json")}
 	if err := store.Put(state.Session{Thread: thread, Source: "1300000000000000001"}); err != nil {
 		t.Fatal(err)
@@ -166,7 +166,7 @@ func TestAPullRequestIsItsOwnLineWithNoPreview(t *testing.T) {
 	if msg.Content != "Ready: average elo now shows for each team.\n\n#42 (https://github.com/timche/repeek/pull/42)" {
 		t.Errorf("content = %q", msg.Content)
 	}
-	if msg.Flags&discordgo.MessageFlagsSuppressEmbeds == 0 {
+	if msg.Flags&discord.MessageFlagsSuppressEmbeds == 0 {
 		t.Error("the link would show a preview")
 	}
 
@@ -194,7 +194,7 @@ func TestAPullRequestIsItsOwnLineWithNoPreview(t *testing.T) {
 // posted.
 func TestATypeRefilesAPostWithNoText(t *testing.T) {
 	api, store := fixture(t)
-	api.AddChannel(&discordgo.Channel{ID: "f1", AvailableTags: []discordgo.ForumTag{{ID: "t-run", Name: "Running"}, {ID: "t-bug", Name: "Bug"}}})
+	api.AddChannel(&discord.Channel{ID: "f1", AvailableTags: []discord.ForumTag{{ID: "t-run", Name: "Running"}, {ID: "t-bug", Name: "Bug"}}})
 	marks := &mark.Marker{API: api, Path: filepath.Join(t.TempDir(), "marks.json"), Now: time.Now, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	marks.Posted(thread, "Overlay", "⏳ Overlay", "f1", "")
 	marks.Started(thread)
@@ -469,7 +469,7 @@ func TestAFileIsHeldToTheServersUploadLimit(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "12 MB, over the 10 MB") || !strings.Contains(err.Error(), "too large to attach") {
 		t.Errorf("refusal = %v", err)
 	}
-	api.Tiers = map[string]discordgo.PremiumTier{"": discordgo.PremiumTier2}
+	api.Tiers = map[string]discord.PremiumTier{"": discord.PremiumTier2}
 	if err := Send(api, store, nil, repeek, thread, Post{Text: "x", Files: []string{big}, Roots: anywhere}); err != nil {
 		t.Errorf("a boosted server refused 12 MB: %v", err)
 	}

@@ -163,10 +163,13 @@ const (
 )
 
 // Parse is never left out of the JSON: an empty list is what tells Discord that nothing in
-// the message pings anybody, and a missing one would let it parse every mention.
+// the message pings anybody, and a missing one would let it parse every mention. Nor is
+// RepliedUser, so a reply pings its author only when it says so.
 type MessageAllowedMentions struct {
-	Parse []AllowedMentionType `json:"parse"`
-	Users []string             `json:"users,omitempty"`
+	Parse       []AllowedMentionType `json:"parse"`
+	Roles       []string             `json:"roles,omitempty"`
+	Users       []string             `json:"users,omitempty"`
+	RepliedUser bool                 `json:"replied_user"`
 }
 
 func (a MessageAllowedMentions) MarshalJSON() ([]byte, error) {

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/event"
 	"github.com/timche/mac-mini/mochi/internal/mark"
@@ -12,8 +12,8 @@ import (
 )
 
 // A classifier that counts its calls and always says one task.
-func counting(n *int) func(string, *discordgo.Message) (split.Answer, error) {
-	return func(string, *discordgo.Message) (split.Answer, error) {
+func counting(n *int) func(string, *discord.Message) (split.Answer, error) {
+	return func(string, *discord.Message) (split.Answer, error) {
 		*n++
 		return split.Answer{}, nil
 	}

@@ -7,12 +7,12 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/split"
 )
 
-func firstPost(t *testing.T, f *fixture, thread string) *discordgo.MessageSend {
+func firstPost(t *testing.T, f *fixture, thread string) *discord.MessageSend {
 	t.Helper()
 	for _, s := range f.api.Sent {
 		if s.Channel == thread {
@@ -29,9 +29,9 @@ func firstPost(t *testing.T, f *fixture, thread string) *discordgo.MessageSend {
 func TestTheFirstPostQuotesWhatTheSessionIsAbout(t *testing.T) {
 	f := newFixture(t)
 	qol := f.api.Post(channel, 1, maker, "hey, some QOL things:\na) average elo\nb) map stats")
-	qol.Attachments = []*discordgo.MessageAttachment{{ContentType: "image/png"}, {ContentType: "image/jpeg"}}
+	qol.Attachments = []*discord.MessageAttachment{{ContentType: "image/png"}, {ContentType: "image/jpeg"}}
 	m := f.mention(channel, 2, tim, "take a look\nat both", qol)
-	m.Attachments = []*discordgo.MessageAttachment{{ContentType: "application/pdf"}}
+	m.Attachments = []*discord.MessageAttachment{{ContentType: "application/pdf"}}
 
 	f.h.Handle(m)
 
@@ -45,7 +45,7 @@ func TestTheFirstPostQuotesWhatTheSessionIsAbout(t *testing.T) {
 	if am := msg.AllowedMentions; am == nil || !reflect.DeepEqual(am.Users, []string{tim.ID}) || len(am.Parse) != 0 || len(am.Roles) != 0 {
 		t.Errorf("allowed mentions = %+v", am)
 	}
-	if msg.Flags&discordgo.MessageFlagsSuppressEmbeds == 0 {
+	if msg.Flags&discord.MessageFlagsSuppressEmbeds == 0 {
 		t.Error("the link shows a preview")
 	}
 }
@@ -185,7 +185,7 @@ func TestAHostileTitleIsPlainText(t *testing.T) {
 // Every way a line can end becomes a quoted line of its own, in the text and in a name.
 func TestEveryLineOfAQuoteIsQuoted(t *testing.T) {
 	f := newFixture(t)
-	odd := &discordgo.User{ID: "1400000000000000009", Username: "odd", GlobalName: "Odd\rName\u2028**bold**"}
+	odd := &discord.User{ID: "1400000000000000009", Username: "odd", GlobalName: "Odd\rName\u2028**bold**"}
 	sly := f.api.Post(channel, 1, odd, "one\rtwo\u2028three\u2029four\u0085five\r\nsix")
 	m := f.mention(channel, 2, tim, "look\u2028here", sly)
 	f.h.Handle(m)

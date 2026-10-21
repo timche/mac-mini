@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/timche/mac-mini/discord"
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/chat/chattest"
@@ -51,7 +51,7 @@ func TestTheStateIsKeptOnDiskAndShownOnNoMessage(t *testing.T) {
 
 func TestTheThreadNameCarriesTheState(t *testing.T) {
 	f := newFixture(t)
-	f.api.AddChannel(&discordgo.Channel{ID: "t1", Name: ThreadName(Running, "FACEIT overlay hover")})
+	f.api.AddChannel(&discord.Channel{ID: "t1", Name: ThreadName(Running, "FACEIT overlay hover")})
 	f.k.Named("t1", "FACEIT overlay hover", ThreadName(Running, "FACEIT overlay hover"))
 
 	f.k.Started("t1")
@@ -72,7 +72,7 @@ func TestTheThreadNameCarriesTheState(t *testing.T) {
 // state, never the ones in between.
 func TestRenamesAreCoalescedUnderTheLimit(t *testing.T) {
 	f := newFixture(t)
-	f.api.AddChannel(&discordgo.Channel{ID: "t1"})
+	f.api.AddChannel(&discord.Channel{ID: "t1"})
 	f.k.Named("t1", "Map stats", ThreadName(Running, "Map stats"))
 
 	f.k.Settled("t1", Finished) // rename 1: ✅
@@ -101,7 +101,7 @@ func TestRenamesAreCoalescedUnderTheLimit(t *testing.T) {
 
 func TestA429IsOneLaterRenameWithTheLatestState(t *testing.T) {
 	f := newFixture(t)
-	f.api.AddChannel(&discordgo.Channel{ID: "t1"})
+	f.api.AddChannel(&discord.Channel{ID: "t1"})
 	f.k.Named("t1", "Map stats", ThreadName(Running, "Map stats"))
 	f.api.RenameErr["t1"] = chat.ErrRateLimited
 
@@ -126,7 +126,7 @@ func TestA429IsOneLaterRenameWithTheLatestState(t *testing.T) {
 // author gave it: nothing even tries to rename it.
 func TestAThreadThatIsNotMochisIsNeverRenamed(t *testing.T) {
 	f := newFixture(t)
-	f.api.AddChannel(&discordgo.Channel{ID: "post", Name: "Bug: elo resets"})
+	f.api.AddChannel(&discord.Channel{ID: "post", Name: "Bug: elo resets"})
 
 	f.k.Started("post")
 	f.k.Settled("post", Asking)

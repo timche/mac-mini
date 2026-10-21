@@ -88,6 +88,7 @@ func TestPathsComeFromTheEnvironment(t *testing.T) {
 	t.Setenv("MOCHI_CONFIG", write(t, `{"user": "94004892942741504"}`))
 	t.Setenv("MOCHI_CACHE_DIR", "")
 	t.Setenv("MOCHI_ENV_FILE", "")
+	t.Setenv("MOCHI_BRIEFING", "")
 
 	cfg, err := FromEnv()
 	if err != nil {
@@ -98,6 +99,13 @@ func TestPathsComeFromTheEnvironment(t *testing.T) {
 	}
 	if !strings.HasSuffix(cfg.EnvFile, ".local/bin/mochi.env.op") {
 		t.Errorf("env file = %s", cfg.EnvFile)
+	}
+	if want := filepath.Join(home, ".mac-mini", "claude-plugins", "mochi", "briefing.md"); cfg.Briefing != want {
+		t.Errorf("briefing = %s", cfg.Briefing)
+	}
+	t.Setenv("MOCHI_BRIEFING", "/checkout/claude-plugins/mochi/briefing.md")
+	if cfg, _ := FromEnv(); cfg.Briefing != "/checkout/claude-plugins/mochi/briefing.md" {
+		t.Errorf("briefing = %s", cfg.Briefing)
 	}
 	if cfg.SessionDir("123") != filepath.Join(cfg.CacheDir, "sessions", "123") {
 		t.Errorf("session dir = %s", cfg.SessionDir("123"))

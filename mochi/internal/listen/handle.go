@@ -204,12 +204,14 @@ func (h *Handler) begin(server config.Server, ch *discord.Channel, m *discord.Me
 	if m.GuildID == "" {
 		m.GuildID = ch.GuildID
 	}
+	orders, err := h.orders()
+	if err != nil {
+		h.fail(m, "", err.Error(), nil)
+		return
+	}
 	name := title(answer, replied, instruction)
 
-	var (
-		set *gather.Set
-		err error
-	)
+	var set *gather.Set
 	switch {
 	case ch.IsThread():
 		set, err = gather.Thread(h.API, ch, m)
@@ -243,13 +245,13 @@ func (h *Handler) begin(server config.Server, ch *discord.Channel, m *discord.Me
 			into = forum
 		}
 		if into != "" {
-			h.openMany(server, ch, m, replied, instruction, into, forum != "", answer.Tasks, set)
+			h.openMany(server, ch, m, replied, orders, instruction, into, forum != "", answer.Tasks, set)
 			return
 		}
 		alone = why
 	}
 	if forum != "" {
-		h.openPost(server, forum, ch, m, opener{mention: m, replied: replied, instruction: instruction, summary: answer.Summary}, set, name, answer.Type)
+		h.openPost(server, forum, ch, m, orders, opener{mention: m, replied: replied, instruction: instruction, summary: answer.Summary}, set, name, answer.Type)
 		return
 	}
 
@@ -269,7 +271,7 @@ func (h *Handler) begin(server config.Server, ch *discord.Channel, m *discord.Me
 	}
 
 	session := state.Session{Thread: thread, Source: ch.ID, Guild: m.GuildID, LastMention: m.ID}
-	text := opening(ch, m, thread, instruction, h.project(server.Repo), set, h.files(thread, set), "", "")
+	text := opening(ch, m, thread, orders, instruction, h.project(server.Repo), set, h.files(thread, set), "", "")
 	if err := h.start(server, &session, name, text); err != nil {
 		h.Marks.Failed(thread)
 		h.fail(m, thread, err.Error(), nil)
@@ -302,7 +304,7 @@ func (h *Handler) settings(server config.Server) project.Settings {
 }
 
 // One session in a post of its own in the forum, and a reply to Tim saying where it went.
-func (h *Handler) openPost(server config.Server, forum string, ch *discord.Channel, m *discord.Message, o opener, set *gather.Set, name, typ string) {
+func (h *Handler) openPost(server config.Server, forum string, ch *discord.Channel, m *discord.Message, orders string, o opener, set *gather.Set, name, typ string) {
 	instruction := o.instruction
 	post, err := h.post(forum, name, typ, o)
 	if err != nil {
@@ -312,7 +314,7 @@ func (h *Handler) openPost(server config.Server, forum string, ch *discord.Chann
 	thread := post.ID
 
 	session := state.Session{Thread: thread, Source: ch.ID, Guild: m.GuildID, LastMention: m.ID}
-	text := opening(ch, m, thread, instruction, h.project(server.Repo), set, h.files(thread, set), "", "")
+	text := opening(ch, m, thread, orders, instruction, h.project(server.Repo), set, h.files(thread, set), "", "")
 	err = h.start(server, &session, name, text)
 	h.created(m, name, thread)
 	if err != nil {
@@ -385,6 +387,11 @@ func (h *Handler) relay(server config.Server, ch *discord.Channel, rec state.Ses
 // The session Tim closed is replaced by one that reads the whole thread, so nothing said in
 // it is lost, and the thread is told.
 func (h *Handler) restart(server config.Server, ch *discord.Channel, rec state.Session, m *discord.Message, instruction string) {
+	orders, err := h.orders()
+	if err != nil {
+		h.fail(m, rec.Thread, err.Error(), nil)
+		return
+	}
 	set, err := gather.Thread(h.API, ch, m)
 	if err != nil {
 		h.fail(m, rec.Thread, "the thread could not be read", err)
@@ -393,7 +400,7 @@ func (h *Handler) restart(server config.Server, ch *discord.Channel, rec state.S
 
 	rec.LastMention = m.ID
 	note := "The session that was working on this thread has gone, so this is a new one: the thread so far is the context."
-	text := opening(ch, m, rec.Thread, instruction, h.project(server.Repo), set, h.files(rec.Thread, set), note, "")
+	text := opening(ch, m, rec.Thread, orders, instruction, h.project(server.Repo), set, h.files(rec.Thread, set), note, "")
 	if err := h.start(server, &rec, mark.Title(ch.Name), text); err != nil {
 		h.Marks.Failed(rec.Thread)
 		h.fail(m, rec.Thread, err.Error(), nil)

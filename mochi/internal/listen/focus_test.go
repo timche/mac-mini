@@ -18,8 +18,8 @@ func TestTheOrdersSayWhatTheFocusIs(t *testing.T) {
 	f.h.Handle(m)
 
 	prompt := onlyPrompt(t, f.herdr, "mochi-"+m.ID)
-	if !strings.Contains(skill(t), "The FOCUS section at the top of that block is what Tim's instruction is about") {
-		t.Error("the skill does not say what the focus is")
+	if !strings.Contains(shipped(t, "briefing.md"), "The FOCUS section at the top of that block is what Tim's instruction is about") {
+		t.Error("the briefing does not say what the focus is")
 	}
 	if !strings.HasPrefix(between(t, prompt, "DISCORD CONTEXT"), "Channel: #moderators\n\nFOCUS\n\n") {
 		t.Errorf("the context does not open on the focus:\n%.200s", between(t, prompt, "DISCORD CONTEXT"))

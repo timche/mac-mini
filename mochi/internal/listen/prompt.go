@@ -7,6 +7,7 @@ import (
 
 	"github.com/timche/mac-mini/discord"
 
+	"github.com/timche/mac-mini/mochi/internal/briefing"
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/event"
 	"github.com/timche/mac-mini/mochi/internal/fence"
@@ -40,21 +41,25 @@ func contains(list []string, s string) bool {
 	return false
 }
 
-// The brief holds what is this session's alone: Tim's words, the conversation around them and
-// where it posts. How a session works with any of it is the mochi skill's, which every session
-// shares and which the brief's first line has it load.
+// The brief opens on mochi's standing orders, the same for every session, then holds what is
+// this session's alone: Tim's words, the conversation around them and where it posts. How
+// anything posted to Discord is written is the mochi skill's, which the first line has it load.
+//
+// orders is the plugin's briefing.md, which a session cannot start without.
 //
 // scope is the one task of several this session works on, when Tim's message was split. The
 // classifier wrote it partly from the message he replied to, so it is data, inside the
 // fence, and his own message stays the instruction.
 //
 // project is the repository's own instructions for the sessions mochi starts in it, or nothing.
-func opening(ch *discord.Channel, m *discord.Message, thread, instruction, project string, set *gather.Set, files gather.Files, note, scope string) string {
+func opening(ch *discord.Channel, m *discord.Message, thread, orders, instruction, project string, set *gather.Set, files gather.Files, note, scope string) string {
 	gap := fmt.Sprintf("older messages, trimmed to keep this prompt under %d KB; mochi history --before <the oldest id shown> reaches them", maxPrompt>>10)
-	return fit(set, gap, func() string { return openingText(ch, m, thread, instruction, project, set, files, note, scope) })
+	return fit(set, gap, func() string {
+		return openingText(ch, m, thread, orders, instruction, project, set, files, note, scope)
+	})
 }
 
-func openingText(ch *discord.Channel, m *discord.Message, thread, instruction, project string, set *gather.Set, files gather.Files, note, scope string) string {
+func openingText(ch *discord.Channel, m *discord.Message, thread, orders, instruction, project string, set *gather.Set, files gather.Files, note, scope string) string {
 	nonce := fence.Nonce()
 
 	// A channel's or a thread's name is chosen by whoever made it, so it is data like any
@@ -73,6 +78,8 @@ func openingText(ch *discord.Channel, m *discord.Message, thread, instruction, p
 
 	var b strings.Builder
 	b.WriteString(skillFirst + "\n\n")
+	b.WriteString("mochi's standing orders for every session it starts follow between the two markers below. Follow them for everything in this session.\n")
+	b.WriteString(fence.Trusted(fence.Orders, nonce, orders) + "\n\n")
 	b.WriteString("Tim mentioned mochi in Discord (" + chat.Link(m.GuildID, m.ChannelID, m.ID) + "), and this session is what that started.")
 	if note != "" {
 		b.WriteString(" " + note)
@@ -103,6 +110,17 @@ func openingText(ch *discord.Channel, m *discord.Message, thread, instruction, p
 // Named here because openingText's parameter shadows the package.
 const projectFile = project.InstructionsFile
 
+// orders is mochi's standing orders for the session it is about to start: an error, logged here,
+// means it is not started.
+func (h *Handler) orders() (string, error) {
+	text, err := briefing.Read(h.Cfg.Briefing)
+	if err != nil {
+		h.Log.Error("mochi's standing orders could not be read, so no session is started", "error", err)
+		return "", errors.New("the standing orders for mochi's sessions could not be read")
+	}
+	return text, nil
+}
+
 // project is the instructions in the repository a session works in, or none: a file that is not
 // the repository's own is logged and left out.
 func (h *Handler) project(repo string) string {
@@ -116,7 +134,7 @@ func (h *Handler) project(repo string) string {
 // The first line of every brief, and the reminder at the top of every follow-up.
 const (
 	skillFirst = event.OpeningPrefix
-	skillAgain = "Follow the mochi skill, as for everything in this session."
+	skillAgain = "Follow mochi's standing orders from the start of this session and the mochi skill, as for everything in it."
 )
 
 func followUp(m *discord.Message, instruction string, others *gather.Set, files gather.Files, answering bool) string {

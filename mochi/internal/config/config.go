@@ -67,6 +67,10 @@ type Config struct {
 
 	// Beside the wrapper, where mise links both of them.
 	EnvFile string `json:"-"`
+
+	// The standing orders every session mochi starts gets at the top of its brief, in this
+	// checkout's mochi plugin; the wrapper names it from the checkout it runs from.
+	Briefing string `json:"-"`
 }
 
 var (
@@ -157,6 +161,7 @@ func FromEnv() (Config, error) {
 
 	cfg.CacheDir = cacheDir(home)
 	cfg.EnvFile = envOr("MOCHI_ENV_FILE", filepath.Join(home, ".local", "bin", "mochi.env.op"))
+	cfg.Briefing = envOr("MOCHI_BRIEFING", filepath.Join(home, ".mac-mini", "claude-plugins", "mochi", "briefing.md"))
 	return cfg, nil
 }
 

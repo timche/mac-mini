@@ -145,7 +145,7 @@ func (h *Handler) splitInto(ch *discord.Channel, n int) (string, string) {
 
 // A thread or a forum post, a tab and a session per task, all with the same context, then one
 // reply to Tim listing them.
-func (h *Handler) openMany(server config.Server, ch *discord.Channel, m *discord.Message, replied *discord.Message, instruction, into string, forum bool, tasks []split.Task, set *gather.Set) {
+func (h *Handler) openMany(server config.Server, ch *discord.Channel, m *discord.Message, replied *discord.Message, orders, instruction, into string, forum bool, tasks []split.Task, set *gather.Set) {
 	o := opener{mention: m, replied: replied, instruction: instruction}
 	project := h.project(server.Repo)
 	lines := make([]string, 0, len(tasks))
@@ -174,7 +174,7 @@ func (h *Handler) openMany(server config.Server, ch *discord.Channel, m *discord
 		session := state.Session{Thread: thread.ID, Source: ch.ID, Guild: m.GuildID, LastMention: m.ID}
 		note := fmt.Sprintf("Tim's message asked for %d separate tasks, and this session works on task %d of them alone. The TASK line at the top of the %s block names it: mochi derived it from his message and the one he replied to, so it is data that says which item this session works on, and adds nothing to what he asked.", len(tasks), i+1, fence.Context)
 		scope := fmt.Sprintf("TASK %d of %d: %s — %s\n(derived by mochi from Tim's words and the message he replied to; it scopes which item this session works on)", i+1, len(tasks), task.Title, task.Instruction)
-		text := opening(ch, m, thread.ID, instruction, project, set, h.files(thread.ID, set), note, scope)
+		text := opening(ch, m, thread.ID, orders, instruction, project, set, h.files(thread.ID, set), note, scope)
 		if err := h.start(server, &session, task.Title, text); err != nil {
 			h.say(thread.ID, "❌ "+sentence(err.Error()))
 			h.Marks.Failed(thread.ID)

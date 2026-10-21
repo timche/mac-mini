@@ -17,9 +17,10 @@ const (
 	Context     = "DISCORD CONTEXT"
 	History     = "DISCORD HISTORY"
 	Project     = "PROJECT INSTRUCTIONS (from the repository's .mochi/instructions.md)"
+	Orders      = "MOCHI'S STANDING ORDERS"
 )
 
-var labels = []string{Instruction, Context, History, Project}
+var labels = []string{Instruction, Context, History, Project, Orders}
 
 func Nonce() string {
 	b := make([]byte, 8)

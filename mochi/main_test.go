@@ -294,7 +294,7 @@ func TestEditAndDeleteRefuseBeforeOp(t *testing.T) {
 // share work with the team, and independent of mochi's own sessions.
 func TestTheAnnounceSkillSaysWhenAndHow(t *testing.T) {
 	_, here, _, _ := runtime.Caller(0)
-	body, err := os.ReadFile(filepath.Join(filepath.Dir(here), "..", "home", ".claude", "skills", "announce", "SKILL.md"))
+	body, err := os.ReadFile(filepath.Join(filepath.Dir(here), "..", "claude-plugins", "mochi", "skills", "announce", "SKILL.md"))
 	if err != nil {
 		t.Fatal(err)
 	}

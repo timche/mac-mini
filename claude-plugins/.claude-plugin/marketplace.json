@@ -1,0 +1,14 @@
+{
+  "name": "mac-mini",
+  "description": "Plugins this Mac enables per project rather than in every session",
+  "owner": {
+    "name": "Tim Cheung"
+  },
+  "plugins": [
+    {
+      "name": "mochi",
+      "source": "./mochi",
+      "description": "mochi's skill and session hooks, for the repositories mochi serves"
+    }
+  ]
+}

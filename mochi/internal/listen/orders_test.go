@@ -13,7 +13,7 @@ import (
 func skill(t *testing.T) string {
 	t.Helper()
 	_, here, _, _ := runtime.Caller(0)
-	body, err := os.ReadFile(filepath.Join(filepath.Dir(here), "..", "..", "..", "home", ".claude", "skills", "mochi", "SKILL.md"))
+	body, err := os.ReadFile(filepath.Join(filepath.Dir(here), "..", "..", "..", "claude-plugins", "mochi", "skills", "mochi", "SKILL.md"))
 	if err != nil {
 		t.Fatal(err)
 	}

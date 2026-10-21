@@ -53,7 +53,83 @@ func (f *fixture) watching() int {
 	if err != nil {
 		f.t.Fatal(err)
 	}
+	n := 0
+	for _, w := range all {
+		if !w.Done {
+			n++
+		}
+	}
+	return n
+}
+
+// Every watch kept, a finished one included.
+func (f *fixture) watches() int {
+	f.t.Helper()
+	all, err := f.h.Watches.Load()
+	if err != nil {
+		f.t.Fatal(err)
+	}
 	return len(all)
+}
+
+func (f *fixture) postPR(thread, url string) {
+	f.t.Helper()
+	at := f.h.Now()
+	if err := event.Put(f.cfg.EventsDir(), event.Event{Thread: thread, Kind: event.PR, PR: url, At: at.Unix(), Nanos: at.UnixNano()}); err != nil {
+		f.t.Fatal(err)
+	}
+	f.h.ConsumeEvents()
+}
+
+func count(posts []string, want string) int {
+	n := 0
+	for _, p := range posts {
+		if p == want {
+			n++
+		}
+	}
+	return n
+}
+
+// The session posting its pull request again, before and after the merge, as a review and
+// then as done, starts no second watch and no second notice; GitHub is asked nothing once it
+// is merged.
+func TestAPullRequestPostedAgainIsWatchedOnce(t *testing.T) {
+	f, thread, g := watched(t)
+	f.h.WatchPRs()
+	f.postPR(thread, "https://github.com/TimChe/RePeek/pull/42")
+	if f.watches() != 1 {
+		t.Fatalf("watches %d after the same pull request was posted again", f.watches())
+	}
+
+	g.state, g.merged = "closed", true
+	f.h.WatchPRs()
+	f.postPR(thread, prURL)
+	asked := len(g.calls)
+	f.h.WatchPRs()
+	f.h.WatchPRs()
+	if n := count(f.sentTo(thread), "#42 merged."); n != 1 {
+		t.Errorf("merged posts %d: %q", n, f.sentTo(thread))
+	}
+	if f.watching() != 0 || f.watches() != 1 || len(g.calls) != asked {
+		t.Errorf("watching %d of %d, GitHub asked %d more times", f.watching(), f.watches(), len(g.calls)-asked)
+	}
+}
+
+// A finished watch is kept as long as its session and no longer.
+func TestAFinishedWatchGoesWithItsSession(t *testing.T) {
+	f, thread, g := watched(t)
+	g.state, g.merged = "closed", true
+	f.h.WatchPRs()
+	if f.watches() != 1 {
+		t.Fatal("the finished watch was not kept")
+	}
+	delete(f.herdr.agents, "mochi-"+thread)
+	f.at(f.h.Now().Add(8 * 24 * time.Hour))
+	f.h.Prune(keepGone)
+	if f.watches() != 0 {
+		t.Error("a pruned session's finished watch was kept")
+	}
 }
 
 // Nothing watched, nothing asked of GitHub.
@@ -67,15 +143,15 @@ func TestNoWatchedPullRequestAsksGitHubNothing(t *testing.T) {
 	}
 }
 
-// Merged: the session is done, its thread says so once, and it is watched no more; its tab is
-// left as it is.
+// Merged: the session is done, its thread says so once, naming the pull request, and it is
+// watched no more; its tab is left as it is.
 func TestAMergedPullRequestIsTheSessionDone(t *testing.T) {
 	f, thread, g := watched(t)
 	if f.watching() != 1 {
 		t.Fatal("the posted pull request is not watched")
 	}
 	f.h.WatchPRs()
-	if f.watching() != 1 || f.sentTo(thread)[len(f.sentTo(thread))-1] == "Merged." {
+	if f.watching() != 1 || f.sentTo(thread)[len(f.sentTo(thread))-1] == "#42 merged." {
 		t.Fatal("an open pull request was taken for merged")
 	}
 
@@ -88,7 +164,7 @@ func TestAMergedPullRequestIsTheSessionDone(t *testing.T) {
 	}
 	merged := 0
 	for _, p := range f.sentTo(thread) {
-		if p == "Merged." {
+		if p == "#42 merged." {
 			merged++
 		}
 	}
@@ -100,15 +176,54 @@ func TestAMergedPullRequestIsTheSessionDone(t *testing.T) {
 	}
 }
 
-// Closed without merging: said once, watched no more, the state left alone.
+// A pull request already merged at the first look is the session done all the same, but its
+// thread is told nothing: the session posted it after the merge and has said so itself.
+func TestAPullRequestMergedAtTheFirstLookIsNotSaid(t *testing.T) {
+	f, thread, g := watched(t)
+	posted := len(f.sentTo(thread))
+	g.state, g.merged = "closed", true
+	f.h.WatchPRs()
+	f.h.WatchPRs()
+	f.inState(thread, mark.Finished)
+	if f.api.Channels[thread].Name != "✅ research" {
+		t.Errorf("thread = %q", f.api.Channels[thread].Name)
+	}
+	if posts := f.sentTo(thread); len(posts) != posted || f.watching() != 0 {
+		t.Errorf("posts %q, watching %d", posts[posted:], f.watching())
+	}
+}
+
+// Closed without merging: said once, naming the pull request, watched no more, the state left
+// alone.
 func TestAClosedPullRequestIsSaid(t *testing.T) {
 	f, thread, g := watched(t)
 	f.h.Marks.Settled(thread, mark.Asking)
+	f.h.WatchPRs()
 	g.state = "closed"
 	f.h.WatchPRs()
 	f.h.WatchPRs()
-	if posts := f.sentTo(thread); posts[len(posts)-1] != "Closed without merging." || f.watching() != 0 {
-		t.Errorf("posts %q, watching %d", posts, f.watching())
+	closed := 0
+	for _, p := range f.sentTo(thread) {
+		if p == "#42 closed without merging." {
+			closed++
+		}
+	}
+	if closed != 1 || f.watching() != 0 {
+		t.Errorf("closed posts %d, watching %d", closed, f.watching())
+	}
+	f.inState(thread, mark.Asking)
+}
+
+// A pull request already closed at the first look is watched no more, with nothing said and
+// the state left alone.
+func TestAPullRequestClosedAtTheFirstLookIsNotSaid(t *testing.T) {
+	f, thread, g := watched(t)
+	f.h.Marks.Settled(thread, mark.Asking)
+	posted := len(f.sentTo(thread))
+	g.state = "closed"
+	f.h.WatchPRs()
+	if posts := f.sentTo(thread); len(posts) != posted || f.watching() != 0 {
+		t.Errorf("posts %q, watching %d", posts[posted:], f.watching())
 	}
 	f.inState(thread, mark.Asking)
 }

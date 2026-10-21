@@ -38,14 +38,19 @@ func (h *Handler) watch(ev event.Event, watches map[string]state.Watch) {
 		h.Log.Warn("a posted pull request is not in the session's repository, so it is not watched", "thread", ev.Thread, "repo", repo, "want", want, "error", err)
 		return
 	}
-	if _, known := watches[ev.PR]; !known {
-		watches[ev.PR] = state.Watch{Thread: ev.Thread, Repo: repo, Number: number}
-		h.Log.Info("watching a pull request a session posted", "thread", ev.Thread, "repo", repo, "number", number)
+	w := state.Watch{Thread: ev.Thread, Repo: repo, Number: number}
+	for _, known := range watches {
+		if known.Same(w) {
+			return
+		}
 	}
+	watches[fmt.Sprintf("%s %s#%d", ev.Thread, strings.ToLower(repo), number)] = w
+	h.Log.Info("watching a pull request a session posted", "thread", ev.Thread, "repo", repo, "number", number)
 }
 
 // WatchPRs runs every two minutes and asks GitHub nothing while no pull request is watched. A
-// merged one is the session done, a closed one is said in its thread, and a push whose checks
+// merged one is the session done, either end is said in its thread when the watch saw it open
+// first, and a push whose checks
 // fail is relayed to the session once, as mochi's own prompt, with nothing of it in Discord.
 //
 // What it watches is read under the handler's lock and what came of it applied under it, but
@@ -60,7 +65,7 @@ func (h *Handler) WatchPRs() {
 
 	looks := make(map[string]look, len(watches))
 	for url, w := range watches {
-		if rec, ok := sessions[w.Thread]; ok {
+		if rec, ok := sessions[w.Thread]; ok && !w.Done {
 			looks[url] = h.lookAt(rec, w)
 		}
 	}
@@ -72,7 +77,7 @@ func (h *Handler) WatchPRs() {
 
 // What one look at a watched pull request found.
 type look struct {
-	gone, merged, closed bool
+	gone, open, merged, closed bool
 
 	// The head whose failed checks were dealt with, and whether the session was told of them.
 	told    string
@@ -85,7 +90,11 @@ func (h *Handler) watched() (map[string]state.Watch, map[string]state.Session, b
 		h.Log.Error("the watched pull requests could not be read", "error", err)
 		return nil, nil, false
 	}
-	if len(watches) == 0 || h.GH == nil {
+	active := false
+	for _, w := range watches {
+		active = active || !w.Done
+	}
+	if !active || h.GH == nil {
 		return nil, nil, false
 	}
 	sessions, err := h.Store.Load()
@@ -109,10 +118,10 @@ func (h *Handler) lookAt(rec state.Session, w state.Watch) look {
 		return look{closed: true}
 	case pr.Head != "" && pr.Head != w.Told:
 		if dealt, relayed := h.failedChecks(rec, w, pr.Head); dealt {
-			return look{told: pr.Head, relayed: relayed}
+			return look{open: true, told: pr.Head, relayed: relayed}
 		}
 	}
-	return look{}
+	return look{open: true}
 }
 
 // The watches are read again under the lock, since an event may have added one meanwhile.
@@ -141,19 +150,28 @@ func (h *Handler) apply(looks map[string]look) {
 			delete(watches, url)
 		case l.merged:
 			h.Marks.Settled(w.Thread, mark.Finished)
-			h.say(w.Thread, "Merged.")
-			delete(watches, url)
-		case l.closed:
-			h.say(w.Thread, "Closed without merging.")
-			delete(watches, url)
-		case l.told != "":
-			w.Told = l.told
-			watches[url] = w
-			if l.relayed {
-				h.Marks.Started(w.Thread)
+			if w.Open {
+				h.say(w.Thread, fmt.Sprintf("#%d merged.", w.Number))
 			}
-		default:
+			w.Done = true
+		case l.closed:
+			if w.Open {
+				h.say(w.Thread, fmt.Sprintf("#%d closed without merging.", w.Number))
+			}
+			w.Done = true
+		case !l.open || (w.Open && l.told == ""):
 			continue
+		default:
+			w.Open = true
+			if l.told != "" {
+				w.Told = l.told
+				if l.relayed {
+					h.Marks.Started(w.Thread)
+				}
+			}
+		}
+		if !l.gone {
+			watches[url] = w
 		}
 		changed = true
 	}

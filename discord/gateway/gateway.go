@@ -392,7 +392,9 @@ func (s *Session) connection(onReady func()) error {
 				s.sessionID, s.resumeURL = r.SessionID, r.ResumeGatewayURL
 				s.mu.Unlock()
 				becameReady()
-				deliver(s, s.Handlers.Ready, &r)
+				if s.Handlers.Ready != nil {
+					go s.Handlers.Ready(&r)
+				}
 			case "RESUMED":
 				becameReady()
 			default:
@@ -495,18 +497,15 @@ func (s *Session) dispatch(event string, data json.RawMessage) {
 }
 
 // deliver decodes an event and hands it to its handler, when there is one, in a goroutine of
-// its own. v is either the raw event or the value already decoded.
-func deliver[T any](s *Session, handler func(*T), v any) {
+// its own.
+func deliver[T any](s *Session, handler func(*T), data json.RawMessage) {
 	if handler == nil {
 		return
 	}
-	event, ok := v.(*T)
-	if !ok {
-		event = new(T)
-		if err := json.Unmarshal(v.(json.RawMessage), event); err != nil {
-			s.Log.Warn("a gateway event did not parse, so it was dropped", "error", err)
-			return
-		}
+	event := new(T)
+	if err := json.Unmarshal(data, event); err != nil {
+		s.Log.Warn("a gateway event did not parse, so it was dropped", "error", err)
+		return
 	}
 	go handler(event)
 }

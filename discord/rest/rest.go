@@ -113,8 +113,8 @@ func NoWait() Option { return func(o *options) { o.noWait = true } }
 // How many 429s a request waits out before it is given up on, and how many 502s it is sent
 // again after: Discord answers both while it is struggling, and neither for ever.
 const (
-	limitRetries   = 5
-	gatewayRetries = 3
+	limitRetries      = 5
+	badGatewayRetries = 3
 )
 
 type request struct {
@@ -168,7 +168,7 @@ func (c *Client) do(r request, out any, opts ...Option) error {
 			attempt++
 			c.Sleep(wait)
 			continue
-		case resp.StatusCode == http.StatusBadGateway && bad < gatewayRetries:
+		case resp.StatusCode == http.StatusBadGateway && bad < badGatewayRetries:
 			bad++
 			continue
 		case resp.StatusCode < 200 || resp.StatusCode > 299:

@@ -169,21 +169,20 @@ func (c *conn) readMessage() ([]byte, error) {
 			if fragmented {
 				return nil, c.fail()
 			}
-			msg, fragmented = payload, !fin
-		case opContinuation:
-			if !fragmented {
-				return nil, c.fail()
+			if fin {
+				return payload, nil
 			}
-			if len(msg)+len(payload) > maxMessage {
+			msg, fragmented = payload, true
+		case opContinuation:
+			if !fragmented || len(msg)+len(payload) > maxMessage {
 				return nil, c.fail()
 			}
 			msg = append(msg, payload...)
-			fragmented = !fin
+			if fin {
+				return msg, nil
+			}
 		default:
 			return nil, c.fail()
-		}
-		if (op == opText || op == opBinary || op == opContinuation) && fin {
-			return msg, nil
 		}
 	}
 }

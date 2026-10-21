@@ -77,10 +77,8 @@ func (c *Channel) IsThread() bool {
 type PremiumTier int
 
 const (
-	PremiumTierNone PremiumTier = 0
-	PremiumTier1    PremiumTier = 1
-	PremiumTier2    PremiumTier = 2
-	PremiumTier3    PremiumTier = 3
+	PremiumTier2 PremiumTier = 2
+	PremiumTier3 PremiumTier = 3
 )
 
 // A guild as REST answers it, and as GUILD_CREATE delivers it with its roles.
@@ -155,12 +153,6 @@ type Message struct {
 }
 
 type AllowedMentionType string
-
-const (
-	AllowedMentionTypeRoles    AllowedMentionType = "roles"
-	AllowedMentionTypeUsers    AllowedMentionType = "users"
-	AllowedMentionTypeEveryone AllowedMentionType = "everyone"
-)
 
 // Parse is never left out of the JSON: an empty list is what tells Discord that nothing in
 // the message pings anybody, and a missing one would let it parse every mention. Nor is
@@ -261,11 +253,7 @@ func (b Button) MarshalJSON() ([]byte, error) {
 
 type InteractionType int
 
-const (
-	InteractionPing             InteractionType = 1
-	InteractionApplicationCmd   InteractionType = 2
-	InteractionMessageComponent InteractionType = 3
-)
+const InteractionMessageComponent InteractionType = 3
 
 // What a pressed button sends: its custom id. Any other kind of interaction's data reads as
 // this with nothing in it, which is all a tool that only has buttons needs.

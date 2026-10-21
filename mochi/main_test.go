@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 
 	"github.com/timche/mac-mini/mochi/internal/config"
@@ -287,53 +286,6 @@ func TestEditAndDeleteRefuseBeforeOp(t *testing.T) {
 		if err := run(args); err == nil || err.Error() == reachedOp {
 			t.Errorf("%v: %v", args, err)
 		}
-	}
-}
-
-// The announce skill this repository ships: model-invocable, loaded only when the user asks to
-// share work with the team, and independent of mochi's own sessions.
-func TestTheAnnounceSkillSaysWhenAndHow(t *testing.T) {
-	_, here, _, _ := runtime.Caller(0)
-	body, err := os.ReadFile(filepath.Join(filepath.Dir(here), "..", "claude-plugins", "mochi", "skills", "announce", "SKILL.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(body)
-	end := strings.Index(text[4:], "\n---\n")
-	if !strings.HasPrefix(text, "---\nname: announce\ndescription: ") || end < 0 {
-		t.Fatalf("no frontmatter:\n%.300s", text)
-	}
-	front := text[:end+4]
-	for _, want := range []string{"share with the team", "announce this", "never otherwise"} {
-		if !strings.Contains(front, want) {
-			t.Errorf("the description lacks %q", want)
-		}
-	}
-	if strings.Contains(front, "disable-model-invocation") || strings.Contains(front, "MOCHI_THREAD") {
-		t.Errorf("the skill is not the session's to load whenever it is asked:\n%s", front)
-	}
-	// Where the project's settings live is the mochi skill's to say, not this one's.
-	if strings.Contains(text, ".mochi") || strings.Contains(text, "MOCHI.md") {
-		t.Error("the announce skill says where the project's settings live")
-	}
-	for _, want := range []string{
-		"mochi announce",
-		"mostly moderators who are not technical",
-		"what players will notice",
-		"**Screenshots**",
-		"**Videos**",
-		"Post right away",
-		"the go-ahead",
-		"its link",
-		"No internals",
-		"If something posted shouldn't be there, fix it with `mochi edit <link>` (or `mochi delete <link>`) right away and tell the user.",
-	} {
-		if !strings.Contains(text, want) {
-			t.Errorf("the skill lacks %q", want)
-		}
-	}
-	if strings.Contains(text, "mochi post") {
-		t.Error("the skill names mochi post, which is the mochi skill's")
 	}
 }
 

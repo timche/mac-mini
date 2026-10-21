@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// The mochi skill this repository ships, read through its own relative path, so the rules a
+// The mochi skill the mochi plugin ships, read through its own relative path, so the rules a
 // session loads are the ones tested here.
 func skill(t *testing.T) string {
 	t.Helper()
@@ -67,10 +67,17 @@ var orders = []string{
 
 func TestTheSkillHoldsTheStandingOrders(t *testing.T) {
 	text := skill(t)
-	if !strings.HasPrefix(text, "---\nname: mochi\ndescription: ") || !strings.Contains(text, `Load only when your brief opens with \"Invoke the mochi skill\" or MOCHI_THREAD is set, never otherwise.`) {
-		t.Errorf("the frontmatter does not name the skill and say what it is for:\n%.300s", text)
+	end := strings.Index(text[4:], "\n---\n")
+	if !strings.HasPrefix(text, "---\nname: mochi\ndescription: ") || end < 0 {
+		t.Fatalf("no frontmatter:\n%.300s", text)
 	}
-	front := text[:strings.Index(text[4:], "---")+4]
+	front := text[:end+4]
+	// Loaded by a session mochi started, and by any session asked to share work with the team.
+	for _, want := range []string{`\"Invoke the mochi skill\"`, "MOCHI_THREAD is set", "the project's own instructions", "share with the team", "announce this", "never otherwise"} {
+		if !strings.Contains(front, want) {
+			t.Errorf("the description lacks %q", want)
+		}
+	}
 	if strings.Contains(front, "disable-model-invocation") {
 		t.Error("the skill cannot be invoked by the session itself")
 	}
@@ -121,6 +128,42 @@ func TestTheBriefLoadsTheSkillAndRepeatsNoOrder(t *testing.T) {
 			if strings.Contains(text, word) {
 				t.Errorf("a prompt still carries %q", word)
 			}
+		}
+	}
+}
+
+// How any session shares work with the team, mochi's or not: said before the part only a
+// session mochi started reads.
+func TestTheSkillSaysWhenAndHowToAnnounce(t *testing.T) {
+	text := skill(t)
+	started := strings.Index(text, "\n## In a session mochi started\n")
+	if started < 0 {
+		t.Fatal("the skill has no part for a session mochi started")
+	}
+	shared := text[:started]
+	for _, want := range []string{
+		"mochi announce",
+		"whether mochi started it or not",
+		"mostly moderators who are not technical",
+		"what players will notice",
+		"**Screenshots**",
+		"**Videos**",
+		"Post right away",
+		"the go-ahead",
+		"its link",
+		"No internals",
+		"Name none of the tools or services behind the work",
+		"Files have to be inside this session's checkout or its scratch folder",
+		"A secret scan runs over every post first",
+		"If something posted shouldn't be there, fix it with `mochi edit <link>` (or `mochi delete <link>`) right away and tell the user.",
+	} {
+		if !strings.Contains(shared, want) {
+			t.Errorf("the part for every session lacks %q", want)
+		}
+	}
+	for _, own := range []string{"mochi post", "mochi history", "INSTRUCTION FROM TIM", ".mochi/", "--review", "rename"} {
+		if strings.Contains(shared, own) {
+			t.Errorf("the part for every session says %q, which is for a session mochi started", own)
 		}
 	}
 }

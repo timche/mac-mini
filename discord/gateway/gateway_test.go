@@ -149,6 +149,27 @@ func TestReconnectRequestResumes(t *testing.T) {
 	waitReady(t, h)
 }
 
+// A reconnect asked for before the connection was ever ready waits a second first; one asked
+// for on a ready connection goes at once.
+func TestAReconnectLoopBeforeReadyIsSpacedOut(t *testing.T) {
+	h := newHarness(t)
+	c := h.connected(t, time.Hour)
+	c.send(opReconnect, nil, 0, "")
+	r := h.g.next()
+	asked := time.Now()
+	r.hello(time.Hour)
+	r.expect(opResume)
+	r.send(opReconnect, nil, 0, "")
+	again := h.g.next()
+	if waited := time.Since(asked); waited < unreadyFloor {
+		t.Errorf("reconnected after %s", waited)
+	}
+	again.hello(time.Hour)
+	again.expect(opResume)
+	again.send(opDispatch, nil, 2, "RESUMED")
+	waitReady(t, h)
+}
+
 func TestAResumableInvalidSessionResumes(t *testing.T) {
 	h := newHarness(t)
 	c := h.connected(t, time.Hour)

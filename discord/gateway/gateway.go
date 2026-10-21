@@ -42,6 +42,11 @@ const closeToResume CloseCode = 4900
 // given up on.
 const readyTimeout = 2 * time.Minute
 
+// The least wait before a reconnect after a connection that never got as far as READY or
+// RESUMED, so a gateway that keeps asking for a reconnect straight after hello is not
+// answered in a tight loop.
+const unreadyFloor = time.Second
+
 // Each runs in a goroutine of its own, as the gateway's reader may not wait on a handler: a
 // heartbeat ack it does not read in time is a connection it takes for dead.
 type Handlers struct {
@@ -195,7 +200,9 @@ func (s *Session) run(first chan<- error) {
 	defer close(s.done)
 	backoff := s.Backoff
 	for {
+		ready := false
 		err := s.connection(func() {
+			ready = true
 			backoff = s.Backoff
 			if first != nil {
 				first <- nil
@@ -230,6 +237,9 @@ func (s *Session) run(first chan<- error) {
 				s.forget()
 			}
 			backoff = min(backoff*2, s.MaxBackoff)
+		}
+		if !ready {
+			wait = max(wait, unreadyFloor)
 		}
 		s.Log.Warn("the gateway connection ended, so it is opened again", "error", s.scrub(err), "wait", wait.String(), "resume", s.resumable())
 

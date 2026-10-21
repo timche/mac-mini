@@ -6,8 +6,17 @@ package discord
 import (
 	"encoding/json"
 	"io"
+	"strings"
 	"time"
 )
+
+// Redact takes a token out of a text before anything logs or posts it.
+func Redact(text, token string) string {
+	if token == "" {
+		return text
+	}
+	return strings.ReplaceAll(text, token, "<token>")
+}
 
 type User struct {
 	ID         string `json:"id"`

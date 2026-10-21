@@ -311,12 +311,7 @@ func shownPath(path string) string {
 	return interactionToken.ReplaceAllString(path, "$1<token>")
 }
 
-func (c *Client) redact(text string) string {
-	if c.Token == "" {
-		return text
-	}
-	return strings.ReplaceAll(text, c.Token, "<token>")
-}
+func (c *Client) redact(text string) string { return discord.Redact(text, c.Token) }
 
 // net/http names the URL it failed on, which holds no secret here, but an error that came
 // back with a header echoed into it would.

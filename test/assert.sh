@@ -516,6 +516,53 @@ check "mochi's session hooks never fail or speak, and hand the binary its event"
      rm "$d/Library/Caches/mochi/mochi" "$d/args" || exit 1
    done < "$d/wired"'
 
+# The plugin those hooks and mochi's skill come from, in a marketplace of this checkout's
+# that Claude Code checks as it would on an install.
+check "the mochi plugin and its marketplace pass Claude Code's validation" \
+  'claude plugin validate "$repo/claude-plugins" &&
+   claude plugin validate "$repo/claude-plugins/mochi" &&
+   [ -f "$repo/claude-plugins/mochi/skills/mochi/SKILL.md" ] &&
+   [ -f "$repo/claude-plugins/mochi/briefing.md" ] &&
+   [ ! -e "$HOME/.claude/skills/mochi" ] && [ ! -e "$HOME/.claude/skills/announce" ]'
+
+# Known to every session, by a path through ~ so that settings.json names no account, and on
+# in none of them: a repository mochi serves turns it on for itself.
+check "the mochi plugin is declared at user level and left off there" \
+  'jq -e ".extraKnownMarketplaces[\"mac-mini\"].source == {source: \"directory\", path: \"~/.mac-mini/claude-plugins\"}" "$HOME/.claude/settings.json" &&
+   jq -e ".name == \"mac-mini\"" "$HOME/.mac-mini/claude-plugins/.claude-plugin/marketplace.json" &&
+   jq -e ".enabledPlugins[\"mochi@mac-mini\"] == false" "$HOME/.claude/settings.json" &&
+   jq -e ".defaultEnabled == false" "$repo/claude-plugins/mochi/.claude-plugin/plugin.json"'
+
+# Every repository mochi serves that is checked out here has it on, in a settings file git
+# ignores there; one not checked out yet is install.sh's to report.
+check "the mochi plugin is on in each repository mochi serves" \
+  'config="$HOME/.config/mochi/config.json" && [ -f "$config" ] &&
+   jq -r ".server[]?.repo" "$config" | while IFS= read -r r; do
+     case $r in "~/"*) r="$HOME/${r#"~/"}" ;; esac
+     git -C "$r" rev-parse --is-inside-work-tree >/dev/null 2>&1 || continue
+     jq -e ".enabledPlugins[\"mochi@mac-mini\"] == true" "$r/.claude/settings.local.json" &&
+     git -C "$r" check-ignore -q .claude/settings.local.json || exit 1
+   done'
+
+# What install.sh runs to get there, against repositories of its own: a file that does not
+# exist is made, one that does keeps every other key, one jq cannot read is left as it is,
+# and a second run changes nothing.
+check "turning the mochi plugin on merges into a repository settings file and repeats safely" \
+  'd="$(mktemp -d)" && mkdir -p "$d/p" &&
+   for r in fresh kept broken; do git init -q "$d/p/$r" || exit 1; done &&
+   mkdir -p "$d/p/kept/.claude" "$d/p/broken/.claude" &&
+   echo "{\"permissions\":{\"allow\":[\"Bash(ls)\"]}}" > "$d/p/kept/.claude/settings.local.json" &&
+   echo "{not json" > "$d/p/broken/.claude/settings.local.json" &&
+   echo "{\"server\":[{\"repo\":\"~/p/fresh\"},{\"repo\":\"~/p/kept\"},{\"repo\":\"~/p/broken\"},{\"repo\":\"~/p/absent\"}]}" > "$d/config.json" &&
+   HOME="$d" MOCHI_CONFIG="$d/config.json" "$repo/claude/mochi-plugin.sh" &&
+   cp "$d/p/kept/.claude/settings.local.json" "$d/first" &&
+   HOME="$d" MOCHI_CONFIG="$d/config.json" "$repo/claude/mochi-plugin.sh" &&
+   jq -e ". == {enabledPlugins: {\"mochi@mac-mini\": true}}" "$d/p/fresh/.claude/settings.local.json" &&
+   jq -e ". == {permissions: {allow: [\"Bash(ls)\"]}, enabledPlugins: {\"mochi@mac-mini\": true}}" "$d/p/kept/.claude/settings.local.json" &&
+   cmp -s "$d/first" "$d/p/kept/.claude/settings.local.json" &&
+   [ "$(cat "$d/p/broken/.claude/settings.local.json")" = "{not json" ] &&
+   [ ! -e "$d/p/absent" ] && [ -z "$(ls "$d/p/kept/.claude" | grep -v "^settings.local.json$")" ]'
+
 # The command as settings.json spells it, run the way Claude Code runs a hook: a session
 # hachiko did not open never starts python at all, and one it did is refused when the
 # guard cannot start, since only exit 2 stops a call and anything else lets it through.
@@ -1185,6 +1232,8 @@ gate_fixture() {
   cp -R "$repo/mochi" "$dir/mochi"
   cp -R "$repo/discord" "$dir/discord"
   cp -R "$repo/home" "$dir/home"
+  # mochi's tests read the skill and the briefing its plugin ships.
+  cp -R "$repo/claude-plugins" "$dir/claude-plugins"
 }
 export -f gate_fixture
 

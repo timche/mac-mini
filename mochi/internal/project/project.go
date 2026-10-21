@@ -80,18 +80,51 @@ func Load(repo string) (Settings, error) {
 	if len(body) > maxConfig {
 		return s, fmt.Errorf("%s: over %d KB", ConfigFile, maxConfig>>10)
 	}
+	if err := oneObject(body); err != nil {
+		return Settings{}, fmt.Errorf("%s: %w", ConfigFile, err)
+	}
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&s); err != nil {
 		return Settings{}, fmt.Errorf("%s: %w", ConfigFile, err)
 	}
-	if dec.More() {
-		return Settings{}, fmt.Errorf("%s: more than one JSON object", ConfigFile)
-	}
 	if err := s.Check(); err != nil {
 		return Settings{}, fmt.Errorf("%s: %w", ConfigFile, err)
 	}
 	return s, nil
+}
+
+// oneObject refuses what encoding/json lets through: anything after the object, and a key given
+// twice, where the last would silently win. encoding/json matches keys without regard to case,
+// so "Forum" is the same key as "forum" here too.
+func oneObject(body []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return errors.New("not a JSON object")
+	}
+	seen := map[string]bool{}
+	for dec.More() {
+		t, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		key := strings.ToLower(t.(string))
+		if seen[key] {
+			return fmt.Errorf("%q is given twice", t)
+		}
+		seen[key] = true
+		var skip json.RawMessage
+		if err := dec.Decode(&skip); err != nil {
+			return err
+		}
+	}
+	if _, err := dec.Token(); err != nil {
+		return err
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return errors.New("something follows the JSON object")
+	}
+	return nil
 }
 
 // Instructions is the repository's `.mochi/instructions.md`, for the sessions mochi starts in

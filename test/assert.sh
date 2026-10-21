@@ -553,23 +553,33 @@ check "git ignores .claude/settings.local.json in any repository" \
    git -C "$d" check-ignore -q .claude/settings.local.json &&
    ! git -C "$d" check-ignore -q .claude/settings.json'
 
-# What install.sh runs to get there, against repositories of its own: a file that does not
-# exist is made, one that does keeps every other key, one jq cannot read is left as it is,
-# and a second run changes nothing.
+# What install.sh runs to get there, against repositories of its own under a global ignore like
+# this Mac's: a file that does not exist is made, one that does keeps every other key and its
+# mode, one jq cannot read is left as it is, a symlink is not replaced or written through, a
+# repository that does not ignore the file gets none, and a second run changes nothing.
 check "turning the mochi plugin on merges into a repository settings file and repeats safely" \
-  'd="$(mktemp -d)" && mkdir -p "$d/p" &&
-   for r in fresh kept broken; do git init -q "$d/p/$r" || exit 1; done &&
-   mkdir -p "$d/p/kept/.claude" "$d/p/broken/.claude" &&
+  'd="$(mktemp -d)" && mkdir -p "$d/p" "$d/.config/git" &&
+   echo ".claude/settings.local.json" > "$d/.config/git/ignore" &&
+   for r in fresh kept broken linked open; do git init -q "$d/p/$r" || exit 1; done &&
+   mkdir -p "$d/p/kept/.claude" "$d/p/broken/.claude" "$d/p/linked/.claude" &&
    echo "{\"permissions\":{\"allow\":[\"Bash(ls)\"]}}" > "$d/p/kept/.claude/settings.local.json" &&
+   chmod 600 "$d/p/kept/.claude/settings.local.json" &&
    echo "{not json" > "$d/p/broken/.claude/settings.local.json" &&
-   echo "{\"server\":[{\"repo\":\"~/p/fresh\"},{\"repo\":\"~/p/kept\"},{\"repo\":\"~/p/broken\"},{\"repo\":\"~/p/absent\"}]}" > "$d/config.json" &&
-   HOME="$d" MOCHI_CONFIG="$d/config.json" "$repo/claude/mochi-plugin.sh" &&
+   echo "{}" > "$d/target.json" && ln -s "$d/target.json" "$d/p/linked/.claude/settings.local.json" &&
+   echo "!.claude/settings.local.json" > "$d/p/open/.gitignore" &&
+   echo "{\"server\":[{\"repo\":\"~/p/fresh\"},{\"repo\":\"~/p/kept\"},{\"repo\":\"~/p/broken\"},{\"repo\":\"~/p/linked\"},{\"repo\":\"~/p/open\"},{\"repo\":\"~/p/absent\"}]}" > "$d/config.json" &&
+   HOME="$d" MOCHI_CONFIG="$d/config.json" "$repo/claude/mochi-plugin.sh" 2>"$d/err" &&
    cp "$d/p/kept/.claude/settings.local.json" "$d/first" &&
    HOME="$d" MOCHI_CONFIG="$d/config.json" "$repo/claude/mochi-plugin.sh" &&
    jq -e ". == {enabledPlugins: {\"mochi@mac-mini\": true}}" "$d/p/fresh/.claude/settings.local.json" &&
+   [ "$(stat -f %Lp "$d/p/fresh/.claude/settings.local.json")" = 644 ] &&
    jq -e ". == {permissions: {allow: [\"Bash(ls)\"]}, enabledPlugins: {\"mochi@mac-mini\": true}}" "$d/p/kept/.claude/settings.local.json" &&
+   [ "$(stat -f %Lp "$d/p/kept/.claude/settings.local.json")" = 600 ] &&
    cmp -s "$d/first" "$d/p/kept/.claude/settings.local.json" &&
    [ "$(cat "$d/p/broken/.claude/settings.local.json")" = "{not json" ] &&
+   [ -L "$d/p/linked/.claude/settings.local.json" ] && [ "$(cat "$d/target.json")" = "{}" ] &&
+   grep -q "linked/.claude/settings.local.json is a symlink" "$d/err" &&
+   [ ! -e "$d/p/open/.claude" ] && grep -q "is not gitignored in $d/p/open" "$d/err" &&
    [ ! -e "$d/p/absent" ] && [ -z "$(ls "$d/p/kept/.claude" | grep -v "^settings.local.json$")" ]'
 
 # The command as settings.json spells it, run the way Claude Code runs a hook: a session

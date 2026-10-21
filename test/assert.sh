@@ -586,6 +586,20 @@ check "the on-call guard refuses an edit to the configuration every session load
    guard Bash "cat $HOME/.claude/settings.json" &&
    guard Bash "cat $HOME/.claude/settings.json > /private/tmp/copy.json"'
 
+# A session on a published vulnerability has to prove the exposure before it does anything
+# about it, and every one of those readings is a command the guard sees. The fixes that are
+# Tim's on one of these are already on the never list, so the only thing to check is that
+# finding out costs nothing.
+check "the on-call guard allows a vulnerability confirmed by a live test" \
+  'guard Bash "curl -v https://example.invalid" &&
+   guard Bash "openssl s_client -connect example.invalid:443 -showcerts" &&
+   guard Bash "security find-certificate -a -c \"emSign ECC Root CA - G3\"" &&
+   guard Bash "cat /etc/ssl/cert.pem" &&
+   guard Bash "go get golang.org/x/crypto@latest" &&
+   guard Bash "go mod tidy" &&
+   refused Bash "sudo security add-trusted-cert -d /tmp/ca.pem" &&
+   refused Bash "sudo cp /tmp/cert.pem /etc/ssl/cert.pem"'
+
 check "the on-call guard refuses what would take every other session with it" \
   'refused Bash "pkill -f claude" &&
    refused Bash "killall herdr" &&

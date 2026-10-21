@@ -1294,8 +1294,9 @@ check "mochi's token is an op:// reference beside it, and nothing resolved" \
    ! grep -qE "^[A-Z_]+=[^o]" "$HOME/.local/bin/mochi.env.op"'
 
 check "mochi's server mapping is linked and takes instructions from Tim alone" \
-  '[ -L "$HOME/.config/mochi/config.toml" ] && [ -e "$HOME/.config/mochi/config.toml" ] &&
-   grep -qx "user = \"94004892942741504\"" "$HOME/.config/mochi/config.toml"'
+  '[ -L "$HOME/.config/mochi/config.json" ] && [ -e "$HOME/.config/mochi/config.json" ] &&
+   [ "$(plutil -extract user raw -o - "$HOME/.config/mochi/config.json")" = 94004892942741504 ] &&
+   [ ! -L "$HOME/.config/mochi/config.toml" ]'
 
 export mochi_plist="$HOME/Library/LaunchAgents/io.github.timche.mochi.plist"
 

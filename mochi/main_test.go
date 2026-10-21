@@ -85,8 +85,8 @@ func TestPostTakesTextFilesAStateAndAPR(t *testing.T) {
 // Outside a session there is no thread to post to, and saying so costs no 1Password read.
 func TestPostAndHistoryOutsideASessionStopBeforeOp(t *testing.T) {
 	t.Setenv("MOCHI_THREAD", "")
-	t.Setenv("MOCHI_CONFIG", filepath.Join(t.TempDir(), "config.toml"))
-	os.WriteFile(os.Getenv("MOCHI_CONFIG"), []byte("user = \"94004892942741504\"\n"), 0o644)
+	t.Setenv("MOCHI_CONFIG", filepath.Join(t.TempDir(), "config.json"))
+	os.WriteFile(os.Getenv("MOCHI_CONFIG"), []byte(`{"user": "94004892942741504"}`), 0o644)
 	t.Setenv("PATH", t.TempDir())
 
 	for _, args := range [][]string{{"post", "hi"}, {"history"}} {

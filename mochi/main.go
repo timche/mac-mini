@@ -199,7 +199,7 @@ func run(args []string) error {
 		}
 		return nil
 
-	// Left out of the usage: it is for choosing the model in [split], and reads cases rather
+	// Left out of the usage: it is for choosing the split model, and reads cases rather
 	// than Discord.
 	case "split-eval":
 		s, err := splitArgs(cfg.Split, args)

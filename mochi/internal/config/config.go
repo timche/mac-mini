@@ -4,52 +4,52 @@
 package config
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
-
-	"github.com/BurntSushi/toml"
 )
 
 type Server struct {
-	Guild     string `toml:"guild"`
-	Workspace string `toml:"workspace"`
-	Repo      string `toml:"repo"`
+	Guild     string `json:"guild"`
+	Workspace string `json:"workspace"`
+	Repo      string `json:"repo"`
 
 	// The forum a session started from a channel gets a post in; with none, a thread on Tim's
 	// message.
-	Forum string `toml:"forum"`
+	Forum string `json:"forum"`
 }
 
 // The model that decides whether a mention is one task or several, chosen by measuring
 // candidates with `mochi split-eval`: the cheapest and fastest that rarely gets it wrong.
 type Split struct {
-	Model  string `toml:"model"`
-	Effort string `toml:"effort"`
+	Model  string `json:"model"`
+	Effort string `json:"effort"`
 }
 
 func (s Split) Check() error {
 	if !word.MatchString(s.Model) || !word.MatchString(s.Effort) {
-		return fmt.Errorf("[split] model and effort are each one word, like sonnet and medium")
+		return fmt.Errorf("split's model and effort are each one word, like sonnet and medium")
 	}
 	return nil
 }
 
 type Config struct {
-	User    string   `toml:"user"`
-	Servers []Server `toml:"server"`
-	Split   Split    `toml:"split"`
+	User    string   `json:"user"`
+	Servers []Server `json:"server"`
+	Split   Split    `json:"split"`
 
-	Home string `toml:"-"`
+	Home string `json:"-"`
 
 	// The binary, the state, the heartbeat and every session's attachments: all of it is
 	// mochi's own and none of it belongs in a repository.
-	CacheDir string `toml:"-"`
+	CacheDir string `json:"-"`
 
 	// Beside the wrapper, where mise links both of them.
-	EnvFile string `toml:"-"`
+	EnvFile string `json:"-"`
 }
 
 var (
@@ -117,7 +117,7 @@ func FromEnv() (Config, error) {
 		home, _ = os.UserHomeDir()
 	}
 
-	path := envOr("MOCHI_CONFIG", filepath.Join(home, ".config", "mochi", "config.toml"))
+	path := envOr("MOCHI_CONFIG", filepath.Join(home, ".config", "mochi", "config.json"))
 	cfg, err := Load(path, home)
 	if err != nil {
 		return Config{}, err
@@ -131,13 +131,18 @@ func FromEnv() (Config, error) {
 // Strict, because every value ends up in a herdr call or a Discord request path: a key
 // mochi does not know is a typo, and a typo in the user is a bot that obeys nobody.
 func Load(path, home string) (Config, error) {
-	var cfg Config
-	meta, err := toml.DecodeFile(path, &cfg)
+	body, err := os.ReadFile(path)
 	if err != nil {
+		return Config{}, err
+	}
+	var cfg Config
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&cfg); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
-	if extra := meta.Undecoded(); len(extra) > 0 {
-		return Config{}, fmt.Errorf("%s: unknown key %s", path, extra[0])
+	if dec.More() {
+		return Config{}, fmt.Errorf("%s: more than one JSON object", path)
 	}
 
 	if !IsSnowflake(cfg.User) {

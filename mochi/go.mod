@@ -2,10 +2,7 @@ module github.com/timche/mac-mini/mochi
 
 go 1.27
 
-require (
-	github.com/BurntSushi/toml v1.6.0
-	github.com/bwmarrin/discordgo v0.29.0
-)
+require github.com/bwmarrin/discordgo v0.29.0
 
 require (
 	github.com/gorilla/websocket v1.4.2 // indirect

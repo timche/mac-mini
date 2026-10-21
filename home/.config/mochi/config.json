@@ -1,0 +1,15 @@
+{
+  "user": "94004892942741504",
+  "split": {
+    "model": "sonnet",
+    "effort": "medium"
+  },
+  "server": [
+    {
+      "guild": "1220378778665095291",
+      "workspace": "repeek",
+      "repo": "~/projects/repeek",
+      "forum": "1562152175927558292"
+    }
+  ]
+}

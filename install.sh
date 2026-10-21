@@ -111,6 +111,16 @@ finder_prefs_before="$(finder_prefs)"
 mise trust "$repo"
 (cd "$repo" && mise bootstrap --yes --force-dotfiles)
 
+# mise never removes a link mise.toml stops listing, so one left pointing into this
+# checkout at a file it does not have is taken away here.
+for link in "$HOME/.config/mochi/config.toml"; do
+  if [ -L "$link" ] && [ ! -e "$link" ]; then
+    case "$(readlink "$link")" in
+      "$repo"/*) rm "$link" && echo "removed $link, a link to a file this checkout does not have" ;;
+    esac
+  fi
+done
+
 # After the link above, because the tool list mise installs from is that file.
 # --locked so a rebuilt Mac gets the versions mise.lock resolved rather than
 # whatever latest means on the day, which is the same promise --no-upgrade makes

@@ -34,7 +34,14 @@ type Failure struct {
 // says what there is to say about it.
 func (f Failure) handed(since int64) Handed {
 	action := f.Action
-	if action == "" {
+	switch {
+	case action != "":
+	case f.Step == stepSecurity:
+		// Not tomorrow night: a security upgrade is started by the vulnerability check, which
+		// looks again in three hours and asks for it again if the version has not moved.
+		action = "**Needs you:** the next vulnerability check asks for this again in three hours. " +
+			"The step is " + wording.CodeSpan(f.Step) + " in `hachiko update --security`."
+	default:
 		action = "**Needs you:** nothing here tries it again before tomorrow night. " +
 			"The step is " + wording.CodeSpan(f.Step) + " in `hachiko update`."
 	}
@@ -70,6 +77,8 @@ func phraseFor(step string) string {
 		return "update herdr"
 	case stepOhMyZsh:
 		return "bring oh-my-zsh forward"
+	case stepSecurity:
+		return "upgrade what a published advisory named"
 	default:
 		return "read what Apple has waiting"
 	}
@@ -104,7 +113,10 @@ func (u *updater) report(state *State, now time.Time) {
 		}
 	}
 	for _, step := range statedir.SortedKeys(state.Failing) {
-		if _, still := going[step]; !still {
+		// Only a step this run attempted. A security upgrade runs two of them, and its silence
+		// about `brew update` is not evidence that `brew update` works again — a run that read
+		// it that way would close the night's incident on the strength of never having tried.
+		if _, still := going[step]; !still && u.answerable(step) {
 			was := raised[step]
 			open[was.Incident]--
 			u.sayCleared(state, step, now, was, open[was.Incident] == 0)
@@ -130,8 +142,23 @@ func (u *updater) report(state *State, now time.Time) {
 	// Whole, and whether or not anything changed tonight: what it says is which steps are
 	// failing, so one still in it is one the check has already raised and one gone from it is
 	// one nobody is waiting on any more.
+	was := map[string]Handed{}
+	for _, step := range u.hand.Failing() {
+		was[step.Step] = step
+	}
+
 	handed := make([]Handed, 0, len(state.Failing))
 	for _, step := range statedir.SortedKeys(state.Failing) {
+		// A step this run did not attempt keeps what the run that did attempt it said, because
+		// the file is rewritten whole and a security upgrade would otherwise blank the night's
+		// own account of why `brew update` failed.
+		if !u.answerable(step) {
+			if kept, known := was[step]; known {
+				handed = append(handed, kept)
+				continue
+			}
+		}
+
 		// A step that works again but whose message did not send stays on the hand-off, so the
 		// check goes on waiting on its incident until Tim has heard that it is over. There is
 		// nothing a command said about it tonight, because tonight it worked.
@@ -149,8 +176,12 @@ func (u *updater) report(state *State, now time.Time) {
 // Nothing moved and nothing to say about it is a night that goes unmentioned: this runs
 // every night for ever, and a message saying so would be the one nobody reads the night it
 // matters. The log still has the whole of it.
+//
+// A security upgrade is the exception and always says something: it ran because a published
+// advisory named a version on this Mac, so an upgrade that moved nothing is the news rather
+// than the absence of it.
 func (u *updater) summary(now time.Time) {
-	if len(u.moved) == 0 && len(u.notes) == 0 {
+	if len(u.moved) == 0 && len(u.notes) == 0 && len(u.targets) == 0 {
 		u.say("nothing moved")
 		return
 	}
@@ -169,7 +200,7 @@ func (u *updater) summary(now time.Time) {
 		return
 	}
 
-	message := wording.Lead(wording.MarkerInfo, summarySentence(len(u.moved), len(u.failures))).
+	message := wording.Lead(wording.MarkerInfo, u.sentence()).
 		Bullets(labelMoved, bullets).
 		Bullets(labelAlso, u.notes).
 		About("", u.cfg.Host).
@@ -187,13 +218,21 @@ func movedBullet(move Move) string {
 		wording.PlainWords(short(move.From)) + " → " + wording.PlainWords(short(move.To))
 }
 
-func summarySentence(moved, failed int) string {
-	sentence := "Nightly update: " + wording.CountOf(int64(moved), "version", "versions") + " moved"
-	if moved == 0 {
-		sentence = "Nightly update: nothing moved"
+// Which run this was, how much moved and how much did not. The two read differently because
+// they are different news: a night's run is a report on keeping the Mac current, and a
+// security upgrade is a report on one fault.
+func (u *updater) sentence() string {
+	what, failed := "Nightly update", "step"
+	if len(u.targets) > 0 {
+		what, failed = "Security update", "target"
 	}
-	if failed > 0 {
-		sentence += ", " + wording.CountOf(int64(failed), "step", "steps") + " failed"
+
+	sentence := what + ": " + wording.CountOf(int64(len(u.moved)), "version", "versions") + " moved"
+	if len(u.moved) == 0 {
+		sentence = what + ": nothing moved"
+	}
+	if len(u.failures) > 0 {
+		sentence += ", " + wording.CountOf(int64(len(u.failures)), failed, failed+"s") + " failed"
 	}
 	return sentence
 }
@@ -211,7 +250,7 @@ func (u *updater) sayCleared(state *State, step string, now time.Time, raised Ra
 		return
 	}
 
-	message := wording.Lead(wording.MarkerRecovered, "The nightly update can "+phraseFor(step)+" again").
+	message := wording.Lead(wording.MarkerRecovered, whoRan(step)+" can "+phraseFor(step)+" again").
 		Field(labelStep, wording.CodeSpan(step)).
 		Field(labelSince, wording.DurationPhrase(now.Sub(time.Unix(state.Failing[step].Since, 0)))).
 		About(raised.Incident, u.cfg.Host).
@@ -225,12 +264,22 @@ func (u *updater) sayCleared(state *State, step string, now time.Time, raised Ra
 	delete(state.Failing, step)
 }
 
+// Which run a step belongs to, for the two sentences that name it. Every step but one is a
+// night's; the out-of-cycle run has a step of its own, and saying the nightly update could not
+// do it would be a message about a run that never happened.
+func whoRan(step string) string {
+	if step == stepSecurity {
+		return "A security upgrade"
+	}
+	return "The nightly update"
+}
+
 // What a post about these steps opens with, which is also its title in the forum: one step by
 // what it could not do, and several by how many there were, since four phrases do not fit in
 // a title and each of them is named in the detail under it.
 func Lead(failed []Handed) string {
 	if len(failed) == 1 {
-		return "The nightly update could not " + failed[0].Phrase
+		return whoRan(failed[0].Step) + " could not " + failed[0].Phrase
 	}
 	return "The nightly update failed " + wording.CountOf(int64(len(failed)), "step", "steps")
 }

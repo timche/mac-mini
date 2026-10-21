@@ -100,6 +100,11 @@ type updater struct {
 	hand  Handoff
 	dry   bool
 
+	// The things one published advisory named, when this is the out-of-cycle run rather than
+	// the night's: empty on a night's run, and what makes the difference between a run that is
+	// answerable for every step and one that is answerable for two. See security.go.
+	targets []string
+
 	// What moved and what else is worth a line, which together are the summary, and what
 	// could not be done, which the next five-minute check raises as an incident.
 	moved    []Move

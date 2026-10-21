@@ -29,7 +29,7 @@ func TestHelloIdentifyReadyAndHeartbeats(t *testing.T) {
 		Compress   *bool             `json:"compress"`
 	}
 	json.Unmarshal(id.D, &identify)
-	if identify.Token != token || identify.Intents != 1|1<<9|1<<15 || identify.Properties["os"] == "" || identify.Compress != nil {
+	if identify.Token != token || identify.Intents != 1<<9|1<<15 || identify.Properties["os"] == "" || identify.Compress != nil {
 		t.Errorf("identify = %s", id.D)
 	}
 
@@ -418,30 +418,18 @@ func TestCloseEndsTheSession(t *testing.T) {
 
 func TestEventsAreTyped(t *testing.T) {
 	h := newHarness(t)
-	roles := make(chan string, 4)
-	h.s.Handlers.GuildCreate = func(g *discord.Guild) { roles <- g.ID + " " + g.Roles[0].BotID() }
-	h.s.Handlers.GuildRoleUpdate = func(r *discord.GuildRole) { roles <- r.GuildID + " " + r.Role.BotID() }
-	h.s.Handlers.GuildRoleDelete = func(r *discord.GuildRoleDelete) { roles <- r.GuildID + " -" + r.RoleID }
-	h.s.Handlers.InteractionCreate = func(i *discord.Interaction) { roles <- i.Data.CustomID + " " + i.Member.User.ID }
+	pressed := make(chan string, 1)
+	h.s.Handlers.InteractionCreate = func(i *discord.Interaction) { pressed <- i.Data.CustomID + " " + i.Member.User.ID }
 	c := h.connected(t, time.Hour)
 
-	c.send(opDispatch, map[string]any{"id": "g1", "roles": []map[string]any{{"id": "r1", "tags": map[string]any{"bot_id": "b1"}}}}, 2, "GUILD_CREATE")
-	c.send(opDispatch, map[string]any{"guild_id": "g1", "role": map[string]any{"id": "r2", "tags": map[string]any{"bot_id": "b2"}}}, 3, "GUILD_ROLE_UPDATE")
-	c.send(opDispatch, map[string]any{"guild_id": "g1", "role_id": "r2"}, 4, "GUILD_ROLE_DELETE")
-	c.send(opDispatch, map[string]any{"id": "i1", "type": 3, "token": "t", "data": map[string]any{"custom_id": "mochi:x:one"}, "member": map[string]any{"user": map[string]any{"id": "u1"}}}, 5, "INTERACTION_CREATE")
+	c.send(opDispatch, map[string]any{"id": "i1", "type": 3, "token": "t", "data": map[string]any{"custom_id": "mochi:x:one"}, "member": map[string]any{"user": map[string]any{"id": "u1"}}}, 2, "INTERACTION_CREATE")
 
-	got := map[string]bool{}
-	for range 4 {
-		select {
-		case r := <-roles:
-			got[r] = true
-		case <-time.After(5 * time.Second):
-			t.Fatalf("got %v", got)
+	select {
+	case got := <-pressed:
+		if got != "mochi:x:one u1" {
+			t.Errorf("got %q", got)
 		}
-	}
-	for _, want := range []string{"g1 b1", "g1 b2", "g1 -r2", "mochi:x:one u1"} {
-		if !got[want] {
-			t.Errorf("missing %q in %v", want, got)
-		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no interaction")
 	}
 }

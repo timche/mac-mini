@@ -45,11 +45,6 @@ func (c *Client) Guild(id string) (*discord.Guild, error) {
 	return orNil(&g, c.get("/guilds/"+url.PathEscape(id), &g))
 }
 
-func (c *Client) GuildRoles(guild string) ([]discord.Role, error) {
-	var roles []discord.Role
-	return roles, c.get("/guilds/"+url.PathEscape(guild)+"/roles", &roles)
-}
-
 func (c *Client) Channel(id string) (*discord.Channel, error) {
 	var ch discord.Channel
 	return orNil(&ch, c.get("/channels/"+url.PathEscape(id), &ch))

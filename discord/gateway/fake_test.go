@@ -244,7 +244,7 @@ func (c *serverConn) ready(session string, resumeURL string, seq int64) {
 
 const token = "MTIz.secret-bot-token"
 
-const intents = discord.IntentsGuilds | discord.IntentsGuildMessages | discord.IntentsMessageContent
+const intents = discord.IntentsGuildMessages | discord.IntentsMessageContent
 
 // A session against the fake, with waits short enough for a test and every handler
 // reporting on a channel.

@@ -61,9 +61,6 @@ type API interface {
 	// The answer to a button press, which Discord wants within three seconds.
 	Respond(i *discord.Interaction, r *discord.InteractionResponse) error
 
-	// Every role of a guild, with the tags that say which one is a bot's.
-	Roles(guild string) ([]Role, error)
-
 	// An attachment's bytes off Discord's CDN, which needs no token.
 	Fetch(url string) (io.ReadCloser, error)
 
@@ -345,8 +342,6 @@ func (l Live) Send(channel string, msg *discord.MessageSend) (*discord.Message, 
 func (l Live) Me() (*discord.User, error) { return l.REST.Me() }
 
 func (l Live) Guild(id string) (*discord.Guild, error) { return l.REST.Guild(id) }
-
-func (l Live) Roles(guild string) ([]Role, error) { return l.REST.GuildRoles(guild) }
 
 func (l Live) Fetch(raw string) (io.ReadCloser, error) {
 	u, err := url.Parse(raw)

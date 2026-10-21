@@ -56,12 +56,6 @@ type Fake struct {
 	Edits     []*discord.MessageEdit
 	Responses []*discord.InteractionResponse
 
-	GuildRoles map[string][]chat.Role
-	RoleReads  int
-
-	// Runs while a roles request is in flight, for what the gateway says meanwhile.
-	DuringRoles func()
-
 	// mochi's own user, as Me answers, and each guild's boost tier.
 	Bot   *discord.User
 	Tiers map[string]discord.PremiumTier
@@ -309,18 +303,6 @@ func (f *Fake) Edit(edit *discord.MessageEdit) error {
 func (f *Fake) Respond(i *discord.Interaction, r *discord.InteractionResponse) error {
 	f.Responses = append(f.Responses, r)
 	return nil
-}
-
-func (f *Fake) Roles(guild string) ([]chat.Role, error) {
-	f.RoleReads++
-	if f.DuringRoles != nil {
-		f.DuringRoles()
-	}
-	roles, ok := f.GuildRoles[guild]
-	if !ok {
-		return nil, fmt.Errorf("unknown guild %s", guild)
-	}
-	return roles, nil
 }
 
 func (f *Fake) Fetch(url string) (io.ReadCloser, error) {

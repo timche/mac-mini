@@ -92,9 +92,7 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 		}.Split,
 	}
 
-	// Guilds for each guild's roles and their changes, which is how a mention of mochi's
-	// managed role is recognised.
-	s := gw.New(token, discord.IntentsGuilds|discord.IntentsGuildMessages|discord.IntentsMessageContent)
+	s := gw.New(token, discord.IntentsGuildMessages|discord.IntentsMessageContent)
 	s.Log = log
 	s.Handlers = gw.Handlers{
 		Ready: func(r *discord.Ready) {
@@ -105,10 +103,6 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 		// A button press arrives over the gateway with no intent of its own, and is answered
 		// with its own token, so it needs no permission beyond what posting the question did.
 		InteractionCreate: h.Interaction,
-		GuildCreate:       h.GuildCreate,
-		GuildRoleCreate:   h.RoleChanged,
-		GuildRoleUpdate:   h.RoleChanged,
-		GuildRoleDelete:   h.RoleDeleted,
 	}
 
 	g := gateway{

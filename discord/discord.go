@@ -81,29 +81,9 @@ const (
 	PremiumTier3 PremiumTier = 3
 )
 
-// A guild as REST answers it, and as GUILD_CREATE delivers it with its roles.
 type Guild struct {
 	ID          string      `json:"id"`
 	PremiumTier PremiumTier `json:"premium_tier"`
-	Roles       []Role      `json:"roles"`
-}
-
-type RoleTags struct {
-	// Set on an integration's managed role: the bot the role stands for, which is the role
-	// Discord's autocomplete offers beside the bot when somebody types its name.
-	BotID string `json:"bot_id"`
-}
-
-type Role struct {
-	ID   string    `json:"id"`
-	Tags *RoleTags `json:"tags"`
-}
-
-func (r Role) BotID() string {
-	if r.Tags == nil {
-		return ""
-	}
-	return r.Tags.BotID
 }
 
 type MessageType int
@@ -318,27 +298,14 @@ type ChannelEdit struct {
 type Intent int
 
 const (
-	IntentsGuilds         Intent = 1 << 0
 	IntentsGuildMessages  Intent = 1 << 9
 	IntentsMessageContent Intent = 1 << 15
 )
 
-// What READY carries: the bot itself, the guilds it is in (unavailable until each one's
-// GUILD_CREATE), and what a resume needs.
+// What READY carries: the bot itself, the guilds it is in, and what a resume needs.
 type Ready struct {
 	User             *User   `json:"user"`
 	Guilds           []Guild `json:"guilds"`
 	SessionID        string  `json:"session_id"`
 	ResumeGatewayURL string  `json:"resume_gateway_url"`
-}
-
-// GUILD_ROLE_CREATE and GUILD_ROLE_UPDATE.
-type GuildRole struct {
-	GuildID string `json:"guild_id"`
-	Role    Role   `json:"role"`
-}
-
-type GuildRoleDelete struct {
-	GuildID string `json:"guild_id"`
-	RoleID  string `json:"role_id"`
 }

@@ -69,15 +69,6 @@ type Handler struct {
 	mu      sync.Mutex
 	bot     string
 	mention *regexp.Regexp
-
-	// The bot's managed role in each guild, by guild, once known; "" for a guild that has
-	// none. Kept current from the gateway, and read from Discord when a message needs it
-	// before the gateway has said. A lock of its own, since a mention holds mu for as long as
-	// a classifier call and a herdr start take, and every gateway event would queue behind it.
-	// Always taken after mu, never before.
-	roleMu  sync.Mutex
-	roleBot string
-	roles   map[string]string
 }
 
 func (h *Handler) SetBot(id string) {
@@ -85,10 +76,6 @@ func (h *Handler) SetBot(id string) {
 	defer h.mu.Unlock()
 	h.bot = id
 	h.mention = regexp.MustCompile(`<@!?` + regexp.QuoteMeta(id) + `>`)
-
-	h.roleMu.Lock()
-	defer h.roleMu.Unlock()
-	h.roleBot = id
 }
 
 // Held across a handled mention, so a listener exiting for a new binary never abandons one
@@ -188,86 +175,13 @@ func (h *Handler) stop(rec state.Session, m *discord.Message) {
 	h.say(rec.Thread, "Stopped. Mention mochi to continue.")
 }
 
-// The token form of a mention and not Discord's lists of mentioned users and roles, which
-// also hold the author of any message replied to with the ping left on. Either the bot
-// itself or its own managed role, which Discord's autocomplete offers beside it; no other
-// role. The instruction is the message with every such mention taken out.
+// The token form of a mention and not Discord's lists of mentioned users, which also hold the
+// author of any message replied to with the ping left on. mochi's user and never its managed
+// role, which Discord's autocomplete offers beside it: a role mention stays in the instruction
+// as text. The instruction is the message with every mention of mochi taken out.
 func (h *Handler) mentioned(m *discord.Message) (string, bool) {
-	content := m.Content
-	found := h.mention.MatchString(content)
-	content = h.mention.ReplaceAllString(content, "")
-
-	if strings.Contains(content, "<@&") {
-		if role := h.botRole(m.GuildID); role != "" && strings.Contains(content, "<@&"+role+">") {
-			found = true
-			content = strings.ReplaceAll(content, "<@&"+role+">", "")
-		}
-	}
-	return strings.TrimSpace(content), found
-}
-
-// The request is made without the role lock held, so gateway events go on being applied
-// while it is in flight.
-func (h *Handler) botRole(guild string) string {
-	h.roleMu.Lock()
-	role, known := h.roles[guild]
-	h.roleMu.Unlock()
-	if known {
-		return role
-	}
-
-	roles, err := h.API.Roles(guild)
-	if err != nil {
-		h.Log.Warn("the guild's roles could not be read, so a role mention of mochi is not recognised", "guild", guild, "error", h.redact(err))
-		return ""
-	}
-	h.roleMu.Lock()
-	defer h.roleMu.Unlock()
-	// The gateway may have said while the request was in flight, and it is the newer word.
-	if _, known := h.roles[guild]; !known {
-		h.setRole(guild, chat.BotRole(roles, h.roleBot))
-	}
-	return h.roles[guild]
-}
-
-// Called with roleMu held.
-func (h *Handler) setRole(guild, role string) {
-	if h.roles == nil {
-		h.roles = map[string]string{}
-	}
-	h.roles[guild] = role
-}
-
-// What the gateway says about roles: a guild's whole list when it becomes available, and
-// each role created, changed or deleted afterwards. None of it waits for a mention in
-// progress, which holds mu rather than roleMu.
-func (h *Handler) GuildCreate(g *discord.Guild) {
-	h.roleMu.Lock()
-	defer h.roleMu.Unlock()
-	if h.roleBot != "" && g.ID != "" {
-		h.setRole(g.ID, chat.BotRole(g.Roles, h.roleBot))
-	}
-}
-
-// GUILD_ROLE_CREATE and GUILD_ROLE_UPDATE.
-func (h *Handler) RoleChanged(e *discord.GuildRole) {
-	h.roleMu.Lock()
-	defer h.roleMu.Unlock()
-	switch {
-	case h.roleBot == "" || e.GuildID == "":
-	case e.Role.BotID() == h.roleBot:
-		h.setRole(e.GuildID, e.Role.ID)
-	case h.roles[e.GuildID] == e.Role.ID:
-		h.setRole(e.GuildID, "")
-	}
-}
-
-func (h *Handler) RoleDeleted(e *discord.GuildRoleDelete) {
-	h.roleMu.Lock()
-	defer h.roleMu.Unlock()
-	if h.roleBot != "" && h.roles[e.GuildID] == e.RoleID {
-		h.setRole(e.GuildID, "")
-	}
+	found := h.mention.MatchString(m.Content)
+	return strings.TrimSpace(h.mention.ReplaceAllString(m.Content, "")), found
 }
 
 func (h *Handler) open(server config.Server, ch *discord.Channel, m *discord.Message, instruction string) {

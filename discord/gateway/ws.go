@@ -30,8 +30,7 @@ const (
 	opPong         = 0xA
 )
 
-// A guild's GUILD_CREATE is the largest thing Discord sends, and nothing a bot in a few
-// servers receives comes close to this.
+// Nothing a bot in a few servers receives without the Guilds intent comes close to this.
 const maxMessage = 16 << 20
 
 const handshakeTimeout = 30 * time.Second

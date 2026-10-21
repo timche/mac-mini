@@ -97,7 +97,6 @@ func TestEveryEndpointIsTheOneDiscordDocuments(t *testing.T) {
 	c.Gateway()
 	c.Me()
 	c.Guild("1220378778665095291")
-	c.GuildRoles("1220378778665095291")
 	c.Channel(ch)
 	c.EditChannel(ch, &discord.ChannelEdit{Archived: &archived, AppliedTags: &tags})
 	c.Messages(ch, 50, "", "", msg)
@@ -115,7 +114,6 @@ func TestEveryEndpointIsTheOneDiscordDocuments(t *testing.T) {
 		"GET /gateway",
 		"GET /users/@me",
 		"GET /guilds/1220378778665095291",
-		"GET /guilds/1220378778665095291/roles",
 		"GET /channels/" + ch,
 		"PATCH /channels/" + ch + ` {"archived":true,"applied_tags":["7"]}`,
 		"GET /channels/" + ch + "/messages?around=" + msg + "&limit=50",

@@ -53,10 +53,6 @@ type Handlers struct {
 	Ready             func(*discord.Ready)
 	MessageCreate     func(*discord.Message)
 	InteractionCreate func(*discord.Interaction)
-	GuildCreate       func(*discord.Guild)
-	GuildRoleCreate   func(*discord.GuildRole)
-	GuildRoleUpdate   func(*discord.GuildRole)
-	GuildRoleDelete   func(*discord.GuildRoleDelete)
 }
 
 type Session struct {
@@ -495,14 +491,6 @@ func (s *Session) dispatch(event string, data json.RawMessage) {
 		deliver(s, h.MessageCreate, data)
 	case "INTERACTION_CREATE":
 		deliver(s, h.InteractionCreate, data)
-	case "GUILD_CREATE":
-		deliver(s, h.GuildCreate, data)
-	case "GUILD_ROLE_CREATE":
-		deliver(s, h.GuildRoleCreate, data)
-	case "GUILD_ROLE_UPDATE":
-		deliver(s, h.GuildRoleUpdate, data)
-	case "GUILD_ROLE_DELETE":
-		deliver(s, h.GuildRoleDelete, data)
 	}
 }
 

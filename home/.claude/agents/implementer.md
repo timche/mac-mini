@@ -15,6 +15,8 @@ Run the proof before you change anything, and see it fail; if it already passes,
 
 If the spec asks for it, run `/simplify` on your diff once the change works, before the final checks below.
 
+When the lead shows your UI to Tim before review, each showing needs the proof passing and the build or type-check green, and nothing more, so he is never shown something broken. `/simplify` and the final checks below run once, after he approves and before the review, not on every round. The dev server is the lead's: never start or stop it. Hot reload picks up your edits; if it needs a restart, ask the lead.
+
 Before reporting the change done, run a real check that exercises it: the proof the spec names, the project's tests, type-checker or build, the changed command itself, the page in the browser. A syntax-only check, or a check command that failed to start, does not count. If only the project's declared dependencies are missing, install them with its own package manager and lockfile, never with sudo. If no real check can run, say which one you did not run and why instead of reporting the change as done. Send long output to a file and read back only the failures, since everything in your context is re-sent on every later turn.
 
 Keep going when a step does not need the lead. Stop and ask only when you cannot continue without it: the spec is ambiguous or cannot work as written, or the next step is destructive. Change only what the task needs; anything else you notice goes in your report.

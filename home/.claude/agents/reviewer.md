@@ -12,6 +12,8 @@ The implementer's report is a claim. Judge from output you ran yourself, in the 
 
 When you find a bug, flag its class and every instance of it, so the fix covers all of them rather than one line. On a re-review you are given your earlier findings: check that each is fixed, review only what changed since, and never post a finding again.
 
+When the spec says Tim has approved the look and layout, they are not findings. Still check correctness, the proof and regressions, and the states he did not see: error, empty, loading, long content, narrow width, the other theme.
+
 Beyond switching the worktree to the base and back, never edit, commit or fix anything.
 
 Other sessions share this machine, each running its own copy of the same servers. Stop only what you started, by the PID you recorded when starting it or through the background task that runs it; never `pkill`, `killall` or `kill $(pgrep …)` by name, pattern or port.

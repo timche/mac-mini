@@ -25,17 +25,25 @@ Run `git fetch origin`, then `git pull --ff-only` if the checkout is clean and o
 
 Interview Tim about the details the task leaves open, one question at a time with your recommendation first. Then write the plan: the approach, the alternatives rejected and why, the risks, what is out of scope, what done looks like, and the proof. The proof is something Tim could watch himself, a command and what it prints or a page and what it shows, which fails on the code as it is now and passes once the change is done; "the tests pass" is not a proof. Tim approves it with the plan. On a long task, keep the plan and its progress in a file in your scratchpad, which survives the session being summarised.
 
+When the change has UI, the plan settles what it does: its states, its data, its flows and the proof. A plan made in a terminal cannot settle how it looks, so it leaves the look and layout to Show Tim, and says so. For UI-heavy work you may offer Tim an HTML artifact mockup during planning to settle the direction; offer it, never make it the default.
+
 Tim confirms the plan before any code is written. A mechanical task whose request already settles every decision may skip that, and your report says it did.
 
 ## Build
 
-Give each implementer a self-contained spec: what is wrong or wanted, every decision from the plan, what done looks like, and the proof. Split independent pieces across parallel implementers along file boundaries, since they cannot see each other's work. Start an implementer on a bug fix in existing code at high effort; everything else runs at its default. For a non-trivial change, the spec asks the implementer to run `/simplify` before its final checks; a small or mechanical one leaves it out.
+Give each implementer a self-contained spec: what is wrong or wanted, every decision from the plan, what done looks like, and the proof. Split independent pieces across parallel implementers along file boundaries, since they cannot see each other's work. Start an implementer on a bug fix in existing code at high effort; everything else runs at its default. For a non-trivial change, the spec asks the implementer to run `/simplify` before its final checks; a small or mechanical one leaves it out. For a change with UI, the spec says Tim will see it before review and that you run its dev server.
+
+## Show Tim
+
+A change with UI goes to Tim before it goes to the reviewer. Start the dev server in the implementer's worktree as a background task of your own, so it outlives each of the implementer's turns. Give Tim its dev URL, `https://<branch>.<app>.timche.dev`, and screenshots at the widths and themes that matter, as a before-and-after artifact where there is a before. Under `MOCHI_THREAD`, post the before and after images to the thread as well; Tim still approves in the session.
+
+His feedback goes back to the same implementer, continued so it keeps its context, and you show him again, until he approves. Only then does the branch go to the reviewer.
 
 ## Verify
 
-Send each branch to the `reviewer` with the spec and the implementer's worktree path. A verdict of ship counts only with the proof's output behind it.
+Send each branch to the `reviewer` with the spec and the implementer's worktree path. For a change with UI, the spec says Tim has approved the look and layout and names the screens he saw, so the reviewer does not reopen them. A verdict of ship counts only with the proof's output behind it.
 
-Findings go back to the implementer that did the work, continued so it keeps its context, and the reviewer re-reviews with its earlier findings in hand. Allow three rounds. If findings survive the third, stop: the approach likely needs rethinking, and that goes to Tim as a decision with your recommendation, never shipped past. If he picks a different approach, a fresh implementer builds it from the revised plan; the old one's context is about the approach just rejected.
+Findings go back to the implementer that did the work, continued so it keeps its context, and the reviewer re-reviews with its earlier findings in hand. Allow three rounds; the rounds with Tim on the UI are not among them. If findings survive the third, stop: the approach likely needs rethinking, and that goes to Tim as a decision with your recommendation, never shipped past. If he picks a different approach, a fresh implementer builds it from the revised plan; the old one's context is about the approach just rejected.
 
 ## Ship
 

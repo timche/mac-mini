@@ -5,7 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func repoWith(t *testing.T, files map[string]string) string {
@@ -66,6 +68,30 @@ func TestADanglingLinkIsBroken(t *testing.T) {
 		}
 		if _, err := Instructions(repo); name == "the folder" && (err == nil || errors.Is(err, ErrMissing)) {
 			t.Errorf("%s, instructions: %v", name, err)
+		}
+	}
+}
+
+// A fifo is refused at once, both where the checks see it and where one is swapped in after
+// them, at the open itself.
+func TestAFifoIsRefusedWithoutWaiting(t *testing.T) {
+	repo := t.TempDir()
+	os.Mkdir(filepath.Join(repo, Dir), 0o755)
+	fifo := filepath.Join(repo, ConfigFile)
+	if err := syscall.Mkfifo(fifo, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 2)
+	go func() { _, err := Load(repo); done <- err }()
+	go func() { _, err := readFile(fifo, ConfigFile, maxConfig); done <- err }()
+	for range 2 {
+		select {
+		case err := <-done:
+			if err == nil || errors.Is(err, ErrMissing) {
+				t.Errorf("a fifo: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("reading a fifo waited for a writer")
 		}
 	}
 }

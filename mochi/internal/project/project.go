@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 
 	"github.com/timche/mac-mini/mochi/internal/fence"
 )
@@ -152,15 +153,21 @@ func read(repo, file string, max int) ([]byte, error) {
 			return nil, fmt.Errorf("%s leads into git's own files", file)
 		}
 	}
-	// Before the open, which would wait forever on a fifo.
-	if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s is not a file", file)
-	}
-	f, err := os.Open(path)
+	return readFile(path, file, max)
+}
+
+// Non-blocking, since a plain open of a fifo swapped in after the checks above waits for a
+// writer forever; the type is then checked on what was opened. A regular file reads the same
+// either way.
+func readFile(path, file string, max int) ([]byte, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", file, err)
 	}
 	defer f.Close()
+	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a file", file)
+	}
 	body, err := io.ReadAll(io.LimitReader(f, int64(max)+1))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", file, err)

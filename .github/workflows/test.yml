@@ -14,6 +14,7 @@ on:
       - Brewfile
       - mise.toml
       - hachiko/**
+      - discord/**
       - mochi/**
       - shibuya/**
       - claude/**
@@ -125,6 +126,15 @@ jobs:
           "$mise" exec -C "$repo" -- go vet -C "$repo/hachiko" ./...
           "$mise" exec -C "$repo" -- go test -C "$repo/hachiko" ./...
           test -z "$("$mise" exec -C "$repo" -- gofmt -l "$repo/hachiko")"
+
+      # The Discord client the tools share, a library with tests of its own.
+      - name: go vet and go test in discord/
+        run: |
+          mise="$HOME/.local/bin/mise"
+          repo="$GITHUB_WORKSPACE"
+          "$mise" exec -C "$repo" -- go vet -C "$repo/discord" ./...
+          "$mise" exec -C "$repo" -- go test -C "$repo/discord" -race ./...
+          test -z "$("$mise" exec -C "$repo" -- gofmt -l "$repo/discord")"
 
       # mochi the same way, its modules out of the cache install.sh filled above.
       - name: go vet and go test in mochi/

@@ -299,8 +299,8 @@ func Paged(api chat.API, guild, channel string, limit int, before, after, around
 	return set, nil
 }
 
-// What somebody said, as against mochi's own posts — the session's, the pings, the moved
-// replies — and the notices Discord writes itself: a rename, a pin, a thread made. A reply
+// What somebody said, as against mochi's own posts — the session's, the pings, the
+// "Created" replies — and the notices Discord writes itself: a rename, a pin, a thread made. A reply
 // is said, and keeps the message it answers as a link, whoever wrote that.
 func said(m *discord.Message, self string) bool {
 	if m.Author == nil || (self != "" && m.Author.ID == self) {

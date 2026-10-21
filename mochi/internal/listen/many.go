@@ -107,10 +107,10 @@ func (h *Handler) post(forum, title, typ string, o opener) (*discord.Channel, er
 }
 
 // The reply to Tim's mention that says where its session went.
-func (h *Handler) moved(m *discord.Message, title, post string) {
-	text := "Moved to <#" + post + ">."
+func (h *Handler) created(m *discord.Message, title, post string) {
+	text := "Created <#" + post + ">."
 	if link := chat.Link(m.GuildID, post, ""); link != "" {
-		text = "Moved to [" + plain(title) + "](<" + link + ">)."
+		text = "Created [" + plain(title) + "](<" + link + ">)."
 	}
 	reply := chat.Quiet(text)
 	reply.Reference = &discord.MessageReference{MessageID: m.ID, ChannelID: m.ChannelID}

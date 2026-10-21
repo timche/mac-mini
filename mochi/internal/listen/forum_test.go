@@ -62,7 +62,7 @@ func TestAMentionInAChannelOpensAForumPost(t *testing.T) {
 		t.Errorf("members = %v", f.api.Members)
 	}
 	replies := f.sentTo(channel)
-	want := "Moved to [Hover blocked by the overlay](<https://discord.com/channels/" + guild + "/" + p + ">)."
+	want := "Created [Hover blocked by the overlay](<https://discord.com/channels/" + guild + "/" + p + ">)."
 	if len(replies) != 1 || replies[0] != want {
 		t.Errorf("replies = %q", replies)
 	}

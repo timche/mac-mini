@@ -314,7 +314,7 @@ func (h *Handler) openPost(server config.Server, forum string, ch *discord.Chann
 	session := state.Session{Thread: thread, Source: ch.ID, Guild: m.GuildID, LastMention: m.ID}
 	text := opening(ch, m, thread, instruction, h.project(server.Repo), set, h.files(thread, set), "", "")
 	err = h.start(server, &session, name, text)
-	h.moved(m, name, thread)
+	h.created(m, name, thread)
 	if err != nil {
 		h.Marks.Failed(thread)
 		h.fail(m, thread, err.Error(), nil)

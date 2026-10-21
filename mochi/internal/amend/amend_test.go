@@ -280,6 +280,18 @@ func TestTheRepositorysSettingsDecide(t *testing.T) {
 		t.Error("the home config's announce channel was still allowed")
 	}
 
+	// An announce channel in another server is no announce channel of this one: the link's
+	// channel has to be in the server the link names.
+	write(`{"announce": "` + away + `"}`)
+	for _, l := range []string{f.mine[away], strings.Replace(f.mine[away], foreign, guild, 1)} {
+		if err := Edit(f.api, f.scope, l, Change{Text: "x"}); err == nil {
+			t.Errorf("edit in another server's channel: %s", l)
+		}
+		if err := Delete(f.api, f.scope, l); err == nil {
+			t.Errorf("delete in another server's channel: %s", l)
+		}
+	}
+
 	write(`{"announce": "#hq"}`)
 	if err := Edit(f.api, f.scope, f.mine[general], Change{Text: "x"}); err == nil || !strings.Contains(err.Error(), project.ConfigFile) {
 		t.Errorf("broken, the announce channel: %v", err)

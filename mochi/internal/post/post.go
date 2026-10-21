@@ -545,6 +545,9 @@ func Announce(api chat.API, guild, channel string, repos Repos, p Post) (*discor
 	case strings.TrimSpace(p.Text) == "":
 		return nil, errors.New("an announcement takes text")
 	}
+	if err := chat.InGuild(api, channel, guild); err != nil {
+		return nil, fmt.Errorf("the project's announce channel is not used: %v", err)
+	}
 	files, err := p.ready(api, guild, repos)
 	if err != nil {
 		return nil, err

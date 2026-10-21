@@ -19,10 +19,33 @@ const (
 	announce = "1378670204795617340"
 )
 
+// The server's announce channel, and one of the same kind in another server.
+const elsewhere = "1378670204795617399"
+
+func announceAPI() *chattest.Fake {
+	api := chattest.New()
+	api.AddChannel(&discord.Channel{ID: announce, GuildID: guild, Type: discord.ChannelTypeGuildText})
+	api.AddChannel(&discord.Channel{ID: elsewhere, GuildID: "1220378778665095299", Type: discord.ChannelTypeGuildText})
+	return api
+}
+
+// A channel the settings name in another server, or one that cannot be read, gets nothing.
+func TestAnAnnouncementGoesNowhereOutsideTheServer(t *testing.T) {
+	api := announceAPI()
+	for _, channel := range []string{elsewhere, "1378670204795617311"} {
+		if _, err := Announce(api, guild, channel, repeek, Post{Text: "Ready."}); err == nil || !strings.Contains(err.Error(), channel) {
+			t.Errorf("%s: %v", channel, err)
+		}
+	}
+	if len(api.Sent) != 0 {
+		t.Errorf("sent = %+v", api.Sent)
+	}
+}
+
 // An announcement goes to the server's announce channel, with no session behind it: no thread,
 // no state, and nobody pinged, Tim included.
 func TestAnAnnouncementGoesToTheChannelAndPingsNobody(t *testing.T) {
-	api := chattest.New()
+	api := announceAPI()
 	shot := filepath.Join(t.TempDir(), "after.png")
 	os.WriteFile(shot, []byte("\x89PNG\r\n\x1a\n"), 0o644)
 	text := "**Average elo for each team** @everyone <@94004892942741504> <@&1220378778665095292>\n- https://chromewebstore.google.com/detail/repeek/abcdef\n\n**Screenshots**\n1. After"
@@ -51,7 +74,7 @@ func TestAnAnnouncementGoesToTheChannelAndPingsNobody(t *testing.T) {
 
 // A pull request of the server's repository goes as its own line, with no previews.
 func TestAnAnnouncementTakesAPullRequestOfItsRepository(t *testing.T) {
-	api := chattest.New()
+	api := announceAPI()
 	if _, err := Announce(api, guild, announce, repeek, Post{Text: "Ready.", PR: "https://github.com/timche/repeek/pull/9"}); err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +88,7 @@ func TestAnAnnouncementTakesAPullRequestOfItsRepository(t *testing.T) {
 
 // Every guard of a post stands before an announcement too.
 func TestAnAnnouncementIsHeldToAPostsGuards(t *testing.T) {
-	api := chattest.New()
+	api := announceAPI()
 	dir, _ := filepath.EvalSymlinks(t.TempDir())
 	inside := Roots(func(string) ([]string, error) { return []string{dir}, nil })
 	key := filepath.Join(dir, ".env")

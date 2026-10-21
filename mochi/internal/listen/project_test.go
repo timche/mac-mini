@@ -155,6 +155,24 @@ func TestTheForumComesFromTheRepository(t *testing.T) {
 	}
 }
 
+// A forum the settings name in another server, or one that cannot be read, is refused with a
+// reason rather than posted in, and nothing starts.
+func TestAForumOutsideTheServerIsRefused(t *testing.T) {
+	for name, forum := range map[string]string{"another server's": "1300000000000000099", "unknown": "1300000000000000098"} {
+		f := newFixture(t)
+		f.api.AddChannel(&discord.Channel{ID: "1300000000000000099", GuildID: unmapped, Type: discord.ChannelTypeGuildForum, AvailableTags: forumTags})
+		withRepo(t, f, map[string]string{project.ConfigFile: `{"forum": "` + forum + `"}`})
+		m := f.mention(channel, 1, tim, "have a look", nil)
+		f.h.Handle(m)
+		if len(f.api.Posts) != 0 || len(f.api.Threads) != 0 || len(f.herdr.prompts) != 0 {
+			t.Errorf("%s: posts %v, threads %v, prompts %d", name, f.api.Posts, f.api.Threads, len(f.herdr.prompts))
+		}
+		if replies := f.sentTo(channel); len(replies) != 1 || !strings.Contains(replies[0], "forum") {
+			t.Errorf("%s: replies %q", name, replies)
+		}
+	}
+}
+
 // A broken .mochi/config.json is logged and is no forum: the session gets a thread on the
 // mention, as it would with none, rather than the home config's forum.
 func TestABrokenConfigIsNoForum(t *testing.T) {

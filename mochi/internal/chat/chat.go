@@ -148,6 +148,19 @@ func GuildOf(api API, rec state.Session) string {
 	return ""
 }
 
+// InGuild refuses a channel that is not in guild: a project's settings name channels by id
+// alone, and one copied from another server would take its posts there.
+func InGuild(api API, channel, guild string) error {
+	ch, err := api.Channel(channel)
+	if err != nil {
+		return fmt.Errorf("channel %s could not be read: %w", channel, err)
+	}
+	if ch.GuildID != guild {
+		return fmt.Errorf("channel %s is not in this server", channel)
+	}
+	return nil
+}
+
 // TagIDs are the ids of a forum's tags with these names, in their order. A name the forum has
 // no tag for is skipped, so a tag somebody deleted or never made is simply not applied.
 func TagIDs(api API, forum string, names []string) ([]string, error) {

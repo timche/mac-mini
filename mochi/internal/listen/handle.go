@@ -229,6 +229,12 @@ func (h *Handler) begin(server config.Server, ch *discord.Channel, m *discord.Me
 	if !ch.IsThread() {
 		forum = h.settings(server).Forum
 	}
+	if forum != "" {
+		if err := chat.InGuild(h.API, forum, server.Guild); err != nil {
+			h.fail(m, "", "the forum set for this project's sessions is not in this server", err)
+			return
+		}
+	}
 
 	var alone string
 	if many && len(answer.Tasks) > 1 {

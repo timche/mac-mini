@@ -102,7 +102,13 @@ func run(args []string) error {
 	}
 	// Left out of the usage: the listener runs it through the wrapper so that an edit is
 	// built, and it needs nothing else to have happened.
+	// --check-config is the listener's preflight of a new build before it execs it.
 	if len(args) > 0 && args[0] == "version" {
+		if len(args) > 1 && args[1] == "--check-config" {
+			if _, err := config.FromEnv(); err != nil {
+				return err
+			}
+		}
 		fmt.Println("mochi")
 		return nil
 	}

@@ -190,7 +190,12 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 		}
 		if binary.Replaced() {
 			h.Lock()
-			return inPlace.run(s.Close, log)
+			err := inPlace.run(s.Close, log)
+			if !errors.Is(err, errKept) {
+				return err
+			}
+			binary.Skip()
+			h.Unlock()
 		}
 	}
 }

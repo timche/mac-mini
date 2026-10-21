@@ -57,3 +57,11 @@ func (w *Watch) Replaced() bool {
 	now, ok := w.look()
 	return w.known && ok && now != w.was
 }
+
+// Skip takes the binary there now as the one already seen, so a build that was refused is not
+// reported again and only a newer one is.
+func (w *Watch) Skip() {
+	if now, ok := w.look(); ok {
+		w.was, w.known = now, true
+	}
+}

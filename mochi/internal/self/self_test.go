@@ -46,6 +46,21 @@ func TestOnlyABuildMovedIntoPlaceIsAReplacement(t *testing.T) {
 	}
 }
 
+// A build that was refused is not reported again; the next one is.
+func TestASkippedBuildIsNotReportedAgain(t *testing.T) {
+	path, look := binaryAt(t)
+	w := Looking(look)
+	movedInto(t, path, "a build that will not start")
+	w.Skip()
+	if w.Replaced() {
+		t.Error("the skipped build still reads as a replacement")
+	}
+	movedInto(t, path, "the build after it, which will")
+	if !w.Replaced() {
+		t.Error("the build after the skipped one was not noticed")
+	}
+}
+
 func TestABinaryThatCannotBeStattedIsNotReplaced(t *testing.T) {
 	path, look := binaryAt(t)
 	w := Looking(look)

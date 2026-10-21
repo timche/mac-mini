@@ -82,6 +82,22 @@ func TestPostTakesTextFilesAStateAndAPR(t *testing.T) {
 	}
 }
 
+// The listener's preflight of a new build: the config read the way a start reads it.
+func TestVersionChecksTheConfigWhenAsked(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	t.Setenv("MOCHI_CONFIG", path)
+	if err := run([]string{"version"}); err != nil {
+		t.Errorf("plain version read the config: %v", err)
+	}
+	if err := run([]string{"version", "--check-config"}); err == nil {
+		t.Error("a missing config passed")
+	}
+	os.WriteFile(path, []byte(`{"user": "94004892942741504"}`), 0o644)
+	if err := run([]string{"version", "--check-config"}); err != nil {
+		t.Errorf("a good config failed: %v", err)
+	}
+}
+
 // Outside a session there is no thread to post to, and saying so costs no 1Password read.
 func TestPostAndHistoryOutsideASessionStopBeforeOp(t *testing.T) {
 	t.Setenv("MOCHI_THREAD", "")

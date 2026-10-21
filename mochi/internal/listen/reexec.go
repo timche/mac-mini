@@ -55,8 +55,9 @@ func (r reexec) run(close func() error, log *slog.Logger) error {
 }
 
 // checkConfig runs the new binary's `version --check-config`, which reads the config the way
-// a start does, without the token: a config the new build cannot read is a listener that
-// would exit on start and leave nothing listening.
+// a start does and the briefing the way an opening does, without the token: a config the new
+// build cannot read is a listener that would exit on start and leave nothing listening, and a
+// briefing it cannot read is one that listens and starts no session.
 func checkConfig(path string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

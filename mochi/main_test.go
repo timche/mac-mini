@@ -289,10 +289,14 @@ func TestEditAndDeleteRefuseBeforeOp(t *testing.T) {
 	}
 }
 
-// The listener's preflight of a new build: the config read the way a start reads it.
+// The listener's preflight of a new build: the config and the briefing read the way a start and
+// an opening read them.
 func TestVersionChecksTheConfigWhenAsked(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.json")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	briefing := filepath.Join(dir, "briefing.md")
 	t.Setenv("MOCHI_CONFIG", path)
+	t.Setenv("MOCHI_BRIEFING", briefing)
 	if err := run([]string{"version"}); err != nil {
 		t.Errorf("plain version read the config: %v", err)
 	}
@@ -300,8 +304,16 @@ func TestVersionChecksTheConfigWhenAsked(t *testing.T) {
 		t.Error("a missing config passed")
 	}
 	os.WriteFile(path, []byte(`{"user": "94004892942741504"}`), 0o644)
+	if err := run([]string{"version", "--check-config"}); err == nil {
+		t.Error("a missing briefing passed")
+	}
+	os.WriteFile(briefing, []byte("  \n"), 0o644)
+	if err := run([]string{"version", "--check-config"}); err == nil {
+		t.Error("an empty briefing passed")
+	}
+	os.WriteFile(briefing, []byte("Post with mochi post.\n"), 0o644)
 	if err := run([]string{"version", "--check-config"}); err != nil {
-		t.Errorf("a good config failed: %v", err)
+		t.Errorf("a good config and briefing failed: %v", err)
 	}
 }
 

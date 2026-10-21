@@ -18,6 +18,7 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/shibuya"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/update"
+	"github.com/timche/mac-mini/hachiko/internal/vuln"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -76,6 +77,16 @@ type Deps struct {
 	UpdateFailing   func() []update.Handed
 	UpdateRaised    func() map[string]update.Raised
 	SetUpdateRaised func(raised map[string]update.Raised) error
+
+	// One pass of the vulnerability check: what is installed, what the sources say about it,
+	// and what has been published since each feed's own cursor. It changes nothing and sends
+	// nothing — the incident about it is this check's.
+	Vulns func(cursors map[string]int64) vuln.Found
+
+	// And the one thing the check does about what it found: an out-of-cycle `hachiko update`
+	// moving only what an advisory named. The update and not this, because the update is the
+	// one thing on this Mac that moves a version.
+	FixVulns func(targets []string) error
 
 	// Opens the on-call session and answers with where it is and whether the brief
 	// reached it, which is what the message about to go out has to say.
@@ -162,6 +173,9 @@ func realDeps(cfg config.Config) Deps {
 		UpdateFailing:   hand.Failing,
 		UpdateRaised:    hand.Raised,
 		SetUpdateRaised: hand.SetRaised,
+
+		Vulns:    func(cursors map[string]int64) vuln.Found { return vuln.Look(cfg, cursors) },
+		FixVulns: func(targets []string) error { return update.Security(cfg, targets) },
 
 		Oncall: func(name, brief string) (oncall.Session, error) {
 			return oncall.Oncaller{Cfg: cfg, Herdr: oncall.HerdrCLI, Now: now, Log: log}.Open(name, brief)

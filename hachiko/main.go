@@ -41,14 +41,15 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/status"
 	"github.com/timche/mac-mini/hachiko/internal/sync"
 	"github.com/timche/mac-mini/hachiko/internal/update"
+	"github.com/timche/mac-mini/hachiko/internal/vuln"
 	"github.com/timche/mac-mini/hachiko/internal/watch"
 )
 
-const usage = `usage: hachiko [--dry-run | --test-alert]
+const usage = `usage: hachiko [--dry-run | --test-alert | --vuln-check]
        hachiko status
        hachiko gc [--dry-run]
        hachiko sync [--once | --dry-run]
-       hachiko update [--dry-run]
+       hachiko update [--dry-run] [--security <thing>…]
        hachiko notify [--outcome] [--attempt] <incident-id> <message-file>
        hachiko oncall <name> <brief-file>
        hachiko approval-request <incident-id> <action-file>
@@ -57,6 +58,10 @@ const usage = `usage: hachiko [--dry-run | --test-alert]
   (no option)        check free space and what is burning CPU, and alert when it matters
   --dry-run          report what a check sees, change nothing, alert nothing
   --test-alert       send a short message to the channel, to prove it works
+  --vuln-check       look now for published vulnerabilities affecting this Mac and
+                     print what a check would raise; sends nothing, upgrades
+                     nothing and remembers nothing. The five-minute check does this
+                     every three hours on its own
   status             print one screen of how this Mac's own machinery is doing: the
                      agents, free space, what the watch has open, every repository
                      sync keeps upstream, and the logs it caps. Reads and nothing else
@@ -72,7 +77,10 @@ const usage = `usage: hachiko [--dry-run | --test-alert]
                      manages, Homebrew's packages, herdr, oh-my-zsh, and what
                      each of those left to do afterwards; --dry-run says what
                      would move and changes nothing. The five-minute check
-                     starts one a night, so this is the explicit "update now"
+                     starts one a night, so this is the explicit "update now".
+                     --security takes the rest of the line as the things one
+                     published advisory named and moves only those, past the
+                     release-age hold; the vulnerability check starts one
   notify             send a message about an incident to the channel Tim watches,
                      which is how the on-call session reports its findings;
                      --outcome marks the one that says the incident is resolved,
@@ -140,12 +148,25 @@ func run(args []string) error {
 			}
 			return sync.Run(cfg, once, dry)
 		case "update":
-			dry := false
-			for _, arg := range args[1:] {
-				if arg != "--dry-run" {
-					return badUsage("update takes --dry-run and nothing else")
+			// `--security` takes the rest of the line, so a target is never mistaken for an
+			// option and an option is never mistaken for a target.
+			dry, targets, only := false, []string(nil), false
+			for i := 1; i < len(args); i++ {
+				switch {
+				case args[i] == "--security":
+					only, targets = true, args[i+1:]
+					i = len(args)
+				case args[i] == "--dry-run":
+					dry = true
+				default:
+					return badUsage("update takes --dry-run and --security and nothing else")
 				}
-				dry = true
+			}
+			if only {
+				if len(targets) == 0 {
+					return badUsage("update --security takes at least one thing to upgrade")
+				}
+				return update.RunSecurity(cfg, targets, dry)
 			}
 			return update.Run(cfg, dry)
 		case "notify":
@@ -193,6 +214,8 @@ func run(args []string) error {
 			dry = true
 		case "--test-alert":
 			return watch.TestAlert(cfg)
+		case "--vuln-check":
+			return vuln.Check(cfg)
 		// Left out of the usage: these three are how the steps that hold the bot token are
 		// re-entered under `op run`, and nothing else should call them.
 		case "--send":

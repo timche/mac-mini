@@ -87,6 +87,22 @@ type State struct {
 	// itself runs twelve times an hour.
 	PostsSwept int64 `json:"posts_swept,omitempty"`
 
+	// When the check for published vulnerabilities last ran, which is what keeps it to its own
+	// three hours inside a sweep that runs every five minutes.
+	VulnsChecked int64 `json:"vulns_checked,omitempty"`
+
+	// How far into each advisory feed this Mac has read, by the feed's own name. One cursor
+	// per source rather than one for all of them, because a pass where NVD answered and CISA
+	// did not would otherwise record CISA as read up to now — and everything added to it in
+	// between would never be read at all. Advanced only by a pass that actually read that
+	// source.
+	VulnCursors map[string]int64 `json:"vuln_cursors,omitempty"`
+
+	// Every advisory this Mac has been told about, by the key that makes two spellings of one
+	// fault one entry. What it is for is that a post goes out once while the fault lasts: this
+	// runs eight times a day and an advisory is published once.
+	Vulns map[string]Vuln `json:"vulns,omitempty"`
+
 	// What the last check-in with shibuya came to. Kept so that a token that is missing, a
 	// file anyone can read or a Worker that will not answer is one line rather than twelve
 	// an hour for the life of the Mac.
@@ -114,6 +130,48 @@ type AgentLiveness struct {
 type ClosedThread struct {
 	Thread string `json:"thread"`
 	Closed int64  `json:"closed"`
+}
+
+// Vuln is one published advisory the watch has raised, and the whole of what a later check
+// needs about it: which incident it went out as and the thread of that post, so a line saying
+// this Mac is no longer affected lands under the alert it is about.
+type Vuln struct {
+	Incident string `json:"incident"`
+	Thread   string `json:"thread,omitempty"`
+	Since    int64  `json:"since"`
+
+	// What it was about, for the line saying it is over. The advisory's own id is the key, and
+	// the key is not something to put in front of anybody on its own.
+	What string `json:"what,omitempty"`
+
+	// Whether a source said outright that a version installed here is affected, rather than
+	// the advisory merely being worth reading. Only such a finding can clear by itself, because
+	// only it is something a later pass measures again: a lead is closed by the agent that
+	// read it, with `hachiko notify --outcome`.
+	Exact bool `json:"exact,omitempty"`
+
+	// Which source said so, and the reason it is kept: a reading that is missing is not a
+	// reading that is clear. A pass where that source could not be reached finds nothing
+	// affected by it, and without this the check would post that this Mac is no longer
+	// affected by everything the source had ever found.
+	Source string `json:"source,omitempty"`
+
+	// Whether a security upgrade has already been started for it, so one that did not fix the
+	// fault is not started again every three hours for the life of the Mac.
+	Fixing bool `json:"fixing,omitempty"`
+}
+
+// How long an advisory stays recorded once nothing is affected by it and nothing is waiting on
+// it. A hundred and twenty days, which is the furthest back any feed here is ever read: beyond
+// that a cursor rebuilt from nothing cannot surface the advisory again, so there is nothing
+// left for the record to stop.
+const VulnRemembered = 120 * 24 * time.Hour
+
+func (s *State) SetVuln(key string, rec Vuln) {
+	if s.Vulns == nil {
+		s.Vulns = map[string]Vuln{}
+	}
+	s.Vulns[key] = rec
 }
 
 // Where a message about an incident goes: its open thread, or the one it had until lately.
@@ -522,6 +580,13 @@ func (l *Lock) Release() {
 // true of this one is true nowhere else — nothing measures a failed step every five minutes,
 // nothing here may retry it, and so there is no authority over it to hand anybody.
 const KindUpdate = "update"
+
+// KindVuln is a published vulnerability that names something installed on this Mac, or that
+// is worth reading before anybody knows whether it does. Like an update incident it is not
+// measured every five minutes — an advisory is published once and does not move — so it goes
+// to the clock rather than to a handover; unlike one, half of it clears by itself, since a
+// version a source names is something a later pass asks about again.
+const KindVuln = "vuln"
 
 // KindOf is which watch an incident came from, which is the half of its id before the
 // time: there is one on-call agent per kind, and so one question at a time per kind.

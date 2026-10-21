@@ -161,6 +161,7 @@ func (s sweeper) run() error {
 		}
 
 		s.updates(state, now)
+		s.vulns(state, now)
 
 		// Said rather than sent: a dry run that checked in would tell shibuya this Mac is
 		// being watched on a run that watched nothing.
@@ -191,8 +192,10 @@ func (s sweeper) run() error {
 
 	// After the disk and the CPU, which are the halves with a deadline on them, and before
 	// everything that chases an answer, so a step raised this minute is one the wait below
-	// starts counting from.
+	// starts counting from. The vulnerability check is on three hours of its own and does
+	// nothing on most sweeps; it sits here for the same reason.
 	s.updates(state, now)
+	s.vulns(state, now)
 
 	// Whether what fired an open incident is still firing. A reading where it is not is the
 	// other half of what the session needs: without it a daemon that stops spinning by

@@ -1119,7 +1119,20 @@ check "hachiko is a live symlink and runs through its wrapper" \
    hachiko --help | grep -q "oncall" &&
    hachiko --help | grep -q "gc" &&
    hachiko --help | grep -q "sync" &&
-   hachiko --help | grep -q "status"'
+   hachiko --help | grep -q "status" &&
+   hachiko --help | grep -q "vuln-check" &&
+   hachiko --help | grep -q "security"'
+
+# A target `hachiko update --security` is given arrives from an advisory feed and ends up in a
+# command line, so the refusal is the thing worth proving against the real binary rather than
+# only against a Go test's table: one of the five shapes, or nothing happens at all. Nothing
+# here moves a version — every one of these is refused before a tool is run.
+check "hachiko update --security refuses a target that is not one of its five shapes" \
+  'hachiko update --security "--version" 2>&1 | grep -q "is not a target" &&
+   hachiko update --security "brew:a; rm -rf /" 2>&1 | grep -q "is not a target" &&
+   hachiko update --security "pip:3.15.0" 2>&1 | grep -q "is not a target" &&
+   hachiko update --security "apt:curl" 2>&1 | grep -q "is not a target" &&
+   hachiko update --security 2>&1 | grep -q "^usage:"'
 
 # The one command here nothing on a timer runs, and the only one a Go test cannot prove
 # anything about: it reads this Mac's own launchd, volume, repositories and logs, and what

@@ -165,6 +165,13 @@ func TestTheProjectsSettingsComeFromItsRepository(t *testing.T) {
 	if p, err := s.Project(nil); err == nil || p.Forum != "" || p.Links != nil {
 		t.Errorf("broken: %+v, %v", p, err)
 	}
+
+	dangling := repoWith(t, "")
+	os.Mkdir(filepath.Join(dangling, project.Dir), 0o755)
+	os.Symlink(filepath.Join(dangling, "gone.json"), filepath.Join(dangling, project.ConfigFile))
+	if p, err := (Server{Repo: dangling, Settings: home}).Project(nil); err == nil || p.Forum != "" {
+		t.Errorf("a link that leads nowhere fell back: %+v, %v", p, err)
+	}
 }
 
 // The check a post gets before its server is known allows every repository's domains, and says

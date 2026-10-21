@@ -50,6 +50,26 @@ func TestNoFileIsMissing(t *testing.T) {
 	}
 }
 
+// A link that leads nowhere, the file's or its folder's, is broken rather than missing, so it
+// turns no fallback on.
+func TestADanglingLinkIsBroken(t *testing.T) {
+	file := t.TempDir()
+	os.Mkdir(filepath.Join(file, Dir), 0o755)
+	os.Symlink(filepath.Join(file, "gone.json"), filepath.Join(file, ConfigFile))
+
+	folder := t.TempDir()
+	os.Symlink(filepath.Join(folder, "gone"), filepath.Join(folder, Dir))
+
+	for name, repo := range map[string]string{"the file": file, "the folder": folder} {
+		if _, err := Load(repo); err == nil || errors.Is(err, ErrMissing) {
+			t.Errorf("%s: %v", name, err)
+		}
+		if _, err := Instructions(repo); name == "the folder" && (err == nil || errors.Is(err, ErrMissing)) {
+			t.Errorf("%s, instructions: %v", name, err)
+		}
+	}
+}
+
 func TestABrokenFileIsAnError(t *testing.T) {
 	for name, body := range map[string]string{
 		"not JSON":                          "forum = 1\n",

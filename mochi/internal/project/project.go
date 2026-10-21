@@ -122,10 +122,25 @@ func read(repo, file string, max int) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", file, ErrMissing)
 	}
-	path, err := filepath.EvalSymlinks(filepath.Join(root, filepath.FromSlash(file)))
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, fmt.Errorf("%s: %w", file, ErrMissing)
-	} else if err != nil {
+	// Missing is only a path with nothing at it: a link that leads nowhere is somebody's
+	// mistake, and would otherwise turn the fallback on.
+	at := root
+	for _, part := range strings.Split(file, "/") {
+		at = filepath.Join(at, part)
+		info, err := os.Lstat(at)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("%s: %w", file, ErrMissing)
+		} else if err != nil {
+			return nil, fmt.Errorf("%s: %w", file, err)
+		}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			if _, err := os.Stat(at); err != nil {
+				return nil, fmt.Errorf("%s is a link that leads nowhere", file)
+			}
+		}
+	}
+	path, err := filepath.EvalSymlinks(at)
+	if err != nil {
 		return nil, fmt.Errorf("%s: %w", file, err)
 	}
 	rel, err := filepath.Rel(root, path)

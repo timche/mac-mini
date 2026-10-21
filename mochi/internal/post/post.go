@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -35,8 +36,9 @@ const (
 	MaxFileSize = 100 << 20
 )
 
-// A post is read in Discord by moderators, so it carries no link and no file path: anything
-// worth showing is an attachment. Refused here rather than trusted to the orders.
+// A post is read in Discord by moderators, so it carries no file path, and no link but one to a
+// domain its server allows: anything else worth showing is an attachment. Refused here rather
+// than trusted to the orders.
 //
 // Links are anything with a scheme, mailto: and file:, www., and a bare domain on a TLD Discord
 // turns into a link by itself; paths are ~/…, anything starting at /, and a relative path that
@@ -57,9 +59,25 @@ var (
 		regexp.MustCompile(`(?:^|[\s"'(\x60])(/[A-Za-z0-9._~-]+\S*)`),
 		regexp.MustCompile(`(?:^|[\s"'(\x60])([A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+\.[A-Za-z][A-Za-z0-9]{0,5})\b`),
 	}
+
+	// A host as the allowed domains are written, so one that Go's parser reads differently from
+	// a browser, with a backslash or an escape in it, matches none of them.
+	plainHost = regexp.MustCompile(`\A[a-z0-9.-]+\z`)
 )
 
-func CheckText(text string) error {
+// CheckText refuses a link or a path in a post, bar an https link to one of the allowed domains,
+// which is taken out before the rest of the text is checked.
+func CheckText(text string, allowed []string) error {
+	var refused string
+	text = links[0].ReplaceAllStringFunc(text, func(found string) string {
+		if refused == "" && !isAllowed(found, allowed) {
+			refused = found
+		}
+		return " "
+	})
+	if refused != "" {
+		return refusedLink(refused)
+	}
 	for _, re := range links {
 		if found := re.FindString(text); found != "" {
 			return refusedLink(found)
@@ -79,7 +97,25 @@ func CheckText(text string) error {
 }
 
 func refusedLink(found string) error {
-	return fmt.Errorf("a post is read in Discord by moderators, so it carries no links: say it in words and attach images instead (found %s)", found)
+	return fmt.Errorf("a post is read in Discord by moderators, so it carries no links but to the server's allowed domains: say it in words and attach images instead (found %s)", found)
+}
+
+// An https link with no credentials or port, on one of the domains or a subdomain of one.
+func isAllowed(link string, allowed []string) bool {
+	u, err := url.Parse(strings.TrimRight(link, `.,;:!?)]}'"`))
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Port() != "" || u.Opaque != "" {
+		return false
+	}
+	host := strings.ToLower(u.Host)
+	if !plainHost.MatchString(host) {
+		return false
+	}
+	for _, d := range allowed {
+		if host == d || strings.HasSuffix(host, "."+d) {
+			return true
+		}
+	}
+	return false
 }
 
 func isNamed(host string) bool {
@@ -371,7 +407,7 @@ type Post struct {
 	// ✅ for a task done with nothing left for him; empty changes nothing.
 	Settles string
 
-	// A pull request, the one link a post may carry, which mochi adds as a line of its own.
+	// A pull request, which mochi adds as a line of its own.
 	PR string
 
 	// The kind of work a forum post is refiled as; a post with a type needs no text.
@@ -387,6 +423,9 @@ type Post struct {
 	// The secret scan the text and every attachment but images and videos go through before
 	// anything is sent; nil scans nothing.
 	Leaks leaks.Runner
+
+	// The domains a server's posts may link to; nil allows none.
+	Links func(guild string) []string
 }
 
 var pullRequest = regexp.MustCompile(`\Ahttps://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)/?\z`)
@@ -428,8 +467,8 @@ func checkRepo(url, guild string, repos Repos) error {
 	return nil
 }
 
-func (p Post) Check() error {
-	if err := CheckText(p.Text); err != nil {
+func (p Post) Check(links []string) error {
+	if err := CheckText(p.Text, links); err != nil {
 		return err
 	}
 	if err := CheckProof(p.Text, p.Files); err != nil {
@@ -450,10 +489,10 @@ func Send(api chat.API, store state.Store, marks *mark.Marker, repos Repos, thre
 	if err != nil {
 		return err
 	}
-	if err := p.Check(); err != nil {
+	guild := chat.GuildOf(api, rec)
+	if err := p.Check(p.links(guild)); err != nil {
 		return err
 	}
-	guild := chat.GuildOf(api, rec)
 	if p.PR != "" {
 		if err := checkRepo(p.PR, guild, repos); err != nil {
 			return err
@@ -499,7 +538,8 @@ func Send(api chat.API, store state.Store, marks *mark.Marker, repos Repos, thre
 
 	parts := split(text)
 	for i, part := range parts {
-		msg := chat.Quiet(part)
+		// Not chat.Quiet, which suppresses every link's preview: an allowed link keeps its.
+		msg := &discord.MessageSend{Content: part, AllowedMentions: chat.NoMentions()}
 		if p.PR != "" {
 			msg.Flags |= discord.MessageFlagsSuppressEmbeds
 		}
@@ -521,6 +561,13 @@ func Send(api chat.API, store state.Store, marks *mark.Marker, repos Repos, thre
 		marks.Settled(rec.Thread, p.Settles)
 	}
 	return nil
+}
+
+func (p Post) links(guild string) []string {
+	if p.Links == nil {
+		return nil
+	}
+	return p.Links(guild)
 }
 
 func split(text string) []string {

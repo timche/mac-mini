@@ -88,7 +88,7 @@ Keep it brief: Tim reads the details in this session and the pull request. At mo
 
 ## Plain language only
 
-Anything you post stands on its own in Discord: plain language, proof only as attached images or video. No links but the pull request --pr adds, no file paths, branch names, code or jargon, no secrets, and nothing Tim has not seen in this session. Name none of the tools or services behind the work — not the software running this session, the AI, the terminal, the password manager or the like: it is just "the session". `mochi post` refuses a link or a path itself.
+Anything you post stands on its own in Discord: plain language, proof only as attached images or video. No links except the pull request --pr adds and the server's allowed domains (mochi tells you if one is refused), no file paths, branch names, code or jargon, no secrets, and nothing Tim has not seen in this session. Name none of the tools or services behind the work — not the software running this session, the AI, the terminal, the password manager or the like: it is just "the session". `mochi post` refuses a link or a path itself.
 
 ## The tab
 

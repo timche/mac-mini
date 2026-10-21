@@ -259,7 +259,7 @@ func TestTheGuardCatchesEveryFormOfLinkAndPath(t *testing.T) {
 		"see components/Elo.tsx today",
 		"(docs/README.md)",
 	} {
-		if err := CheckText(text); err == nil {
+		if err := CheckText(text, nil); err == nil {
 			t.Errorf("%q passed", text)
 		}
 	}
@@ -270,7 +270,7 @@ func TestTheGuardCatchesEveryFormOfLinkAndPath(t *testing.T) {
 		"win rate 50/50, ratio 2:1",
 		"Done, i.e. finished.",
 	} {
-		if err := CheckText(text); err != nil {
+		if err := CheckText(text, nil); err != nil {
 			t.Errorf("%q was refused: %v", text, err)
 		}
 	}
@@ -320,7 +320,7 @@ func TestRepeekAndFaceitMayBeNamed(t *testing.T) {
 		"It matches what FACEIT.com shows, and play.repeek.gg too.",
 		"Same as on www-free faceit.com.",
 	} {
-		if err := CheckText(text); err != nil {
+		if err := CheckText(text, nil); err != nil {
 			t.Errorf("%q was refused: %v", text, err)
 		}
 	}
@@ -333,7 +333,7 @@ func TestRepeekAndFaceitMayBeNamed(t *testing.T) {
 		"faceit.com.example.org",
 		"repeek.gg and example.com",
 	} {
-		if err := CheckText(text); err == nil {
+		if err := CheckText(text, nil); err == nil {
 			t.Errorf("%q passed", text)
 		}
 	}
@@ -353,7 +353,7 @@ func TestTheProofHeadingMustMatchTheFiles(t *testing.T) {
 		{Text: text("**Screenshots and videos**"), Files: []string{shot, clip}},
 		{Text: "**Fixed**\n\n- a note", Files: []string{clip}},
 	} {
-		if err := ok.Check(); err != nil {
+		if err := ok.Check(nil); err != nil {
 			t.Errorf("%q with %v: %v", ok.Text, ok.Files, err)
 		}
 	}
@@ -364,11 +364,11 @@ func TestTheProofHeadingMustMatchTheFiles(t *testing.T) {
 		{Text: text("**Screenshots and videos**"), Files: []string{shot}},
 		{Text: text("**Screenshots**")},
 	} {
-		if err := bad.Check(); err == nil {
+		if err := bad.Check(nil); err == nil {
 			t.Errorf("%q with %v was taken", bad.Text, bad.Files)
 		}
 	}
-	err := Post{Text: text("**Screenshots**"), Files: []string{clip}}.Check()
+	err := Post{Text: text("**Screenshots**"), Files: []string{clip}}.Check(nil)
 	if err == nil || !strings.Contains(err.Error(), "**Videos**") {
 		t.Errorf("the refusal does not say what to use: %v", err)
 	}
@@ -629,5 +629,75 @@ func TestMediaIsKnownByItsBytes(t *testing.T) {
 		if isMedia(p) {
 			t.Errorf("%s is taken for media", name)
 		}
+	}
+}
+
+var stores = []string{"chromewebstore.google.com", "addons.mozilla.org", "repeek.gg"}
+
+func allowed(string) []string { return stores }
+
+// A server's own domains may be linked over https, and their subdomains; a look-alike, any
+// other form of the same address and every other link are refused as before.
+func TestAServersDomainsMayBeLinked(t *testing.T) {
+	for _, text := range []string{
+		"Get it from https://chromewebstore.google.com/detail/repeek/abcdef today.",
+		"On Firefox: https://addons.mozilla.org/en-US/firefox/addon/repeek/",
+		"See https://repeek.gg and https://www.repeek.gg/faq, or (https://play.repeek.gg).",
+		"HTTPS://Repeek.GG/download",
+		"Store: https://chromewebstore.google.com/detail/x, and repeek.gg as a name.",
+	} {
+		if err := CheckText(text, stores); err != nil {
+			t.Errorf("%q was refused: %v", text, err)
+		}
+	}
+	for _, text := range []string{
+		"https://chromewebstore.google.com.evil.com/detail/x",
+		"https://chromewebstore.google.com@evil.com/detail/x",
+		"https://user@chromewebstore.google.com/detail/x",
+		"https://evilchromewebstore.google.com/x",
+		"https://addons.mozilla.org:8443/x",
+		"http://chromewebstore.google.com/detail/x",
+		"chromewebstore.google.com/detail/x",
+		"www.repeek.gg",
+		"https://example.com",
+		"https://chromewebstore.google.com/detail/x and https://example.com",
+		"https://chromewebstore.google.com/x see repeek.gg/faq",
+		"https://google.com/x",
+		"https://xn--repeek-gg.com",
+		"ftp://repeek.gg/x",
+		"https://repeek.gg/x then ~/Desktop/shot.png",
+		"https://repeek.gg\\@evil.com",
+	} {
+		if err := CheckText(text, stores); err == nil {
+			t.Errorf("%q passed", text)
+		}
+	}
+	if err := CheckText("https://repeek.gg", nil); err == nil {
+		t.Error("a link passed with no domains allowed")
+	}
+}
+
+// A post with only allowed links keeps Discord's preview of them; one with a pull request line
+// has none, for the pull request's sake.
+func TestAnAllowedLinkKeepsItsPreviewUnlessThereIsAPullRequest(t *testing.T) {
+	api, store := fixture(t)
+	text := "**Repeek is in the Chrome Web Store**\n- https://chromewebstore.google.com/detail/repeek/abcdef"
+	if err := Send(api, store, nil, repeek, thread, Post{Text: text, Links: allowed}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Send(api, store, nil, repeek, thread, Post{Text: text, Links: allowed, PR: "https://github.com/timche/repeek/pull/9"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(api.Sent) != 2 {
+		t.Fatalf("sent = %d", len(api.Sent))
+	}
+	if api.Sent[0].Msg.Flags&discord.MessageFlagsSuppressEmbeds != 0 {
+		t.Error("the allowed link's preview was suppressed")
+	}
+	if api.Sent[1].Msg.Flags&discord.MessageFlagsSuppressEmbeds == 0 {
+		t.Error("the pull request's preview was not suppressed")
+	}
+	if err := Send(api, store, nil, repeek, thread, Post{Text: text}); err == nil {
+		t.Error("a link was posted with no domains allowed for the server")
 	}
 }

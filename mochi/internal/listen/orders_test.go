@@ -56,7 +56,7 @@ var orders = []string{
 	"At most three bullets under a heading",
 	"number the screenshots in the order the files are attached",
 	"No technical detail — no pixel values, config or release mechanics, file or function names",
-	"No links but the pull request --pr adds, no file paths, branch names, code or jargon, no secrets",
+	"No links except the pull request --pr adds and the server's allowed domains (mochi tells you if one is refused), no file paths, branch names, code or jargon, no secrets",
 	"Name none of the tools or services behind the work",
 	"This tab is already named for the thread; don't rename it.",
 }

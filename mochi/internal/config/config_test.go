@@ -40,6 +40,20 @@ func TestTheShippedConfigMapsRepeek(t *testing.T) {
 	if cfg.Split.Model != "sonnet" || cfg.Split.Effort != "medium" {
 		t.Errorf("split = %+v", cfg.Split)
 	}
+	if strings.Join(s.Links, " ") != "chromewebstore.google.com addons.mozilla.org repeek.gg" {
+		t.Errorf("links = %v", s.Links)
+	}
+}
+
+// A domain is a host name alone, kept in lower case so a match needs no folding.
+func TestLinksAreHostNamesInLowerCase(t *testing.T) {
+	cfg, err := Load(write(t, `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "links": ["Repeek.GG"]}]}`), "/home/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := cfg.Server("1220378778665095291"); len(s.Links) != 1 || s.Links[0] != "repeek.gg" {
+		t.Errorf("links = %v", s.Links)
+	}
 }
 
 func TestTheSplitModelDefaultsAndCannotBeAFlag(t *testing.T) {
@@ -68,6 +82,9 @@ func TestAConfigThatWouldMisdirectIsRefused(t *testing.T) {
 		"a forum that is no id": `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "forum": "#mochi"}]}`,
 		"a field kept for code": `{"user": "94004892942741504", "Home": "/elsewhere"}`,
 		"two objects":           `{"user": "94004892942741504"} {"user": "94004892942741504"}`,
+		"a link that is a URL":  `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "links": ["https://repeek.gg"]}]}`,
+		"a link with no dot":    `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "links": ["localhost"]}]}`,
+		"a link with a path":    `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "links": ["repeek.gg/faq"]}]}`,
 		"not JSON":              "user = \"94004892942741504\"\n",
 	} {
 		if _, err := Load(write(t, body), "/home/x"); err == nil {

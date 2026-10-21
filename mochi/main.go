@@ -49,7 +49,8 @@ const usage = `usage: mochi [listen]
             (❓), --done when the task is complete with nothing left for him (✅),
             and --close with it once the session has cleaned up, for mochi to close
             its tab a minute later when Tim last wrote from Discord;
-            --pr adds a pull request as "#<number> (<url>)", the one link allowed;
+            --pr adds a pull request as "#<number> (<url>)"; the only other links
+            allowed are https ones to the server's allowed domains;
             --type refiles a forum post as feature, bug, improvement or research,
             and needs no text; with no text argument the text is read from stdin
   history   print more of the channel or thread this session started from, oldest
@@ -141,7 +142,7 @@ func run(args []string) error {
 				return err
 			}
 		}
-		p, err := postArgs(args)
+		p, err := postArgs(args, cfg.Links())
 		if err != nil {
 			return usageError{err}
 		}
@@ -191,6 +192,10 @@ func run(args []string) error {
 			return []string{root, scratch(me.HomeDir, root), scratch(me.HomeDir, server.Repo)}, nil
 		}
 		p.Leaks = leaks.CLI
+		p.Links = func(guild string) []string {
+			server, _ := cfg.Server(guild)
+			return server.Links
+		}
 		if err := post.Send(api, state.Store{Path: cfg.StatePath()}, marks, repos, thread, p); err != nil {
 			return err
 		}
@@ -261,7 +266,7 @@ var errNoText = errors.New("post takes the text to post, as an argument or on st
 // shell quoting. Read here, before `op run`, and handed on as the last argument, since the
 // process that runs under op cannot be given back a stdin this one has read.
 func postStdin(args []string, stdin io.Reader) ([]string, error) {
-	if _, err := postArgs(args); !errors.Is(err, errNoText) {
+	if _, err := postArgs(args, nil); !errors.Is(err, errNoText) {
 		return args, nil
 	}
 	body, err := io.ReadAll(io.LimitReader(stdin, 64<<10))
@@ -271,7 +276,9 @@ func postStdin(args []string, stdin io.Reader) ([]string, error) {
 	return append(append([]string{}, args...), "--", string(body)), nil
 }
 
-func postArgs(args []string) (post.Post, error) {
+// Before `op run` the session's server is not known, so its text is held to the domains any
+// server allows here, and to its own server's in post.Send.
+func postArgs(args []string, links []string) (post.Post, error) {
 	var p post.Post
 	var review, done bool
 	fs := flag.NewFlagSet("post", flag.ContinueOnError)
@@ -302,7 +309,7 @@ func postArgs(args []string) (post.Post, error) {
 	if p.Text == "" && p.Type == "" {
 		return p, errNoText
 	}
-	return p, p.Check()
+	return p, p.Check(links)
 }
 
 func splitArgs(s config.Split, args []string) (config.Split, error) {

@@ -49,20 +49,20 @@ func TestPostTakesTextFilesAStateAndAPR(t *testing.T) {
 	shot := filepath.Join(t.TempDir(), "shot.png")
 	os.WriteFile(shot, []byte("png"), 0o644)
 
-	p, err := postArgs([]string{"--review", "--pr", "https://github.com/timche/repeek/pull/42", "--file", shot, "--file", shot, "see", "this"})
+	p, err := postArgs([]string{"--review", "--pr", "https://github.com/timche/repeek/pull/42", "--file", shot, "--file", shot, "see", "this"}, nil)
 	if err != nil || len(p.Files) != 2 || p.Text != "see this" || p.Settles != "❓" || p.PR != "https://github.com/timche/repeek/pull/42" {
 		t.Errorf("%+v %v", p, err)
 	}
-	if p, _ := postArgs([]string{"--done", "merged"}); p.Settles != "✅" {
+	if p, _ := postArgs([]string{"--done", "merged"}, nil); p.Settles != "✅" {
 		t.Errorf("--done settles %q", p.Settles)
 	}
-	if p, _ := postArgs([]string{"a note"}); p.Settles != "" {
+	if p, _ := postArgs([]string{"a note"}, nil); p.Settles != "" {
 		t.Errorf("a plain post settles %q", p.Settles)
 	}
-	if p, err := postArgs([]string{"--done", "--close", "merged"}); err != nil || !p.Close || p.Settles != "✅" {
+	if p, err := postArgs([]string{"--done", "--close", "merged"}, nil); err != nil || !p.Close || p.Settles != "✅" {
 		t.Errorf("--done --close: %+v, %v", p, err)
 	}
-	if p, err := postArgs([]string{"--type", "bug"}); err != nil || p.Type != "bug" || p.Text != "" {
+	if p, err := postArgs([]string{"--type", "bug"}, nil); err != nil || p.Type != "bug" || p.Text != "" {
 		t.Errorf("--type alone: %+v, %v", p, err)
 	}
 	for _, args := range [][]string{
@@ -76,9 +76,20 @@ func TestPostTakesTextFilesAStateAndAPR(t *testing.T) {
 		{"--close", "x"},
 		{"--review", "--close", "x"},
 	} {
-		if _, err := postArgs(args); err == nil {
+		if _, err := postArgs(args, nil); err == nil {
 			t.Errorf("%v parsed", args)
 		}
+	}
+}
+
+// Before `op run` the session's server is not known yet, so a link any server allows passes, to
+// be held to the session's own server once it is.
+func TestPostTakesALinkSomeServerAllows(t *testing.T) {
+	if _, err := postArgs([]string{"see https://repeek.gg/download"}, []string{"repeek.gg"}); err != nil {
+		t.Error(err)
+	}
+	if _, err := postArgs([]string{"see https://example.com"}, []string{"repeek.gg"}); err == nil {
+		t.Error("a link no server allows passed")
 	}
 }
 
@@ -119,18 +130,18 @@ func TestPostTextCanComeOnStdin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := postArgs(args)
+	p, err := postArgs(args, nil)
 	if err != nil || p.Text != strings.TrimSpace(text) || p.Settles != "❓" {
 		t.Errorf("%+v %v", p, err)
 	}
 
 	// Text given as an argument leaves stdin alone.
 	args, _ = postStdin([]string{"inline"}, strings.NewReader("not read"))
-	if p, _ := postArgs(args); p.Text != "inline" {
+	if p, _ := postArgs(args, nil); p.Text != "inline" {
 		t.Errorf("text = %q", p.Text)
 	}
 	if args, _ := postStdin(nil, strings.NewReader("   ")); args != nil {
-		if _, err := postArgs(args); err == nil {
+		if _, err := postArgs(args, nil); err == nil {
 			t.Error("an empty stdin was a post")
 		}
 	}

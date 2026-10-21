@@ -43,7 +43,7 @@ func (h *Handler) announcement(o opener) *discord.MessageSend {
 	tail := quote(chat.Name(m), o.instruction, m.Attachments)
 	// The summary is the classifier's words in mochi's voice, so it is held to what a session's
 	// own post is: no link or path, not even a bare domain plain() cannot defuse.
-	if o.summary != "" && posts.CheckText(o.summary) == nil {
+	if o.summary != "" && posts.CheckText(o.summary, nil) == nil {
 		line := "**Summary:** " + plain(o.summary)
 		if room := maxFirstPost - units(head+"\n"+tail) - 2; units(line) > room && room > units("**Summary:** …")+10 {
 			line = within(line, room-1) + "…"

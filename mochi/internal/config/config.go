@@ -21,6 +21,10 @@ type Server struct {
 	// The forum a session started from a channel gets a post in; with none, a thread on Tim's
 	// message.
 	Forum string `json:"forum"`
+
+	// Domains a post may link to over https, each with its subdomains: where the team finds the
+	// product, such as its store listings.
+	Links []string `json:"links"`
 }
 
 // The model that decides whether a mention is one task or several, chosen by measuring
@@ -57,6 +61,8 @@ var (
 
 	// Both go to claude as flag values, so neither may look like a flag.
 	word = regexp.MustCompile(`\A[a-z0-9][a-z0-9.\[\]-]*\z`)
+
+	host = regexp.MustCompile(`\A(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*[a-z0-9]\z`)
 )
 
 func IsSnowflake(id string) bool { return snowflake.MatchString(id) }
@@ -68,6 +74,15 @@ func (c Config) Server(guild string) (Server, bool) {
 		}
 	}
 	return Server{}, false
+}
+
+// Every domain any server allows, for the check a post gets before its server is known.
+func (c Config) Links() []string {
+	var all []string
+	for _, s := range c.Servers {
+		all = append(all, s.Links...)
+	}
+	return all
 }
 
 func (c Config) StatePath() string { return filepath.Join(c.CacheDir, "state.json") }
@@ -161,6 +176,13 @@ func Load(path, home string) (Config, error) {
 			return Config{}, fmt.Errorf("%s: guild %s names no repository", path, s.Guild)
 		case s.Forum != "" && !IsSnowflake(s.Forum):
 			return Config{}, fmt.Errorf("%s: guild %s has a forum that is not a Discord id", path, s.Guild)
+		}
+		for j, link := range s.Links {
+			link = strings.ToLower(link)
+			if !host.MatchString(link) {
+				return Config{}, fmt.Errorf("%s: guild %s links to %q, which is not a domain", path, s.Guild, s.Links[j])
+			}
+			cfg.Servers[i].Links[j] = link
 		}
 		seen[s.Guild] = true
 		cfg.Servers[i].Repo = expand(s.Repo, home)

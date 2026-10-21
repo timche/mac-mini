@@ -356,6 +356,25 @@ func TestNoWaitGivesUpRatherThanWaiting(t *testing.T) {
 	}
 }
 
+// A wait past two minutes is given up on rather than slept through, and so is the next
+// request held back by the same global limit.
+func TestALongLimitIsGivenUpOnRatherThanWaited(t *testing.T) {
+	s, c, clk := newServer(t, func(n int, w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		io.WriteString(w, `{"retry_after":3600,"global":true}`)
+	})
+	var limited *RateLimitError
+	if _, err := c.Channel("1"); !errors.As(err, &limited) || limited.RetryAfter != time.Hour || !limited.Global {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := c.Guild("2"); !errors.As(err, &limited) || !limited.Global {
+		t.Fatalf("err = %v", err)
+	}
+	if len(clk.slept) != 0 || len(s.hits) != 1 {
+		t.Errorf("slept %v, %d requests", clk.slept, len(s.hits))
+	}
+}
+
 func TestA429ThatKeepsComingIsGivenUpOn(t *testing.T) {
 	s, c, _ := newServer(t, func(n int, w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)

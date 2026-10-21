@@ -118,6 +118,11 @@ const (
 	badGatewayRetries = 3
 )
 
+// The longest one wait a request sleeps through. Past it the request is given up on: a
+// global limit or a ban can run for an hour, and a caller asleep in it stops doing anything
+// else.
+const maxWait = 2 * time.Minute
+
 type request struct {
 	method, path string
 	contentType  string
@@ -147,7 +152,7 @@ func (c *Client) do(r request, out any, opts ...Option) error {
 
 	for attempt, bad := 0, 0; ; {
 		if wait, global := c.wait(route); wait > 0 {
-			if o.noWait {
+			if o.noWait || wait > maxWait {
 				return &RateLimitError{Method: r.method, Path: shown, RetryAfter: wait, Global: global}
 			}
 			c.Sleep(wait)
@@ -163,7 +168,7 @@ func (c *Client) do(r request, out any, opts ...Option) error {
 		switch {
 		case resp.StatusCode == http.StatusTooManyRequests:
 			wait, global := c.limited(resp, body)
-			if o.noWait || attempt >= limitRetries {
+			if o.noWait || attempt >= limitRetries || wait > maxWait {
 				return &RateLimitError{Method: r.method, Path: shown, RetryAfter: wait, Global: global}
 			}
 			attempt++

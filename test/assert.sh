@@ -47,6 +47,7 @@ for path in .zshrc .zshenv .zprofile .bashrc .gitconfig \
             .config/git/worktree-install \
             .config/git/strip-claude-attribution \
             .config/git/refuse-claude-attribution \
+            .config/git/ignore \
             .config/herdr/config.toml .config/starship.toml \
             .terminfo/x/xterm-ghostty .terminfo/78/xterm-ghostty \
             .config/hachiko/sync; do
@@ -542,6 +543,15 @@ check "the mochi plugin is on in each repository mochi serves" \
      git -C "$r" rev-parse --is-inside-work-tree >/dev/null 2>&1 || continue
      jq -e ".enabledPlugins[\"mochi@mac-mini\"] == true" "$r/.claude/settings.local.json" || exit 1
    done'
+
+# The file that turns it on is never committed, in a repository whose own ignore rules say
+# nothing about it: git's global ignore covers it, read from its default path since
+# core.excludesFile is unset.
+check "git ignores .claude/settings.local.json in any repository" \
+  '! git config --global --get core.excludesFile >/dev/null &&
+   d="$(mktemp -d)" && git init -q "$d" &&
+   git -C "$d" check-ignore -q .claude/settings.local.json &&
+   ! git -C "$d" check-ignore -q .claude/settings.json'
 
 # What install.sh runs to get there, against repositories of its own: a file that does not
 # exist is made, one that does keeps every other key, one jq cannot read is left as it is,

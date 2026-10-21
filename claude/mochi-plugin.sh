@@ -64,8 +64,8 @@ while IFS= read -r repo; do
     fi
   fi
 
-  # Asked of git itself, since the rule can be in the repository's .gitignore, its
-  # .claude/.gitignore, .git/info/exclude or a global excludes file.
+  # Asked of git itself, since the rule can be in the repository's own ignore files or
+  # in the global one this repository installs at ~/.config/git/ignore.
   if ! git -C "$repo" check-ignore -q .claude/settings.local.json; then
     echo "warning: .claude/settings.local.json is not gitignored in $repo, so the" \
          "mochi plugin's setting there could be committed for everyone" >&2

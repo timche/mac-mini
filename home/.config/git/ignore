@@ -1,0 +1,4 @@
+# Git's global ignore, read because core.excludesFile is unset. Claude Code's per-person,
+# per-repository settings never belong in a commit, whatever a repository's own .gitignore says;
+# the mochi plugin is turned on in one.
+.claude/settings.local.json

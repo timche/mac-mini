@@ -1,11 +1,11 @@
 ---
 name: announce
-description: "Share or announce finished work with the team on Discord with mochi announce. Load when the user asks to share or announce work with the team, such as \"share with the team\", \"announce this\" or \"post this for the mods\", never otherwise."
+description: "Share or announce finished work with the team on Discord with mochi announce. Load when the user asks to share or announce work with the team, such as \"share with the team\", \"announce this\" or \"post this for the mods\", or the project's own instructions call for an announcement at a step you have reached; never otherwise."
 ---
 
 # announce
 
-The user asked you to share what this session did with the team. `mochi announce` posts it to the announce channel of the Discord server for this repository, from any session, whether mochi started it or not.
+The user, or the project's own instructions at a step you have reached, asked you to share what this session did with the team. `mochi announce` posts it to the announce channel of the Discord server for this repository, from any session, whether mochi started it or not.
 
 ## Who reads it
 

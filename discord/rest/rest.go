@@ -39,6 +39,9 @@ type Client struct {
 	Now   func() time.Time
 	Sleep func(time.Duration)
 
+	// A request's deadline by the size of its body; timeoutFor when nil.
+	Timeout func(size int) time.Duration
+
 	mu      sync.Mutex
 	routes  map[string]string // route → Discord's bucket hash
 	buckets map[string]*bucket
@@ -54,7 +57,7 @@ func New(token string) *Client {
 	return &Client{
 		Token: token,
 		API:   API,
-		HTTP:  &http.Client{Timeout: 20 * time.Second},
+		HTTP:  &http.Client{},
 		Now:   time.Now,
 		Sleep: time.Sleep,
 	}
@@ -199,8 +202,21 @@ func (c *Client) do(r request, out any, opts ...Option) error {
 	}
 }
 
+// A request's deadline: 20 seconds, and for an upload a second more for every 512 KiB it
+// carries, so a hundred megabytes of video is not cut off at the same 20 seconds as a
+// reaction; never more than five minutes.
+func timeoutFor(size int) time.Duration {
+	return min(20*time.Second+time.Duration(size/(512<<10))*time.Second, 5*time.Minute)
+}
+
 func (c *Client) send(r request) (*http.Response, []byte, error) {
-	req, err := http.NewRequestWithContext(context.Background(), r.method, c.API+r.path, bytes.NewReader(r.body))
+	deadline := c.Timeout
+	if deadline == nil {
+		deadline = timeoutFor
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), deadline(len(r.body)))
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, r.method, c.API+r.path, bytes.NewReader(r.body))
 	if err != nil {
 		return nil, nil, err
 	}

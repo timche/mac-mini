@@ -434,6 +434,40 @@ func TestATransportErrorCarriesNoInteractionToken(t *testing.T) {
 	}
 }
 
+func TestAnUploadGetsTimeForItsSize(t *testing.T) {
+	for size, want := range map[int]time.Duration{
+		0:         20 * time.Second,
+		400:       20 * time.Second,
+		10 << 20:  40 * time.Second,
+		100 << 20: 220 * time.Second,
+		1 << 30:   5 * time.Minute,
+	} {
+		if got := timeoutFor(size); got != want {
+			t.Errorf("%d bytes: %s, want %s", size, got, want)
+		}
+	}
+	if New(token).HTTP.Timeout != 0 {
+		t.Error("a flat client timeout would still cut an upload off")
+	}
+}
+
+// The deadline is the request's: a server that never answers is given up on.
+func TestARequestThatHangsIsGivenUpOn(t *testing.T) {
+	release := make(chan struct{})
+	_, c, _ := newServer(t, func(n int, w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	})
+	defer close(release)
+	c.Timeout = func(int) time.Duration { return 50 * time.Millisecond }
+	start := time.Now()
+	if _, err := c.Channel("1"); err == nil || time.Since(start) > 5*time.Second {
+		t.Errorf("err = %v after %s", err, time.Since(start))
+	}
+}
+
 func TestRoutesKeepOnlyTheMajorID(t *testing.T) {
 	for path, want := range map[string]string{
 		"/channels/1400000000000000002/messages/1400000000000000001":                      "GET /channels/1400000000000000002/messages/{id}",

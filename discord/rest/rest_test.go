@@ -388,6 +388,16 @@ func TestATransportErrorCarriesNoToken(t *testing.T) {
 	}
 }
 
+// A refused connection names the URL, and an interaction's URL holds its token.
+func TestATransportErrorCarriesNoInteractionToken(t *testing.T) {
+	c := New(token)
+	c.API = "http://127.0.0.1:1"
+	err := c.Respond(&discord.Interaction{ID: "55", Token: "interaction-secret"}, &discord.InteractionResponse{Type: 6})
+	if err == nil || strings.Contains(err.Error(), "interaction-secret") || !strings.Contains(err.Error(), "/interactions/55/<token>/callback") {
+		t.Errorf("err = %v", err)
+	}
+}
+
 func TestRoutesKeepOnlyTheMajorID(t *testing.T) {
 	for path, want := range map[string]string{
 		"/channels/1400000000000000002/messages/1400000000000000001":                      "GET /channels/1400000000000000002/messages/{id}",

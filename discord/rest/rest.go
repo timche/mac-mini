@@ -284,7 +284,7 @@ var (
 	snowflake = regexp.MustCompile(`^[0-9]{15,21}$`)
 
 	// The segment after an interaction's id is its token, which is no business of a log.
-	interactionToken = regexp.MustCompile(`^(/interactions/[^/]+/)[^/]+`)
+	interactionToken = regexp.MustCompile(`(/interactions/[^/\s"]+/)[^/\s"?]+`)
 )
 
 // A rate limit bucket is per route, where a route is the path with every id but the major
@@ -313,9 +313,11 @@ func shownPath(path string) string {
 
 func (c *Client) redact(text string) string { return discord.Redact(text, c.Token) }
 
-// net/http names the URL it failed on, which holds no secret here, but an error that came
-// back with a header echoed into it would.
-func (c *Client) scrub(err error) error { return errors.New(c.redact(err.Error())) }
+// net/http names the URL it failed on, which for an interaction's answer holds its token, and
+// an error with a header echoed into it would hold the bot's.
+func (c *Client) scrub(err error) error {
+	return errors.New(interactionToken.ReplaceAllString(c.redact(err.Error()), "$1<token>"))
+}
 
 // A message with files is multipart: its JSON as payload_json, then each file as files[n].
 func multipartBody(payload any, files []*discord.File) (request, error) {

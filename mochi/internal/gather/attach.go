@@ -10,6 +10,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"github.com/timche/mac-mini/mochi/internal/atomicfile"
 	"github.com/timche/mac-mini/mochi/internal/chat"
 )
 
@@ -84,9 +85,8 @@ func (d Downloader) one(m *discordgo.Message, a *discordgo.MessageAttachment, us
 	return describe(written)
 }
 
-// Into a temporary name and then renamed, so a download cut short is never mistaken for a
-// file already there. The limit is enforced on the bytes as well as on the size Discord
-// claimed.
+// Whole or not at all, so a download cut short is never mistaken for a file already there.
+// The limit is enforced on the bytes as well as on the size Discord claimed.
 func (d Downloader) save(url, path string, limit int64) (int64, error) {
 	body, err := d.API.Fetch(url)
 	if err != nil {
@@ -94,23 +94,19 @@ func (d Downloader) save(url, path string, limit int64) (int64, error) {
 	}
 	defer body.Close()
 
-	tmp := path + ".part"
-	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	var n int64
+	err = atomicfile.WriteFrom(path, func(w io.Writer) error {
+		var err error
+		n, err = io.Copy(w, io.LimitReader(body, limit+1))
+		if err == nil && n > limit {
+			err = errors.New("it was larger than Discord said, past the limit")
+		}
+		return err
+	})
 	if err != nil {
 		return 0, err
 	}
-	n, err := io.Copy(out, io.LimitReader(body, limit+1))
-	if cerr := out.Close(); err == nil {
-		err = cerr
-	}
-	if err == nil && n > limit {
-		err = errors.New("it was larger than Discord said, past the limit")
-	}
-	if err != nil {
-		os.Remove(tmp)
-		return 0, err
-	}
-	return n, os.Rename(tmp, path)
+	return n, nil
 }
 
 func folderSize(dir string) int64 {

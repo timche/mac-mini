@@ -76,6 +76,7 @@ func TestAnythingOddWritesNothing(t *testing.T) {
 func TestCleanTakesAwayHalfWrittenEvents(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "t1-1.json.tmp"), []byte("{"), 0o600)
+	os.WriteFile(filepath.Join(dir, "t1-2.json.3829104.tmp"), []byte("{"), 0o600)
 	Write(strings.NewReader("{}"), env(map[string]string{ThreadVar: "t1"}), dir, Heard, now)
 
 	Clean(dir)

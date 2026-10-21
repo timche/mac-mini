@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/timche/mac-mini/mochi/internal/atomicfile"
 )
 
 const (
@@ -105,12 +107,7 @@ func Put(dir string, ev Event) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	path := filepath.Join(dir, fmt.Sprintf("%s-%d.json", ev.Thread, ev.Nanos))
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, body, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return atomicfile.Write(filepath.Join(dir, fmt.Sprintf("%s-%d.json", ev.Thread, ev.Nanos)), body)
 }
 
 // Read is every event waiting, oldest first; Done takes one away once handled.
@@ -137,9 +134,10 @@ func Read(dir string) []Event {
 
 func Done(ev Event) { os.Remove(ev.file) }
 
-// Clean takes away what a hook killed between its write and its rename left behind.
+// Clean takes away what a hook killed between its write and its rename left behind, an
+// event's name with atomicfile's own part and suffix after it.
 func Clean(dir string) {
-	stale, _ := filepath.Glob(filepath.Join(dir, "*.tmp"))
+	stale, _ := filepath.Glob(filepath.Join(dir, "*.json*"+atomicfile.Suffix))
 	for _, path := range stale {
 		os.Remove(path)
 	}

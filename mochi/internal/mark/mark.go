@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/timche/mac-mini/mochi/internal/atomicfile"
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/split"
 )
@@ -361,12 +362,7 @@ func (k Marker) update(fn func(*marks)) {
 	if bytes.Equal(body, before) {
 		return
 	}
-	tmp := k.Path + ".tmp"
-	if err := os.WriteFile(tmp, body, 0o600); err != nil {
+	if err := atomicfile.Write(k.Path, body); err != nil {
 		k.Log.Error("the marks could not be written", "error", err)
-		return
-	}
-	if err := os.Rename(tmp, k.Path); err != nil {
-		k.Log.Error("the marks could not be put in place", "error", err)
 	}
 }

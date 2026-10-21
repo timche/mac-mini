@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -41,7 +42,7 @@ func TestAFailedWriteIsLogged(t *testing.T) {
 	f := newFixture(t)
 	var logged strings.Builder
 	f.k.Log = slog.New(slog.NewTextHandler(&logged, nil))
-	os.Mkdir(f.k.Path+".tmp", 0o700) // a write of the next version cannot land
+	os.MkdirAll(filepath.Join(f.k.Path, "occupied"), 0o700) // a write of the next version cannot land
 
 	f.k.Started("t1")
 

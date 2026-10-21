@@ -8,6 +8,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+
+	"github.com/timche/mac-mini/mochi/internal/atomicfile"
 )
 
 type Session struct {
@@ -101,9 +103,5 @@ func write(path string, v any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, body, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return atomicfile.Write(path, body)
 }

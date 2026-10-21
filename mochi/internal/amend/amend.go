@@ -116,11 +116,9 @@ func Edit(api chat.API, s Scope, link string, c Change) error {
 		return err
 	}
 
-	text := strings.TrimSpace(c.Text)
+	text := post.WithPR(strings.TrimSpace(c.Text), c.PR)
 	var flags discord.MessageFlags
 	if c.PR != "" {
-		line, _ := post.PRLine(c.PR)
-		text += "\n\n" + line
 		flags |= discord.MessageFlagsSuppressEmbeds
 	}
 	if n := utf8.RuneCountInString(text); n > maxLength {

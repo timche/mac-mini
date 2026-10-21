@@ -564,13 +564,15 @@ func (p Post) ready(api chat.API, guild string, repos Repos) ([]string, error) {
 	return files, nil
 }
 
-// A pull request's line goes after the text as a paragraph of its own.
-func (p Post) withPR() string {
-	if p.PR == "" {
-		return p.Text
+func (p Post) withPR() string { return WithPR(p.Text, p.PR) }
+
+// WithPR is text with a pull request's line after it as a paragraph of its own.
+func WithPR(text, pr string) string {
+	if pr == "" {
+		return text
 	}
-	line, _ := PRLine(p.PR)
-	return strings.TrimRight(p.Text, " \t\r\n") + "\n\n" + line
+	line, _ := PRLine(pr)
+	return strings.TrimRight(text, " \t\r\n") + "\n\n" + line
 }
 
 // deliver sends text split between lines, with the files on its last part, pinging nobody, and

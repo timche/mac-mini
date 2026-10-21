@@ -16,9 +16,10 @@ const (
 	Instruction = "INSTRUCTION FROM TIM"
 	Context     = "DISCORD CONTEXT"
 	History     = "DISCORD HISTORY"
+	Project     = "PROJECT INSTRUCTIONS (from the repository's MOCHI.md)"
 )
 
-var labels = []string{Instruction, Context, History}
+var labels = []string{Instruction, Context, History, Project}
 
 func Nonce() string {
 	b := make([]byte, 8)
@@ -33,6 +34,17 @@ func End(label, nonce string) string   { return "----- END " + label + " " + non
 
 func Block(label, nonce, data string) string {
 	return Begin(label, nonce) + "\n" + Data(data, nonce) + "\n" + End(label, nonce)
+}
+
+// Trusted is a block of the repository's own text, not Discord's: its backticks stay, since
+// its commands are meant to be run, but nothing in it can close or open another block.
+func Trusted(label, nonce, data string) string {
+	data = strings.ReplaceAll(Clean(data), nonce, "<nonce>")
+	for _, marker := range labels {
+		data = strings.ReplaceAll(data, "----- BEGIN "+marker, "- BEGIN "+marker)
+		data = strings.ReplaceAll(data, "----- END "+marker, "- END "+marker)
+	}
+	return Begin(label, nonce) + "\n" + strings.TrimRight(data, "\n") + "\n" + End(label, nonce)
 }
 
 // Backticks go because a session quotes this into shell commands, and anything resembling

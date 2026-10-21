@@ -367,7 +367,7 @@ func (h *Handler) begin(server config.Server, ch *discordgo.Channel, m *discordg
 	}
 
 	session := state.Session{Thread: thread, Source: ch.ID, Guild: m.GuildID, LastMention: m.ID}
-	text := opening(ch, m, thread, instruction, set, h.files(thread, set), "", "")
+	text := opening(ch, m, thread, instruction, h.project(server.Repo), set, h.files(thread, set), "", "")
 	if err := h.start(server, &session, name, text); err != nil {
 		h.Marks.Failed(thread)
 		h.fail(m, thread, err.Error(), nil)
@@ -400,7 +400,7 @@ func (h *Handler) openPost(server config.Server, ch *discordgo.Channel, m *disco
 	thread := post.ID
 
 	session := state.Session{Thread: thread, Source: ch.ID, Guild: m.GuildID, LastMention: m.ID}
-	text := opening(ch, m, thread, instruction, set, h.files(thread, set), "", "")
+	text := opening(ch, m, thread, instruction, h.project(server.Repo), set, h.files(thread, set), "", "")
 	err = h.start(server, &session, name, text)
 	h.moved(m, name, thread)
 	if err != nil {
@@ -481,7 +481,7 @@ func (h *Handler) restart(server config.Server, ch *discordgo.Channel, rec state
 
 	rec.LastMention = m.ID
 	note := "The session that was working on this thread has gone, so this is a new one: the thread so far is the context."
-	text := opening(ch, m, rec.Thread, instruction, set, h.files(rec.Thread, set), note, "")
+	text := opening(ch, m, rec.Thread, instruction, h.project(server.Repo), set, h.files(rec.Thread, set), note, "")
 	if err := h.start(server, &rec, mark.Title(ch.Name), text); err != nil {
 		h.Marks.Failed(rec.Thread)
 		h.fail(m, rec.Thread, err.Error(), nil)

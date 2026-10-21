@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"strconv"
@@ -297,6 +298,30 @@ func TestALargeMessage(t *testing.T) {
 	c.send(opDispatch, map[string]any{"id": "1", "content": content}, 2, "MESSAGE_CREATE")
 	if m := h.message(t); m.Content != content {
 		t.Errorf("content of %d bytes", len(m.Content))
+	}
+}
+
+// A frame that claims a terabyte is refused on its header, before a byte of it is read.
+func TestAFrameOverTheLimitIsRefused(t *testing.T) {
+	h := newHarness(t)
+	c := h.connected(t, time.Hour)
+	c.nc.Write(binary.BigEndian.AppendUint64([]byte{0x81, 127}, 1<<40))
+	if code := c.expectClose(); code != CloseProtocolError {
+		t.Errorf("closed with %d", code)
+	}
+}
+
+// Fragments that are each small but together past the limit are refused too.
+func TestAMessageOverTheLimitIsRefused(t *testing.T) {
+	h := newHarness(t)
+	c := h.connected(t, time.Hour)
+	chunk := make([]byte, 1<<20)
+	c.writeFrame(false, opText, chunk)
+	for range maxMessage >> 20 {
+		c.writeFrame(false, opContinuation, chunk)
+	}
+	if code := c.expectClose(); code != CloseProtocolError {
+		t.Errorf("closed with %d", code)
 	}
 }
 

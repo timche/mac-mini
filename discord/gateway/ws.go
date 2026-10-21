@@ -32,7 +32,7 @@ const (
 
 // A guild's GUILD_CREATE is the largest thing Discord sends, and nothing a bot in a few
 // servers receives comes close to this.
-const maxMessage = 64 << 20
+const maxMessage = 16 << 20
 
 const handshakeTimeout = 30 * time.Second
 
@@ -218,9 +218,14 @@ func (c *conn) readFrame() (fin bool, op byte, payload []byte, err error) {
 	if size > maxMessage {
 		return false, 0, nil, c.fail()
 	}
-	payload = make([]byte, size)
-	if _, err := io.ReadFull(c.br, payload); err != nil {
+	// Grown as the bytes arrive rather than made at the size the frame claims, which costs a
+	// lying header nothing.
+	payload, err = io.ReadAll(io.LimitReader(c.br, int64(size)))
+	if err != nil {
 		return false, 0, nil, err
+	}
+	if uint64(len(payload)) != size {
+		return false, 0, nil, io.ErrUnexpectedEOF
 	}
 	return fin, op, payload, nil
 }

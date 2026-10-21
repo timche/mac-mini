@@ -117,9 +117,16 @@ func (h *Handler) project(repo string) string {
 	if err != nil {
 		return ""
 	}
-	if rel, err := filepath.Rel(root, path); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		h.Log.Warn("MOCHI.md leads out of the repository, so its instructions are left out", "repo", repo)
 		return ""
+	}
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		if strings.EqualFold(part, ".git") {
+			h.Log.Warn("MOCHI.md leads into git's own files, so its instructions are left out", "repo", repo)
+			return ""
+		}
 	}
 	info, err := os.Stat(path)
 	if err != nil || !info.Mode().IsRegular() {

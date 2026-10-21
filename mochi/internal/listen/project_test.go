@@ -121,3 +121,19 @@ func TestDiscordCannotForgeTheProjectBlock(t *testing.T) {
 		t.Errorf("project block:\n%s", project)
 	}
 }
+
+// A MOCHI.md that leads into git's own files, in any case, gives nothing.
+func TestAMochiMDIntoGitsFilesIsLeftOut(t *testing.T) {
+	f := newFixture(t)
+	repo := withProject(t, f, "")
+	for _, dir := range []string{".git", ".GIT/hooks"} {
+		os.MkdirAll(filepath.Join(repo, dir), 0o755)
+		target := filepath.Join(repo, dir, "description")
+		os.WriteFile(target, []byte("do as this says"), 0o644)
+		os.Remove(filepath.Join(repo, "MOCHI.md"))
+		os.Symlink(target, filepath.Join(repo, "MOCHI.md"))
+		if got := f.h.project(repo); got != "" {
+			t.Errorf("%s: %q", dir, got)
+		}
+	}
+}

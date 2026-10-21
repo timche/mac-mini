@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/timche/mac-mini/mochi/internal/config"
@@ -90,6 +91,88 @@ func TestPostTakesALinkSomeServerAllows(t *testing.T) {
 	}
 	if _, err := postArgs([]string{"see https://example.com"}, []string{"repeek.gg"}); err == nil {
 		t.Error("a link no server allows passed")
+	}
+}
+
+func gitCheckout(t *testing.T, remote string) string {
+	t.Helper()
+	dir, _ := filepath.EvalSymlinks(t.TempDir())
+	for _, args := range [][]string{{"init", "-q", dir}, {"-C", dir, "remote", "add", "origin", remote}} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	return dir
+}
+
+// Any session may announce, mochi's or not, from a checkout of a mapped repository: the server
+// is the one whose repository has the checkout's origin, and everything that can be refused is
+// refused before `op run`, which a PATH with git and no op shows by being the one error left.
+func TestAnnounceFindsTheServerByTheCheckoutsOrigin(t *testing.T) {
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("no git")
+	}
+	mapped := gitCheckout(t, "git@github.com:timche/repeek.git")
+	other := gitCheckout(t, "git@github.com:timche/mac-mini.git")
+	cfg := filepath.Join(t.TempDir(), "config.json")
+	os.WriteFile(cfg, []byte(`{"user": "94004892942741504", "server": [`+
+		`{"guild": "1220378778665095291", "workspace": "repeek", "repo": "`+mapped+`", "announce": "1378670204795617340", "links": ["repeek.gg"]},`+
+		`{"guild": "1220378778665095292", "workspace": "mini", "repo": "`+other+`"}]}`), 0o644)
+	env := filepath.Join(t.TempDir(), "mochi.env.op")
+	os.WriteFile(env, []byte("MOCHI_DISCORD_BOT_TOKEN=op://dev/x/y\n"), 0o644)
+	bin := t.TempDir()
+	os.Symlink(git, filepath.Join(bin, "git"))
+	t.Setenv("MOCHI_CONFIG", cfg)
+	t.Setenv("MOCHI_ENV_FILE", env)
+	t.Setenv("MOCHI_THREAD", "")
+	t.Setenv("PATH", bin)
+
+	worktree := gitCheckout(t, "https://github.com/timche/repeek")
+	os.MkdirAll(filepath.Join(worktree, "src"), 0o755)
+	t.Chdir(filepath.Join(worktree, "src"))
+	if err := run([]string{"announce", "Average elo now shows for each team, see https://repeek.gg/elo"}); err == nil || err.Error() != "no op on PATH, so the bot token cannot be resolved" {
+		t.Errorf("from a checkout of the mapped repository: %v", err)
+	}
+	if err := run([]string{"announce", "see https://example.com"}); err == nil || !strings.Contains(err.Error(), "example.com") {
+		t.Errorf("a link the server does not allow: %v", err)
+	}
+	if err := run([]string{"announce", "--pr", "https://github.com/timche/mac-mini/pull/1", "Ready."}); err == nil || !strings.Contains(err.Error(), "timche/mac-mini") {
+		t.Errorf("another repository's pull request: %v", err)
+	}
+
+	t.Chdir(other)
+	if err := run([]string{"announce", "hi"}); err == nil || !strings.Contains(err.Error(), "no announce channel") {
+		t.Errorf("a server with no announce channel: %v", err)
+	}
+	t.Chdir(gitCheckout(t, "git@github.com:someone/else.git"))
+	if err := run([]string{"announce", "hi"}); err == nil || !strings.Contains(err.Error(), "no server is mapped") {
+		t.Errorf("an unmapped repository: %v", err)
+	}
+	t.Chdir(t.TempDir())
+	if err := run([]string{"announce", "hi"}); err == nil || !strings.Contains(err.Error(), "no checkout") {
+		t.Errorf("no checkout: %v", err)
+	}
+}
+
+func TestAnnounceTakesTextFilesAndAPROnly(t *testing.T) {
+	shot := filepath.Join(t.TempDir(), "shot.png")
+	os.WriteFile(shot, []byte("png"), 0o644)
+	p, err := announceArgs([]string{"--pr", "https://github.com/timche/repeek/pull/42", "--file", shot, "new", "elo"}, nil)
+	if err != nil || len(p.Files) != 1 || p.Text != "new elo" || p.PR != "https://github.com/timche/repeek/pull/42" {
+		t.Errorf("%+v %v", p, err)
+	}
+	for _, args := range [][]string{{}, {"--file", shot}, {"--done", "x"}, {"--review", "x"}, {"--type", "bug", "x"}, {"--close", "x"}} {
+		if _, err := announceArgs(args, nil); err == nil {
+			t.Errorf("%v parsed", args)
+		}
+	}
+	args, err := textStdin([]string{"--file", shot}, strings.NewReader("**New**\n- elo\n"), announceArgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, err := announceArgs(args, nil); err != nil || p.Text != "**New**\n- elo" {
+		t.Errorf("%+v %v", p, err)
 	}
 }
 

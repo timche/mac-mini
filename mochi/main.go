@@ -40,6 +40,7 @@ import (
 const usage = `usage: mochi [listen]
        mochi post [--review | --done [--close]] [--pr <url>] [--type <kind>] [--file <path>]... [<text>]
        mochi history [--post] [--before <id> | --after <id> | --around <id>] [--limit <n>]
+       mochi announce [--pr <url>] [--file <path>]... [<text>]
 
   listen    connect to Discord and start a Claude Code session in herdr whenever Tim
             mentions mochi; what the LaunchAgent runs, and what no command means
@@ -57,8 +58,11 @@ const usage = `usage: mochi [listen]
             first and fenced as data, with attachments downloaded; --post reads the
             session's own thread or post instead; one of --before, --after or
             --around a message id, and --limit up to 100 (default 50)
+  announce  post to the announce channel of the server whose repository this checkout
+            is of, with no pings, held to everything post is held to; prints the
+            message's link
 
-post and history run only inside a session mochi started.
+post and history run only inside a session mochi started; announce in any session.
 `
 
 type usageError struct{ error }
@@ -210,6 +214,54 @@ func run(args []string) error {
 		}
 		return nil
 
+	case "announce":
+		if !withToken {
+			if args, err = textStdin(args, os.Stdin, announceArgs); err != nil {
+				return err
+			}
+		}
+		p, err := announceArgs(args, cfg.Links())
+		if err != nil {
+			return usageError{err}
+		}
+		server, root, err := announcing(cfg)
+		if err != nil {
+			return err
+		}
+		if err := p.Check(server.Links); err != nil {
+			return err
+		}
+		if !withToken {
+			if server.Announce == "" {
+				return fmt.Errorf("the server for %s has no announce channel", root)
+			}
+			if repo, _, _ := post.ParsePR(p.PR); p.PR != "" {
+				if want, err := origin.Of(server.Repo); err != nil || !strings.EqualFold(repo, want) {
+					return fmt.Errorf("the pull request is in %s, not %s, which is this checkout's repository", repo, want)
+				}
+			}
+			return op.Reenter(cfg.EnvFile, append([]string{"announce"}, args...))
+		}
+		api, err := rest()
+		if err != nil {
+			return err
+		}
+		me, err := user.Current()
+		if err != nil {
+			return err
+		}
+		roots := []string{root, scratch(me.HomeDir, root)}
+		p.Roots = func(string) ([]string, error) { return roots, nil }
+		p.Links = func(string) []string { return server.Links }
+		p.Leaks = leaks.CLI
+		repos := func(string) (string, error) { return origin.Of(server.Repo) }
+		msg, err := post.Announce(api, server.Guild, server.Announce, repos, p)
+		if err != nil {
+			return err
+		}
+		fmt.Println(chat.Link(server.Guild, server.Announce, msg.ID))
+		return nil
+
 	// Left out of the usage: it is for choosing the split model, and reads cases rather
 	// than Discord.
 	case "split-eval":
@@ -260,13 +312,17 @@ func rest() (chat.API, error) {
 	return chat.NewLive(discordrest.New(token)), nil
 }
 
-var errNoText = errors.New("post takes the text to post, as an argument or on stdin")
+var errNoText = errors.New("the text to post goes as an argument or on stdin")
+
+func postStdin(args []string, stdin io.Reader) ([]string, error) {
+	return textStdin(args, stdin, postArgs)
+}
 
 // With no text among the arguments, the text is stdin, so a post of several lines needs no
 // shell quoting. Read here, before `op run`, and handed on as the last argument, since the
 // process that runs under op cannot be given back a stdin this one has read.
-func postStdin(args []string, stdin io.Reader) ([]string, error) {
-	if _, err := postArgs(args, nil); !errors.Is(err, errNoText) {
+func textStdin(args []string, stdin io.Reader, parse func(args, links []string) (post.Post, error)) ([]string, error) {
+	if _, err := parse(args, nil); !errors.Is(err, errNoText) {
 		return args, nil
 	}
 	body, err := io.ReadAll(io.LimitReader(stdin, 64<<10))
@@ -310,6 +366,40 @@ func postArgs(args []string, links []string) (post.Post, error) {
 		return p, errNoText
 	}
 	return p, p.Check(links)
+}
+
+func announceArgs(args []string, links []string) (post.Post, error) {
+	var p post.Post
+	fs := flag.NewFlagSet("announce", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.Func("file", "", func(path string) error { p.Files = append(p.Files, path); return nil })
+	fs.StringVar(&p.PR, "pr", "", "")
+	if err := fs.Parse(args); err != nil {
+		return p, err
+	}
+	if p.Text = strings.TrimSpace(strings.Join(fs.Args(), " ")); p.Text == "" {
+		return p, errNoText
+	}
+	return p, p.Check(links)
+}
+
+// The server whose repository the working directory is a checkout of, found by origin rather
+// than by MOCHI_THREAD, so a session mochi did not start can announce too; and the checkout's
+// root.
+func announcing(cfg config.Config) (config.Server, string, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return config.Server{}, "", err
+	}
+	repos := make([]string, len(cfg.Servers))
+	for i, s := range cfg.Servers {
+		repos[i] = s.Repo
+	}
+	root, i, err := origin.Match(wd, repos)
+	if err != nil {
+		return config.Server{}, "", fmt.Errorf("announce runs in a checkout of a repository a server is mapped to: %v", err)
+	}
+	return cfg.Servers[i], root, nil
 }
 
 func splitArgs(s config.Split, args []string) (config.Split, error) {

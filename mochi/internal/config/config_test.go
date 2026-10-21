@@ -43,6 +43,9 @@ func TestTheShippedConfigMapsRepeek(t *testing.T) {
 	if strings.Join(s.Links, " ") != "chromewebstore.google.com addons.mozilla.org repeek.gg" {
 		t.Errorf("links = %v", s.Links)
 	}
+	if s.Announce != "1378670204795617340" {
+		t.Errorf("announce = %q", s.Announce)
+	}
 }
 
 // A domain is a host name alone, kept in lower case so a match needs no folding.
@@ -77,15 +80,16 @@ func TestAConfigThatWouldMisdirectIsRefused(t *testing.T) {
 		"a guild twice": `{"user": "94004892942741504", "server": [` +
 			`{"guild": "1220378778665095291", "workspace": "w", "repo": "/r"},` +
 			`{"guild": "1220378778665095291", "workspace": "v", "repo": "/s"}]}`,
-		"no repo":               `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w"}]}`,
-		"a bad user":            `{"user": "tim"}`,
-		"a forum that is no id": `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "forum": "#mochi"}]}`,
-		"a field kept for code": `{"user": "94004892942741504", "Home": "/elsewhere"}`,
-		"two objects":           `{"user": "94004892942741504"} {"user": "94004892942741504"}`,
-		"a link that is a URL":  `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "links": ["https://repeek.gg"]}]}`,
-		"a link with no dot":    `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "links": ["localhost"]}]}`,
-		"a link with a path":    `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "links": ["repeek.gg/faq"]}]}`,
-		"not JSON":              "user = \"94004892942741504\"\n",
+		"no repo":                           `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w"}]}`,
+		"a bad user":                        `{"user": "tim"}`,
+		"a forum that is no id":             `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "forum": "#mochi"}]}`,
+		"a field kept for code":             `{"user": "94004892942741504", "Home": "/elsewhere"}`,
+		"two objects":                       `{"user": "94004892942741504"} {"user": "94004892942741504"}`,
+		"an announce channel that is no id": `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "announce": "#hq"}]}`,
+		"a link that is a URL":              `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "links": ["https://repeek.gg"]}]}`,
+		"a link with no dot":                `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "links": ["localhost"]}]}`,
+		"a link with a path":                `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "links": ["repeek.gg/faq"]}]}`,
+		"not JSON":                          "user = \"94004892942741504\"\n",
 	} {
 		if _, err := Load(write(t, body), "/home/x"); err == nil {
 			t.Errorf("%s: loaded", name)

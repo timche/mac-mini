@@ -482,39 +482,16 @@ func (p Post) Check(links []string) error {
 	return CheckFiles(p.Files)
 }
 
-// What the session was working on shows the post's state once it is up. A pull request's
-// line is added after the text, with embeds suppressed so Discord shows no preview of it.
+// What the session was working on shows the post's state once it is up.
 func Send(api chat.API, store state.Store, marks *mark.Marker, repos Repos, thread string, p Post) error {
 	rec, err := store.Session(thread)
 	if err != nil {
 		return err
 	}
 	guild := chat.GuildOf(api, rec)
-	if err := p.Check(p.links(guild)); err != nil {
-		return err
-	}
-	if p.PR != "" {
-		if err := checkRepo(p.PR, guild, repos); err != nil {
-			return err
-		}
-	}
-	var bases []string
-	if p.Roots != nil && (len(p.Files) > 0 || p.Leaks != nil) {
-		if bases, err = p.Roots(guild); err != nil {
-			return err
-		}
-	}
-	files, err := checkInside(p.Files, bases)
+	files, err := p.ready(api, guild, repos)
 	if err != nil {
 		return err
-	}
-	if err := scan(p.Leaks, bases, p.Text, files); err != nil {
-		return err
-	}
-	if len(files) > 0 {
-		if err := checkSizes(files, chat.UploadLimit(api, guild)); err != nil {
-			return err
-		}
 	}
 	if p.Type != "" {
 		if marks == nil {
@@ -524,36 +501,8 @@ func Send(api chat.API, store state.Store, marks *mark.Marker, repos Repos, thre
 			return err
 		}
 	}
-	text := p.Text
-	if p.PR != "" {
-		line, _ := PRLine(p.PR)
-		text = strings.TrimRight(text, " \t\r\n") + "\n\n" + line
-	}
-	if strings.TrimSpace(text) == "" && len(p.Files) == 0 {
-		if p.Settles != "" && marks != nil {
-			marks.Settled(rec.Thread, p.Settles)
-		}
-		return nil
-	}
-
-	parts := split(text)
-	for i, part := range parts {
-		// Not chat.Quiet, which suppresses every link's preview: an allowed link keeps its.
-		msg := &discord.MessageSend{Content: part, AllowedMentions: chat.NoMentions()}
-		if p.PR != "" {
-			msg.Flags |= discord.MessageFlagsSuppressEmbeds
-		}
-		if i == len(parts)-1 {
-			for _, file := range files {
-				f, err := os.Open(file)
-				if err != nil {
-					return err
-				}
-				defer f.Close()
-				msg.Files = append(msg.Files, &discord.File{Name: filepath.Base(file), Reader: f})
-			}
-		}
-		if _, err := api.Send(rec.Thread, msg); err != nil {
+	if text := p.withPR(); strings.TrimSpace(text) != "" || len(files) > 0 {
+		if _, err := deliver(api, rec.Thread, text, p.PR != "", files); err != nil {
 			return err
 		}
 	}
@@ -561,6 +510,100 @@ func Send(api chat.API, store state.Store, marks *mark.Marker, repos Repos, thre
 		marks.Settled(rec.Thread, p.Settles)
 	}
 	return nil
+}
+
+// Announce posts to a server's announce channel for a session mochi may not have started, so
+// it moves no state and has no thread: everything else is a post's, guards included. It
+// answers the announcement's first message.
+func Announce(api chat.API, guild, channel string, repos Repos, p Post) (*discord.Message, error) {
+	switch {
+	case channel == "":
+		return nil, errors.New("this server has no announce channel")
+	case p.Settles != "" || p.Type != "" || p.Close:
+		return nil, errors.New("an announcement has no state or type")
+	case strings.TrimSpace(p.Text) == "":
+		return nil, errors.New("an announcement takes text")
+	}
+	files, err := p.ready(api, guild, repos)
+	if err != nil {
+		return nil, err
+	}
+	return deliver(api, channel, p.withPR(), p.PR != "", files)
+}
+
+// ready runs every check a post gets in guild before anything is sent, and answers the real
+// paths of its files.
+func (p Post) ready(api chat.API, guild string, repos Repos) ([]string, error) {
+	if err := p.Check(p.links(guild)); err != nil {
+		return nil, err
+	}
+	if p.PR != "" {
+		if err := checkRepo(p.PR, guild, repos); err != nil {
+			return nil, err
+		}
+	}
+	var bases []string
+	if p.Roots != nil && (len(p.Files) > 0 || p.Leaks != nil) {
+		var err error
+		if bases, err = p.Roots(guild); err != nil {
+			return nil, err
+		}
+	}
+	files, err := checkInside(p.Files, bases)
+	if err != nil {
+		return nil, err
+	}
+	if err := scan(p.Leaks, bases, p.Text, files); err != nil {
+		return nil, err
+	}
+	if len(files) > 0 {
+		if err := checkSizes(files, chat.UploadLimit(api, guild)); err != nil {
+			return nil, err
+		}
+	}
+	return files, nil
+}
+
+// A pull request's line goes after the text as a paragraph of its own.
+func (p Post) withPR() string {
+	if p.PR == "" {
+		return p.Text
+	}
+	line, _ := PRLine(p.PR)
+	return strings.TrimRight(p.Text, " \t\r\n") + "\n\n" + line
+}
+
+// deliver sends text split between lines, with the files on its last part, pinging nobody, and
+// answers the first part. A pull request's line has its preview suppressed, and the whole
+// post's with it; otherwise an allowed link keeps its preview, which is why this is not
+// chat.Quiet.
+func deliver(api chat.API, channel, text string, suppress bool, files []string) (*discord.Message, error) {
+	var first *discord.Message
+	parts := split(text)
+	for i, part := range parts {
+		msg := &discord.MessageSend{Content: part, AllowedMentions: chat.NoMentions()}
+		if suppress {
+			msg.Flags |= discord.MessageFlagsSuppressEmbeds
+		}
+		if i == len(parts)-1 {
+			for _, file := range files {
+				f, err := os.Open(file)
+				if err != nil {
+					return nil, err
+				}
+				defer f.Close()
+				msg.Files = append(msg.Files, &discord.File{Name: filepath.Base(file), Reader: f})
+			}
+		}
+		sent, err := api.Send(channel, msg)
+		if err != nil {
+			return nil, err
+		}
+		if first == nil {
+			first = sent
+		}
+	}
+	return first, nil
 }
 
 func (p Post) links(guild string) []string {

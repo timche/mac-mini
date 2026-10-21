@@ -75,6 +75,26 @@ func Toplevel(path string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// Match is the root of the checkout dir is in and the index of the checkout in repos with the
+// same origin, so a session anywhere, a worktree included, is known by what it is a checkout of
+// rather than where it is.
+func Match(dir string, repos []string) (string, int, error) {
+	root, err := Toplevel(dir)
+	if err != nil {
+		return "", 0, err
+	}
+	got, err := Of(root)
+	if err != nil {
+		return "", 0, err
+	}
+	for i, repo := range repos {
+		if want, err := Of(repo); err == nil && strings.EqualFold(got, want) {
+			return root, i, nil
+		}
+	}
+	return "", 0, fmt.Errorf("%s is a checkout of %s, which no server is mapped to", root, got)
+}
+
 // Ignored says whether git ignores a path in the checkout at root.
 func Ignored(root, path string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -25,6 +25,9 @@ type Server struct {
 	// Domains a post may link to over https, each with its subdomains: where the team finds the
 	// product, such as its store listings.
 	Links []string `json:"links"`
+
+	// The channel `mochi announce` posts to, for any session in a checkout of Repo.
+	Announce string `json:"announce"`
 }
 
 // The model that decides whether a mention is one task or several, chosen by measuring
@@ -176,6 +179,8 @@ func Load(path, home string) (Config, error) {
 			return Config{}, fmt.Errorf("%s: guild %s names no repository", path, s.Guild)
 		case s.Forum != "" && !IsSnowflake(s.Forum):
 			return Config{}, fmt.Errorf("%s: guild %s has a forum that is not a Discord id", path, s.Guild)
+		case s.Announce != "" && !IsSnowflake(s.Announce):
+			return Config{}, fmt.Errorf("%s: guild %s has an announce channel that is not a Discord id", path, s.Guild)
 		}
 		for j, link := range s.Links {
 			link = strings.ToLower(link)

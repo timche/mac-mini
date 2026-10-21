@@ -1,7 +1,9 @@
 package origin
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -67,5 +69,40 @@ func TestARemotesCredentialsAreNeverEchoed(t *testing.T) {
 	_, err := Of(dir)
 	if err == nil || err.Error() != "the origin of "+dir+" is not a GitHub remote" || strings.Contains(err.Error(), "not-a-real") {
 		t.Errorf("error = %v", err)
+	}
+}
+
+func checkout(t *testing.T, remote string) string {
+	t.Helper()
+	dir, _ := filepath.EvalSymlinks(t.TempDir())
+	for _, args := range [][]string{{"init", "-q", dir}, {"-C", dir, "remote", "add", "origin", remote}} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	return dir
+}
+
+// A folder deep in a checkout is matched by the checkout's origin, whatever its path, to the
+// mapped repository with the same one; any other checkout, or none, matches nothing.
+func TestACheckoutIsMatchedToTheRepositoryWithItsOrigin(t *testing.T) {
+	mapped := []string{checkout(t, "git@github.com:timche/mac-mini.git"), checkout(t, "git@github.com:timche/repeek.git")}
+
+	clone := checkout(t, "https://github.com/Timche/Repeek")
+	deep := filepath.Join(clone, "src", "app")
+	os.MkdirAll(deep, 0o755)
+	root, i, err := Match(deep, mapped)
+	if err != nil || i != 1 || root != clone {
+		t.Errorf("%q, %d, %v", root, i, err)
+	}
+
+	if _, _, err := Match(checkout(t, "git@github.com:someone/else.git"), mapped); err == nil || !strings.Contains(err.Error(), "someone/else") {
+		t.Errorf("another repository: %v", err)
+	}
+	if _, _, err := Match(t.TempDir(), mapped); err == nil {
+		t.Error("a folder in no checkout matched")
+	}
+	if _, _, err := Match(checkout(t, "https://gitlab.com/timche/repeek.git"), mapped); err == nil {
+		t.Error("a checkout with no GitHub origin matched")
 	}
 }

@@ -432,16 +432,34 @@ mkdir -p "$HOME/Library/Logs"
 # changed — and the copy here, written only once a load succeeded, is what there is
 # to compare against. A load that failed leaves no copy, so the next run tries again
 # rather than skipping the reload. The caller says what a failure costs.
+#
+# bootout returns before launchd has finished tearing the job down, and a bootstrap
+# in that window, or now and then one for no reason launchd gives, fails with "5:
+# Input/output error" and leaves the agent unloaded. So the bootstrap waits for the
+# old job to be gone and is tried a few times, and only the last failure is shown.
 load_agent() {  # label plist
-  local saved="$state/$1.plist.loaded"
+  local saved="$state/$1.plist.loaded" tries=0 err
 
   if launchctl print "gui/$uid/$1" >/dev/null 2>&1; then
     cmp -s "$2" "$saved" && { echo "$1 is already loaded"; return 0; }
     launchctl bootout "gui/$uid/$1" || true
+    while [ "$tries" -lt 20 ] && launchctl print "gui/$uid/$1" >/dev/null 2>&1; do
+      sleep 0.5
+      tries=$((tries + 1))
+    done
   fi
 
-  launchctl bootstrap "gui/$uid" "$2" && mkdir -p "$state" && cp "$2" "$saved" &&
-    echo "loaded $1"
+  tries=0
+  until err="$(launchctl bootstrap "gui/$uid" "$2" 2>&1)"; do
+    tries=$((tries + 1))
+    if [ "$tries" -ge 5 ]; then
+      echo "$err" >&2
+      return 1
+    fi
+    sleep 2
+  done
+
+  mkdir -p "$state" && cp "$2" "$saved" && echo "loaded $1"
 }
 
 # The sweep that follows a removed worktree, on a timer because no removal hands

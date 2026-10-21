@@ -999,6 +999,56 @@ check "the gc agent's PATH reaches docker" \
   'plutil -extract ProgramArguments.2 raw -o - "$gc_plist" |
      grep -qF "export PATH=\"\$HOME/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:"'
 
+# install.sh's load_agent against a launchctl that behaves as the real one did when it left
+# mochi unloaded: a bootout returns while the job is still being torn down, and a bootstrap
+# before it is gone, or one that fails for no reason it gives, says "Bootstrap failed: 5:
+# Input/output error". Time is the fake sleep's, so the teardown ends after three of them.
+load_agent_fixture() {  # dir loaded(yes|no) failures
+  local d="$1"
+
+  mkdir -p "$d/bin" "$d/state" || return 1
+  echo new >"$d/plist"
+  echo old >"$d/state/label.plist.loaded"
+  echo "$3" >"$d/fails"
+  [ "$2" = yes ] && touch "$d/loaded"
+  cat >"$d/bin/launchctl" <<EOF
+#!/bin/sh
+case "\$1" in
+  print) [ -f "$d/loaded" ] ;;
+  bootout) echo 3 >"$d/teardown" ;;
+  bootstrap)
+    echo bootstrap >>"$d/calls"
+    f=\$(cat "$d/fails")
+    if [ -f "$d/loaded" ] || [ "\$f" -gt 0 ]; then
+      echo \$((f - 1)) >"$d/fails"
+      echo "Bootstrap failed: 5: Input/output error" >&2
+      exit 5
+    fi
+    touch "$d/loaded" ;;
+esac
+EOF
+  cat >"$d/bin/sleep" <<EOF
+#!/bin/sh
+[ -f "$d/teardown" ] || exit 0
+n=\$((\$(cat "$d/teardown") - 1))
+if [ "\$n" -le 0 ]; then rm -f "$d/loaded" "$d/teardown"; else echo "\$n" >"$d/teardown"; fi
+EOF
+  chmod +x "$d/bin/launchctl" "$d/bin/sleep"
+  eval "$(sed -n '/^load_agent() {/,/^}/p' "$repo/install.sh")" || return 1
+  uid=501 state="$d/state" PATH="$d/bin:$PATH" load_agent label "$d/plist" >"$d/out" 2>"$d/err"
+}
+export -f load_agent_fixture
+
+check "an agent reload waits out the bootout and retries a failed bootstrap" \
+  'd="$(mktemp -d)" && load_agent_fixture "$d" yes 1 &&
+   grep -qx "loaded label" "$d/out" && cmp -s "$d/plist" "$d/state/label.plist.loaded" &&
+   [ "$(wc -l <"$d/calls")" -eq 2 ]'
+check "an agent load that keeps failing gives up, says why and records nothing" \
+  'd="$(mktemp -d)" && ! load_agent_fixture "$d" no 99 &&
+   grep -q "Bootstrap failed: 5" "$d/err" &&
+   grep -qx old "$d/state/label.plist.loaded" &&
+   [ "$(wc -l <"$d/calls")" -gt 1 ] && [ "$(wc -l <"$d/calls")" -lt 10 ]'
+
 
 # `hachiko sync`, which commits and pushes the repositories its config lists. It is a
 # long-running agent rather than a timer, so the plist is the whole of what assert.sh

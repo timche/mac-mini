@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -215,9 +216,9 @@ func (u *updater) brew() []string {
 
 	var moved []string
 	for _, name := range statedir.SortedKeys(before) {
-		if after[name] != "" && after[name] != before[name] {
+		if from, to, ok := upgraded(before[name], after[name]); ok {
 			moved = append(moved, name)
-			u.move(name, before[name], after[name])
+			u.move(name, from, to)
 		}
 	}
 
@@ -225,10 +226,30 @@ func (u *updater) brew() []string {
 	return moved
 }
 
+// Every version of a package Homebrew has on disk. An upgrade leaves the old keg beside the
+// new one until `brew cleanup` clears it, and brew lists them in directory order rather than
+// sorted, so no one position in the list is the version that is linked.
+type kegs []string
+
+func (k kegs) String() string { return strings.Join(k, ", ") }
+
+// What an upgrade moved a package to is the version that was not on disk before it.
+func upgraded(before, after kegs) (from, to string, ok bool) {
+	if len(before) == 0 {
+		return "", "", false
+	}
+	for _, version := range after {
+		if !slices.Contains(before, version) {
+			return before.String(), version, true
+		}
+	}
+	return "", "", false
+}
+
 // `brew list --versions` for both kinds, as one map. The cask list is read separately
 // because `brew list` answers for formulae alone unless it is asked.
-func (u *updater) brewVersions() map[string]string {
-	versions := map[string]string{}
+func (u *updater) brewVersions() map[string]kegs {
+	versions := map[string]kegs{}
 
 	for _, args := range [][]string{
 		{"list", "--versions"},
@@ -246,7 +267,7 @@ func (u *updater) brewVersions() map[string]string {
 			if len(columns) < 2 {
 				continue
 			}
-			versions[columns[0]] = columns[1]
+			versions[columns[0]] = columns[1:]
 		}
 	}
 	return versions
@@ -261,7 +282,7 @@ var cellarPath = regexp.MustCompile(`/[^\s'"]*/(?:Cellar|Caskroom)/[^/\s'"]+/[^/
 // failure worth expecting: `sudo brew services start` takes root ownership of the keg it
 // runs tailscaled out of, so the first cleanup after a tailscale upgrade meets a root-owned
 // directory and stops on it.
-func (u *updater) cleanup(before, after map[string]string) {
+func (u *updater) cleanup(before, after map[string]kegs) {
 	out := u.deps.Run(Command{Name: "brew", Args: []string{"cleanup"}, Timeout: brewHousework})
 	if out.OK {
 		return
@@ -276,7 +297,7 @@ func (u *updater) cleanup(before, after map[string]string) {
 	if path := cellarPath.FindString(out.Text); path != "" {
 		action = "**You can run:** " + wording.CodeSpan("sudo rm -rf "+path) +
 			" — it is root's because `sudo brew services` ran out of it."
-	} else if was, ok := before["tailscale"]; ok && after["tailscale"] != was {
+	} else if was, _, ok := upgraded(before["tailscale"], after["tailscale"]); ok && len(before["tailscale"]) == 1 {
 		action = "**You can run:** " + wording.CodeSpan("sudo rm -rf /opt/homebrew/Cellar/tailscale/"+was) +
 			" — the keg tailscaled was running out of is root's, since `sudo brew services` started it there."
 	}

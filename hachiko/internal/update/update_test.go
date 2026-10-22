@@ -306,6 +306,42 @@ func TestTailscaledIsRestartedOnlyWhenItsFormulaMoved(t *testing.T) {
 	})
 }
 
+// The keg an upgrade replaced stays on disk until `brew cleanup` clears it, and brew lists a
+// package's versions in directory order — so the version that moved is the one that is new,
+// wherever brew happens to print it.
+func TestABrewUpgradeIsSeenBesideTheKegItReplaced(t *testing.T) {
+	restart := "sudo -n /usr/local/libexec/claude-root restart-daemon tailscale"
+
+	for name, after := range map[string]string{
+		"listed after the old keg":  "tailscale 1.104.1 1.104.2\n",
+		"listed before the old keg": "tailscale 1.104.2 1.104.1\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			b := newBox(t)
+			b.current()
+			b.says("brew list --versions", "tailscale 1.104.1\n")
+			b.saysNext("brew list --versions", after)
+			b.says("brew list --cask --versions", "")
+			b.says("tailscale status --json", `{"BackendState":"Running"}`)
+
+			b.update(false)
+
+			harness.Equal(t, b.ran(restart), true, "restarted")
+			harness.Wants(t, b.summary(), "tailscaled was restarted")
+		})
+	}
+
+	t.Run("a night after one that left the old keg", func(t *testing.T) {
+		b := newBox(t)
+		b.current()
+		b.says("brew list --versions", "tailscale 1.104.1 1.104.2\n")
+		b.says("brew list --cask --versions", "")
+
+		b.update(false)
+		harness.Equal(t, b.ran(restart), false, "restarted")
+	})
+}
+
 // `sudo brew services start` takes root ownership of the keg it runs tailscaled out of, so
 // the first cleanup after a tailscale upgrade stops on a directory it cannot remove — and
 // what Tim needs is the one command that clears it.

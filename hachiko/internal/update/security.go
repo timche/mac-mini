@@ -319,7 +319,7 @@ func (u *updater) securityBrew(formula string) {
 	before := u.brewVersions()
 
 	if u.dry {
-		u.say("would upgrade the Homebrew package %s, which is at %s", formula, before[formula])
+		u.say("would upgrade the Homebrew package %s, which is at %s", formula, before[formula].String())
 		return
 	}
 
@@ -336,7 +336,9 @@ func (u *updater) securityBrew(formula string) {
 	}
 
 	after := u.brewVersions()
-	u.move(formula, before[formula], after[formula])
+	if from, to, ok := upgraded(before[formula], after[formula]); ok {
+		u.move(formula, from, to)
+	}
 
 	// What the upgrade replaced, the same way a night's run clears it: a keg left behind is
 	// disk, and the one that will not go is root's, which the night's own cleanup explains.

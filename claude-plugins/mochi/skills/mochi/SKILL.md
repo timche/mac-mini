@@ -11,7 +11,7 @@ mochi is Tim's Discord bot for this project's server. When Tim mentions it there
 
 Everything posted to Discord is for the team, mostly moderators who are not technical and have no GitHub access, and nobody reading it has seen this session.
 
-Anything you post stands on its own in Discord: plain language, proof only as attached images or video. No links except the pull request --pr adds and the server's allowed domains (mochi tells you if one is refused), no file paths, branch names, code or jargon, no secrets, and nothing Tim has not seen in this session. No internals: no code, file or function names, file paths, branch names, configuration, infrastructure or jargon. Name none of the tools or services behind the work — not the software running this session, the AI, the terminal, the password manager or the like: it is just "the session". Nothing unreleased or secret that the user has not said may go out, and nobody is mentioned. mochi refuses a link or a path itself.
+Anything you post stands on its own in Discord: plain language, proof only as attached images or video. No links except the pull request --pr adds, the server's allowed domains and the exact addresses it allows, such as `chrome://extensions`, which may be written in backticks for a tester to paste and are not code or configuration (mochi tells you if one is refused); no file paths, branch names, code or jargon, no secrets, and nothing Tim has not seen in this session. No internals: no code, file or function names, file paths, branch names, configuration, infrastructure or jargon. Name none of the tools or services behind the work — not the software running this session, the AI, the terminal, the password manager or the like: it is just "the session". Nothing unreleased or secret that the user has not said may go out, and nobody is mentioned. mochi refuses a link or a path itself.
 
 Every command takes its text on stdin, so a post of several lines needs no quoting. `--file` attaches a file, up to ten, each within what the server takes for one file (10 MB, or 50 or 100 MB on a boosted server); mochi refuses one that is too large, and then say in the post that it is too large to attach. Files have to be inside this session's checkout or its scratch folder, and mochi refuses ones that look like secrets or local settings, as a guard against attaching the wrong file. A secret scan runs over every post first; when it finds something or cannot run, nothing is posted: fix what it names and post again, or tell the user here what it said.
 
@@ -37,7 +37,7 @@ Write what is new or changed, and what players will notice, in plain language. U
 - The headline is bold and one short line.
 - Points are bullets, one line each where they can be, at most five.
 - **Screenshots** for images, **Videos** for videos, **Screenshots and videos** for both, numbered in the order the files are attached; leave the heading out when nothing is attached.
-- A link only to where players get the product, such as a store listing on one of the server's allowed domains; `mochi announce` refuses any other link and says which.
+- A link only to where players get the product, such as a store listing on one of the server's allowed domains; `mochi announce` refuses a link the server does not allow and says which.
 
 Post right away when asked: the user's instruction is the go-ahead, so do not ask again or show a draft first.
 

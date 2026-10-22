@@ -706,6 +706,40 @@ func TestAnAllowedLinkKeepsItsPreviewUnlessThereIsAPullRequest(t *testing.T) {
 	}
 }
 
+// An allowed entry with a scheme in it is one exact address, which a post may name for a tester
+// to paste, in any case and as code; anything under it, any other address and an address the
+// server does not allow are refused as every other link is.
+func TestAnExactAddressTheServerAllowsMayBeNamed(t *testing.T) {
+	addresses := append([]string{"chrome://extensions"}, stores...)
+	for _, text := range []string{
+		"Open chrome://extensions and turn on developer mode.",
+		"Open `chrome://extensions`, then Load unpacked.",
+		"CHROME://Extensions, then Load unpacked.",
+		"Open chrome://extensions. Load the folder it names.",
+		"Get it from https://repeek.gg, or open chrome://extensions.",
+	} {
+		if err := CheckText(text, addresses); err != nil {
+			t.Errorf("%q was refused: %v", text, err)
+		}
+	}
+	for _, text := range []string{
+		"open chrome://extensions/shortcuts",
+		"open chrome://extensions?id=abcdef",
+		"open chrome://extensions#top",
+		"open chrome://settings",
+		"open edge://extensions",
+		"open chrome://extensions](https://evil.com)",
+		"open chrome://extensions and chrome://settings",
+	} {
+		if err := CheckText(text, addresses); err == nil {
+			t.Errorf("%q passed", text)
+		}
+	}
+	if err := CheckText("open chrome://extensions", stores); err == nil {
+		t.Error("an address passed that the server does not allow")
+	}
+}
+
 // Settings that could not be read allow no links, and a refused link says why; a post without
 // one goes out as it would.
 func TestUnreadSettingsAllowNoLinksAndSaySo(t *testing.T) {

@@ -91,8 +91,8 @@ func (c Config) Server(guild string) (Server, bool) {
 	return Server{}, false
 }
 
-// Every domain any server allows, for the check a post gets before its server is known, and
-// why a repository's allow none.
+// Every link any server allows, for the check a post gets before its server is known, and why a
+// repository's allow none.
 func (c Config) Links() ([]string, error) {
 	var all []string
 	var errs []error

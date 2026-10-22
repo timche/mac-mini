@@ -36,9 +36,9 @@ const (
 	MaxFileSize = 100 << 20
 )
 
-// A post is read in Discord by moderators, so it carries no file path, and no link but one to a
-// domain its server allows: anything else worth showing is an attachment. Refused here rather
-// than trusted to the orders.
+// A post is read in Discord by moderators, so it carries no file path, and no link but one its
+// server allows: anything else worth showing is an attachment. Refused here rather than trusted
+// to the orders.
 //
 // Links are anything with a scheme, mailto: and file:, www., and a bare domain on a TLD Discord
 // turns into a link by itself; paths are ~/…, anything starting at /, and a relative path that
@@ -111,16 +111,21 @@ func NoLinksBecause(err, unread error) error {
 	return fmt.Errorf("%w; and the server allows no links now, since %v", err, unread)
 }
 
-// An https link with no credentials or port, on one of the domains or a subdomain of one.
+// An https link with no credentials or port, on one of the domains or a subdomain of one, or one
+// of the exact addresses the server allows.
 //
 // The match runs to the next space, so it can swallow markdown after the link, a masked link to
 // somewhere else included, as in `https://repeek.gg/x](https://evil.com)`: a second scheme or
-// any markdown bracket inside it refuses the whole of it.
+// any markdown bracket inside it refuses the whole of it. A backtick is trimmed because a post
+// may write an address as code.
 func isAllowed(link string, allowed []string) bool {
-	link = strings.TrimRight(link, `.,;:!?)]}'"`)
+	link = strings.TrimRight(link, "`"+`.,;:!?)]}'"`)
 	_, rest, _ := strings.Cut(link, "://")
 	if strings.Contains(rest, "://") || strings.ContainsAny(rest, "[]()<>") {
 		return false
+	}
+	if isAddress(link, allowed) {
+		return true
 	}
 	u, err := url.Parse(link)
 	if err != nil || u.Scheme != "https" || u.User != nil || u.Port() != "" || u.Opaque != "" {
@@ -132,6 +137,18 @@ func isAllowed(link string, allowed []string) bool {
 	}
 	for _, d := range allowed {
 		if host == d || strings.HasSuffix(host, "."+d) {
+			return true
+		}
+	}
+	return false
+}
+
+// An allowed entry with a scheme in it is one exact address, such as chrome://extensions, which
+// Discord leaves as plain text for a tester to paste: it allows that address alone, so a path,
+// query or fragment after it is a link again.
+func isAddress(link string, allowed []string) bool {
+	for _, a := range allowed {
+		if strings.Contains(a, "://") && strings.EqualFold(link, a) {
 			return true
 		}
 	}
@@ -444,8 +461,8 @@ type Post struct {
 	// anything is sent; nil scans nothing.
 	Leaks leaks.Runner
 
-	// The domains a server's posts may link to, and why there are none when they could not be
-	// read; nil allows none.
+	// What a server's posts may link to, as its project's settings write it, and why there is
+	// nothing when it could not be read; nil allows none.
 	Links func(guild string) ([]string, error)
 }
 

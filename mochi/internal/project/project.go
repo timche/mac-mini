@@ -41,18 +41,25 @@ type Settings struct {
 	// The channel `mochi announce` posts to, for any session in a checkout of the repository.
 	Announce string `json:"announce"`
 
-	// Domains a post may link to over https, each with its subdomains: where the team finds the
-	// product, such as its store listings.
+	// What a post may link to: a domain, which allows an https link to it or any subdomain of
+	// it, and where the team finds the product, such as its store listings; or an entry with a
+	// scheme in it, which allows that one address and nothing under it, for an address a tester
+	// pastes rather than clicks, such as chrome://extensions.
 	Links []string `json:"links"`
 }
 
 var (
 	snowflake = regexp.MustCompile(`\A[0-9]{17,20}\z`)
 	host      = regexp.MustCompile(`\A(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*[a-z0-9]\z`)
+
+	// An exact address: a scheme, a host and at most a path. No credentials, port, query or
+	// fragment, and nothing a post's link check refuses on sight, since an entry a link can
+	// never match is a mistake rather than a stricter setting.
+	address = regexp.MustCompile(`\A[a-z][a-z0-9+.-]*://[a-z0-9._~-]+(?:/[a-z0-9._~/-]*)?\z`)
 )
 
 // Check holds the settings to what a Discord request path and a link check can take, and puts
-// every domain in lower case so a match needs no folding.
+// every link in lower case so a match needs no folding.
 func (s *Settings) Check() error {
 	if s.Forum != "" && !snowflake.MatchString(s.Forum) {
 		return errors.New("forum is not a Discord id")
@@ -61,10 +68,15 @@ func (s *Settings) Check() error {
 		return errors.New("announce is not a Discord id")
 	}
 	for i, link := range s.Links {
-		if !host.MatchString(strings.ToLower(link)) {
+		lower := strings.ToLower(link)
+		if strings.Contains(lower, "://") {
+			if !address.MatchString(lower) {
+				return fmt.Errorf("links has %q, which is not an exact address", link)
+			}
+		} else if !host.MatchString(lower) {
 			return fmt.Errorf("links has %q, which is not a domain", link)
 		}
-		s.Links[i] = strings.ToLower(link)
+		s.Links[i] = lower
 	}
 	return nil
 }

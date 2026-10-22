@@ -56,7 +56,8 @@ const usage = `usage: mochi [listen]
             and --close with it once the session has cleaned up, for mochi to close
             its tab a minute later when Tim last wrote from Discord;
             --pr adds a pull request as "#<number> (<url>)"; the only other links
-            allowed are https ones to the server's allowed domains;
+            allowed are https ones to the server's allowed domains, and the exact
+            addresses it allows, such as chrome://extensions;
             --type refiles a forum post as feature, bug, improvement or research,
             and needs no text; with no text argument the text is read from stdin
   history   print more of the channel or thread this session started from, oldest

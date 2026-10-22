@@ -26,12 +26,12 @@ func repoWith(t *testing.T, files map[string]string) string {
 }
 
 func TestTheSettingsAreReadFromTheRepository(t *testing.T) {
-	repo := repoWith(t, map[string]string{ConfigFile: `{"forum": "1562152175927558292", "announce": "1378670204795617340", "links": ["Repeek.GG", "addons.mozilla.org"]}`})
+	repo := repoWith(t, map[string]string{ConfigFile: `{"forum": "1562152175927558292", "announce": "1378670204795617340", "links": ["Repeek.GG", "addons.mozilla.org", "CHROME://Extensions"]}`})
 	s, err := Load(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Forum != "1562152175927558292" || s.Announce != "1378670204795617340" || strings.Join(s.Links, " ") != "repeek.gg addons.mozilla.org" {
+	if s.Forum != "1562152175927558292" || s.Announce != "1378670204795617340" || strings.Join(s.Links, " ") != "repeek.gg addons.mozilla.org chrome://extensions" {
 		t.Errorf("settings = %+v", s)
 	}
 
@@ -109,9 +109,13 @@ func TestABrokenFileIsAnError(t *testing.T) {
 		"a key twice in another case":       `{"forum": "1562152175927558292", "Forum": "1562152175927558299"}`,
 		"a forum that is no id":             `{"forum": "#mochi"}`,
 		"an announce channel that is no id": `{"announce": "#hq"}`,
-		"a link that is a URL":              `{"links": ["https://repeek.gg"]}`,
 		"a link with no dot":                `{"links": ["localhost"]}`,
 		"a link with a path":                `{"links": ["repeek.gg/faq"]}`,
+		"an address with no scheme":         `{"links": ["://extensions"]}`,
+		"an address with no host":           `{"links": ["chrome://"]}`,
+		"an address with a query":           `{"links": ["chrome://extensions?id=abcdef"]}`,
+		"an address with credentials":       `{"links": ["https://user@repeek.gg"]}`,
+		"an address with a port":            `{"links": ["https://repeek.gg:8443"]}`,
 		"too large":                         `{"links": [` + strings.Repeat(`"repeek.gg",`, maxConfig/12) + `"repeek.gg"]}`,
 	} {
 		_, err := Load(repoWith(t, map[string]string{ConfigFile: body}))

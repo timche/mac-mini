@@ -41,11 +41,10 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/status"
 	"github.com/timche/mac-mini/hachiko/internal/sync"
 	"github.com/timche/mac-mini/hachiko/internal/update"
-	"github.com/timche/mac-mini/hachiko/internal/vuln"
 	"github.com/timche/mac-mini/hachiko/internal/watch"
 )
 
-const usage = `usage: hachiko [--dry-run | --test-alert | --vuln-check]
+const usage = `usage: hachiko [--dry-run | --test-alert]
        hachiko status
        hachiko gc [--dry-run]
        hachiko sync [--once | --dry-run]
@@ -58,10 +57,6 @@ const usage = `usage: hachiko [--dry-run | --test-alert | --vuln-check]
   (no option)        check free space and what is burning CPU, and alert when it matters
   --dry-run          report what a check sees, change nothing, alert nothing
   --test-alert       send a short message to the channel, to prove it works
-  --vuln-check       look now for published vulnerabilities affecting this Mac and
-                     print what a check would raise; sends nothing, upgrades
-                     nothing and remembers nothing. The five-minute check does this
-                     every three hours on its own
   status             print one screen of how this Mac's own machinery is doing: the
                      agents, free space, what the watch has open, every repository
                      sync keeps upstream, and the logs it caps. Reads and nothing else
@@ -80,7 +75,7 @@ const usage = `usage: hachiko [--dry-run | --test-alert | --vuln-check]
                      starts one a night, so this is the explicit "update now".
                      --security takes the rest of the line as the things one
                      published advisory named and moves only those, past the
-                     release-age hold; the vulnerability check starts one
+                     release-age hold
   notify             send a message about an incident to the channel Tim watches,
                      which is how the on-call session reports its findings;
                      --outcome marks the one that says the incident is resolved,
@@ -214,8 +209,6 @@ func run(args []string) error {
 			dry = true
 		case "--test-alert":
 			return watch.TestAlert(cfg)
-		case "--vuln-check":
-			return vuln.Check(cfg)
 		// Left out of the usage: these three are how the steps that hold the bot token are
 		// re-entered under `op run`, and nothing else should call them.
 		case "--send":

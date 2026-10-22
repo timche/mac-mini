@@ -344,8 +344,6 @@ func IncidentWords(kind string) string {
 		return "the disk incident"
 	case "update":
 		return "the nightly update"
-	case "vuln":
-		return "the published vulnerability"
 	default:
 		return "the " + Safe(kind, NameLimit) + " incident"
 	}

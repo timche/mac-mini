@@ -37,9 +37,11 @@ func (f Failure) handed(since int64) Handed {
 	switch {
 	case action != "":
 	case f.Step == stepSecurity:
-		// Not tomorrow night: a security upgrade is started by the vulnerability check, which
-		// looks again in three hours and asks for it again if the version has not moved.
-		action = "**Needs you:** the next vulnerability check asks for this again in three hours. " +
+		// Nothing asks for this run a second time, it being one somebody or something
+		// out of band started. What does come round is the night's own run, which moves
+		// the same version once the release-age hold this one was bypassing has passed.
+		action = "**Needs you:** nothing asks for this upgrade again, and tomorrow night's run " +
+			"moves the version once the release-age hold has passed. " +
 			"The step is " + wording.CodeSpan(f.Step) + " in `hachiko update --security`."
 	default:
 		action = "**Needs you:** nothing here tries it again before tomorrow night. " +

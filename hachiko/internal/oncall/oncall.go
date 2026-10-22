@@ -505,11 +505,8 @@ func (o Oncaller) workspace() (string, error) {
 
 func (o Oncaller) openingPrompt(name, brief, label string) string {
 	fired := fmt.Sprintf("The %s watch fired", name)
-	switch name {
-	case statedir.KindUpdate:
+	if name == statedir.KindUpdate {
 		fired = "The nightly update could not finish a step"
-	case statedir.KindVuln:
-		fired = "A published vulnerability may affect this Mac"
 	}
 
 	return o.prompt(name, label,
@@ -522,14 +519,10 @@ func (o Oncaller) updatePrompt(name, brief, label string) string {
 }
 
 func updateLead(name string) string {
-	switch name {
-	case statedir.KindUpdate:
+	if name == statedir.KindUpdate {
 		return "The nightly update failed another step — a fresh report."
-	case statedir.KindVuln:
-		return "More has been published since — a fresh set of advisories."
-	default:
-		return fmt.Sprintf("The situation changed — a fresh %s alert.", name)
 	}
+	return fmt.Sprintf("The situation changed — a fresh %s alert.", name)
 }
 
 // The orders come before the data and a reminder after it, and the data sits between
@@ -657,42 +650,11 @@ func updateOrders() orders {
 	}
 }
 
-// And a published vulnerability's, which is a third shape again. What fired is somebody
-// else's research rather than a reading of this Mac, so the first thing to do is not to read a
-// log but to find out whether the fault is real here: an advisory about curl is about the curl
-// this Mac runs or about a build it does not have, and a live test against a host answers that
-// in seconds where an afternoon of reading does not.
-//
-// The fix is a version and is mostly already running: where a source named an installed
-// version and a released version that is not affected, hachiko has already started
-// `hachiko update --security` on it, which is Tim's standing decision and not this session's
-// attempt. What is left for the session is the half nothing here moves — a Go module bump, a
-// shibuya dependency and a deploy, a macOS update, anything behind sudo, anything with no fix
-// released — and those are a fix it carries out once, with the partner's agreement, or a
-// command it writes out for Tim.
-func vulnOrders() orders {
-	return orders{
-		investigate: "- Investigate read-only first, and confirm the exposure before anything else. An advisory is somebody else's research about software in general; what matters is whether it is true of this Mac. Prefer a live test to a version string: " + wording.CodeSpan("curl -v https://<host>") + " or " + wording.CodeSpan("openssl s_client") + " for anything about certificates or TLS, the tool's own " + wording.CodeSpan("--version") + " and its build flags, " + wording.CodeSpan("security find-certificate") + " or the contents of " + wording.CodeSpan("/etc/ssl/cert.pem") + " for anything about what the machine trusts, and the advisory's own reproduction where it gives one. Read the advisory itself at the URL in the data rather than only hachiko's summary of it. Remember that Apple ships its own build of several of these — " + wording.CodeSpan("/usr/bin/curl") + " and the system python are not Homebrew's and not mise's — so which copy is affected is part of the answer.",
-		markers:     "🔴 a version installed here that a published advisory names, 🟢 no longer affected, ⚠️ an advisory worth reading or a deadline coming, ℹ️ not affected after all",
-		fallback:    "hachiko quotes that line back to Tim when he has not answered. Nothing here retries anything on one of these once your own attempt is spent, so that line says what is left rather than what you would do — usually that the next pass looks again in three hours, or that the upgrade already running will have moved it.",
-		fixFirst: "- An advisory that does not apply is the commonest outcome and closing it is the whole job: when the reading says this Mac is not affected — the wrong build, a configuration this Mac does not use, a version the advisory's own range excludes, a package installed but never loaded — say so with the evidence and send it as " + wording.CodeSpan("hachiko notify --outcome") + ". That is not an attempt and needs nobody's agreement; it is a reading.\n" +
-			"- Where a version a source named has a released fix and the thing is one `hachiko update` moves, the upgrade is already running: hachiko started " + wording.CodeSpan("hachiko update --security") + " before it sent you this, and the brief names the command. Do not start another, do not run `mise up` or `brew upgrade` by hand on top of it, and do not count it as your attempt. Read `~/Library/Logs/hachiko.log` for how it went, and if it failed say so and why.\n" +
-			"- What is left is the half nothing here moves, and that is your one attempt: a module bump in " + wording.CodeSpan("hachiko/go.mod") + " or " + wording.CodeSpan("mochi/go.mod") + " with " + wording.CodeSpan("go get") + ", " + wording.CodeSpan("go mod tidy") + ", " + wording.CodeSpan("go vet") + " and " + wording.CodeSpan("go test") + " green, as one commit pushed to main; a configuration change that closes the exposure without a version moving; or a workaround where there is no fix at all. A worktree for it — herdr's or Claude Code's own, never a " + wording.CodeSpan("git worktree add") + " of yours — and " + wording.CodeSpan("git revert") + " and never a force-push if it turns out wrong.\n" +
-			"- Not yours at all, however plainly the fix is a version: shibuya's packages, which move with a lockfile change and a deploy to Cloudflare; a macOS update, which wants a volume owner's password; and anything under sudo, such as the system trust store at " + wording.CodeSpan("/etc/ssl/cert.pem") + ". For each of those, write the exact command out for Tim — a sudo command as a fenced code block he can run as it stands — and say what it would do and what it would cost.",
-		whileWaiting: "- Short of that one attempt, take no action until he has picked something: no second version moved, no further commit, no push, no deploy, and nothing reconfigured. Reading and testing cost nothing, and a live test that proves this Mac is not affected is worth more than any of it.",
-		limits:       vulnLimits,
-	}
-}
-
 func ordersFor(name string) orders {
-	switch name {
-	case statedir.KindUpdate:
+	if name == statedir.KindUpdate {
 		return updateOrders()
-	case statedir.KindVuln:
-		return vulnOrders()
-	default:
-		return measuredOrders()
 	}
+	return measuredOrders()
 }
 
 func (o Oncaller) standingOrders(name, label string) string {
@@ -749,26 +711,6 @@ const autonomy = `Autonomy, and only once hachiko has prompted you saying Tim ha
 - Before any autonomous action, spawn the oncall-partner agent with the incident data and the action you propose, and act only if it agrees. If it disagrees, take the less destructive of the two proposals when both are inside the limits above; otherwise do nothing destructive, send a message with both views, and keep waiting. Say in your message that the partner reviewed it and what it found. An answer from Tim needs no partner.
 - A handover for rapid worsening is yours to judge rather than an order to act: hachiko has the numbers and you have the cause. If you agree that waiting costs more than acting, act now under these limits. If you think the writer is about to stop by itself, or acting costs more than the fault does, ask again with fresh options and say why in your message.
 - Quote the limit you acted under in that message, so what was allowed is in the record rather than in your reasoning.`
-
-// And a published vulnerability's, which is the update's shape with one thing taken out and
-// one added. Taken out: the version that fixes a confirmed exposure is already moving, because
-// that is Tim's standing decision rather than a session's judgement — hachiko starts the
-// upgrade itself and the partner has nothing to agree to about it.
-//
-// That exemption is exactly as wide as the thing it is for and no wider: a source compared the
-// installed version, named a released version that is not affected, and the thing is one
-// `hachiko update` already moves. Everything else this session does is an attempt like any
-// other and goes past the partner first — an advisory nothing matched exactly, a workaround, a
-// module bump it decides to make, a configuration change. Added: the incident note, because an
-// advisory that did not apply is worth writing down once so the next one about the same tool
-// is answered in a minute.
-const vulnLimits = `What you may not do, however long he takes to answer:
-
-- There is no handover on one of these and no autonomy past the one attempt above. Once it is spent, hachiko reminds him, says once that nothing here tries anything further, and waits: what resolves it is the upgrade that is already running, your reading showing this Mac is not affected, Tim picking a fix, or the next pass in three hours finding the version moved.
-` + neverList + `
-- Also his, and only once he has approved that one action with his code (below): a deploy, a merge, a database or a docker volume, and source outside the one fix above. shibuya's dependencies are a lockfile change and a deploy, so that whole fix is his; say exactly what it is and leave him to run it.
-- The upgrade hachiko has already started is not your attempt and needs no approval from anybody, because moving a version that a published advisory names is a decision Tim has already made standing. It covers only that: a source that compared the installed version, a released version that is not affected, and a thing ` + "`hachiko update`" + ` moves. Anything else you do about this incident is your one attempt, and the oncall-partner has to agree before you make it.
-- Write the incident note at the path the orders above name whatever the outcome was, including "not affected" — what it cost to find that out is the thing worth having next time.`
 
 // And the whole of what a session on the nightly update may do once its one attempt is spent,
 // which is wait. There is no handover to describe, so this says so outright rather than

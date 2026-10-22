@@ -92,8 +92,8 @@ func TestOnlyTheFiveShapesOfTargetAreTaken(t *testing.T) {
 	}
 }
 
-// A process of its own for the reason the nightly run is: moving a version takes minutes and
-// the five-minute check that asked for it has to be back inside its interval.
+// A process of its own, which is what anything inside hachiko that asks for one needs: moving
+// a version takes minutes, and the five-minute check it would be asked from has five.
 func TestASecurityUpgradeIsStartedAsAProcessOfItsOwn(t *testing.T) {
 	var started [][]string
 	start := func(args ...string) error {
@@ -137,8 +137,8 @@ func TestABrewTargetUpgradesThatFormulaAndNothingElse(t *testing.T) {
 	b.security(false, "brew:aria2")
 
 	harness.Equal(t, b.ran("brew upgrade aria2"), true, "the formula upgraded")
-	// The check that asked for this read off `brew outdated` that there is a newer version to
-	// reach, so what is missing is the upgrade and not the index.
+	// Whatever asked for this already knew there is a newer version to reach, so what is
+	// missing is the upgrade and not the index.
 	harness.Equal(t, b.ran("brew update"), false, "Homebrew's formulae fetched")
 	harness.Equal(t, b.ran("brew upgrade"), false, "every other package upgraded")
 	harness.Equal(t, len(b.matching("mise up")), 0, "mise calls")
@@ -219,9 +219,9 @@ func TestMiseItselfSelfUpdatesPastItsOwnHold(t *testing.T) {
 	harness.Wants(t, b.summary(), "`mise` 2026.10.11 → 2026.10.20")
 }
 
-// Not tomorrow night, which is the line every other step gets: this run was started by the
-// vulnerability check, and that is what comes round again.
-func TestAFailedSecurityStepWithNothingToSuggestNamesTheCheckThatAsksAgain(t *testing.T) {
+// Nothing asks for an out-of-cycle upgrade a second time, so the line says what does come
+// round: the night's own run, once the hold this one was bypassing has passed.
+func TestAFailedSecurityStepWithNothingToSuggestSaysNothingAsksAgain(t *testing.T) {
 	b := newBox(t)
 	b.says("mise --version", "2026.10.11 macos-arm64 (2026-10-15)")
 	b.fails("mise self-update --yes --minimum-release-age "+noHold, "mise ERR the release could not be downloaded")
@@ -230,9 +230,9 @@ func TestAFailedSecurityStepWithNothingToSuggestNamesTheCheckThatAsksAgain(t *te
 
 	failing := b.failing()
 	harness.Equal(t, len(failing), 1, "steps left for the check")
-	harness.Wants(t, failing[0].Action, "the next vulnerability check asks for this again in three hours")
+	harness.Wants(t, failing[0].Action, "nothing asks for this upgrade again")
+	harness.Wants(t, failing[0].Action, "tomorrow night's run moves the version once the release-age hold has passed")
 	harness.Wants(t, failing[0].Action, "`hachiko update --security`")
-	harness.Lacks(t, failing[0].Action, "tomorrow night")
 }
 
 // herdr refuses to update from inside one of its own panes, and the server is left alone
@@ -375,7 +375,7 @@ func TestASecurityUpgradeThatFailedIsRaisedAndThenCleared(t *testing.T) {
 	harness.Wants(t, failing[0].Detail, "no bottle for this macOS")
 	harness.Wants(t, failing[0].Action, "brew upgrade aria2")
 
-	b.raised(stepSecurity, "vuln-1", "thread-1")
+	b.raised(stepSecurity, "update-1", "thread-1")
 	b.sent = nil
 	b.now = b.now.Add(3 * time.Hour)
 	delete(b.answers, "brew upgrade aria2")

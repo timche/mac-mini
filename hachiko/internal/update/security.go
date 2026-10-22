@@ -14,12 +14,12 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
-// An out-of-cycle run that moves only what a published advisory names. It is here and not in
-// the check that found the advisory because of the rule this repository holds to: `hachiko
-// update` is the one thing on this Mac that moves a version, and a vulnerability check with an
-// upgrade of its own inside it would be a second one. So the check names the targets and this
-// moves them, through the same readings, the same lockfile commit, the same summary and the
-// same hand-off to the five-minute check that a night's run uses.
+// An out-of-cycle run that moves only what a published advisory names. The upgrade is here and
+// not beside whatever named the advisory because of the rule this repository holds to:
+// `hachiko update` is the one thing on this Mac that moves a version, and a second place that
+// moved one would be a second one. So a caller names the targets and this moves them, through
+// the same readings, the same lockfile commit, the same summary and the same hand-off to the
+// five-minute check that a night's run uses.
 //
 // Only the targets, and nothing else that happens to be outdated. A night's upgrading is a
 // decision about keeping this Mac current; this is a decision about one fault, and a run that
@@ -61,8 +61,8 @@ const (
 	HerdrTarget    = "herdr"
 )
 
-// What the check writes down for each kind, so the spelling it builds and the spelling this
-// reads back cannot be two spellings.
+// The spelling of each kind, so whatever names a target and this, which reads it back,
+// cannot be two spellings.
 func MiseTarget(tool string) string    { return targetMise + tool }
 func BrewTarget(formula string) string { return targetBrew + formula }
 
@@ -71,10 +71,10 @@ func BrewTarget(formula string) string { return targetBrew + formula }
 // it.
 func PipTarget(python, pkg string) string { return targetPip + python + ":" + pkg }
 
-// Security starts the run, as a process of its own for the reason the nightly one is: moving a
-// version takes minutes and the five-minute check that asked for it has to be back inside its
-// interval. A target this would not run is refused here rather than passed on, so the check
-// that built it finds out.
+// Security starts the run as a process of its own, which is what anything inside hachiko that
+// asks for one needs: moving a version takes minutes, and the five-minute check it would be
+// asked from has five. A target this would not run is refused here rather than passed on, so
+// whatever built it finds out.
 func Security(cfg config.Config, targets []string) error {
 	return security(realDeps(cfg).Spawn, targets)
 }
@@ -139,13 +139,13 @@ func (u *updater) runSecurity() error {
 	// The nightly run's lock, because the two may not move a version at the same time: a
 	// `mise up` of everything and a `mise up` of one tool would be two processes writing one
 	// lockfile. A security upgrade that finds the night's run going says so and leaves it —
-	// the night's run is moving the same tool forward anyway, and the next check looks again.
+	// the night's run is moving the same tool forward anyway.
 	if !u.dry {
 		lock, takenFrom, err := statedir.LockDir(u.cfg.UpdateLock, lockStale, now, "an earlier update")
 
 		switch {
 		case errors.Is(err, statedir.ErrLockHeld):
-			u.say("an update is already running, so this security upgrade does nothing and the next check asks again")
+			u.say("an update is already running, so this security upgrade does nothing and the version is left to that run")
 			return nil
 		case err != nil:
 			u.say("the lock %s could not be taken, so this security upgrade runs without one: %v", u.cfg.UpdateLock, err)
@@ -312,9 +312,8 @@ func (u *updater) securityMiseSelf() {
 }
 
 // One Homebrew formula or cask, and never a `brew update` before it: fetching Homebrew's
-// formulae is a step of the night's run, and the check that asked for this already read off
-// `brew outdated` that there is a newer version to reach — so what is missing here is the
-// upgrade and not the index.
+// formulae is a step of the night's run, and whatever asked for this already knew there is a
+// newer version to reach — so what is missing here is the upgrade and not the index.
 func (u *updater) securityBrew(formula string) {
 	before := u.brewVersions()
 

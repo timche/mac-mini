@@ -284,3 +284,62 @@ func TestTheLivenessFieldsOfAnOlderStateAreReadAndThenDropped(t *testing.T) {
 		t.Error("the listener came out of an older state with an alert open")
 	}
 }
+
+// The same moment for an incident of a kind nothing raises any more: the binary that lands
+// while a published-vulnerability session is open reads its state file, and a wait left in it
+// would be chased for ever against an agent nothing is going to open. Every other kind, and
+// everything else the file carries about one, survives untouched.
+func TestAnIncidentOfAKindNothingRaisesAnyMoreIsDroppedOnTheWayIn(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "hachiko")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	older := `{"pending":{"vuln-1792666031":{"opened_at":1792666031,"tab":"vuln-0000"},` +
+		`"disk-1792666031":{"opened_at":1792666031,"tab":"disk-0000"}},` +
+		`"waiting":{"vuln":{"incident":"vuln-1792666031","opened":1792666031},` +
+		`"disk":{"incident":"disk-1792666031","opened":1792666031}},` +
+		`"threads":{"vuln-1792666031":"1562779419662098493"},` +
+		`"vulns_checked":1792666031,"vuln_cursors":{"nvd":1792666038},` +
+		`"vulns":{"CVE-2026-107675":{"incident":"vuln-1792666031","since":1792666031}}}`
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), []byte(older), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := Store{Dir: dir}
+	state, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := state.Pending["vuln-1792666031"]; ok {
+		t.Error("an incident of a kind nothing raises survived the load")
+	}
+	if _, ok := state.Waiting["vuln"]; ok {
+		t.Error("a wait on a kind nothing raises survived the load")
+	}
+	if _, ok := state.Pending["disk-1792666031"]; !ok {
+		t.Error("the disk incident went with it")
+	}
+	if state.Waiting["disk"].Incident != "disk-1792666031" {
+		t.Errorf("the wait on the disk incident went with it: %+v", state.Waiting)
+	}
+
+	// The thread stays until nothing is expected under it, which is what carries a late
+	// outcome from the session that was reading it into the post it was raised in.
+	if state.ThreadFor("vuln-1792666031") != "1562779419662098493" {
+		t.Error("the thread of the dropped incident went with it")
+	}
+
+	if err := store.Save(state); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(filepath.Join(dir, "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, gone := range []string{"vulns_checked", "vuln_cursors", `"vulns"`} {
+		if strings.Contains(string(saved), gone) {
+			t.Errorf("%s was written again: %s", gone, saved)
+		}
+	}
+}

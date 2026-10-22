@@ -19,7 +19,6 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/shibuya"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/update"
-	"github.com/timche/mac-mini/hachiko/internal/vuln"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
@@ -128,21 +127,6 @@ type fixture struct {
 	updateFailing   []update.Handed
 	updateRaised    map[string]update.Raised
 	updateRaisedErr error
-
-	// What a pass of the vulnerability check found, which is the whole of what the check is
-	// handed: the sources themselves are `internal/vuln`'s own tests, and what these are about
-	// is the incident, the automatic upgrade and what clears by itself.
-	//
-	// A queue, because these tests walk the clock across several passes and what makes a
-	// finding clear is a later pass that does not find it. The last answer stands for every
-	// pass after it, so a test about one pass sets up one.
-	vulnPasses  []vuln.Found
-	vulnCursors []map[string]int64
-
-	// The targets an upgrade was started with, one entry per pass that started one, and what
-	// the update refuses with.
-	fixed    [][]string
-	fixedErr error
 
 	oncallName    string
 	oncallBrief   string
@@ -345,25 +329,6 @@ func (f *fixture) deps() Deps {
 				return f.updateRaisedErr
 			}
 			f.updateRaised = raised
-			return nil
-		},
-
-		Vulns: func(cursors map[string]int64) vuln.Found {
-			f.vulnCursors = append(f.vulnCursors, cursors)
-			if len(f.vulnPasses) == 0 {
-				return vuln.Found{}
-			}
-			pass := f.vulnPasses[0]
-			if len(f.vulnPasses) > 1 {
-				f.vulnPasses = f.vulnPasses[1:]
-			}
-			return pass
-		},
-		FixVulns: func(targets []string) error {
-			if f.fixedErr != nil {
-				return f.fixedErr
-			}
-			f.fixed = append(f.fixed, targets)
 			return nil
 		},
 

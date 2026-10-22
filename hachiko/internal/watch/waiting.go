@@ -59,30 +59,25 @@ const questionBound = time.Hour
 // numbers move, a projection can say the volume will be gone before Tim wakes, and the
 // authority to act on either is worth handing over at three hours.
 //
-// A step the nightly update could not do is none of that, and neither is a published
-// advisory. Nothing here measures either, so there is nothing for a question to go stale
-// against and nothing to project; and the one retry each gets is the session's own attempt,
-// made in the first minutes with the partner's agreement and recorded, rather than anything
-// this hands over at an hour of the morning. So both go straight to the clock, and the clock
-// ends at the warning: what resolves one is that attempt, Tim picking a fix, or the run that
-// comes round again.
+// A step the nightly update could not do is none of that. Nothing here measures it, so there
+// is nothing for a question to go stale against and nothing to project; and the one retry it
+// gets is the session's own attempt, made in the first minutes with the partner's agreement
+// and recorded, rather than anything this hands over at an hour of the morning. So it goes
+// straight to the clock, and the clock ends at the warning: what resolves it is that attempt,
+// Tim picking a fix, or the run that comes round again.
 func measured(kind string) bool {
-	return kind != statedir.KindUpdate && kind != statedir.KindVuln
+	return kind != statedir.KindUpdate
 }
 
 // What is left once a wait has ended with nothing done. The next check raises a disk or a CPU
-// incident again the moment it fires again; nothing raises a failed update step or an advisory
-// a second time, the check having already said it once and both still being recorded as
-// raised, so what is left is the run that comes round again.
+// incident again the moment it fires again; nothing raises a failed update step a second time,
+// the check having already said it once and the step still being recorded as raised, so what
+// is left is the run that comes round again.
 func orElse(kind string) string {
-	switch kind {
-	case statedir.KindUpdate:
+	if kind == statedir.KindUpdate {
 		return "leave it to tomorrow night's run, which tries the step again"
-	case statedir.KindVuln:
-		return "leave it to the next vulnerability check, which looks again in three hours"
-	default:
-		return "leave it to the next check to raise it again"
 	}
+	return "leave it to the next check to raise it again"
 }
 
 // What this check measured, which every reminder and every handover carries instead of

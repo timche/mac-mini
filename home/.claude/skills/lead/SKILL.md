@@ -41,7 +41,7 @@ His feedback goes back to the same implementer, continued so it keeps its contex
 
 ## Verify
 
-Send each branch to the `reviewer` with the spec and the implementer's worktree path. For a change with UI, the spec says Tim has approved the look and layout and names the screens he saw, so the reviewer does not reopen them. A verdict of ship counts only with the proof's output behind it.
+Send each branch to the `reviewer` with the spec and the implementer's worktree path. For a change with UI, the spec says Tim has approved the look and layout and names the screens he saw, so the reviewer does not reopen them. A verdict of ship counts only with the proof's output behind it, on the base and on the branch. Never waive the base run in a brief. Start a fresh reviewer for each branch, continued only for that branch's re-reviews, since one carried across branches is no longer a fresh context. It reviews; a test run on another platform or machine is an implementer's job. A verdict of blocked goes to Tim with what would unblock it, the same as findings that survive the third round.
 
 Findings go back to the implementer that did the work, continued so it keeps its context, and the reviewer re-reviews with its earlier findings in hand. Allow three rounds; the rounds with Tim on the UI are not among them. If findings survive the third, stop: the approach likely needs rethinking, and that goes to Tim as a decision with your recommendation, never shipped past. If he picks a different approach, a fresh implementer builds it from the revised plan; the old one's context is about the approach just rejected.
 

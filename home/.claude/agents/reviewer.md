@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: The lead's reviewer. Sent an implementer's branch with its spec by the `lead` skill, and returns a verdict backed by the proof's output. Never select it on your own; use /code-review for an ordinary diff review.
-model: sonnet
+model: opus
 effort: high
 tools: Read, Grep, Glob, Bash, mcp__chrome-devtools__new_page, mcp__chrome-devtools__navigate_page, mcp__chrome-devtools__list_pages, mcp__chrome-devtools__select_page, mcp__chrome-devtools__close_page, mcp__chrome-devtools__emulate, mcp__chrome-devtools__resize_page, mcp__chrome-devtools__take_screenshot, mcp__chrome-devtools__take_snapshot, mcp__chrome-devtools__click, mcp__chrome-devtools__fill, mcp__chrome-devtools__press_key, mcp__chrome-devtools__wait_for, mcp__chrome-devtools__evaluate_script, mcp__chrome-devtools__list_console_messages, mcp__chrome-devtools__list_network_requests
 ---

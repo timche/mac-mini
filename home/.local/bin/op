@@ -33,6 +33,14 @@ if [ -z "$real" ]; then
   exit 127
 fi
 
+# A cask arrives quarantined, and the first run of each new version puts
+# Gatekeeper's "downloaded from the internet" dialog on a display nobody watches,
+# where op hangs silently until somebody clicks Open. Homebrew has dropped
+# --no-quarantine, so the attribute comes off here, before macOS sees the binary.
+if xattr -p com.apple.quarantine "$real" >/dev/null 2>&1; then
+  xattr -d com.apple.quarantine "$real" 2>/dev/null
+fi
+
 token_file="${OP_SERVICE_ACCOUNT_TOKEN_FILE:-$HOME/.config/op/service-account-token}"
 if [ -z "${OP_SERVICE_ACCOUNT_TOKEN:-}" ] && [ -r "$token_file" ]; then
   OP_SERVICE_ACCOUNT_TOKEN="$(<"$token_file")"

@@ -107,14 +107,14 @@ backend = "npm:ccstatusline"
 specifiers = ["latest"]
 
 [[tools."npm:chrome-devtools-mcp"]]
-version = "1.11.0"
-aube = { path = "locks/npm-chrome-devtools-mcp/1.11.0", digest = "sha256:84a2532358818a9dae0d62e97a7b1187189a31a5f4b2a79a74dcb236629f14d1" }
+version = "1.12.0"
+aube = { path = "locks/npm-chrome-devtools-mcp/1.12.0", digest = "sha256:0a625298cb87475a660765dfaa086356bd2d1b6dd887feb0a195d77805ee6844" }
 backend = "npm:chrome-devtools-mcp"
 specifiers = ["latest"]
 
 [[tools."npm:portless"]]
-version = "0.15.8"
-aube = { path = "locks/npm-portless/0.15.8", digest = "sha256:e0b98e7ed90d8a4b0d047b15f5ee46018b0cd47ca33e1efc2e59d4eac30fa469" }
+version = "0.15.9"
+aube = { path = "locks/npm-portless/0.15.9", digest = "sha256:f9a895dd74301c106f2e53b6e0c15494ddc71bb7f1a6dcecb35a88d63e225847" }
 backend = "npm:portless"
 specifiers = ["latest"]
 

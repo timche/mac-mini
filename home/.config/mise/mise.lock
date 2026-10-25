@@ -113,8 +113,8 @@ backend = "npm:chrome-devtools-mcp"
 specifiers = ["latest"]
 
 [[tools."npm:portless"]]
-version = "0.15.9"
-aube = { path = "locks/npm-portless/0.15.9", digest = "sha256:f9a895dd74301c106f2e53b6e0c15494ddc71bb7f1a6dcecb35a88d63e225847" }
+version = "0.15.11"
+aube = { path = "locks/npm-portless/0.15.11", digest = "sha256:0762f7ea928d06a7b53d16abdae4a59cf0026ed8d10364b3ee085ed5488d0d7a" }
 backend = "npm:portless"
 specifiers = ["latest"]
 

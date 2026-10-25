@@ -417,8 +417,8 @@ check "the statusLine draws a line with mise's ccstatusline" \
 # to report its health.
 check "chrome-devtools-mcp is mise's npm install" \
   'mise which chrome-devtools-mcp | grep -q "/installs/npm-chrome-devtools-mcp/"'
-check "every session has the chrome-devtools MCP server, headless and isolated" \
-  'jq -e ".mcpServers[\"chrome-devtools\"] | (.command | endswith(\"mise/shims/chrome-devtools-mcp\")) and (.args | index(\"--headless\") and index(\"--isolated\"))" "$HOME/.claude.json"'
+check "every session has the chrome-devtools MCP server, headless and isolated on Chrome Beta" \
+  'jq -e ".mcpServers[\"chrome-devtools\"] | (.command | endswith(\"mise/shims/chrome-devtools-mcp\")) and (.args | index(\"--headless\") and index(\"--isolated\") and (index(\"--channel\") as \$i | \$i != null and .[\$i + 1] == \"beta\"))" "$HOME/.claude.json"'
 check "every session has the context7 MCP server" \
   'jq -e ".mcpServers.context7.url == \"https://mcp.context7.com/mcp\"" "$HOME/.claude.json"'
 

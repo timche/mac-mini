@@ -65,8 +65,13 @@ brew "zoxide"
 # `hachiko sync`'s included.
 brew "betterleaks"
 
-# The browser sessions drive.
+# The browser Tim uses and Claude in Chrome drives.
 cask "google-chrome"
+# The browser the chrome-devtools MCP launches headless. A second app rather than
+# the first one headless, because macOS sends every launch of an app to a copy
+# already running under its bundle ID, and a headless copy opens no window and
+# ignores Quit.
+cask "google-chrome@beta"
 
 # The virtual machines, Windows on ARM for the Windows half of an Electron app
 # among them. UTM rather than Parallels, whose command line is its paid edition's,

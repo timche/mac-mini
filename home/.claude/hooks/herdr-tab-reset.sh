@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # Restores this Herdr tab's default label when a session is cleared.
 #
-# The lead skill names the tab after the task so the tab strip is Tim's
-# overview of what every session is building, and marks it with a check mark
-# when the work ships. Clearing the session starts a different task, so the old
-# name outlives what it described; SessionStart with matcher "clear" is the
-# only hook that fires there.
+# Clearing the session starts a different task, so the tab's old name outlives
+# what it described, and a tab named by hand or marked shipped by the lead skill
+# is one herdr-tab-name.py will not touch again until it has its number back.
+# SessionStart with matcher "clear" is the only hook that fires there.
 #
 # Herdr has no unset: renaming to an empty string leaves the tab visibly blank,
 # so the default has to be rebuilt. It is the tab's 1-based position in its

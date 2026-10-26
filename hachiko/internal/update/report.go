@@ -13,11 +13,12 @@ import (
 // The labels the summary goes under. Here rather than in wording because they are this
 // command's own words.
 const (
-	labelMoved = "Moved"
-	labelAlso  = "Also"
-	labelStep  = "Step"
-	labelSaid  = "What it said"
-	labelSince = "Failing since"
+	labelMoved  = "Moved"
+	labelAlso   = "Also"
+	labelFailed = "Failed"
+	labelStep   = "Step"
+	labelSaid   = "What it said"
+	labelSince  = "Failing since"
 )
 
 // Failure is one step the update could not finish. The step is its identity — one that
@@ -205,12 +206,24 @@ func (u *updater) summary(now time.Time) {
 	message := wording.Lead(wording.MarkerInfo, u.sentence()).
 		Bullets(labelMoved, bullets).
 		Bullets(labelAlso, u.notes).
+		Bullets(labelFailed, u.failedBullets()).
 		About("", u.cfg.Host).
 		String()
 
 	if _, err := u.deps.Send(discord.Outgoing{Text: message, Channel: u.cfg.Discord.UpdatesID}); err != nil {
 		u.say("the summary did not send, so this night is in the log alone: %v", err)
 	}
+}
+
+// The step and what it could not do, so the summary says what failed without anybody having
+// to find the incident it was raised as, which is posted once and not again for as long as it
+// goes on failing.
+func (u *updater) failedBullets() []string {
+	var bullets []string
+	for _, f := range u.failures {
+		bullets = append(bullets, wording.CodeSpan(f.Step)+": could not "+phraseFor(f.Step))
+	}
+	return bullets
 }
 
 // A name and two versions, all three of them a tool's own spelling rather than hachiko's.

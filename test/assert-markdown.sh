@@ -38,17 +38,23 @@ check() {
 # configuration and block-level HTML comments are stripped before injection, so
 # counting either would charge rent on words Claude never sees. Computed here
 # rather than inside the snippet, which runs through two levels of quoting.
-export loaded_words="$(
-  cat "$repo/home/.claude/CLAUDE.md" 2>/dev/null |
+loaded() {
+  cat "$1" 2>/dev/null |
     awk '/^---$/ { fm = !fm; next } fm { next }
          /<!--/ { c = 1 } c { if (/-->/) c = 0; next }
          { print }' |
     wc -w
-)"
+}
+export loaded_words="$(loaded "$repo/home/.claude/CLAUDE.md")"
+# A session in this repository loads its own CLAUDE.md on top of the global one.
+export repo_words="$(loaded "$repo/CLAUDE.md")"
 
 check "the always-loaded instructions stay under 2,400 words" \
   '[ -f "$repo/home/.claude/CLAUDE.md" ] && [ "$loaded_words" -gt 0 ] &&
    [ "$loaded_words" -lt 2400 ]'
+
+check "this repository's own CLAUDE.md stays under 2,000 words" \
+  '[ -f "$repo/CLAUDE.md" ] && [ "$repo_words" -gt 0 ] && [ "$repo_words" -lt 2000 ]'
 
 # Markdown prose is never hard-wrapped: a paragraph or list item is one line.
 # Reports each line that continues the one before it, which is exactly what an

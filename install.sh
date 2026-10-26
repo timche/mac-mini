@@ -232,14 +232,15 @@ mcp_server() {
 }
 
 # Headless and isolated, so parallel sessions each get a throwaway browser rather
-# than sharing one profile in windows on the Mac's screen. On Chrome Beta, since
-# a headless copy of Tim's own Chrome is what a Dock or `open -a` launch of it
-# lands in; the Brewfile says why. Google collects usage statistics unless told
-# not to, and the update check is noise for a version mise.lock pins.
+# than sharing one profile in windows on the Mac's screen. On Chrome for Testing
+# through mise's shim, which runs whichever version mise has, since a headless
+# copy of Tim's own Chrome is what a Dock or `open -a` launch of it lands in; the
+# mise config says why. Google collects usage statistics unless told not to, and
+# the update check is noise for a version mise.lock pins.
 mcp_server chrome-devtools "{
   \"type\": \"stdio\",
   \"command\": \"$HOME/.local/share/mise/shims/chrome-devtools-mcp\",
-  \"args\": [\"--headless\", \"--isolated\", \"--channel\", \"beta\", \"--no-usage-statistics\"],
+  \"args\": [\"--headless\", \"--isolated\", \"--executablePath\", \"$HOME/.local/share/mise/shims/google chrome for testing\", \"--no-usage-statistics\"],
   \"env\": {\"CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS\": \"1\"}
 }"
 mcp_server context7 '{"type": "http", "url": "https://mcp.context7.com/mcp"}'

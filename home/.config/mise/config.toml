@@ -20,3 +20,9 @@ python = "latest"
 # install.sh as a user-scope MCP server. Installed rather than `npx -y …@latest`
 # for the same reason as ccstatusline, and so the lockfile says which version runs.
 "npm:chrome-devtools-mcp" = "latest"
+# The Chrome that server launches: Google's build of current stable for
+# automation, an app of its own because macOS sends a launch of Tim's Chrome to a
+# copy already running under its bundle ID, and a headless copy opens no window.
+# No cask and no updater of its own, so mise follows the stable channel's version
+# list and the nightly `mise up` moves it.
+"http:chrome-for-testing" = { version = "latest", version_list_url = "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json", version_json_path = ".channels.Stable.version", platforms = { macos-arm64 = { url = "https://storage.googleapis.com/chrome-for-testing-public/{{ version }}/mac-arm64/chrome-mac-arm64.zip", bin_path = "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS" } } }

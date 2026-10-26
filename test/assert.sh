@@ -417,8 +417,10 @@ check "the statusLine draws a line with mise's ccstatusline" \
 # to report its health.
 check "chrome-devtools-mcp is mise's npm install" \
   'mise which chrome-devtools-mcp | grep -q "/installs/npm-chrome-devtools-mcp/"'
-check "every session has the chrome-devtools MCP server, headless and isolated on Chrome Beta" \
-  'jq -e ".mcpServers[\"chrome-devtools\"] | (.command | endswith(\"mise/shims/chrome-devtools-mcp\")) and (.args | index(\"--headless\") and index(\"--isolated\") and (index(\"--channel\") as \$i | \$i != null and .[\$i + 1] == \"beta\"))" "$HOME/.claude.json"'
+check "every session has the chrome-devtools MCP server, headless and isolated on Chrome for Testing" \
+  'jq -e ".mcpServers[\"chrome-devtools\"] | (.command | endswith(\"mise/shims/chrome-devtools-mcp\")) and (.args | index(\"--headless\") and index(\"--isolated\") and (index(\"--executablePath\") as \$i | \$i != null and (.[\$i + 1] | endswith(\"mise/shims/google chrome for testing\"))))" "$HOME/.claude.json"'
+check "the MCP server's Chrome for Testing runs from mise's shim" \
+  '"$HOME/.local/share/mise/shims/google chrome for testing" --version | grep -q "^Google Chrome for Testing "'
 check "every session has the context7 MCP server" \
   'jq -e ".mcpServers.context7.url == \"https://mcp.context7.com/mcp\"" "$HOME/.claude.json"'
 

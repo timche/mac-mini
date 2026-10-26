@@ -358,7 +358,7 @@ func TestACleanupThatFailsNamesTheKeg(t *testing.T) {
 	harness.Equal(t, len(failing), 1, "steps left for the check")
 	harness.Equal(t, failing[0].Phrase, "clear what Homebrew replaced", "the phrase")
 	harness.Wants(t, failing[0].Action, "sudo rm -rf /opt/homebrew/Cellar/tailscale/1.104.1")
-	harness.Wants(t, b.summary(), "`brew cleanup`: could not clear what Homebrew replaced")
+	harness.Wants(t, b.summary(), "- `brew cleanup`: could not clear what Homebrew replaced\n```\nPermission denied @ apply2files")
 }
 
 func TestHerdrIsUpdatedWithoutRestartingTheServer(t *testing.T) {

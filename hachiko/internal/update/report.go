@@ -206,7 +206,7 @@ func (u *updater) summary(now time.Time) {
 	message := wording.Lead(wording.MarkerInfo, u.sentence()).
 		Bullets(labelMoved, bullets).
 		Bullets(labelAlso, u.notes).
-		Bullets(labelFailed, u.failedBullets()).
+		Block(u.failedSection()).
 		About("", u.cfg.Host).
 		String()
 
@@ -215,15 +215,26 @@ func (u *updater) summary(now time.Time) {
 	}
 }
 
-// The step and what it could not do, so the summary says what failed without anybody having
-// to find the incident it was raised as, which is posted once and not again for as long as it
-// goes on failing.
-func (u *updater) failedBullets() []string {
-	var bullets []string
-	for _, f := range u.failures {
-		bullets = append(bullets, wording.CodeSpan(f.Step)+": could not "+phraseFor(f.Step))
+// The step, what it could not do and what the command said, so the summary says what failed
+// without anybody having to find the incident it was raised as, which is posted once and not
+// again for as long as it goes on failing. The output shares one budget between the steps,
+// since the send cuts a message over Discord's limit at a line and a cut inside a fence would
+// leave the rest of the message rendered as code.
+func (u *updater) failedSection() string {
+	if len(u.failures) == 0 {
+		return ""
 	}
-	return bullets
+	limit := wording.OutputLimit / len(u.failures)
+
+	var items []string
+	for _, f := range u.failures {
+		item := wording.CodeSpan(f.Step) + ": could not " + phraseFor(f.Step)
+		if said := wording.CodeBlock(f.Detail, limit); said != "" {
+			item += "\n" + said
+		}
+		items = append(items, item)
+	}
+	return wording.Section(labelFailed, items)
 }
 
 // A name and two versions, all three of them a tool's own spelling rather than hachiko's.

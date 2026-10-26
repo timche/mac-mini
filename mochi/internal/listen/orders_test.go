@@ -78,7 +78,7 @@ var rules = []string{
 	"Files have to be inside this session's checkout or its scratch folder",
 	"refuses ones that look like secrets or local settings",
 	"A secret scan runs over every post first",
-	"No links except the pull request --pr adds and the server's allowed domains (mochi tells you if one is refused), no file paths, branch names, code or jargon, no secrets",
+	"No links except the pull request --pr adds, the server's allowed domains and the exact addresses it allows, such as `chrome://extensions`, which may be written in backticks for a tester to paste and are not code or configuration (mochi tells you if one is refused); no file paths, branch names, code or jargon, no secrets",
 	"Name none of the tools or services behind the work",
 	"If something posted shouldn't be there, fix it with `mochi edit <link>` (or `mochi delete <link>`) right away and tell the user.",
 	"`--drop-files` removes the attachments too",

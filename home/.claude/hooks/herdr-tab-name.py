@@ -21,6 +21,7 @@ import os
 import re
 import subprocess
 import sys
+import unicodedata
 
 CACHE = os.path.expanduser("~/Library/Caches/herdr-tab-name")
 # The title is near the end of a long transcript, and this runs on every tool call.
@@ -54,7 +55,9 @@ def latest_title(path):
 
 
 def kebab(title):
-    words = re.sub(r"[^a-z0-9]+", " ", title.lower().replace("'", "")).split()
+    ascii_title = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode()
+    words = re.sub(r"[^a-z0-9.]+", " ", ascii_title.lower().replace("'", "")).split()
+    words = [w.strip(".") for w in words if w.strip(".")]
     return "-".join(words[:MAX_WORDS])
 
 

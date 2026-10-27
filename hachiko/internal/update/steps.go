@@ -496,14 +496,14 @@ func (u *updater) ohMyZshHead() string {
 	return firstLine(out.Stdout)
 }
 
-// Apple's own, and the one thing here that is a message rather than an action: macOS installs
-// these itself, from the volume owner's credential it collects when Tim logs in, where
-// `softwareupdate --install` run from here would want that password again — `--user` with
-// `--stdinpass`, both documented as Apple-silicon-only — and nothing on this Mac may hold it.
+// Apple's own, and the one thing here that is a message rather than an action. macOS's own
+// automatic install stays off, since it restarts the Mac whether or not a session is running,
+// and on Apple silicon `softwareupdate --install` of a macOS update wants a volume owner's
+// password — `--user` with `--stdinpass`, both documented as Apple-silicon-only — which
+// nothing on this Mac may hold. So Tim installs it, at a moment he picks.
 //
-// So what is waiting is said, and said again every night until macOS has installed it: this
-// is a reading of what the Mac has pending rather than news of a download that finished
-// tonight.
+// What is waiting is said again every night until it is installed: this is a reading of what
+// the Mac has pending rather than news of a download that finished tonight.
 func (u *updater) macOS() {
 	out := u.deps.Run(Command{Name: "softwareupdate", Args: []string{"--list"}, Timeout: appleList})
 	if !out.OK {
@@ -512,13 +512,11 @@ func (u *updater) macOS() {
 	}
 
 	for _, update := range appleWaiting(out.Text) {
-		item := wording.CodeSpan(wording.Safe(update.title, wording.PathLimit)) +
-			" is waiting: macOS installs it by itself"
+		item := wording.CodeSpan(wording.Safe(update.title, wording.PathLimit)) + " is waiting"
 		if update.restart {
-			item += " and restarts the Mac"
+			item += " and restarts the Mac, ending every session"
 		}
-		u.waits(item + " at a time it picks, and you can install it sooner in " +
-			"System Settings › General › Software Update")
+		u.waits(item + ": install it in System Settings › General › Software Update")
 	}
 }
 

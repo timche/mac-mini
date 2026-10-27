@@ -69,8 +69,8 @@ Software Update found the following new or updated software:
 	harness.Equal(t, b.summary(), strings.Join([]string{
 		"⚠️ Nightly update: 4 versions moved, 1 needs you",
 		"**Needs you:**\n" +
-			"- `macOS 27.2` is waiting: macOS installs it by itself and restarts the Mac at a time it " +
-			"picks, and you can install it sooner in System Settings › General › Software Update",
+			"- `macOS 27.2` is waiting and restarts the Mac, ending every session: " +
+			"install it in System Settings › General › Software Update",
 		"**Moved:**\n" +
 			"- `tuicr` 0.27.0 → 0.28.0 · minor\n" +
 			"- `npm:portless` 0.15.11 → 0.15.12 · patch · dev-URL proxy restarted\n" +

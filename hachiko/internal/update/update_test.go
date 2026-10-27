@@ -529,9 +529,8 @@ Software Update found the following new or updated software:
 	// And a night where nothing moved still posts, because what is waiting is a reading of the
 	// Mac rather than news of tonight: it is waiting again tomorrow until it is installed.
 	harness.Wants(t, b.summary(), "⚠️ Nightly update: nothing moved, 1 needs you")
-	harness.Wants(t, b.summary(), "**Needs you:**\n- `macOS Tahoe 27.1` is waiting: macOS installs it "+
-		"by itself and restarts the Mac at a time it picks, and you can install it sooner in "+
-		"System Settings › General › Software Update")
+	harness.Wants(t, b.summary(), "**Needs you:**\n- `macOS Tahoe 27.1` is waiting and restarts the "+
+		"Mac, ending every session: install it in System Settings › General › Software Update")
 
 	for _, call := range b.calls {
 		if strings.Contains(call, "--install") {

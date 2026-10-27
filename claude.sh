@@ -125,6 +125,25 @@ else
   fi
 fi
 
+# portless's CA is generated on this Mac, so a rebuilt one has a CA nothing trusts
+# yet, and a dev URL warns everywhere until it is. Trusting it here takes a dialog
+# on the Mac's own screen, which a provision over SSH cannot answer. The MacBook
+# and iPhone are listed on every run, with the fingerprint to compare, because
+# whether they trust this CA is nothing this Mac can ask.
+portless_ca="$HOME/.portless/ca.pem"
+if [ -f "$portless_ca" ]; then
+  portless_fingerprint="$(openssl x509 -in "$portless_ca" -noout -fingerprint -sha256 | sed 's/.*=//')"
+  if ! "$repo/claude/portless-ca-trusted.sh"; then
+    echo "  - portless trust — in Terminal over Screen Sharing; over SSH or in a herdr"
+    echo "    pane it fails with \"Permission denied\" even after sudo."
+  fi
+  echo "  - On the MacBook and iPhone, unless they already trust portless's CA"
+  echo "    $portless_fingerprint:"
+  echo "    steps 3 and 4 under Dev servers from the MacBook in"
+  echo "    \$PROJECT_DOCS_DIR/mac-mini/README.md, then open a dev server's timche.dev"
+  echo "    URL on each."
+fi
+
 # install.sh is what makes zsh the login shell — a Mac is on zsh already, so what
 # is left is the rc files it links, which a session that started before them has
 # not read.

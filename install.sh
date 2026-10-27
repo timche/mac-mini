@@ -149,14 +149,34 @@ fi
 # instead, while a provision still has sudo.
 #
 # Asked of the trust store rather than of portless: `portless doctor` reports CA
-# trust in prose with no machine-readable form, while verify-cert answers for the
-# certificate portless generated and needs no sudo to do it. A missing CA means
-# portless has never run at all, and `portless trust` generates one as it trusts
-# it.
+# trust in prose with no machine-readable form. Looked up in the user and admin
+# trust settings by SHA-1 rather than with `security verify-cert`, whose default
+# policy never counts the SSL-only trust portless sets, and so asked again on
+# every run. A missing
+# CA means portless has never run at all, and `portless trust` generates one as it
+# trusts it.
+portless_ca_trusted() {
+  local sha1 settings domain
+
+  sha1="$(openssl x509 -in "$portless_ca" -noout -fingerprint -sha1 2>/dev/null | sed 's/.*=//; s/://g')"
+  [ -n "$sha1" ] || return 1
+
+  settings="$(mktemp)"
+  for domain in "" -d; do
+    if security trust-settings-export ${domain:+"$domain"} "$settings" >/dev/null 2>&1 &&
+      plutil -extract "trustList.$sha1" xml1 -o - "$settings" >/dev/null 2>&1; then
+      rm -f "$settings"
+      return 0
+    fi
+  done
+  rm -f "$settings"
+  return 1
+}
+
 if command -v portless >/dev/null 2>&1; then
   portless_ca="$HOME/.portless/ca.pem"
 
-  if [ -f "$portless_ca" ] && security verify-cert -c "$portless_ca" >/dev/null 2>&1; then
+  if [ -f "$portless_ca" ] && portless_ca_trusted; then
     echo "portless's CA is already trusted"
   # Not attempted over SSH, because it cannot succeed there and trying is worse than
   # saying so: the sudo prompt lands on this terminal, but the change to the system

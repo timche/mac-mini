@@ -44,6 +44,42 @@ func TestMessages(t *testing.T) {
 	}
 }
 
+// One real night, end to end: four versions moved, the proxy daemon put back behind one of
+// them, the lockfiles committed, and a macOS update that is still Tim's to deal with. The
+// whole message rather than a line of it, because what is being pinned is how it reads —
+// three sections in one order, and nothing in it that is only the Mac talking to itself.
+func TestTheWholeSummaryOfANightThatMovedFourVersions(t *testing.T) {
+	b := newBox(t)
+	b.current()
+	b.moveTool(outdatedLine("npm:portless", "latest", "0.15.11", "0.15.12"))
+	b.lockfilesMoved()
+	b.says("brew list --versions", "gh 2.103.2\nstripe-cli 1.55.1\ntuicr 0.27.0\n")
+	b.saysNext("brew list --versions", "gh 2.103.3\nstripe-cli 1.55.2\ntuicr 0.28.0\n")
+	b.says("brew list --cask --versions", "")
+	b.says("softwareupdate --list", `Software Update Tool
+
+Finding available software
+Software Update found the following new or updated software:
+* Label: macOS Sequoia 27.2-27C50
+	Title: macOS 27.2, Version: 27.2, Size: 7101234KiB, Recommended: YES, Action: restart,
+`)
+
+	b.update(false)
+
+	harness.Equal(t, b.summary(), strings.Join([]string{
+		"⚠️ Nightly update: 4 versions moved, 1 needs you",
+		"**Needs you:**\n" +
+			"- `macOS 27.2` is waiting: macOS installs it by itself and restarts the Mac at a time it " +
+			"picks, and you can install it sooner in System Settings › General › Software Update",
+		"**Moved:**\n" +
+			"- `npm:portless` 0.15.11 → 0.15.12 · dev-URL proxy restarted\n" +
+			"- `gh` 2.103.2 → 2.103.3\n" +
+			"- `stripe-cli` 1.55.1 → 1.55.2\n" +
+			"- `tuicr` 0.27.0 → 0.28.0",
+		"-# mac-mini",
+	}, "\n\n"), "the whole summary")
+}
+
 var messageKinds = []struct {
 	name   string
 	marker string
@@ -59,6 +95,19 @@ var messageKinds = []struct {
 			b.current()
 			b.moveTool(outdatedLine("node", "lts", "24.21.0", "24.22.0"))
 			b.says("tailscale status --json", `{"BackendState":"Running"}`)
+			b.update(false)
+			return b.summary()
+		},
+	},
+	{
+		name:   "a night with something waiting on Tim",
+		marker: wording.MarkerDegraded,
+		wants:  []string{"**Needs you:**", "the herdr server is running `0.9.5`", "needs you"},
+		render: func(t *testing.T) string {
+			b := newBox(t)
+			b.current()
+			b.moveHerdr("0.9.5", "0.9.6")
+			b.herdrServerOn("0.9.5")
 			b.update(false)
 			return b.summary()
 		},

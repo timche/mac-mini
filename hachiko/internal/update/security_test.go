@@ -244,6 +244,7 @@ func TestHerdrIsUpdatedAsThoughFromOutsideIt(t *testing.T) {
 
 	b := newBox(t)
 	b.moveHerdr("0.9.5", "0.9.6")
+	b.herdrServerOn("0.9.5")
 
 	b.security(false, HerdrTarget)
 
@@ -262,7 +263,7 @@ func TestHerdrIsUpdatedAsThoughFromOutsideIt(t *testing.T) {
 	if !found {
 		t.Fatal("herdr update was never run")
 	}
-	harness.Wants(t, b.summary(), "takes the new binary at its next restart")
+	harness.Wants(t, b.summary(), "the herdr server is running `0.9.5` and the binary is `0.9.6`")
 }
 
 // There is a python per version here and `pip install` upgrades whichever interpreter ran it,

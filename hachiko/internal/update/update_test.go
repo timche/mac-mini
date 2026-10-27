@@ -2,6 +2,7 @@ package update
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -392,11 +393,12 @@ func TestHerdrIsUpdatedWithoutRestartingTheServer(t *testing.T) {
 	b := newBox(t)
 	b.current()
 	b.moveHerdr("0.9.5", "0.9.6")
+	b.herdrServerOn("0.9.5")
 
 	b.update(false)
 
 	harness.Wants(t, b.summary(), "`herdr` 0.9.5 → 0.9.6")
-	harness.Wants(t, b.summary(), "takes the new binary at its next restart")
+	harness.Wants(t, b.summary(), "the herdr server is running `0.9.5` and the binary is `0.9.6`")
 
 	for _, call := range b.calls {
 		if strings.Contains(call, "herdr server") || strings.Contains(call, "kickstart") {
@@ -469,8 +471,12 @@ Software Update found the following new or updated software:
 
 	b.update(false)
 
-	harness.Wants(t, b.summary(), "macOS has 1 update waiting")
-	harness.Wants(t, b.summary(), "macOS Tahoe 27.1")
+	// And a night where nothing moved still posts, because what is waiting is a reading of the
+	// Mac rather than news of tonight: it is waiting again tomorrow until it is installed.
+	harness.Wants(t, b.summary(), "⚠️ Nightly update: nothing moved, 1 needs you")
+	harness.Wants(t, b.summary(), "**Needs you:**\n- `macOS Tahoe 27.1` is waiting: macOS installs it "+
+		"by itself and restarts the Mac at a time it picks, and you can install it sooner in "+
+		"System Settings › General › Software Update")
 
 	for _, call := range b.calls {
 		if strings.Contains(call, "--install") {
@@ -479,10 +485,54 @@ Software Update found the following new or updated software:
 	}
 }
 
+// The server stays on the binary it started from until something restarts it, and only Tim
+// chooses when that is — so the line about it is in every summary until he has, and not in the
+// one on the night the binary moved.
+func TestTheHerdrServerIsSaidOnEveryNightUntilItIsRestarted(t *testing.T) {
+	b := newBox(t)
+	b.current()
+	b.says("herdr --version", "herdr 0.9.6")
+	b.herdrServerOn("0.9.5")
+
+	b.update(false)
+
+	harness.Wants(t, b.summary(), "⚠️ Nightly update: nothing moved, 1 needs you")
+	harness.Wants(t, b.summary(), "**Needs you:**\n- the herdr server is running `0.9.5` and the binary "+
+		"is `0.9.6`: the server takes the new one at its next restart, which ends every session on this Mac")
+}
+
+func TestAServerOnTheVersionTheBinaryIsOnIsNothingWaiting(t *testing.T) {
+	b := newBox(t)
+	b.current()
+	b.herdrServerOn("0.9.5")
+
+	b.update(false)
+
+	harness.Equal(t, len(b.sent), 0, "messages sent")
+	harness.Wants(t, b.log.String(), "nothing moved and nothing is waiting")
+}
+
+// Two of them is "need you" rather than "needs you", and the count in the lead is what Tim
+// reads off a locked phone.
+func TestTheLeadCountsWhatIsWaitingOnHim(t *testing.T) {
+	b := newBox(t)
+	b.current()
+	b.moveTool(outdatedLine("bun", "latest", "1.4.2", "1.4.3"))
+	b.says("herdr --version", "herdr 0.9.6")
+	b.herdrServerOn("0.9.5")
+	b.says("softwareupdate --list",
+		"	Title: macOS 27.2, Version: 27.2, Size: 7101234KiB, Recommended: YES, Action: restart,\n")
+
+	b.update(false)
+
+	harness.Wants(t, b.summary(), "⚠️ Nightly update: 1 version moved, 2 need you")
+}
+
 // Apple prints the version of a macOS release in its title as well as in its own column, and
-// the title is what Tim reads: "macOS 27.2 27.2" is the same number twice.
+// the title is what Tim reads: "macOS 27.2 27.2" is the same number twice. Whether the install
+// restarts the Mac is the rest of that line's to say.
 func TestAnAppleTitleCarriesItsVersionOnlyOnce(t *testing.T) {
-	titles := appleTitles(`* Label: macOS Sequoia 27.2-27C50
+	waiting := appleWaiting(`* Label: macOS Sequoia 27.2-27C50
 	Title: macOS 27.2, Version: 27.2, Size: 7101234KiB, Recommended: YES, Action: restart,
 * Label: Safari27.2TahoeAuto-27.2
 	Title: Safari, Version: 27.2, Size: 136752KiB, Recommended: YES,
@@ -490,8 +540,13 @@ func TestAnAppleTitleCarriesItsVersionOnlyOnce(t *testing.T) {
 	Title: Command Line Tools for Xcode, Version: 27.2, Size: 756121KiB, Recommended: NO,
 `)
 
-	harness.Equal(t, strings.Join(titles, "; "),
-		"macOS 27.2; Safari 27.2; Command Line Tools for Xcode 27.2", "the titles")
+	var read []string
+	for _, update := range waiting {
+		read = append(read, fmt.Sprintf("%s (restart: %t)", update.title, update.restart))
+	}
+
+	harness.Equal(t, strings.Join(read, "; "), "macOS 27.2 (restart: true); Safari 27.2 (restart: false); "+
+		"Command Line Tools for Xcode 27.2 (restart: false)", "what is waiting")
 }
 
 // The hand-off carries the whole of what a message about a step needs, the one line for Tim

@@ -376,27 +376,59 @@ func (u *updater) tailscaleBackend() string {
 // it is running from, so nothing else can move it. The server is deliberately left alone —
 // restarting it ends every session on this Mac — and it picks the new binary up whenever it
 // next starts.
-func (u *updater) herdr() {
+//
+// What comes back is the version the binary is at now, which is what the running server's own
+// is read against: a failed update leaves it where it was, and a dry run leaves it there too.
+func (u *updater) herdr() string {
 	before := u.herdrVersion()
 
 	if u.dry {
 		u.say("herdr is %s; would run herdr update", before)
-		return
+		return before
 	}
 
 	if out := u.deps.Run(Command{
 		Name: "herdr", Args: []string{"update"}, Timeout: selfUpdate, Env: outsideHerdr(os.Environ()),
 	}); !out.OK {
 		u.failed(Failure{Step: stepHerdr, Detail: out.Text})
-		return
+		return before
 	}
 
 	after := u.herdrVersion()
 	u.move("herdr", before, after)
-	if after != "" && after != before {
-		u.note("the herdr server is still on " + wording.CodeSpan(before) +
-			" and takes the new binary at its next restart, since restarting it now would end every session")
+	return after
+}
+
+// The server that is running against the binary it would start from, which is a reading of
+// this Mac rather than of tonight: the update leaves the server alone on purpose, so the two
+// stay apart until something restarts it — and only Tim can choose when that is, every
+// session on this Mac ending with it.
+func (u *updater) herdrServer(binary string) {
+	server := u.herdrServerVersion()
+	if binary == "" || server == "" || server == binary {
+		return
 	}
+
+	short := func(s string) string { return wording.CodeSpan(wording.Safe(s, wording.NameLimit)) }
+	u.waits("the herdr server is running " + short(server) + " and the binary is " + short(binary) +
+		": the server takes the new one at its next restart, which ends every session on this Mac")
+}
+
+// `herdr status server` answers for the server rather than for the binary that asked, one
+// reading per line, and the version is the line that says which binary the running one
+// started from.
+func (u *updater) herdrServerVersion() string {
+	out := u.deps.Run(Command{Name: "herdr", Args: []string{"status", "server"}, Timeout: quick})
+	if !out.OK {
+		return ""
+	}
+
+	for _, line := range strings.Split(out.Stdout, "\n") {
+		if label, version, found := strings.Cut(line, ":"); found && strings.TrimSpace(label) == "version" {
+			return strings.TrimSpace(version)
+		}
+	}
+	return ""
 }
 
 // herdr refuses to update from inside one of its own panes, which is where an update somebody
@@ -464,11 +496,14 @@ func (u *updater) ohMyZshHead() string {
 	return firstLine(out.Stdout)
 }
 
-// Apple's own, and the one thing here that is a message rather than an action. On Apple
-// silicon `softwareupdate --install` of a macOS update wants a volume owner's password —
-// `--user` with `--stdinpass`, both documented as Apple-silicon-only — and this Mac has no
-// MDM to authorise one in its place. Nothing on it may hold Tim's password, so what is
-// waiting is said and he installs it.
+// Apple's own, and the one thing here that is a message rather than an action: macOS installs
+// these itself, from the volume owner's credential it collects when Tim logs in, where
+// `softwareupdate --install` run from here would want that password again — `--user` with
+// `--stdinpass`, both documented as Apple-silicon-only — and nothing on this Mac may hold it.
+//
+// So what is waiting is said, and said again every night until macOS has installed it: this
+// is a reading of what the Mac has pending rather than news of a download that finished
+// tonight.
 func (u *updater) macOS() {
 	out := u.deps.Run(Command{Name: "softwareupdate", Args: []string{"--list"}, Timeout: appleList})
 	if !out.OK {
@@ -476,28 +511,30 @@ func (u *updater) macOS() {
 		return
 	}
 
-	waiting := appleTitles(out.Text)
-	if len(waiting) == 0 {
-		return
+	for _, update := range appleWaiting(out.Text) {
+		item := wording.CodeSpan(wording.Safe(update.title, wording.PathLimit)) +
+			" is waiting: macOS installs it by itself"
+		if update.restart {
+			item += " and restarts the Mac"
+		}
+		u.waits(item + " at a time it picks, and you can install it sooner in " +
+			"System Settings › General › Software Update")
 	}
-
-	if u.dry {
-		u.say("macOS updates are waiting: %s", strings.Join(waiting, "; "))
-		return
-	}
-
-	u.note(fmt.Sprintf("macOS has %s waiting: %s",
-		wording.CountOf(int64(len(waiting)), "update", "updates"),
-		wording.CodeSpan(wording.Safe(strings.Join(waiting, "; "), wording.PathLimit))))
 }
 
 // What `softwareupdate --list` says is there: the `Title:` line under each label, which is
-// the one a person recognises. A label is machine detail and the command Tim runs takes none.
-var appleTitle = regexp.MustCompile(`Title:\s*([^,]+),\s*Version:\s*([^,]+)`)
+// the one a person recognises, and whether the rest of that line says the install restarts
+// the Mac. A label is machine detail and nothing Tim does with one of these takes it.
+var appleUpdateLine = regexp.MustCompile(`Title:\s*([^,]+),\s*Version:\s*([^,]+),([^\n]*)`)
 
-func appleTitles(text string) []string {
-	var titles []string
-	for _, match := range appleTitle.FindAllStringSubmatch(text, -1) {
+type appleUpdate struct {
+	title   string
+	restart bool
+}
+
+func appleWaiting(text string) []appleUpdate {
+	var waiting []appleUpdate
+	for _, match := range appleUpdateLine.FindAllStringSubmatch(text, -1) {
 		title, version := strings.TrimSpace(match[1]), strings.TrimSpace(match[2])
 
 		// `Title: macOS 27.2, Version: 27.2` is one reading twice over, which Apple prints
@@ -505,9 +542,12 @@ func appleTitles(text string) []string {
 		if !strings.Contains(title, version) {
 			title += " " + version
 		}
-		titles = append(titles, title)
+		waiting = append(waiting, appleUpdate{
+			title:   title,
+			restart: strings.Contains(match[3], "Action: restart"),
+		})
 	}
-	return titles
+	return waiting
 }
 
 func movedAny(moved []string, names ...string) bool {

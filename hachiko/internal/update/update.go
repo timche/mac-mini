@@ -105,11 +105,15 @@ type updater struct {
 	// answerable for every step and one that is answerable for two. See security.go.
 	targets []string
 
-	// What moved and what else is worth a line, which together are the summary, and what
-	// could not be done, which the next five-minute check raises as an incident.
+	// What moved and what could not be done, the second of which the next five-minute check
+	// raises as an incident.
 	moved    []Move
-	notes    []string
 	failures []Failure
+
+	// And what is waiting on Tim, read from what this Mac is rather than from what tonight
+	// did: an update nobody has installed yet is still waiting tomorrow, so it is in every
+	// summary until it is dealt with rather than in the one on the night it appeared.
+	waiting []string
 }
 
 // Move is one thing that is now at a different version from the one it was at.
@@ -166,11 +170,12 @@ func (u *updater) run() error {
 	u.lockfiles(tools)
 	u.portless(tools)
 	u.tailscale(u.brew())
-	u.herdr()
+	u.herdrServer(u.herdr())
 	u.ohMyZsh()
 	u.macOS()
 
 	if u.dry {
+		u.sayWaiting()
 		u.say("dry run over")
 		return nil
 	}
@@ -211,7 +216,15 @@ func (u *updater) qualify(qualifier string, candidates ...string) {
 	}
 }
 
-func (u *updater) note(line string) { u.notes = append(u.notes, line) }
+func (u *updater) waits(item string) { u.waiting = append(u.waiting, item) }
+
+// A dry run says what is waiting rather than sending it, the readings being the whole of what
+// one is for.
+func (u *updater) sayWaiting() {
+	for _, item := range u.waiting {
+		u.say("%s", item)
+	}
+}
 
 func (u *updater) failed(f Failure) {
 	u.say("%s", f.line())

@@ -175,6 +175,7 @@ func (u *updater) runSecurity() error {
 	u.lockfiles(moved)
 
 	if u.dry {
+		u.sayWaiting()
 		u.say("dry run over")
 		return nil
 	}
@@ -201,7 +202,7 @@ func (u *updater) securitySteps() []string {
 		case target == MiseSelfTarget:
 			u.securityMiseSelf()
 		case target == HerdrTarget:
-			u.securityHerdr()
+			u.herdrServer(u.securityHerdr())
 		case strings.HasPrefix(target, targetMise):
 			tool := strings.TrimPrefix(target, targetMise)
 			if u.securityMiseTool(tool) {
@@ -450,28 +451,26 @@ func (u *updater) pythonAt(version string) string {
 
 // herdr, which has no hold to bypass: it is its own installer and takes whatever its latest
 // release is. The server is left alone, as it is on a night's run — restarting it would end
-// every session on this Mac — so it picks the new binary up at its next start.
-func (u *updater) securityHerdr() {
+// every session on this Mac — so it picks the new binary up at its next start, and what comes
+// back is the version it would pick up.
+func (u *updater) securityHerdr() string {
 	before := u.herdrVersion()
 
 	if u.dry {
 		u.say("herdr is %s; would run herdr update", before)
-		return
+		return before
 	}
 
 	if out := u.deps.Run(Command{
 		Name: "herdr", Args: []string{"update"}, Timeout: selfUpdate, Env: outsideHerdr(os.Environ()),
 	}); !out.OK {
 		u.failed(Failure{Step: stepSecurity, Detail: out.Text})
-		return
+		return before
 	}
 
 	after := u.herdrVersion()
 	u.move("herdr", before, after)
-	if after != "" && after != before {
-		u.note("the herdr server is still on " + wording.CodeSpan(before) +
-			" and takes the new binary at its next restart, since restarting it now would end every session")
-	}
+	return after
 }
 
 // Which steps this run is answerable for. A night's run attempts every one of them, so a step

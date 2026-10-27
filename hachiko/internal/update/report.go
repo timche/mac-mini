@@ -12,13 +12,15 @@ import (
 
 // The labels the summary goes under. Here rather than in wording because they are this
 // command's own words.
+// The three sections are in this order on purpose: what Tim has to do about the Mac, then
+// what the Mac did by itself, then what it could not.
 const (
-	labelMoved  = "Moved"
-	labelAlso   = "Also"
-	labelFailed = "Failed"
-	labelStep   = "Step"
-	labelSaid   = "What it said"
-	labelSince  = "Failing since"
+	labelNeedsYou = "Needs you"
+	labelMoved    = "Moved"
+	labelFailed   = "Failed"
+	labelStep     = "Step"
+	labelSaid     = "What it said"
+	labelSince    = "Failing since"
 )
 
 // Failure is one step the update could not finish. The step is its identity — one that
@@ -176,16 +178,20 @@ func (u *updater) report(state *State, now time.Time) {
 	}
 }
 
-// Nothing moved and nothing to say about it is a night that goes unmentioned: this runs
-// every night for ever, and a message saying so would be the one nobody reads the night it
-// matters. The log still has the whole of it.
+// Nothing moved and nothing waiting is a night that goes unmentioned: this runs every night
+// for ever, and a message saying so would be the one nobody reads the night it matters. The
+// log still has the whole of it.
 //
-// A security upgrade is the exception and always says something: it ran because a published
-// advisory named a version on this Mac, so an upgrade that moved nothing is the news rather
-// than the absence of it.
+// Something waiting is enough on its own, which is the point of reading it from the Mac's own
+// state: an update Tim has not dealt with is waiting again on a night when nothing moved, and
+// a summary that skipped that night would be the Mac going quiet about it.
+//
+// A security upgrade is the other exception and always says something: it ran because a
+// published advisory named a version on this Mac, so an upgrade that moved nothing is the news
+// rather than the absence of it.
 func (u *updater) summary(now time.Time) {
-	if len(u.moved) == 0 && len(u.notes) == 0 && len(u.targets) == 0 {
-		u.say("nothing moved")
+	if len(u.moved) == 0 && len(u.waiting) == 0 && len(u.targets) == 0 {
+		u.say("nothing moved and nothing is waiting")
 		return
 	}
 
@@ -194,18 +200,16 @@ func (u *updater) summary(now time.Time) {
 		u.say("%s moved from %s to %s", move.What, move.From, move.To)
 		bullets = append(bullets, movedBullet(move))
 	}
-	for _, note := range u.notes {
-		u.say("%s", note)
-	}
+	u.sayWaiting()
 
 	if u.cfg.Discord.UpdatesID == "" {
 		u.say("no updates channel is configured, so the summary stays in this log")
 		return
 	}
 
-	message := wording.Lead(wording.MarkerInfo, u.sentence()).
+	message := wording.Lead(u.marker(), u.sentence()).
+		Bullets(labelNeedsYou, u.waiting).
 		Bullets(labelMoved, bullets).
-		Bullets(labelAlso, u.notes).
 		Block(u.failedSection()).
 		About("", u.cfg.Host).
 		String()
@@ -250,9 +254,20 @@ func movedBullet(move Move) string {
 	return bullet
 }
 
-// Which run this was, how much moved and how much did not. The two read differently because
-// they are different news: a night's run is a report on keeping the Mac current, and a
-// security upgrade is a report on one fault.
+// Degraded rather than info where something is waiting on Tim, the lead line being the whole
+// of what a notification shows: a night he has to act on has to read as one at a glance. A
+// failed step leaves it alone — that is an incident of its own, raised in the forum with a
+// session on it, and not something he is being asked to do.
+func (u *updater) marker() string {
+	if len(u.waiting) > 0 {
+		return wording.MarkerDegraded
+	}
+	return wording.MarkerInfo
+}
+
+// Which run this was, how much moved, how much is waiting on Tim and how much did not work.
+// The two runs read differently because they are different news: a night's run is a report on
+// keeping the Mac current, and a security upgrade is a report on one fault.
 func (u *updater) sentence() string {
 	what, failed := "Nightly update", "step"
 	if len(u.targets) > 0 {
@@ -262,6 +277,9 @@ func (u *updater) sentence() string {
 	sentence := what + ": " + wording.CountOf(int64(len(u.moved)), "version", "versions") + " moved"
 	if len(u.moved) == 0 {
 		sentence = what + ": nothing moved"
+	}
+	if len(u.waiting) > 0 {
+		sentence += ", " + wording.CountOf(int64(len(u.waiting)), "needs you", "need you")
 	}
 	if len(u.failures) > 0 {
 		sentence += ", " + wording.CountOf(int64(len(u.failures)), failed, failed+"s") + " failed"

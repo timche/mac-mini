@@ -93,6 +93,13 @@ func (b *box) moveBrew(name, from, to string) {
 	b.says("brew list --cask --versions", "")
 }
 
+// What `herdr status server` says the running server started from, in the shape herdr prints
+// it: a line per reading, and the version among them.
+func (b *box) herdrServerOn(version string) {
+	b.says("herdr status server", "status: running\nversion: "+version+
+		"\nsocket: "+home+"/.config/herdr/herdr.sock\n")
+}
+
 func (b *box) moveHerdr(from, to string) {
 	b.says("herdr --version", "herdr "+from)
 	b.saysNext("herdr --version", "herdr "+to)

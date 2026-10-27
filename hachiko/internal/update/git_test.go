@@ -35,7 +35,11 @@ func TestOnlyTheLockfilesAreCommitted(t *testing.T) {
 	commits := b.matching("git -C " + repo + " commit")
 	harness.Equal(t, len(commits), 1, "commits")
 	harness.Wants(t, commits[0], `commit -m mise up moves node -- `+lockPaths)
-	harness.Wants(t, b.summary(), "the lockfiles mise rewrote are committed")
+
+	// In the log and not in the summary: a lockfile following the version it locks onto main
+	// is the step having worked, which is not news anybody reads the channel for.
+	harness.Wants(t, b.log.String(), "the lockfiles mise rewrote are committed and on main")
+	harness.Lacks(t, b.summary(), "lockfile")
 }
 
 func TestLockfilesThatDidNotMoveAreNotCommitted(t *testing.T) {

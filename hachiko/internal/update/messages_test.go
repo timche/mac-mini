@@ -53,7 +53,7 @@ var messageKinds = []struct {
 	{
 		name:   "a night that moved something",
 		marker: wording.MarkerInfo,
-		wants:  []string{"**Moved:**", "`node` 24.21.0 → 24.22.0", "**Also:**", "mac-mini"},
+		wants:  []string{"**Moved:**", "`node` 24.21.0 → 24.22.0 · dev-URL proxy restarted", "mac-mini"},
 		render: func(t *testing.T) string {
 			b := newBox(t)
 			b.current()

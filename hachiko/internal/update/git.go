@@ -89,7 +89,9 @@ func (u *updater) lockfiles(tools []string) {
 		})
 		return
 	}
-	u.note("the lockfiles mise rewrote are committed and on " + wording.CodeSpan(branch))
+	// Said and not reported: a lockfile following the version it locks onto main is this step
+	// having worked, which is not news the summary is read for.
+	u.say("the lockfiles mise rewrote are committed and on %s", branch)
 }
 
 // Every command that reads or writes the tree, limited to the lockfiles and nothing else.

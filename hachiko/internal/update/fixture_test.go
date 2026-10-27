@@ -98,6 +98,19 @@ func (b *box) moveHerdr(from, to string) {
 	b.saysNext("herdr --version", "herdr "+to)
 }
 
+// The commit the clone is on either side of the pull, which is the whole of how oh-my-zsh
+// moving is read: it versions by commit rather than by release.
+func (b *box) moveOhMyZsh(from, to string) {
+	b.says(ohMyZshHead, from+"\n")
+	b.saysNext(ohMyZshHead, to+"\n")
+}
+
+// What `pip show` says a package in one of mise's pythons is at, before an upgrade and after.
+func (b *box) movePip(exe, pkg, from, to string) {
+	b.says(exe+" -m pip show "+pkg, "Name: "+pkg+"\nVersion: "+from+"\n")
+	b.saysNext(exe+" -m pip show "+pkg, "Name: "+pkg+"\nVersion: "+to+"\n")
+}
+
 // One tool outdated before the upgrade and current after it, which is a tool that moved.
 func (b *box) moveTool(line string) {
 	b.says(miseOutdatedGlobal, line)
@@ -215,7 +228,7 @@ func (b *box) current() {
 	b.says("mise --version", "2026.10.11 macos-arm64 (2026-10-15)")
 	b.says("herdr --version", "herdr 0.9.5")
 	b.says("softwareupdate --list", "No new software available.")
-	b.says("git -C "+home+"/.oh-my-zsh pull --ff-only", "Already up to date.")
+	b.says(ohMyZshPull, "Already up to date.")
 
 	for _, ref := range []string{"MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"} {
 		b.fails("git -C "+repo+" rev-parse -q --verify "+ref, "")
@@ -237,5 +250,7 @@ const (
 	gitDefault         = "git -C " + repo + " symbolic-ref --short refs/remotes/origin/HEAD"
 	gitAdd             = "git -C " + repo + " add -A -- " + lockPaths
 	gitPush            = "git -C " + repo + " push origin main"
+	ohMyZshPull        = "git -C " + home + "/.oh-my-zsh pull --ff-only"
+	ohMyZshHead        = "git -C " + home + "/.oh-my-zsh rev-parse --short HEAD"
 	lockPaths          = "mise.lock home/.config/mise/mise.lock home/.config/mise/locks"
 )

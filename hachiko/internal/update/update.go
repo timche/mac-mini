@@ -117,6 +117,11 @@ type Move struct {
 	What string
 	From string
 	To   string
+
+	// What else that version moving took with it, said after the versions rather than on a
+	// line of its own: a daemon put back on the path a new version is at is news about that
+	// version, and a reader who has to join the two up has been given a puzzle instead.
+	Qualifier string
 }
 
 func (u *updater) say(format string, args ...any) {
@@ -190,6 +195,20 @@ func (u *updater) move(what, from, to string) {
 		return
 	}
 	u.moved = append(u.moved, Move{What: what, From: from, To: to})
+}
+
+// On the first of these that moved, in the order they are given: the proxy daemon goes back
+// because node or portless moved, and the version to read it beside is portless's own where
+// both did.
+func (u *updater) qualify(qualifier string, candidates ...string) {
+	for _, what := range candidates {
+		for i := range u.moved {
+			if u.moved[i].What == what {
+				u.moved[i].Qualifier = qualifier
+				return
+			}
+		}
+	}
 }
 
 func (u *updater) note(line string) { u.notes = append(u.notes, line) }

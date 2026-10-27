@@ -237,11 +237,17 @@ func (u *updater) failedSection() string {
 	return wording.Section(labelFailed, items)
 }
 
-// A name and two versions, all three of them a tool's own spelling rather than hachiko's.
+// A name and two versions, all three of them a tool's own spelling rather than hachiko's,
+// and then what moving it took with it in hachiko's own words.
 func movedBullet(move Move) string {
 	short := func(s string) string { return wording.Safe(s, wording.NameLimit) }
-	return wording.CodeSpan(short(move.What)) + " " +
+	bullet := wording.CodeSpan(short(move.What)) + " " +
 		wording.PlainWords(short(move.From)) + " → " + wording.PlainWords(short(move.To))
+
+	if move.Qualifier != "" {
+		bullet += " · " + move.Qualifier
+	}
+	return bullet
 }
 
 // Which run this was, how much moved and how much did not. The two read differently because

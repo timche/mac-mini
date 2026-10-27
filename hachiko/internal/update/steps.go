@@ -179,7 +179,7 @@ func (u *updater) portless(moved []string) {
 		})
 		return
 	}
-	u.note("portless's proxy daemon was installed again, on the node and portless mise has now")
+	u.qualify("dev-URL proxy restarted", "npm:portless", "node")
 }
 
 // Homebrew's formulae and casks, which is every other tool on this Mac. What comes back is
@@ -336,7 +336,7 @@ func (u *updater) tailscale(moved []string) {
 		})
 		return
 	}
-	u.note("tailscaled was restarted after the upgrade and is back on the tailnet")
+	u.qualify("tailscaled restarted, back on the tailnet", "tailscale")
 }
 
 // How long tailscaled is given to come back, and how often it is asked. It is a daemon
@@ -428,11 +428,16 @@ func (u *updater) herdrVersion() string {
 // that moves it is a pull. Fast-forward only: a clone that cannot fast-forward has commits
 // somebody made in it, and merging them is not this Mac's decision to make at four in the
 // morning.
+//
+// It versions by commit and not by release, so the two commits either side of the pull are
+// what it moved between — the same reading every other step is reported by.
 func (u *updater) ohMyZsh() {
 	if u.dry {
 		u.say("would fast-forward %s", u.cfg.OhMyZsh)
 		return
 	}
+
+	before := u.ohMyZshHead()
 
 	out := u.deps.Run(Command{
 		Name: "git", Args: []string{"-C", u.cfg.OhMyZsh, "pull", "--ff-only"}, Timeout: gitTimeout,
@@ -446,9 +451,17 @@ func (u *updater) ohMyZsh() {
 		})
 		return
 	}
-	if !strings.Contains(out.Text, "Already up to date") {
-		u.note("oh-my-zsh was brought forward")
+	u.move("oh-my-zsh", before, u.ohMyZshHead())
+}
+
+func (u *updater) ohMyZshHead() string {
+	out := u.deps.Run(Command{
+		Name: "git", Args: []string{"-C", u.cfg.OhMyZsh, "rev-parse", "--short", "HEAD"}, Timeout: quick,
+	})
+	if !out.OK {
+		return ""
 	}
+	return firstLine(out.Stdout)
 }
 
 // Apple's own, and the one thing here that is a message rather than an action. On Apple

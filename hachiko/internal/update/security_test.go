@@ -269,14 +269,36 @@ func TestHerdrIsUpdatedAsThoughFromOutsideIt(t *testing.T) {
 // so the wrong one would report success and leave the fault where it was.
 func TestAPipTargetIsUpgradedInThePythonTheTargetNames(t *testing.T) {
 	installed := home + "/.local/share/mise/installs/python/3.15.0"
+	python3 := installed + "/bin/python3"
 
 	b := newBox(t)
 	b.misePython("3.15.0", installed)
+	b.movePip(python3, "certifi", "2026.1.14", "2026.9.30")
 
 	b.security(false, PipTarget("3.15.0", "certifi"))
 
-	harness.Equal(t, b.ran(installed+"/bin/python3 -m pip install --upgrade certifi"), true, "the upgrade")
-	harness.Wants(t, b.summary(), "certifi was upgraded in python 3.15.0")
+	harness.Equal(t, b.ran(python3+" -m pip install --upgrade certifi"), true, "the upgrade")
+	harness.Wants(t, b.summary(),
+		"`certifi` 2026.1.14 → 2026.9.30 · in python `3.15.0`, which a published advisory named")
+}
+
+// `pip install --upgrade` exits zero for a package it has nothing newer of, and this ran
+// because an advisory named the version in that python — so a version that did not move is
+// the fault still being there rather than a step that worked.
+func TestAPipPackageThatDidNotMoveIsLeftForTheCheck(t *testing.T) {
+	installed := home + "/.local/share/mise/installs/python/3.15.0"
+
+	b := newBox(t)
+	b.misePython("3.15.0", installed)
+	b.says(installed+"/bin/python3 -m pip show certifi", "Name: certifi\nVersion: 2026.1.14\n")
+
+	b.security(false, PipTarget("3.15.0", "certifi"))
+
+	failing := b.failing()
+	harness.Equal(t, len(failing), 1, "steps left for the check")
+	harness.Equal(t, failing[0].Step, stepSecurity, "the step")
+	harness.Wants(t, failing[0].Detail, "pip installed certifi in python 3.15.0 and it is still 2026.1.14")
+	harness.Wants(t, failing[0].Action, "pip install --upgrade certifi")
 }
 
 func TestAPipTargetForAPythonMiseNoLongerHasIsSaid(t *testing.T) {

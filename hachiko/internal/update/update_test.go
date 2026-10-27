@@ -122,7 +122,7 @@ func TestEveryStepRunsInOrder(t *testing.T) {
 		"brew upgrade",
 		"brew cleanup",
 		"herdr update",
-		"git -C " + home + "/.oh-my-zsh pull --ff-only",
+		ohMyZshPull,
 		"softwareupdate --list",
 	}
 
@@ -247,6 +247,33 @@ func TestTheProxyDaemonIsReinstalledWhenNodeMoves(t *testing.T) {
 	}
 }
 
+// The restart is news about the version that made it necessary, so it is read beside that
+// version rather than on a line of its own further down — and beside portless's where both
+// moved, a dev URL that is down being about portless far more often than about node.
+func TestTheProxyRestartGoesOnTheMoveItFollowedFrom(t *testing.T) {
+	t.Run("node and portless both moved", func(t *testing.T) {
+		b := newBox(t)
+		b.current()
+		b.moveTool(outdatedLine("node", "lts", "24.21.0", "24.22.0") +
+			outdatedLine("npm:portless", "latest", "0.15.11", "0.15.12"))
+
+		b.update(false)
+
+		harness.Wants(t, b.summary(), "`npm:portless` 0.15.11 → 0.15.12 · dev-URL proxy restarted")
+		harness.Wants(t, b.summary(), "`node` 24.21.0 → 24.22.0\n")
+	})
+
+	t.Run("only node moved", func(t *testing.T) {
+		b := newBox(t)
+		b.current()
+		b.moveTool(outdatedLine("node", "lts", "24.21.0", "24.22.0"))
+
+		b.update(false)
+
+		harness.Wants(t, b.summary(), "`node` 24.21.0 → 24.22.0 · dev-URL proxy restarted")
+	})
+}
+
 func TestAProxyReinstallThatFailsIsAnIncident(t *testing.T) {
 	b := newBox(t)
 	b.current()
@@ -277,7 +304,7 @@ func TestTailscaledIsRestartedOnlyWhenItsFormulaMoved(t *testing.T) {
 
 		harness.Equal(t, b.ran(restart), true, "restarted")
 		harness.Equal(t, len(b.failing()), 0, "steps left for the check")
-		harness.Wants(t, b.summary(), "tailscaled was restarted")
+		harness.Wants(t, b.summary(), "· tailscaled restarted, back on the tailnet")
 	})
 
 	t.Run("something else moved", func(t *testing.T) {
@@ -327,7 +354,7 @@ func TestABrewUpgradeIsSeenBesideTheKegItReplaced(t *testing.T) {
 			b.update(false)
 
 			harness.Equal(t, b.ran(restart), true, "restarted")
-			harness.Wants(t, b.summary(), "tailscaled was restarted")
+			harness.Wants(t, b.summary(), "· tailscaled restarted, back on the tailnet")
 		})
 	}
 
@@ -402,6 +429,31 @@ func TestHerdrIsUpdatedAsThoughFromOutsideHerdr(t *testing.T) {
 	if !found {
 		t.Fatal("herdr update was never run")
 	}
+}
+
+// oh-my-zsh is a clone rather than a release, so what it moved between is the two commits
+// either side of the pull — read back the way every other step's versions are, rather than
+// taken from git having printed something other than "Already up to date".
+func TestOhMyZshMovesBetweenTwoCommits(t *testing.T) {
+	t.Run("it moved", func(t *testing.T) {
+		b := newBox(t)
+		b.current()
+		b.moveOhMyZsh("a1b2c3d", "e4f5a6b")
+
+		b.update(false)
+
+		harness.Wants(t, b.summary(), "`oh-my-zsh` a1b2c3d → e4f5a6b")
+	})
+
+	t.Run("it was already current", func(t *testing.T) {
+		b := newBox(t)
+		b.current()
+		b.says(ohMyZshHead, "a1b2c3d\n")
+
+		b.update(false)
+
+		harness.Equal(t, len(b.sent), 0, "messages sent")
+	})
 }
 
 func TestAMacOSUpdateIsSaidAndNotInstalled(t *testing.T) {
@@ -506,7 +558,7 @@ func TestOnlyTheLastStepUnderAnIncidentClosesItsPost(t *testing.T) {
 	b := newBox(t)
 	b.current()
 	b.fails("herdr update", "herdr: the release could not be downloaded")
-	b.fails("git -C "+home+"/.oh-my-zsh pull --ff-only", "fatal: not possible to fast-forward")
+	b.fails(ohMyZshPull, "fatal: not possible to fast-forward")
 
 	b.update(false)
 	b.raised(stepHerdr, "update-1", "thread-1")
@@ -522,7 +574,7 @@ func TestOnlyTheLastStepUnderAnIncidentClosesItsPost(t *testing.T) {
 
 	b.sent = nil
 	b.now = b.now.Add(24 * time.Hour)
-	b.says("git -C "+home+"/.oh-my-zsh pull --ff-only", "Already up to date.")
+	b.says(ohMyZshPull, "Already up to date.")
 	b.update(false)
 
 	last := b.incidents()

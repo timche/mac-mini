@@ -362,6 +362,8 @@ func (u *updater) securityPip(python, pkg string) {
 		return
 	}
 
+	before := u.pipVersion(exe, pkg)
+
 	if out := u.deps.Run(Command{
 		Name: exe, Args: []string{"-m", "pip", "install", "--upgrade", pkg}, Timeout: toolUpgrade,
 	}); !out.OK {
@@ -373,7 +375,49 @@ func (u *updater) securityPip(python, pkg string) {
 		})
 		return
 	}
-	u.note(fmt.Sprintf("%s was upgraded in python %s, which a published advisory named", pkg, python))
+
+	// Read back rather than taken from the install having exited zero, which it does for a
+	// package it had nothing newer of: this ran because an advisory named the version in that
+	// python, so the version not having moved is the fault still being there.
+	after := u.pipVersion(exe, pkg)
+	if after == "" || after == before {
+		u.failed(Failure{
+			Step: stepSecurity,
+			Detail: fmt.Sprintf("pip installed %s in python %s and it is %s", pkg, python,
+				pipStillAt(before, after)),
+			Action: "**Needs you:** " + wording.CodeSpan(exe+" -m pip install --upgrade "+pkg) +
+				" — a published advisory names the version in that python and pip did not move it.",
+		})
+		return
+	}
+
+	u.move(pkg, before, after)
+	u.qualify("in python "+wording.CodeSpan(wording.Safe(python, wording.NameLimit))+
+		", which a published advisory named", pkg)
+}
+
+// Which way the reading failed, since the two are different faults: a version that did not
+// move is pip having nothing newer, and one that cannot be read is a package pip no longer
+// lists at all.
+func pipStillAt(before, after string) string {
+	if after == "" {
+		return "no longer a package pip can name a version for"
+	}
+	return "still " + after
+}
+
+// What pip says is installed, out of `pip show`'s own `Version:` line.
+func (u *updater) pipVersion(exe, pkg string) string {
+	out := u.deps.Run(Command{Name: exe, Args: []string{"-m", "pip", "show", pkg}, Timeout: quick})
+	if !out.OK {
+		return ""
+	}
+	for _, line := range strings.Split(out.Stdout, "\n") {
+		if label, version, found := strings.Cut(line, ":"); found && strings.TrimSpace(label) == "Version" {
+			return strings.TrimSpace(version)
+		}
+	}
+	return ""
 }
 
 // The interpreter of one of mise's pythons, by the version the target named. Asked of mise

@@ -157,13 +157,11 @@ echo "here can set it or tell you whether it is already set."
 
 # macOS updates
 
-# Downloaded and installed by macOS itself. An install restarts the Mac, which
-# takes every session's worktree state, every running build and every browser
-# with it, but an update left waiting for somebody to pick the moment waits for
-# weeks. macOS's own installer authorises itself with the credential it collects
-# at login, which nothing here could do: on Apple silicon `softwareupdate
-# --install` wants a volume owner's password. Auto-login brings herdr back after
-# the restart.
+# Downloaded, never installed. An update that installs itself restarts the Mac,
+# and a restart takes every session's worktree state, every running build and
+# every browser with it — and then waits at the login window if auto-login is
+# off. Downloaded means the install is a decision somebody makes, on a machine
+# they have looked at, and it takes minutes rather than an hour of downloading.
 #
 # ConfigDataInstall and CriticalUpdateInstall stay on. Those are XProtect, its
 # remediator and the security data files: they install in place, without a
@@ -205,7 +203,7 @@ set_machine_default() {
 }
 
 set_machine_default com.apple.SoftwareUpdate AutomaticDownload -bool true
-set_machine_default com.apple.SoftwareUpdate AutomaticallyInstallMacOSUpdates -bool true
+set_machine_default com.apple.SoftwareUpdate AutomaticallyInstallMacOSUpdates -bool false
 set_machine_default com.apple.SoftwareUpdate ConfigDataInstall -bool true
 set_machine_default com.apple.SoftwareUpdate CriticalUpdateInstall -bool true
 

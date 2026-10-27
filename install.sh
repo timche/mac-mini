@@ -189,9 +189,9 @@ if command -v portless >/dev/null 2>&1; then
   portless_tlds="${portless_tlds:-localhost}"
   portless_install="sudo portless service install --tld ${portless_tlds//,/ --tld }"
   portless_daemon=/Library/LaunchDaemons/sh.portless.proxy.plist
+  portless_problem=""
   if [ ! -f "$portless_daemon" ]; then
-    echo "portless's proxy is not installed as a daemon, so dev servers cannot" \
-         "take port 443; run: $portless_install" >&2
+    portless_problem="portless's proxy is not installed as a daemon, so dev servers cannot take port 443"
   else
     for i in 0 1; do
       target="$(plutil -extract "ProgramArguments.$i" raw "$portless_daemon" 2>/dev/null)"
@@ -199,11 +199,22 @@ if command -v portless >/dev/null 2>&1; then
       # missing as far as `[ -e ]` is concerned — which would send Tim off to
       # sudo a reinstall over nothing.
       if [ -n "$target" ] && [ ! -e "$target" ]; then
-        echo "portless's daemon runs $target, which is gone since a mise" \
-             "upgrade; run: $portless_install" >&2
+        portless_problem="portless's daemon runs $target, which is gone since a mise upgrade"
         break
       fi
     done
+  fi
+
+  # Done here rather than printed, because a printed line among a provision's
+  # output is easily never run, and every dev URL is down until it is. The helper
+  # needs no password and machine.sh installs it before claude.sh runs this, so
+  # the printed command is left for a Mac where root-helper.sh was skipped.
+  if [ -n "$portless_problem" ]; then
+    if sudo -n /usr/local/libexec/claude-root reinstall-portless </dev/null; then
+      echo "installed portless's proxy daemon"
+    else
+      echo "$portless_problem; run: $portless_install" >&2
+    fi
   fi
 fi
 

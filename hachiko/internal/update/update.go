@@ -163,8 +163,8 @@ func (u *updater) run() error {
 	// manages are what portless's daemon is pointed at; the lockfiles straight after the
 	// upgrade that rewrote them, so a step failing later does not keep them off main;
 	// Homebrew's packages next, with the tailscaled restart behind it, since whether it is
-	// needed is what the upgrade found; and Apple's last, which is the one nothing here can
-	// install.
+	// needed is what the upgrade found; and Apple's last, the install of what needs no restart
+	// ahead of the reading, so that what is reported as waiting is what is still waiting.
 	u.miseSelf()
 	tools := u.miseTools()
 	u.lockfiles(tools)
@@ -172,6 +172,7 @@ func (u *updater) run() error {
 	u.tailscale(u.brew())
 	u.herdrServer(u.herdr())
 	u.ohMyZsh()
+	u.appleUpdates()
 	u.macOS()
 
 	if u.dry {
@@ -200,6 +201,16 @@ func (u *updater) move(what, from, to string) {
 		return
 	}
 	u.moved = append(u.moved, Move{What: what, From: from, To: to})
+}
+
+// Something that is now at a version with no version it came from, which is every one of
+// Apple's updates: softwareupdate names what is waiting and says nothing about what the Mac
+// already has.
+func (u *updater) installed(what, version string) {
+	if what == "" || version == "" {
+		return
+	}
+	u.moved = append(u.moved, Move{What: what, To: version})
 }
 
 // On the first of these that moved, in the order they are given: the proxy daemon goes back

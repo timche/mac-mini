@@ -83,6 +83,8 @@ func phraseFor(step string) string {
 		return "update herdr"
 	case stepOhMyZsh:
 		return "bring oh-my-zsh forward"
+	case stepAppleInstall:
+		return "install the Apple updates that need no restart"
 	case stepSecurity:
 		return "upgrade what a published advisory named"
 	default:
@@ -197,7 +199,7 @@ func (u *updater) summary(now time.Time) {
 	}
 
 	for _, move := range u.moved {
-		u.say("%s moved from %s to %s", move.What, move.From, move.To)
+		u.say("%s", movedLine(move))
 	}
 	u.sayWaiting()
 
@@ -247,10 +249,15 @@ func (u *updater) failedSection() string {
 
 // A name and two versions, all three of them a tool's own spelling rather than hachiko's,
 // then how far it moved and then what moving it took with it, both in hachiko's own words.
+// One of Apple's updates has only the version it is now at, so its bullet starts at the arrow.
 func movedBullet(move Move) string {
 	short := func(s string) string { return wording.Safe(s, wording.NameLimit) }
-	bullet := wording.CodeSpan(short(move.What)) + " " +
-		wording.PlainWords(short(move.From)) + " → " + wording.PlainWords(short(move.To))
+
+	bullet := wording.CodeSpan(short(move.What)) + " "
+	if move.From != "" {
+		bullet += wording.PlainWords(short(move.From)) + " "
+	}
+	bullet += "→ " + wording.PlainWords(short(move.To))
 
 	for _, part := range []string{bumpOf(move.From, move.To), move.Qualifier} {
 		if part != "" {
@@ -258,6 +265,14 @@ func movedBullet(move Move) string {
 		}
 	}
 	return bullet
+}
+
+// And what the log says about one, which carries no markdown and is not cut to a length.
+func movedLine(move Move) string {
+	if move.From == "" {
+		return fmt.Sprintf("%s was installed at %s", move.What, move.To)
+	}
+	return fmt.Sprintf("%s moved from %s to %s", move.What, move.From, move.To)
 }
 
 // How far a version moved, which is what says whether a line is worth a second look: a major

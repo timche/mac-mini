@@ -26,21 +26,27 @@ const (
 	brewHousework = 20 * time.Minute
 	gitTimeout    = 5 * time.Minute
 	appleList     = 15 * time.Minute
+
+	// Longer than the two listings and the install the root helper bounds itself with, so that
+	// what gives up first is the helper, which signals the whole of what it started: this one
+	// would kill the sudo and leave softwareupdate running as root.
+	appleInstall = 35 * time.Minute
 )
 
 // The steps, by the name a message calls each of them and the state remembers it by.
 const (
-	stepMiseSelf   = "mise self-update"
-	stepMiseTools  = "mise up"
-	stepLockfiles  = "lockfile push"
-	stepPortless   = "portless reinstall"
-	stepBrewUpdate = "brew update"
-	stepBrewUp     = "brew upgrade"
-	stepBrewClean  = "brew cleanup"
-	stepTailscale  = "tailscale restart"
-	stepHerdr      = "herdr update"
-	stepOhMyZsh    = "oh-my-zsh pull"
-	stepApple      = "softwareupdate list"
+	stepMiseSelf     = "mise self-update"
+	stepMiseTools    = "mise up"
+	stepLockfiles    = "lockfile push"
+	stepPortless     = "portless reinstall"
+	stepBrewUpdate   = "brew update"
+	stepBrewUp       = "brew upgrade"
+	stepBrewClean    = "brew cleanup"
+	stepTailscale    = "tailscale restart"
+	stepHerdr        = "herdr update"
+	stepOhMyZsh      = "oh-my-zsh pull"
+	stepAppleInstall = "softwareupdate install"
+	stepApple        = "softwareupdate list"
 )
 
 // mise itself, from its own installer the way its install page asks for — which is also why
@@ -496,14 +502,95 @@ func (u *updater) ohMyZshHead() string {
 	return firstLine(out.Stdout)
 }
 
-// Apple's own, and the one thing here that is a message rather than an action. macOS's own
-// automatic install stays off, since it restarts the Mac whether or not a session is running,
-// and on Apple silicon `softwareupdate --install` of a macOS update wants a volume owner's
-// password — `--user` with `--stdinpass`, both documented as Apple-silicon-only — which
-// nothing on this Mac may hold. So Tim installs it, at a moment he picks.
+// The half of Apple's updates a Mac with nobody at it can take: a Safari or a command-line-tools
+// update restarts nothing, so it goes in at four in the morning like everything else here rather
+// than waiting for Tim to notice it in System Settings. A macOS update is not among them and is
+// macOS() below, which runs after this so that what it says is waiting is what still is.
 //
-// What is waiting is said again every night until it is installed: this is a reading of what
-// the Mac has pending rather than news of a download that finished tonight.
+// Which updates those are is worked out inside the root helper, as root, and never passed to it:
+// the helper takes no list from its caller, and reads the labels it installs out of
+// softwareupdate's own listing.
+func (u *updater) appleUpdates() {
+	if u.dry {
+		u.say("would install the Apple updates that need no restart, through the root helper")
+		return
+	}
+
+	out := u.deps.Run(Command{
+		Name: "sudo", Args: []string{"-n", u.cfg.RootHelper, "install-apple-updates"}, Timeout: appleInstall,
+	})
+
+	if !out.OK {
+		// The helper on this Mac is a root-owned copy Tim installs, so until he has run the
+		// installer the action is one it refuses. That is something waiting on him rather than a
+		// step that failed, and it is said again every night until he has.
+		if strings.Contains(out.Text, refusedAction) {
+			u.waits("the root helper has no " + wording.CodeSpan("install-apple-updates") +
+				" action yet: run " + wording.CodeSpan(rootHelperInstaller) +
+				" so the nightly update can install Apple's updates that need no restart")
+			return
+		}
+
+		u.failed(Failure{
+			Step:   stepAppleInstall,
+			Detail: out.Text,
+			Action: "**Needs you:** " + wording.CodeSpan("sudo "+u.cfg.RootHelper+" install-apple-updates") +
+				" — from a terminal, where sudo has somebody to ask. What is waiting is under **" +
+				labelNeedsYou + "** either way.",
+		})
+		return
+	}
+
+	installed := 0
+	for _, line := range strings.Split(out.Stdout, "\n") {
+		title, version, found := appleInstalledLine(line)
+		if !found {
+			continue
+		}
+		u.installed(title, version)
+		installed++
+	}
+
+	if installed == 0 {
+		u.say("the root helper installed no Apple update: %s", oneLine(out.Stdout))
+	}
+}
+
+// What the root helper refuses an action it does not have with. The one refusal of its that
+// anything here reads, and read because this action is newer than the copy of the helper that
+// is installed: the copy is root-owned and only Tim's installer replaces it.
+const refusedAction = "not an allowed action"
+
+// The installer that replaces it, which is the one thing he has to run for any of this.
+const rootHelperInstaller = "~/.mac-mini/root-helper.sh"
+
+// One update the helper installed, off the lines it writes for the purpose: `installed: ` and
+// then the title and the version either side of a comma, the way softwareupdate itself prints
+// them. Nothing else it writes goes to stdout.
+func appleInstalledLine(line string) (title, version string, found bool) {
+	rest, isInstall := strings.CutPrefix(strings.TrimSpace(line), "installed: ")
+	if !isInstall {
+		return "", "", false
+	}
+
+	title, version, split := strings.Cut(rest, ",")
+	title, version = strings.TrimSpace(title), strings.TrimSpace(version)
+	if !split || title == "" || version == "" {
+		return "", "", false
+	}
+	return title, version, true
+}
+
+// What Apple still has waiting once the step above has taken what it can, which is a message
+// rather than an action. macOS's own automatic install stays off, since it restarts the Mac
+// whether or not a session is running, and on Apple silicon `softwareupdate --install` of a
+// macOS update wants a volume owner's password — `--user` with `--stdinpass`, both documented
+// as Apple-silicon-only — which nothing on this Mac may hold. So Tim installs it, at a moment
+// he picks.
+//
+// Every entry and not only macOS's, because an update the helper could not put in is one
+// waiting on him too. What is waiting is said again every night until it is installed: this is
+// a reading of what the Mac has pending rather than news of a download that finished tonight.
 func (u *updater) macOS() {
 	out := u.deps.Run(Command{Name: "softwareupdate", Args: []string{"--list"}, Timeout: appleList})
 	if !out.OK {

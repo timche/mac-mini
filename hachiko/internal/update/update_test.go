@@ -124,6 +124,7 @@ func TestEveryStepRunsInOrder(t *testing.T) {
 		"brew cleanup",
 		"herdr update",
 		ohMyZshPull,
+		appleInstallCall,
 		"softwareupdate --list",
 	}
 
@@ -159,6 +160,7 @@ func TestADryRunChangesNothing(t *testing.T) {
 	harness.Wants(t, b.log.String(), "would upgrade node from 24.21.0 to 24.22.0")
 	harness.Wants(t, b.log.String(), "would upgrade tailscale")
 	harness.Wants(t, b.log.String(), "tailscaled would be restarted")
+	harness.Wants(t, b.log.String(), "would install the Apple updates that need no restart")
 
 	if _, err := os.Stat(b.cfg.UpdateStamp()); err == nil {
 		t.Error("a dry run wrote the stamp")
@@ -511,6 +513,104 @@ func TestOhMyZshMovesBetweenTwoCommits(t *testing.T) {
 
 		harness.Equal(t, len(b.sent), 0, "messages sent")
 	})
+}
+
+// The updates Apple has waiting that restart nothing are the Mac's own to install, and each
+// one has a version it is now at and none it came from — softwareupdate saying what is waiting
+// and nothing about what is already there.
+func TestTheAppleUpdatesThatNeedNoRestartAreInstalled(t *testing.T) {
+	b := newBox(t)
+	b.current()
+	b.installedApple("installed: Safari, 26.2", "installed: Command Line Tools for Xcode, 26.2")
+
+	u := b.update(false)
+
+	harness.Equal(t, len(u.moved), 2, "things that moved")
+	harness.Wants(t, b.summary(), "ℹ️ Nightly update: 2 versions moved")
+	harness.Wants(t, b.summary(), "- `Safari` → 26.2")
+	harness.Wants(t, b.summary(), "- `Command Line Tools for Xcode` → 26.2")
+	harness.Lacks(t, b.summary(), labelNeedsYou)
+	harness.Wants(t, b.log.String(), "Safari was installed at 26.2")
+}
+
+// Which has to happen before what is waiting is read, or the summary asks Tim to install a
+// Safari that went in half a minute earlier.
+func TestWhatIsWaitingIsReadAfterTheInstall(t *testing.T) {
+	b := newBox(t)
+	b.current()
+	b.installedApple("installed: Safari, 26.2")
+	b.says("softwareupdate --list",
+		"	Title: macOS 27.2, Version: 27.2, Size: 7101234KiB, Recommended: YES, Action: restart,\n")
+
+	b.update(false)
+
+	harness.Wants(t, b.summary(), "⚠️ Nightly update: 1 version moved, 1 needs you")
+	harness.Wants(t, b.summary(), "- `macOS 27.2` is waiting and restarts the Mac")
+	harness.Wants(t, b.summary(), "- `Safari` → 26.2")
+
+	installed, listed := -1, -1
+	for i, call := range b.calls {
+		switch call {
+		case appleInstallCall:
+			installed = i
+		case "softwareupdate --list":
+			listed = i
+		}
+	}
+	if installed < 0 || listed < installed {
+		t.Errorf("the install ran at %d and the listing at %d", installed, listed)
+	}
+}
+
+func TestANightWithNoAppleUpdateToInstallSaysNothingToTim(t *testing.T) {
+	b := newBox(t)
+	b.current()
+
+	u := b.update(false)
+
+	harness.Equal(t, len(u.moved), 0, "things that moved")
+	harness.Equal(t, len(b.sent), 0, "messages sent")
+	harness.Wants(t, b.log.String(), "the root helper installed no Apple update: nothing to install")
+}
+
+// The helper on this Mac is a root-owned copy only Tim installs, so an action added to it does
+// not exist until he has run the installer. That is something waiting on him and said again
+// every night until he has, rather than a step that failed.
+func TestARootHelperWithoutTheActionIsSomethingWaitingOnTim(t *testing.T) {
+	b := newBox(t)
+	b.current()
+	b.fails(appleInstallCall, "claude-root: not an allowed action: install-apple-updates\n"+
+		"claude-root --list says what it allows.")
+
+	b.update(false)
+
+	harness.Equal(t, len(b.failing()), 0, "steps left for the check")
+	harness.Wants(t, b.summary(), "⚠️ Nightly update: nothing moved, 1 needs you")
+	harness.Wants(t, b.summary(), "**Needs you:**\n- the root helper has no `install-apple-updates` "+
+		"action yet: run `~/.mac-mini/root-helper.sh` so the nightly update can install Apple's "+
+		"updates that need no restart")
+}
+
+// Anything else the helper answers with is an incident — a sudo that wants a password, an
+// install that outlasted its deadline — and what it could not install is in the same summary
+// under what needs him, the reading below having run either way.
+func TestAnAppleInstallThatFailsIsAnIncident(t *testing.T) {
+	b := newBox(t)
+	b.current()
+	b.fails(appleInstallCall, "sudo: a password is required")
+	b.says("softwareupdate --list",
+		"	Title: Safari, Version: 26.2, Size: 136752KiB, Recommended: YES,\n")
+
+	b.update(false)
+
+	failing := b.failing()
+	harness.Equal(t, len(failing), 1, "steps left for the check")
+	harness.Equal(t, failing[0].Step, stepAppleInstall, "the step")
+	harness.Equal(t, failing[0].Phrase, "install the Apple updates that need no restart", "the phrase")
+	harness.Wants(t, failing[0].Detail, "sudo: a password is required")
+	harness.Wants(t, failing[0].Action, "sudo /usr/local/libexec/claude-root install-apple-updates")
+	harness.Wants(t, b.summary(), "- `Safari 26.2` is waiting")
+	harness.Wants(t, b.summary(), "`softwareupdate install`: could not install the Apple updates")
 }
 
 func TestAMacOSUpdateIsSaidAndNotInstalled(t *testing.T) {

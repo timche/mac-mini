@@ -235,12 +235,21 @@ func (b *box) current() {
 	b.says("mise --version", "2026.10.11 macos-arm64 (2026-10-15)")
 	b.says("herdr --version", "herdr 0.9.5")
 	b.says("softwareupdate --list", "No new software available.")
+	b.says(appleInstallCall, nothingToInstall)
 	b.says(ohMyZshPull, "Already up to date.")
 
 	for _, ref := range []string{"MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"} {
 		b.fails("git -C "+repo+" rev-parse -q --verify "+ref, "")
 	}
 }
+
+// What the root helper says when it has put an update in, one line per update the way it
+// writes them — and what it says when there is nothing waiting that it may install.
+func (b *box) installedApple(lines ...string) {
+	b.says(appleInstallCall, strings.Join(lines, "\n")+"\n")
+}
+
+const nothingToInstall = "nothing to install: every Apple update waiting either restarts the Mac or is macOS itself\n"
 
 // What `mise outdated` answers for one tool, in mise's own table.
 func outdatedLine(name, requested, current, latest string) string {
@@ -257,6 +266,7 @@ const (
 	gitDefault         = "git -C " + repo + " symbolic-ref --short refs/remotes/origin/HEAD"
 	gitAdd             = "git -C " + repo + " add -A -- " + lockPaths
 	gitPush            = "git -C " + repo + " push origin main"
+	appleInstallCall   = "sudo -n /usr/local/libexec/claude-root install-apple-updates"
 	ohMyZshPull        = "git -C " + home + "/.oh-my-zsh pull --ff-only"
 	ohMyZshHead        = "git -C " + home + "/.oh-my-zsh rev-parse --short HEAD"
 	lockPaths          = "mise.lock home/.config/mise/mise.lock home/.config/mise/locks"

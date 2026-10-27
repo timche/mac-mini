@@ -427,6 +427,21 @@ Software Update found the following new or updated software:
 	}
 }
 
+// Apple prints the version of a macOS release in its title as well as in its own column, and
+// the title is what Tim reads: "macOS 27.2 27.2" is the same number twice.
+func TestAnAppleTitleCarriesItsVersionOnlyOnce(t *testing.T) {
+	titles := appleTitles(`* Label: macOS Sequoia 27.2-27C50
+	Title: macOS 27.2, Version: 27.2, Size: 7101234KiB, Recommended: YES, Action: restart,
+* Label: Safari27.2TahoeAuto-27.2
+	Title: Safari, Version: 27.2, Size: 136752KiB, Recommended: YES,
+* Label: Command Line Tools for Xcode-27.2
+	Title: Command Line Tools for Xcode, Version: 27.2, Size: 756121KiB, Recommended: NO,
+`)
+
+	harness.Equal(t, strings.Join(titles, "; "),
+		"macOS 27.2; Safari 27.2; Command Line Tools for Xcode 27.2", "the titles")
+}
+
 // The hand-off carries the whole of what a message about a step needs, the one line for Tim
 // included — the check knows a step by its name and nothing else.
 func TestAHandoffCarriesTheLineForTimEvenWithNothingToSuggest(t *testing.T) {

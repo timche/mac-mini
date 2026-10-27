@@ -473,7 +473,7 @@ func (u *updater) macOS() {
 		return
 	}
 
-	u.note(fmt.Sprintf("macOS has %s waiting, already downloaded: %s",
+	u.note(fmt.Sprintf("macOS has %s waiting: %s",
 		wording.CountOf(int64(len(waiting)), "update", "updates"),
 		wording.CodeSpan(wording.Safe(strings.Join(waiting, "; "), wording.PathLimit))))
 }
@@ -485,7 +485,14 @@ var appleTitle = regexp.MustCompile(`Title:\s*([^,]+),\s*Version:\s*([^,]+)`)
 func appleTitles(text string) []string {
 	var titles []string
 	for _, match := range appleTitle.FindAllStringSubmatch(text, -1) {
-		titles = append(titles, strings.TrimSpace(match[1])+" "+strings.TrimSpace(match[2]))
+		title, version := strings.TrimSpace(match[1]), strings.TrimSpace(match[2])
+
+		// `Title: macOS 27.2, Version: 27.2` is one reading twice over, which Apple prints
+		// that way for a macOS release and not for a Safari or a command-line-tools update.
+		if !strings.Contains(title, version) {
+			title += " " + version
+		}
+		titles = append(titles, title)
 	}
 	return titles
 }

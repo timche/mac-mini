@@ -247,7 +247,7 @@ software_update() {
 }
 export -f software_update
 
-for pair in AutomaticDownload:1 AutomaticallyInstallMacOSUpdates:0 \
+for pair in AutomaticDownload:1 AutomaticallyInstallMacOSUpdates:1 \
             ConfigDataInstall:1 CriticalUpdateInstall:1; do
   key="${pair%%:*}"
   want="${pair##*:}"

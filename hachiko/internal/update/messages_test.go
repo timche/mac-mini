@@ -72,10 +72,10 @@ Software Update found the following new or updated software:
 			"- `macOS 27.2` is waiting: macOS installs it by itself and restarts the Mac at a time it " +
 			"picks, and you can install it sooner in System Settings › General › Software Update",
 		"**Moved:**\n" +
-			"- `npm:portless` 0.15.11 → 0.15.12 · dev-URL proxy restarted\n" +
-			"- `gh` 2.103.2 → 2.103.3\n" +
-			"- `stripe-cli` 1.55.1 → 1.55.2\n" +
-			"- `tuicr` 0.27.0 → 0.28.0",
+			"- `tuicr` 0.27.0 → 0.28.0 · minor\n" +
+			"- `npm:portless` 0.15.11 → 0.15.12 · patch · dev-URL proxy restarted\n" +
+			"- `gh` 2.103.2 → 2.103.3 · patch\n" +
+			"- `stripe-cli` 1.55.1 → 1.55.2 · patch",
 		"-# mac-mini",
 	}, "\n\n"), "the whole summary")
 }
@@ -89,7 +89,7 @@ var messageKinds = []struct {
 	{
 		name:   "a night that moved something",
 		marker: wording.MarkerInfo,
-		wants:  []string{"**Moved:**", "`node` 24.21.0 → 24.22.0 · dev-URL proxy restarted", "mac-mini"},
+		wants:  []string{"**Moved:**", "`node` 24.21.0 → 24.22.0 · minor · dev-URL proxy restarted", "mac-mini"},
 		render: func(t *testing.T) string {
 			b := newBox(t)
 			b.current()

@@ -280,7 +280,7 @@ func TestAPipTargetIsUpgradedInThePythonTheTargetNames(t *testing.T) {
 
 	harness.Equal(t, b.ran(python3+" -m pip install --upgrade certifi"), true, "the upgrade")
 	harness.Wants(t, b.summary(),
-		"`certifi` 2026.1.14 → 2026.9.30 · in python `3.15.0`, which a published advisory named")
+		"`certifi` 2026.1.14 → 2026.9.30 · minor · in python `3.15.0`, which a published advisory named")
 }
 
 // `pip install --upgrade` exits zero for a package it has nothing newer of, and this ran

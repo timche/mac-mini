@@ -2,6 +2,8 @@ package update
 
 import (
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,9 +13,8 @@ import (
 )
 
 // The labels the summary goes under. Here rather than in wording because they are this
-// command's own words.
-// The three sections are in this order on purpose: what Tim has to do about the Mac, then
-// what the Mac did by itself, then what it could not.
+// command's own words, and in this order because the summary's three sections are: what Tim
+// has to do about the Mac, then what the Mac did by itself, then what it could not.
 const (
 	labelNeedsYou = "Needs you"
 	labelMoved    = "Moved"
@@ -195,16 +196,19 @@ func (u *updater) summary(now time.Time) {
 		return
 	}
 
-	var bullets []string
 	for _, move := range u.moved {
 		u.say("%s moved from %s to %s", move.What, move.From, move.To)
-		bullets = append(bullets, movedBullet(move))
 	}
 	u.sayWaiting()
 
 	if u.cfg.Discord.UpdatesID == "" {
 		u.say("no updates channel is configured, so the summary stays in this log")
 		return
+	}
+
+	var bullets []string
+	for _, move := range movedInOrder(u.moved) {
+		bullets = append(bullets, movedBullet(move))
 	}
 
 	message := wording.Lead(u.marker(), u.sentence()).
@@ -242,16 +246,97 @@ func (u *updater) failedSection() string {
 }
 
 // A name and two versions, all three of them a tool's own spelling rather than hachiko's,
-// and then what moving it took with it in hachiko's own words.
+// then how far it moved and then what moving it took with it, both in hachiko's own words.
 func movedBullet(move Move) string {
 	short := func(s string) string { return wording.Safe(s, wording.NameLimit) }
 	bullet := wording.CodeSpan(short(move.What)) + " " +
 		wording.PlainWords(short(move.From)) + " → " + wording.PlainWords(short(move.To))
 
-	if move.Qualifier != "" {
-		bullet += " · " + move.Qualifier
+	for _, part := range []string{bumpOf(move.From, move.To), move.Qualifier} {
+		if part != "" {
+			bullet += " · " + part
+		}
 	}
 	return bullet
+}
+
+// How far a version moved, which is what says whether a line is worth a second look: a major
+// is the one that breaks something and a patch is the one nobody has to think about.
+const (
+	bumpMajor = "major"
+	bumpMinor = "minor"
+	bumpPatch = "patch"
+)
+
+// Biggest first, which is both the component they are read off and the order Moved is in.
+var bumps = []string{bumpMajor, bumpMinor, bumpPatch}
+
+// Biggest jump first, and the order the steps ran in within a group, which keeps mise's tools
+// together and Homebrew's together. What carries no label goes last, there being nothing to
+// say about how far a commit sha moved.
+func movedInOrder(moved []Move) []Move {
+	sorted := slices.Clone(moved)
+	slices.SortStableFunc(sorted, func(a, b Move) int {
+		return bumpRank(a) - bumpRank(b)
+	})
+	return sorted
+}
+
+func bumpRank(move Move) int {
+	rank := slices.Index(bumps, bumpOf(move.From, move.To))
+	if rank < 0 {
+		return len(bumps)
+	}
+	return rank
+}
+
+// The label for one move, by the first component that differs. Only a version that is dotted
+// numbers gets one: oh-my-zsh moves by commit sha and plenty of tools version by date, and
+// calling either of those a major bump would be a label made up out of a string that was
+// never a version in that sense.
+func bumpOf(from, to string) string {
+	was, is := versionParts(from), versionParts(to)
+	if was == nil || is == nil {
+		return ""
+	}
+
+	for i := range max(len(was), len(is)) {
+		if component(was, i) == component(is, i) {
+			continue
+		}
+		if i < len(bumps) {
+			return bumps[i]
+		}
+		return bumpPatch
+	}
+	return ""
+}
+
+// The numeric components of a version, or nothing at all where it is not dotted numbers. A
+// leading `v` is a spelling rather than a component, and what follows a `-` or a `+` is a
+// pre-release or a build and says nothing about how far the version moved.
+func versionParts(version string) []int {
+	number, _, _ := strings.Cut(strings.TrimPrefix(version, "v"), "-")
+	number, _, _ = strings.Cut(number, "+")
+
+	var parts []int
+	for _, field := range strings.Split(number, ".") {
+		n, err := strconv.Atoi(field)
+		if err != nil || n < 0 {
+			return nil
+		}
+		parts = append(parts, n)
+	}
+	return parts
+}
+
+// A component a version does not spell out is a zero, so 1.2 to 1.2.1 is a patch rather than
+// two versions that cannot be compared.
+func component(parts []int, i int) int {
+	if i >= len(parts) {
+		return 0
+	}
+	return parts[i]
 }
 
 // Degraded rather than info where something is waiting on Tim, the lead line being the whole

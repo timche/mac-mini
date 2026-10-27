@@ -201,6 +201,61 @@ func TestTheSummarySaysWhatMoved(t *testing.T) {
 	harness.Wants(t, summary, "mac-mini")
 }
 
+// How far a version moved is the first component that differs, and only a version that is
+// dotted numbers has one at all: a commit sha, a date and a build somebody stamped say nothing
+// about how much reading the change needs.
+func TestHowFarAVersionMovedIsTheFirstComponentThatDiffers(t *testing.T) {
+	for _, c := range []struct{ from, to, want string }{
+		{"1.2.3", "2.0.0", "major"},
+		{"1.2.3", "1.3.0", "minor"},
+		{"1.2.3", "1.2.4", "patch"},
+		{"0.15.11", "0.15.12", "patch"},
+		{"1.2.3.4", "1.2.3.5", "patch"},
+		{"v1.2.3", "v2.0.0", "major"},
+		{"1.2.3", "v1.2.4", "patch"},
+		{"1.2", "1.2.1", "patch"},
+		{"1", "2", "major"},
+		{"2026.10.11", "2026.10.20", "patch"},
+
+		// A pre-release or a build is not a component, so what differs is read from the numbers
+		// in front of it — and two spellings of one version moved nowhere.
+		{"1.2.3-beta.1", "1.3.0-beta.2", "minor"},
+		{"1.2.3+build.9", "2.0.0+build.1", "major"},
+		{"1.2.3", "1.2.3-rc1", ""},
+
+		// And no label at all where either side was never dotted numbers.
+		{"a1b2c3d", "e4f5a6b", ""},
+		{"1.2.3", "e4f5a6b", ""},
+		{"2026-10-11", "2026-10-20", ""},
+		{"1.2.x", "1.3.0", ""},
+		{"1.104.1, 1.104.2", "1.106.0", ""},
+		{"", "1.2.3", ""},
+		{"1.2.3", "1.2.3", ""},
+	} {
+		harness.Equal(t, bumpOf(c.from, c.to), c.want, c.from+" → "+c.to)
+	}
+}
+
+// Biggest jump first, since that is the line worth reading twice, and the order the steps ran
+// in within each group.
+func TestTheMovedListIsBiggestJumpFirst(t *testing.T) {
+	moved := []Move{
+		{What: "npm:portless", From: "0.15.11", To: "0.15.12"},
+		{What: "oh-my-zsh", From: "a1b2c3d", To: "e4f5a6b"},
+		{What: "gh", From: "2.103.2", To: "2.103.3"},
+		{What: "tuicr", From: "0.27.0", To: "0.28.0"},
+		{What: "node", From: "24.22.0", To: "25.0.0"},
+		{What: "bun", From: "1.4.2", To: "1.5.0"},
+	}
+
+	var order []string
+	for _, move := range movedInOrder(moved) {
+		order = append(order, move.What)
+	}
+
+	harness.Equal(t, strings.Join(order, " "), "node tuicr bun npm:portless gh oh-my-zsh", "the order")
+}
+
 func TestNothingMovedSaysNothingToDiscord(t *testing.T) {
 	b := newBox(t)
 	b.current()
@@ -260,8 +315,8 @@ func TestTheProxyRestartGoesOnTheMoveItFollowedFrom(t *testing.T) {
 
 		b.update(false)
 
-		harness.Wants(t, b.summary(), "`npm:portless` 0.15.11 → 0.15.12 · dev-URL proxy restarted")
-		harness.Wants(t, b.summary(), "`node` 24.21.0 → 24.22.0\n")
+		harness.Wants(t, b.summary(), "`npm:portless` 0.15.11 → 0.15.12 · patch · dev-URL proxy restarted")
+		harness.Wants(t, b.summary(), "`node` 24.21.0 → 24.22.0 · minor\n")
 	})
 
 	t.Run("only node moved", func(t *testing.T) {
@@ -271,7 +326,7 @@ func TestTheProxyRestartGoesOnTheMoveItFollowedFrom(t *testing.T) {
 
 		b.update(false)
 
-		harness.Wants(t, b.summary(), "`node` 24.21.0 → 24.22.0 · dev-URL proxy restarted")
+		harness.Wants(t, b.summary(), "`node` 24.21.0 → 24.22.0 · minor · dev-URL proxy restarted")
 	})
 }
 

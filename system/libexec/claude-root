@@ -23,6 +23,12 @@
 # file, which lands as a root-owned copy through root-helper.sh and so needs Tim's
 # password — which is the point.
 #
+# A name an action needs but a caller may not choose is worked out here instead, as
+# root, from what the system itself says: install-apple-updates reads the labels it
+# installs out of softwareupdate's own listing rather than being handed them. Which
+# is the same rule from the other side — nothing a caller says decides what root
+# does.
+#
 # And no action touches a path the account can write, even one this file spells
 # out itself. A root command aimed at a file in a home directory is a root command
 # the account aims wherever it likes: it replaces the file with a symlink and the
@@ -75,6 +81,14 @@ allowed_daemons=(
 # is in the file Tim installs; assert-machine.sh fails when the two lists differ.
 portless_tlds=(localhost timche.dev)
 
+# How long each softwareupdate call is given. It is a network client with no
+# deadline of its own, and the nightly update that waits on this holds a lock while
+# it does. The bound is here rather than left to the caller because a caller's own
+# timeout kills the sudo and not what sudo started, which would leave softwareupdate
+# running as root with nobody waiting for it.
+apple_list_seconds=240
+apple_install_seconds=1200
+
 argv="$*"
 dry_run=false
 [ "${CLAUDE_ROOT_DRY_RUN:-}" = 1 ] && dry_run=true
@@ -105,6 +119,50 @@ require_root() {
 # process, so the account can write the same line.
 log_action() {
   logger -t claude-root "$*"
+}
+
+# One command with a deadline, macOS shipping no `timeout`: the command as a child,
+# and a second child that signals it when the time is up. Its stdin is /dev/null, so
+# a command that decides to ask for a password fails on the spot rather than waiting
+# for one nobody is there to type.
+#
+# Job control for the child alone, which is what puts it in a process group of its
+# own: the signal then reaches whatever it started as well, and a grandchild left
+# behind holding the output is a caller reading this through a command substitution
+# that waits for it however long the deadline was for. The watchdog's own output goes
+# nowhere for the same reason, and it is waited for after it is signalled so that
+# bash has nothing left to report about it.
+bounded() {
+  local seconds="$1" pid watchdog waited=0 status
+  shift
+
+  set -m
+  "$@" </dev/null &
+  pid=$!
+  set +m
+
+  (
+    while [ "$waited" -lt "$seconds" ]; do
+      sleep 1
+      waited=$((waited + 1))
+    done
+    kill -TERM -"$pid" 2>/dev/null
+  ) >/dev/null 2>&1 &
+  watchdog=$!
+
+  wait "$pid"
+  status=$?
+
+  kill -TERM "$watchdog" 2>/dev/null
+  wait "$watchdog" 2>/dev/null
+
+  # 143 is the watchdog's SIGTERM, which is the one failure here worth naming: the
+  # rest of what went wrong the command has said for itself.
+  if [ "$status" -eq 143 ]; then
+    echo "claude-root: $1 ran for more than ${seconds}s and was stopped." >&2
+  fi
+
+  return "$status"
 }
 
 daemon_label() {
@@ -138,6 +196,8 @@ list() {
   echo "  flush-dns              flush the DNS cache and signal mDNSResponder"
   echo "  reinstall-portless     install portless's proxy daemon again, on the"
   echo "                         node and portless the account has now"
+  echo "  install-apple-updates  install the Apple updates that are waiting, need"
+  echo "                         no restart and are not macOS itself"
   echo "  --list                 this"
   echo
   echo "Daemons:"
@@ -316,6 +376,127 @@ reinstall_portless() {
   echo "installed portless's proxy daemon for $user, serving ${args[*]}"
 }
 
+# What softwareupdate has waiting that this Mac may install while nobody is at it,
+# one `label<tab>title<tab>version` line each. The label is what --install takes and
+# is read out of the listing rather than from a caller; the other two are what a
+# person recognises.
+#
+# Two kinds are left out of it. A macOS update asks for a volume owner's password
+# even when it is root asking, Apple silicon offering no way round that without an
+# MDM, so it is Tim's to install at an hour he picks. And an update with an Action is
+# one that restarts or shuts the Mac down, which ends every session running on it —
+# his as well, and the reason nothing here passes --restart.
+apple_installable() {
+  local listing
+
+  listing="$(bounded "$apple_list_seconds" softwareupdate --list)" || return 1
+
+  # One record is a `* Label:` line and the indented `Title:` line under it, so the
+  # label is carried to the line that decides whether it is wanted and dropped
+  # either way — a Title with no label above it is not an entry.
+  printf '%s\n' "$listing" | awk '
+    /^\* Label: / {
+      label = $0
+      sub(/^\* Label: */, "", label)
+      sub(/[ \t]+$/, "", label)
+      next
+    }
+    label != "" && /Title: .*Version: / {
+      details = $0
+      entry = label
+      label = ""
+
+      if (details ~ /Action: /) next
+
+      title = details
+      sub(/^.*Title: */, "", title)
+      sub(/ *,.*$/, "", title)
+      if (title ~ /^macOS/) next
+
+      version = details
+      sub(/^.*Version: */, "", version)
+      sub(/ *,.*$/, "", version)
+
+      print entry "\t" title "\t" version
+    }
+  '
+}
+
+# Apple's own updates, the half of them a Mac with nobody at it can take: whatever
+# apple_installable answers with, in one --install and with no --restart.
+#
+# What went in is read back off a second listing rather than taken from the exit
+# status, which `softwareupdate --install` leaves at zero having printed that it
+# could not find a label. One `installed:` line per update on stdout, its title and
+# its version either side of a comma the way softwareupdate prints them, and
+# softwareupdate's own progress on stderr, so that what a caller parses is the lines
+# this wrote.
+install_apple_updates() {
+  local waiting left tab index=0 installed=0 still=""
+  local label title version
+  local labels=() titles=()
+
+  if [ "$dry_run" = true ]; then
+    echo "dry run: would install every Apple update that is waiting, needs no" \
+         "restart and is not macOS itself"
+    return 0
+  fi
+
+  require_root "install-apple-updates"
+  log_action install-apple-updates
+
+  if ! waiting="$(apple_installable)"; then
+    echo "claude-root: softwareupdate would not say what is waiting, so nothing" >&2
+    echo "was installed." >&2
+    return 69
+  fi
+
+  tab="$(printf '\t')"
+
+  # Read in this shell rather than down a pipe, a label carrying spaces being why
+  # the two come back as arrays at all.
+  while IFS="$tab" read -r label title version; do
+    [ -n "$label" ] || continue
+    labels[${#labels[@]}]="$label"
+    titles[${#titles[@]}]="$title, $version"
+  done < <(printf '%s\n' "$waiting")
+
+  if [ ${#labels[@]} -eq 0 ]; then
+    echo "nothing to install: every Apple update waiting either restarts the Mac" \
+         "or is macOS itself"
+    return 0
+  fi
+
+  bounded "$apple_install_seconds" softwareupdate --install "${labels[@]}" >&2
+
+  if ! left="$(apple_installable)"; then
+    echo "claude-root: softwareupdate would not say what is left, so what the" >&2
+    echo "install put in is unknown." >&2
+    return 69
+  fi
+
+  while [ "$index" -lt ${#labels[@]} ]; do
+    if printf '%s\n' "$left" | grep -qF -- "${labels[$index]}$tab"; then
+      still="$still; ${titles[$index]}"
+    else
+      echo "installed: ${titles[$index]}"
+      installed=$((installed + 1))
+    fi
+    index=$((index + 1))
+  done
+
+  if [ "$installed" -eq 0 ]; then
+    echo "claude-root: softwareupdate installed none of them. Still waiting:${still#;}" >&2
+    return 69
+  fi
+
+  if [ -n "$still" ]; then
+    echo "claude-root: still waiting after the install:${still#;}" >&2
+  fi
+
+  return 0
+}
+
 # `--` is the caller's way of saying the rest is arguments. Nothing here takes a
 # name that could start with a dash, so it changes no outcome — but a helper that
 # treated `--` as an action of its own would refuse for the wrong reason.
@@ -347,6 +528,10 @@ case "$action" in
   reinstall-portless)
     [ $# -eq 0 ] || refuse "reinstall-portless takes no argument"
     reinstall_portless
+    ;;
+  install-apple-updates)
+    [ $# -eq 0 ] || refuse "install-apple-updates takes no argument"
+    install_apple_updates
     ;;
   *)
     refuse "not an allowed action: $action"

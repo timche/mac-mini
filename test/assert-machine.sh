@@ -472,6 +472,7 @@ check "the helper is executable in the checkout" '[ -x "$helper_source" ]'
 check "the helper lists the actions and the daemons it allows" \
   '"$helper_source" --list | grep -q "restart-daemon" &&
    "$helper_source" --list | grep -q "reinstall-portless" &&
+   "$helper_source" --list | grep -q "install-apple-updates" &&
    "$helper_source" --list | grep -q "com.apple.dasd" &&
    "$helper_source" --list | grep -q "sh.brew.tailscale"'
 
@@ -481,7 +482,8 @@ check "the helper lists the actions and the daemons it allows" \
 check "every action records itself in the system log before it acts" \
   'grep -q "log_action \"restart-daemon " "$helper_source" &&
    grep -q "log_action flush-dns" "$helper_source" &&
-   grep -q "log_action reinstall-portless" "$helper_source"'
+   grep -q "log_action reinstall-portless" "$helper_source" &&
+   grep -q "log_action install-apple-updates" "$helper_source"'
 check "the sudoers rule leaves that logging to the helper" \
   '! grep -qE "^[^#]*log_allowed" "$rendered/sudoers"'
 check "the helper refuses no action at all" '! "$helper_source"'
@@ -498,6 +500,7 @@ check "the helper refuses an argument the action does not take" \
   '! "$helper_source" restart-daemon dasd extra &&
    ! "$helper_source" flush-dns extra &&
    ! "$helper_source" reinstall-portless extra &&
+   ! "$helper_source" install-apple-updates extra &&
    ! "$helper_source" --list extra'
 # The action a session was told about and this file no longer has, which is worth
 # a case of its own: it has to be refused rather than quietly do nothing.
@@ -509,10 +512,24 @@ check "a dry run is no way past the allowlist" \
   '! CLAUDE_ROOT_DRY_RUN=1 "$helper_source" restart-daemon not-on-the-list &&
    ! CLAUDE_ROOT_DRY_RUN=1 "$helper_source" uname'
 check "an allowed action refuses rather than half-doing it without root" \
-  '! "$helper_source" flush-dns && ! "$helper_source" reinstall-portless'
+  '! "$helper_source" flush-dns && ! "$helper_source" reinstall-portless &&
+   ! "$helper_source" install-apple-updates'
 check "a dry run of an allowed action says what it would do and does nothing" \
   'CLAUDE_ROOT_DRY_RUN=1 "$helper_source" restart-daemon dasd | grep -q "dry run" &&
-   CLAUDE_ROOT_DRY_RUN=1 "$helper_source" reinstall-portless | grep -q "dry run"'
+   CLAUDE_ROOT_DRY_RUN=1 "$helper_source" reinstall-portless | grep -q "dry run" &&
+   CLAUDE_ROOT_DRY_RUN=1 "$helper_source" install-apple-updates | grep -q "dry run"'
+
+# An update that restarts or shuts the Mac down ends every session running on it, so
+# the Apple install passes no --restart and leaves that kind to Tim: which they are is
+# read off softwareupdate's own listing, the same place the labels come from.
+check "the Apple install never restarts the Mac" \
+  '! grep -qE "^[^#]*--restart" "$helper_source"'
+
+# softwareupdate is a network client with no deadline of its own, and the nightly
+# update waits on this one holding a lock. A caller's own timeout is no answer: it
+# kills the sudo and leaves softwareupdate running as root.
+check "every softwareupdate call the helper makes has a deadline" \
+  '! grep -E "^[^#]*softwareupdate --" "$helper_source" | grep -qv "bounded "'
 
 # The helper runs on a PATH of its own rather than the caller's, since sudo here
 # sets no secure_path and the account's PATH leads with version-managed shims. A

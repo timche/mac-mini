@@ -213,7 +213,10 @@ power_setting() {
 }
 export -f power_setting
 
-for pair in autorestart:1 sleep:0 disksleep:0 displaysleep:0; do
+restart=autorestart
+[ -n "$(power_setting autorestartatconnect)" ] && restart=autorestartatconnect
+
+for pair in $restart:1 sleep:0 disksleep:0 displaysleep:0; do
   setting="${pair%%:*}"
   want="${pair##*:}"
 

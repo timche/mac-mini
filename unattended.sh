@@ -75,8 +75,15 @@ set_power() {
 }
 
 # Power loss on a machine nobody can walk up to is otherwise a machine that is
-# gone until somebody does.
-set_power autorestart 1
+# gone until somebody does. A Mac mini has no battery, so power coming back is
+# power being connected: the Energy pane's "Start up when power is connected" is
+# autorestartatconnect, and autorestart, which that pane no longer shows, is only
+# for a Mac that does not report it.
+if [ -n "$(power_setting autorestartatconnect)" ]; then
+  set_power autorestartatconnect 1
+else
+  set_power autorestart 1
+fi
 
 # Sleep is the other way a Mac stops answering SSH without anything being wrong
 # with it. disksleep as well as sleep, because a spun-down disk is what a woken

@@ -30,7 +30,7 @@ const (
 	// Longer than the two listings and the install the root helper bounds itself with, so that
 	// what gives up first is the helper, which signals the whole of what it started: this one
 	// would kill the sudo and leave softwareupdate running as root.
-	appleInstall = 35 * time.Minute
+	appleInstall = 75 * time.Minute
 )
 
 // The steps, by the name a message calls each of them and the state remembers it by.

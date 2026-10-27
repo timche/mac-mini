@@ -87,7 +87,7 @@ portless_tlds=(localhost timche.dev)
 # timeout kills the sudo and not what sudo started, which would leave softwareupdate
 # running as root with nobody waiting for it.
 apple_list_seconds=240
-apple_install_seconds=1200
+apple_install_seconds=3600
 
 argv="$*"
 dry_run=false

@@ -6,11 +6,9 @@
 # what writes both halves of that key, and register-signing-key.sh puts the
 # public one on the GitHub account that has to accept the signature.
 #
-# The key is the same one the VM uses and it comes out of 1Password rather than
-# being pasted: a paste is a private key on somebody's clipboard. The private half
-# goes from `op read` down a pipe into one file in ~/.ssh and nowhere else — never
-# into a variable, a trace or an argument — and 1Password stays the one place it
-# is kept, these files being a copy this rewrites.
+# The key comes out of 1Password rather than being pasted: a paste is a private key
+# on somebody's clipboard. ssh-key.sh writes both halves; 1Password stays the one
+# place it is kept, these files being a copy this rewrites.
 #
 # What it needs is a 1Password service account with read access to the vault, whose
 # token op-token.sh stores once and both read. Nothing prints it.
@@ -26,9 +24,6 @@
 # account's day.
 
 set -euo pipefail
-# The service-account token is expanded into commands below, where a trace would
-# print it.
-set +x
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -38,7 +33,6 @@ key="$HOME/.ssh/id_signing"
 # The item, not the fields: both halves of one key are two fields of one 1Password
 # item by definition.
 item="${SIGNING_KEY_OP_ITEM:-op://dev/ssh-commit-signing}"
-token_file="${OP_SERVICE_ACCOUNT_TOKEN_FILE:-$HOME/.config/op/service-account-token}"
 
 if [ "$(uname -s)" != Darwin ]; then
   echo "signing-key.sh is macOS only" >&2
@@ -57,13 +51,6 @@ if ! command -v op >/dev/null 2>&1; then
   exit 0
 fi
 
-mkdir -p "$HOME/.ssh"
-chmod 700 "$HOME/.ssh"
-
-read_field() {
-  OP_SERVICE_ACCOUNT_TOKEN="$(cat "$token_file")" op read "$item/$1"
-}
-
 token_status=0
 "$repo/op-token.sh" || token_status=$?
 case "$token_status" in
@@ -75,35 +62,10 @@ case "$token_status" in
   *) exit 1 ;;
 esac
 
-if ! public="$(read_field 'public key')"; then
-  echo "the token in $token_file could not read $item" >&2
-  exit 1
-fi
+"$repo/ssh-key.sh" "$item" "$key"
 
-staged_public="$(mktemp)"
-trap 'rm -f "$staged_public"' EXIT
-printf '%s\n' "$public" >"$staged_public"
-
-# 1Password serves whatever is in the field, and a field that holds something else
-# would otherwise be found out by git, months later, as a signature nobody can
-# verify.
-if ! ssh-keygen -l -f "$staged_public" >/dev/null 2>&1; then
-  echo "$item/public key is not a public key that ssh-keygen recognises" >&2
-  exit 1
-fi
-
-# GitHub, the trust list and ssh-keygen all keep the type and the body and drop the
-# comment — and the comment ssh-keygen -y prints is the one the private key itself
-# carries rather than the one in the 1Password field — so every comparison below is
-# on the two fields that identify the key.
 key_body() {
   awk 'NF >= 2 { print $1" "$2 }'
-}
-
-# SSH_ASKPASS_REQUIRE because a key with a passphrase would otherwise sit on a
-# prompt that an unattended provision has nowhere to display.
-public_half() {
-  SSH_ASKPASS_REQUIRE=never ssh-keygen -y -f "$1" </dev/null 2>/dev/null | key_body
 }
 
 signer_identity() {
@@ -121,7 +83,7 @@ signer_identity() {
 trust_signer() {
   local principal line kept
   principal="$(signer_identity)"
-  line="$principal $(key_body <"$staged_public")"
+  line="$principal $(key_body <"$key.pub")"
 
   kept="$(mktemp)"
   if [ -f "$allowed_signers" ]; then
@@ -141,46 +103,7 @@ trust_signer() {
   echo "trusted the signing key in $allowed_signers"
 }
 
-# Both halves into files git signs with. The private one lands through a temporary
-# file in ~/.ssh, which is 700, so it is never under a world-readable TMPDIR and
-# never briefly readable at its final path; umask 077 because the redirect is what
-# fills it.
-install_key() {
-  local want staged
-  want="$(key_body <"$staged_public")"
-
-  if [ -f "$key" ] && [ "$(public_half "$key")" = "$want" ]; then
-    echo "$key already holds the key in $item"
-  else
-    staged="$(mktemp "$HOME/.ssh/.id_signing.XXXXXX")"
-
-    if ! (umask 077; read_field 'private key?ssh-format=openssh' >"$staged"); then
-      rm -f "$staged"
-      echo "the token in $token_file could not read $item/private key" >&2
-      return 1
-    fi
-
-    # The same reason the public half is checked, and the one check that catches a
-    # 1Password item whose two fields are halves of different keys.
-    if [ "$(public_half "$staged")" != "$want" ]; then
-      rm -f "$staged"
-      echo "$item/private key is not the private half of $item/public key" >&2
-      return 1
-    fi
-
-    mv "$staged" "$key"
-    chmod 600 "$key"
-    echo "wrote the private half of $item to $key"
-  fi
-
-  if [ ! -f "$key.pub" ] || [ "$(key_body <"$key.pub")" != "$want" ]; then
-    install -m 644 "$staged_public" "$key.pub"
-    echo "wrote the public half of $item to $key.pub"
-  fi
-}
-
 trust_signer
-install_key
 
 "$repo/register-signing-key.sh"
 

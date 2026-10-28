@@ -52,13 +52,13 @@ checksum = "sha256:0f20ce6674d4f2dbcc8c5d59fdf99f7ba45f8c3b367e0f5781cbfa30a1c78
 url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-windows-x64-baseline.zip"
 
 [[tools."http:chrome-for-testing"]]
-version = "156.0.8078.47"
+version = "156.0.8078.73"
 backend = "http:chrome-for-testing"
 specifiers = ["latest"]
 
 [tools."http:chrome-for-testing"."platforms.macos-arm64"]
-checksum = "blake3:4c957c374a95c881ebb342bf4fffd0484b119925fcc6a8a97266b589a3595704"
-url = "https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.47/mac-arm64/chrome-mac-arm64.zip"
+checksum = "blake3:dae594f6e7f216070c9f1f0baffced9616a43b9460274a9af0e93a8c48435c3e"
+url = "https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.73/mac-arm64/chrome-mac-arm64.zip"
 
 [[tools.node]]
 version = "24.22.1"

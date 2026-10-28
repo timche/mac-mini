@@ -102,6 +102,10 @@ go = "1.27"
 # `screencapture -l` of one app's window, by owner name rather than window id.
 "~/.local/bin/window-shot" = { source = "home/.local/bin/window-shot", mode = "symlink" }
 
+# Serialises what needs the one frontmost app: raising a window, System Events
+# keystrokes, cliclick.
+"~/.local/bin/focus-lock" = { source = "home/.local/bin/focus-lock", mode = "symlink" }
+
 # Ahead of Homebrew's op on PATH, so a project's `op run` is signed in with the
 # service-account token without the project knowing how.
 "~/.local/bin/op" = { source = "home/.local/bin/op", mode = "symlink" }

@@ -880,6 +880,25 @@ check "window-shot exits 1 and says so when the owner has no window, writing not
    printf "%s" "$err" | grep -q "no on-screen window owned by no-such-owner-$$" &&
    [ ! -e "$out" ]'
 
+check "focus-lock is a live symlink and prints its usage" \
+  '[ -L "$HOME/.local/bin/focus-lock" ] && [ -x "$HOME/.local/bin/focus-lock" ] &&
+   focus-lock --help 2>&1 | grep -q "usage: focus-lock \[-t seconds\] <command>"'
+check "focus-lock runs the command and passes its exit status through" \
+  'export FOCUS_LOCK_DIR="$(mktemp -d)" &&
+   [ "$(focus-lock echo held)" = held ] &&
+   focus-lock sh -c "exit 7"; [ $? -eq 7 ]'
+check "focus-lock waits for the holder, names it, and gives up after -t seconds" \
+  'export FOCUS_LOCK_DIR="$(mktemp -d)"
+   focus-lock sleep 3 & sleep 1 &&
+   ! err="$(focus-lock -t 1 true 2>&1)" &&
+   printf "%s" "$err" | grep -q "waiting up to 1s for pid [0-9]* in .*: sleep 3" &&
+   focus-lock -t 5 true && wait'
+check "focus-lock frees the lock when its holder is killed" \
+  'export FOCUS_LOCK_DIR="$(mktemp -d)"
+   focus-lock sleep 30 & sleep 1 &&
+   pkill -KILL -P $! ; kill -KILL $! ; sleep 1 &&
+   focus-lock -t 2 true'
+
 # A machine with neither docker nor a daemon cannot answer this one either way,
 # and saying so is better than a check that passes because nothing happened.
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then

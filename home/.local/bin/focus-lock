@@ -1,0 +1,45 @@
+#!/bin/bash
+# Runs one command while holding the Mac's single foreground: the frontmost
+# app, the key window and the pointer belong to the whole GUI session, so two
+# sessions raising windows, sending System Events keystrokes or clicking with
+# cliclick at once type and click into each other's apps. Anything that reaches
+# an app without the foreground (CDP, accessibility actions, UTM's AppleScript
+# input, VNC into a guest) needs no lock and should not take it.
+#
+# The lock is lockf(1)'s flock on one file, so the kernel drops it when the
+# holder exits, crashed or killed, and no stale lock outlives a session. Holder
+# details go in a second file only to say who is being waited for.
+
+set -uo pipefail
+
+usage() {
+  echo "usage: focus-lock [-t seconds] <command> [args...]" >&2
+  echo "  waits up to -t seconds (default 300) for the foreground, then runs the command holding it" >&2
+}
+
+wait_s=300
+case "${1:-}" in
+  -h | --help) usage; exit 0 ;;
+  -t)
+    [[ "${2:-}" =~ ^[0-9]+$ ]] || { usage; exit 2; }
+    wait_s="$2"
+    shift 2
+    ;;
+esac
+[ $# -ge 1 ] || { usage; exit 2; }
+
+dir="${FOCUS_LOCK_DIR:-$HOME/Library/Caches/focus-lock}"
+mkdir -p "$dir" || exit 1
+lock="$dir/lock" info="$dir/holder"
+
+# lockf exits 75 when it times out, which the command could also return, so
+# whether the lock is free is asked with `true`, which never does.
+if ! lockf -k -t 0 "$lock" true 2>/dev/null; then
+  echo "focus-lock: waiting up to ${wait_s}s for $(cat "$info" 2>/dev/null)" >&2
+fi
+
+lockf -k -t "$wait_s" "$lock" /bin/bash -c '
+  info="$1"; shift
+  printf "pid %s in %s since %s: %s\n" "$$" "$PWD" "$(date +%H:%M:%S)" "$*" > "$info"
+  "$@"
+' focus-lock "$info" "$@"

@@ -51,6 +51,11 @@ cask "1password-cli"
 # to install.
 brew "zsh-syntax-highlighting"
 
+# The shell Claude Code's Bash tool runs in, through CLAUDE_CODE_SHELL. /bin/bash
+# is 3.2, which lacks the bash 4 a model writes without being told not to; the
+# scripts here keep to 3.2 and /bin/bash all the same.
+brew "bash"
+
 brew "fd"
 brew "ffmpeg"
 brew "glow"

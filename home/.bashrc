@@ -1,6 +1,8 @@
 # ~/.bashrc: executed by bash(1) for non-login shells. bash is nobody's login shell
 # here — zsh is — so this exists for the interactive bash a script or a hook drops
-# into, and for the PATH it would otherwise have none of.
+# into, and for the PATH it would otherwise have none of. Claude Code's Bash tool
+# runs Homebrew's bash but needs none of this: it inherits the environment of the
+# zsh herdr started it from.
 
 # If not running interactively, don't do anything
 case $- in

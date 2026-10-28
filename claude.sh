@@ -71,6 +71,10 @@ signing_failed=0
 # the user.email out of the .gitconfig it links.
 "$repo/claude/signing-key.sh" || signing_failed=1
 
+# After signing-key.sh, which has stored the service-account token by now. Not
+# fatal: without it a session cannot reach the VMs, and nothing else here needs it.
+"$repo/claude/vm-key.sh" || echo "the VM key was not installed — run $repo/claude/vm-key.sh" >&2
+
 # shibuya, the dead man's switch, after signing-key.sh: both steps here reach 1Password
 # through `op run`, and the service-account token they need is what signing-key.sh has just
 # stored. A Mac that never got this far is one hachiko cannot check in with, so shibuya

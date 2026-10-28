@@ -163,7 +163,7 @@ Nothing here installs the Developer ID certificate, and nothing should: electron
 
 1. `install.sh` links this checkout into `$HOME` and `~/.claude` and installs the tooling those files configure.
 2. `claude/login.sh` logs in to GitHub and to Claude Code, both of which want a browser on some other machine, and reruns `install.sh` for the half that wanted a token.
-3. `claude/signing-key.sh` writes the commit-signing key into `~/.ssh` and registers its public half.
+3. `claude/signing-key.sh` writes the commit-signing key into `~/.ssh` and registers its public half, and `claude/vm-key.sh` writes `~/.ssh/id_vm`, the key sessions reach the local VMs with, from `op://dev/vm-ssh`. Both go through `claude/ssh-key.sh`.
 4. [shibuya](shibuya/README.md) is deployed, and its ping token made if the Mac has none, so a fresh Mac checks in rather than being reported offline a quarter of an hour after its first sweep.
 
 `install.sh` first, because `login.sh` logs in to a Claude Code that `install.sh` is what installs, and `signing-key.sh` writes the `user.email` from the `.gitconfig` `install.sh` links. shibuya last, because both of its scripts reach 1Password through `op run` with the service-account token `signing-key.sh` stores — a Mac that has no token file yet has shibuya skipped and said so, and a deploy that fails is reported rather than fatal. This is the only deploy nobody asks for; `install.sh` runs neither step. Run `claude.sh` again when a token expires; run `install.sh` alone after a pull that changed a link or a tool.

@@ -120,8 +120,15 @@ check "herdr resolves to its own installer's copy in every zsh mode" \
 check "herdr runs"          '"$HOME/.local/bin/herdr" --version'
 check "interactive zsh has zoxide's z" \
   'PATH=$stock_path zsh -ic "whence -w z" | grep -q "z: function"'
-check "oh-my-zsh present"   '[ -d "$HOME/.oh-my-zsh" ]'
 check "starship runs"       'starship --version'
+# The .zshrc is the whole of the interactive setup, so its own compinit is what
+# the completion system has to come from.
+check "interactive zsh initialises completion" \
+  'PATH=$stock_path zsh -ic "whence -w compdef" | grep -q "compdef: function"'
+# Read off the file rather than from a shell, because an interactive zsh would
+# pass either way while a clone nothing here installs happens to be on disk.
+check "the .zshrc sources no framework" \
+  '! grep -q "oh-my-zsh" "$HOME/.zshrc"'
 
 # Machine-wide: one proxy holds port 443, and one CA signs for every .localhost
 # name.

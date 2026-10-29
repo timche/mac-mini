@@ -104,8 +104,8 @@ finder_prefs() {
 
 finder_prefs_before="$(finder_prefs)"
 
-# mise.toml declares the oh-my-zsh clone, every symlink and the macOS
-# preferences; this applies them in that order. --force-dotfiles because this
+# mise.toml declares every symlink and the macOS preferences; this applies them
+# in that order. --force-dotfiles because this
 # repo replaces a real file found at a link target wholesale rather than merging
 # with it.
 mise trust "$repo"

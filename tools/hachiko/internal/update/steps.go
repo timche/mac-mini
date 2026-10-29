@@ -44,7 +44,6 @@ const (
 	stepBrewClean    = "brew cleanup"
 	stepTailscale    = "tailscale restart"
 	stepHerdr        = "herdr update"
-	stepOhMyZsh      = "oh-my-zsh pull"
 	stepAppleInstall = "softwareupdate install"
 	stepApple        = "softwareupdate list"
 )
@@ -460,46 +459,6 @@ func (u *updater) herdrVersion() string {
 		return ""
 	}
 	return line[len(line)-1]
-}
-
-// The one thing mise's bootstrap declares as a clone rather than a tool, so the only thing
-// that moves it is a pull. Fast-forward only: a clone that cannot fast-forward has commits
-// somebody made in it, and merging them is not this Mac's decision to make at four in the
-// morning.
-//
-// It versions by commit and not by release, so the two commits either side of the pull are
-// what it moved between — the same reading every other step is reported by.
-func (u *updater) ohMyZsh() {
-	if u.dry {
-		u.say("would fast-forward %s", u.cfg.OhMyZsh)
-		return
-	}
-
-	before := u.ohMyZshHead()
-
-	out := u.deps.Run(Command{
-		Name: "git", Args: []string{"-C", u.cfg.OhMyZsh, "pull", "--ff-only"}, Timeout: gitTimeout,
-	})
-	if !out.OK {
-		u.failed(Failure{
-			Step:   stepOhMyZsh,
-			Detail: out.Text,
-			Action: "**Needs you:** " + wording.CodeSpan("git -C ~/.oh-my-zsh status") +
-				" — a clone that will not fast-forward has something of somebody's in it.",
-		})
-		return
-	}
-	u.move("oh-my-zsh", before, u.ohMyZshHead())
-}
-
-func (u *updater) ohMyZshHead() string {
-	out := u.deps.Run(Command{
-		Name: "git", Args: []string{"-C", u.cfg.OhMyZsh, "rev-parse", "--short", "HEAD"}, Timeout: quick,
-	})
-	if !out.OK {
-		return ""
-	}
-	return firstLine(out.Stdout)
 }
 
 // The half of Apple's updates a Mac with nobody at it can take: a Safari or a command-line-tools

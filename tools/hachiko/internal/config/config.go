@@ -102,10 +102,6 @@ type Config struct {
 	UpdateLock     string
 	UpdateHour     int
 
-	// The oh-my-zsh clone mise.toml declares, which the update brings forward with a
-	// fast-forward pull.
-	OhMyZsh string
-
 	// The repositories `hachiko sync` keeps upstream, and the plist of the agent that does
 	// it. Its own state directory for the reason gc's is its own: what sync remembers about
 	// a paused repository and a failure it has posted is nothing the five-minute check reads
@@ -286,7 +282,6 @@ func FromEnv() Config {
 		UpdateStateDir: envString(UpdateStateDirVar, filepath.Join(state, "update")),
 		UpdateLock:     envString("HACHIKO_UPDATE_LOCK", filepath.Join(state, "update.lock")),
 		UpdateHour:     envHour("HACHIKO_UPDATE_HOUR", 4),
-		OhMyZsh:        envString("HACHIKO_OH_MY_ZSH", filepath.Join(home, ".oh-my-zsh")),
 
 		SyncConfig:   envString("HACHIKO_SYNC_CONFIG", filepath.Join(Dir(home), "sync")),
 		SyncStateDir: envString(SyncStateDirVar, filepath.Join(state, "sync")),

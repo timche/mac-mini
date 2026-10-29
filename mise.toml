@@ -1,6 +1,6 @@
 # The machine this repo expects, and the dotfiles it installs. install.sh runs
-# `mise bootstrap` over it, which applies these in order: the oh-my-zsh clone, then
-# the dotfiles below, then the macOS preferences at the end.
+# `mise bootstrap` over it, which applies these in order: the dotfiles below, then
+# the macOS preferences at the end.
 #
 # No packages phase. Every Homebrew package is in the Brewfile at the repo root,
 # which install.sh applies with `brew bundle`: mise's bootstrap has no
@@ -19,12 +19,6 @@
 # Mac gets the version resolved here rather than whatever latest means on the day.
 [tools]
 go = "1.27"
-
-# oh-my-zsh's own installer does nothing here that a clone does not: it is only
-# told not to run zsh, not to chsh, and not to write a .zshrc, all of which this
-# repo owns.
-[bootstrap.repos]
-"~/.oh-my-zsh" = { url = "https://github.com/ohmyzsh/ohmyzsh.git" }
 
 # The dotfiles this repo installs. Declared here rather than in the global
 # config because a source path relative to the config file is only allowed in a

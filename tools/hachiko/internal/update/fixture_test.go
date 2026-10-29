@@ -55,7 +55,6 @@ func newBox(t *testing.T) *box {
 		cfg: config.Config{
 			Home:           home,
 			MachineDir:     repo,
-			OhMyZsh:        home + "/.oh-my-zsh",
 			RootHelper:     "/usr/local/libexec/claude-root",
 			UpdateStateDir: filepath.Join(dir, "state"),
 			UpdateLock:     filepath.Join(dir, "lock"),
@@ -103,13 +102,6 @@ func (b *box) herdrServerOn(version string) {
 func (b *box) moveHerdr(from, to string) {
 	b.says("herdr --version", "herdr "+from)
 	b.saysNext("herdr --version", "herdr "+to)
-}
-
-// The commit the clone is on either side of the pull, which is the whole of how oh-my-zsh
-// moving is read: it versions by commit rather than by release.
-func (b *box) moveOhMyZsh(from, to string) {
-	b.says(ohMyZshHead, from+"\n")
-	b.saysNext(ohMyZshHead, to+"\n")
 }
 
 // What `pip show` says a package in one of mise's pythons is at, before an upgrade and after.
@@ -236,7 +228,6 @@ func (b *box) current() {
 	b.says("herdr --version", "herdr 0.9.5")
 	b.says("softwareupdate --list", "No new software available.")
 	b.says(appleInstallCall, nothingToInstall)
-	b.says(ohMyZshPull, "Already up to date.")
 
 	for _, ref := range []string{"MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"} {
 		b.fails("git -C "+repo+" rev-parse -q --verify "+ref, "")
@@ -267,7 +258,5 @@ const (
 	gitAdd             = "git -C " + repo + " add -A -- " + lockPaths
 	gitPush            = "git -C " + repo + " push origin main"
 	appleInstallCall   = "sudo -n /usr/local/libexec/claude-root install-apple-updates"
-	ohMyZshPull        = "git -C " + home + "/.oh-my-zsh pull --ff-only"
-	ohMyZshHead        = "git -C " + home + "/.oh-my-zsh rev-parse --short HEAD"
 	lockPaths          = "mise.lock home/.config/mise/mise.lock home/.config/mise/locks"
 )

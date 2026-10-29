@@ -1,9 +1,9 @@
 // Package update is how a Mac that Claude Code runs on its own keeps itself up to date:
-// once a night it moves mise, the tools mise manages, Homebrew's formulae and casks, herdr
-// and oh-my-zsh forward, puts the proxy daemon back on the node a `mise up` just replaced,
-// restarts tailscaled when its formula moved, and says what is waiting from Apple. Nobody
-// is at this Mac to run any of it, and a tool that is a year behind is the kind of thing
-// nobody notices until it breaks.
+// once a night it moves mise, the tools mise manages, Homebrew's formulae and casks and
+// herdr forward, puts the proxy daemon back on the node a `mise up` just replaced, restarts
+// tailscaled when its formula moved, and says what is waiting from Apple. Nobody is at this
+// Mac to run any of it, and a tool that is a year behind is the kind of thing nobody notices
+// until it breaks.
 //
 // It is the one thing here that moves a version. `install.sh` deliberately does not — it
 // applies the Brewfile with `--no-upgrade` and installs mise's tools `--locked`, so a
@@ -171,7 +171,6 @@ func (u *updater) run() error {
 	u.portless(tools)
 	u.tailscale(u.brew())
 	u.herdrServer(u.herdr())
-	u.ohMyZsh()
 	u.appleUpdates()
 	u.macOS()
 

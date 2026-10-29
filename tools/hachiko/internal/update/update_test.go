@@ -123,7 +123,6 @@ func TestEveryStepRunsInOrder(t *testing.T) {
 		"brew upgrade",
 		"brew cleanup",
 		"herdr update",
-		ohMyZshPull,
 		appleInstallCall,
 		"softwareupdate --list",
 	}
@@ -243,7 +242,6 @@ func TestHowFarAVersionMovedIsTheFirstComponentThatDiffers(t *testing.T) {
 func TestTheMovedListIsBiggestJumpFirst(t *testing.T) {
 	moved := []Move{
 		{What: "npm:portless", From: "0.15.11", To: "0.15.12"},
-		{What: "oh-my-zsh", From: "a1b2c3d", To: "e4f5a6b"},
 		{What: "gh", From: "2.103.2", To: "2.103.3"},
 		{What: "tuicr", From: "0.27.0", To: "0.28.0"},
 		{What: "node", From: "24.22.0", To: "25.0.0"},
@@ -255,7 +253,7 @@ func TestTheMovedListIsBiggestJumpFirst(t *testing.T) {
 		order = append(order, move.What)
 	}
 
-	harness.Equal(t, strings.Join(order, " "), "node tuicr bun npm:portless gh oh-my-zsh", "the order")
+	harness.Equal(t, strings.Join(order, " "), "node tuicr bun npm:portless gh", "the order")
 }
 
 func TestNothingMovedSaysNothingToDiscord(t *testing.T) {
@@ -488,31 +486,6 @@ func TestHerdrIsUpdatedAsThoughFromOutsideHerdr(t *testing.T) {
 	if !found {
 		t.Fatal("herdr update was never run")
 	}
-}
-
-// oh-my-zsh is a clone rather than a release, so what it moved between is the two commits
-// either side of the pull — read back the way every other step's versions are, rather than
-// taken from git having printed something other than "Already up to date".
-func TestOhMyZshMovesBetweenTwoCommits(t *testing.T) {
-	t.Run("it moved", func(t *testing.T) {
-		b := newBox(t)
-		b.current()
-		b.moveOhMyZsh("a1b2c3d", "e4f5a6b")
-
-		b.update(false)
-
-		harness.Wants(t, b.summary(), "`oh-my-zsh` a1b2c3d → e4f5a6b")
-	})
-
-	t.Run("it was already current", func(t *testing.T) {
-		b := newBox(t)
-		b.current()
-		b.says(ohMyZshHead, "a1b2c3d\n")
-
-		b.update(false)
-
-		harness.Equal(t, len(b.sent), 0, "messages sent")
-	})
 }
 
 // The updates Apple has waiting that restart nothing are the Mac's own to install, and each
@@ -767,11 +740,11 @@ func TestOnlyTheLastStepUnderAnIncidentClosesItsPost(t *testing.T) {
 	b := newBox(t)
 	b.current()
 	b.fails("herdr update", "herdr: the release could not be downloaded")
-	b.fails(ohMyZshPull, "fatal: not possible to fast-forward")
+	b.fails("mise self-update --yes", "mise: the release could not be downloaded")
 
 	b.update(false)
 	b.raised(stepHerdr, "update-1", "thread-1")
-	b.raised(stepOhMyZsh, "update-1", "thread-1")
+	b.raised(stepMiseSelf, "update-1", "thread-1")
 
 	b.now = b.now.Add(24 * time.Hour)
 	delete(b.answers, "herdr update")
@@ -783,7 +756,7 @@ func TestOnlyTheLastStepUnderAnIncidentClosesItsPost(t *testing.T) {
 
 	b.sent = nil
 	b.now = b.now.Add(24 * time.Hour)
-	b.says(ohMyZshPull, "Already up to date.")
+	delete(b.answers, "mise self-update --yes")
 	b.update(false)
 
 	last := b.incidents()

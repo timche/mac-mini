@@ -81,8 +81,6 @@ func phraseFor(step string) string {
 		return "restart tailscaled after its upgrade"
 	case stepHerdr:
 		return "update herdr"
-	case stepOhMyZsh:
-		return "bring oh-my-zsh forward"
 	case stepAppleInstall:
 		return "install the Apple updates that need no restart"
 	case stepSecurity:
@@ -288,7 +286,7 @@ var bumps = []string{bumpMajor, bumpMinor, bumpPatch}
 
 // Biggest jump first, and the order the steps ran in within a group, which keeps mise's tools
 // together and Homebrew's together. What carries no label goes last, there being nothing to
-// say about how far a commit sha moved.
+// say about how far a version that was never dotted numbers moved.
 func movedInOrder(moved []Move) []Move {
 	sorted := slices.Clone(moved)
 	slices.SortStableFunc(sorted, func(a, b Move) int {
@@ -306,9 +304,9 @@ func bumpRank(move Move) int {
 }
 
 // The label for one move, by the first component that differs. Only a version that is dotted
-// numbers gets one: oh-my-zsh moves by commit sha and plenty of tools version by date, and
-// calling either of those a major bump would be a label made up out of a string that was
-// never a version in that sense.
+// numbers gets one: plenty of tools version by date, and Homebrew answers for a package with
+// every keg it has on disk. Calling either of those a major bump would be a label made up out
+// of a string that was never a version in that sense.
 func bumpOf(from, to string) string {
 	was, is := versionParts(from), versionParts(to)
 	if was == nil || is == nil {

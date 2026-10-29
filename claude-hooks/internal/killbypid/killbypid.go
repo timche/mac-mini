@@ -10,7 +10,7 @@ package killbypid
 import (
 	"errors"
 
-	"github.com/timche/mac-mini/guard/internal/shell"
+	"github.com/timche/mac-mini/claude-hooks/internal/shell"
 )
 
 const Reason = "Killing by name, pattern or port reaches every session's copy of that process on this " +

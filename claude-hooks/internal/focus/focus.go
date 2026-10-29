@@ -17,7 +17,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/timche/mac-mini/guard/internal/shell"
+	"github.com/timche/mac-mini/claude-hooks/internal/shell"
 )
 
 const Reason = "This takes the Mac's one foreground (frontmost app, key window, pointer), which every " +

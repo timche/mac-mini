@@ -1,15 +1,18 @@
-// guard is the hook that reads a command every session on this Mac is about to run and
-// refuses the two kinds of command that reach out of the session that ran them: a kill
-// that picks its target by name, pattern or port, which stops another session's copy of
-// the same dev server, and a command that takes the Mac's one foreground without the lock
-// that serialises it, which types and clicks into another session's app.
+// claude-hooks is the binary every Claude Code hook on this Mac runs as a subcommand of,
+// so that one build, one cache and one wrapper serve all of them.
+//
+// Its first is guard, which reads a command every session is about to run and refuses the
+// two kinds of command that reach out of the session that ran them: a kill that picks its
+// target by name, pattern or port, which stops another session's copy of the same dev
+// server, and a command that takes the Mac's one foreground without the lock that
+// serialises it, which types and clicks into another session's app.
 //
 // It is a compiled binary rather than a script because a hook that cannot run is a hook
-// that is silently off: a Python that a mise or a brew upgrade moved takes the guard with
+// that is silently off: a Python that a mise or a brew upgrade moved takes the hook with
 // it, and nothing in a session says so. This depends on a kernel and nothing else.
 //
-// Nothing in this file decides anything: it parses the command and hands the event to the
-// packages that own the two checks.
+// Nothing in this file decides anything: it picks the subcommand and hands the event to
+// the packages that own its checks.
 package main
 
 import (
@@ -18,10 +21,10 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/timche/mac-mini/guard/internal/focus"
-	"github.com/timche/mac-mini/guard/internal/fresh"
-	"github.com/timche/mac-mini/guard/internal/hook"
-	"github.com/timche/mac-mini/guard/internal/killbypid"
+	"github.com/timche/mac-mini/claude-hooks/internal/focus"
+	"github.com/timche/mac-mini/claude-hooks/internal/fresh"
+	"github.com/timche/mac-mini/claude-hooks/internal/hook"
+	"github.com/timche/mac-mini/claude-hooks/internal/killbypid"
 )
 
 // The folder this was built from and the wrapper that built it, written in by the wrapper
@@ -32,31 +35,44 @@ var (
 	wrapper string
 )
 
-const usage = `usage: guard pre-tool-use
+const usage = `usage: claude-hooks <hook>
 
-  pre-tool-use     read a PreToolUse hook event on stdin and print a deny decision when
-                   the command it carries kills by name, pattern or port, or takes the
-                   Mac's one foreground outside focus-lock; print nothing otherwise
+  guard     read a PreToolUse hook event on stdin and print a deny decision when the
+            command it carries kills by name, pattern or port, or takes the Mac's one
+            foreground outside focus-lock; print nothing otherwise
 `
 
-// 1 and never 2: 2 is how a PreToolUse hook blocks the command, so a guard that was
-// called wrong reports itself without costing the session its command.
+// 1 and never 2: 2 is how a PreToolUse hook blocks the command, so a hook that was called
+// wrong reports itself without costing the session its command.
 func main() {
-	if len(os.Args) != 2 || os.Args[1] != "pre-tool-use" {
+	if len(os.Args) != 2 {
+		fmt.Fprint(os.Stderr, usage)
+		os.Exit(1)
+	}
+
+	var run func() error
+	switch os.Args[1] {
+	case "guard":
+		run = guard
+	default:
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(1)
 	}
 
 	handoff()
 
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "claude-hooks: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func guard() error {
 	checks := []hook.Check{
 		{Denies: killbypid.Denies, Reason: killbypid.Reason},
 		{Denies: focus.Denies, Reason: focus.Reason},
 	}
-	if err := hook.PreToolUse(os.Stdin, os.Stdout, checks); err != nil {
-		fmt.Fprintf(os.Stderr, "guard: %v\n", err)
-		os.Exit(1)
-	}
+	return hook.PreToolUse(os.Stdin, os.Stdout, checks)
 }
 
 // Keeping an edit live, from the side of the arrangement that cannot build: settings.json

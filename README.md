@@ -192,11 +192,11 @@ The GitHub token goes in a file rather than the login keychain (`gh auth login -
 | `home/.config/hachiko/` | Where hachiko alerts, whose replies it takes, where it checks in, and the repositories sync publishes |
 | `home/.config/mochi/config.json` | Who mochi takes instructions from, and which Discord server maps to which herdr workspace |
 | `home/Library/LaunchAgents/` | The agents launchd runs |
-| `home/.local/bin/` | The machine's own scripts: the wrappers for hachiko's, mochi's and guard's binaries, the `op` wrapper, the window screenshot, the foreground lock |
+| `home/.local/bin/` | The machine's own scripts: the wrappers for hachiko's, mochi's and claude-hooks' binaries, the `op` wrapper, the window screenshot, the foreground lock |
 | `launchd/` | The herdr launcher's source, which is what that agent starts |
 | `hachiko/` | The watch over this Mac, its worktree sweep, its auto-sync and the nightly update — [hachiko/README.md](hachiko/README.md) |
 | `mochi/` | Tim's Claude Tag for Discord — [mochi/README.md](mochi/README.md) |
-| `guard/` | The hook every session's Bash calls go through: no kill by name, no foreground without the lock — [guard/README.md](guard/README.md) |
+| `claude-hooks/` | Every Claude Code hook as a subcommand, starting with the guard every session's Bash calls go through: no kill by name, no foreground without the lock — [claude-hooks/README.md](claude-hooks/README.md) |
 | `discord/` | Not a tool but a library the tools share: a Discord client, REST and gateway, as a Go module of its own |
 | `shibuya/` | The one tool that does not run on this Mac: hachiko's dead man's switch, a Cloudflare Worker — [shibuya/README.md](shibuya/README.md) |
 

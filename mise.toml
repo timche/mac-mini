@@ -106,9 +106,10 @@ go = "1.27"
 # keystrokes, cliclick.
 "~/.local/bin/focus-lock" = { source = "home/.local/bin/focus-lock", mode = "symlink" }
 
-# The hook on every session's Bash calls: no kill by name, pattern or port, and nothing
-# that takes the one foreground outside focus-lock.
-"~/.local/bin/guard" = { source = "home/.local/bin/guard", mode = "symlink" }
+# Every Claude Code hook as a subcommand. Its guard reads every session's Bash calls: no
+# kill by name, pattern or port, and nothing that takes the one foreground outside
+# focus-lock.
+"~/.local/bin/claude-hooks" = { source = "home/.local/bin/claude-hooks", mode = "symlink" }
 
 # Ahead of Homebrew's op on PATH, so a project's `op run` is signed in with the
 # service-account token without the project knowing how.

@@ -21,7 +21,7 @@ import (
 
 // LoopGuard is set in the environment by whichever side execs the other, since an exec
 // that came back here would be an exec before every command in every session.
-const LoopGuard = "GUARD_FRESH"
+const LoopGuard = "CLAUDE_HOOKS_FRESH"
 
 type Params struct {
 	// Source is the folder the binary was built from, written in at build time. It is

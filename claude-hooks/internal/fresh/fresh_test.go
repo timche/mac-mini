@@ -113,13 +113,14 @@ func TestStale(t *testing.T) {
 	}
 }
 
-// A source folder shaped like guard's own, a cache holding the binary and the marker, and
-// every time in it set: the build after the sources, the marker with the sources.
+// A source folder shaped like claude-hooks' own, a cache holding the binary and the
+// marker, and every time in it set: the build after the sources, the marker with the
+// sources.
 func tree(t *testing.T) Params {
 	t.Helper()
 
 	root := t.TempDir()
-	src := filepath.Join(root, "guard")
+	src := filepath.Join(root, "claude-hooks")
 	cache := filepath.Join(root, "cache")
 
 	for _, dir := range []string{
@@ -143,7 +144,7 @@ func tree(t *testing.T) Params {
 	}
 	params := Params{
 		Source: src,
-		Binary: filepath.Join(cache, "guard"),
+		Binary: filepath.Join(cache, "claude-hooks"),
 		Marker: filepath.Join(cache, "attempted"),
 	}
 	for _, path := range append(files, params.Marker) {

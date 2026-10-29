@@ -443,8 +443,7 @@ check "no absolute home paths under home/ or in mise.toml" \
 
 check "the scripts the hooks call are executable" \
   '[ -x "$HOME/.claude/hooks/herdr-agent-state.sh" ] &&
-   [ -x "$HOME/.claude/hooks/project-docs.sh" ] &&
-   [ -x "$HOME/.claude/hooks/worktree-info.sh" ]'
+   [ -x "$HOME/.claude/hooks/project-docs.sh" ]'
 
 # The never list an on-call session is held to. hachiko opens those sessions with
 # bypassPermissions and lets them fix one thing before anybody has read what they
@@ -882,59 +881,9 @@ check "zsh renames the compose project on a cd and unsets it outside a repositor
           print -r -- \$COMPOSE_PROJECT_NAME:\${+COMPOSE_PROJECT_NAME}" | tr "\n" " ")" = \
      "app-fix-ui:1 :0 " ]'
 
-# The hook reads the worktree out of its stdin, because CLAUDE_PROJECT_DIR stays
-# where the session started.
-worktree_info() {
-  printf '{"session_id":"t","cwd":"%s","hook_event_name":"SessionStart","source":"startup"}' "$1" |
-    bash "$HOME/.claude/hooks/worktree-info.sh"
-}
-export -f worktree_info
-
-check "the worktree-info hook is wired to SessionStart" \
-  'grep -q "hooks/worktree-info.sh" "$HOME/.claude/settings.json"'
-
-# A project with none of the three has to stay silent, or every session on every
-# other project starts with a paragraph about nothing.
-check "the worktree-info hook says nothing without compose, portless or Electron" \
-  'd="$(mktemp -d)" && worktree_fixture "$d" &&
-   [ -z "$(worktree_info "$d/wt/fix-ui")" ] && [ -z "$(worktree_info "$d/app")" ]'
-
-# <repo>-<branch> from the remote and the branch, which is what .zshenv exports
-# into the same worktree: the hook naming a different project than the shell
-# would be worse than naming none.
-check "the worktree-info hook names the compose project of a linked worktree" \
-  'd="$(mktemp -d)" && worktree_fixture "$d" &&
-   printf "services:\n  db:\n    image: postgres:17\n" > "$d/wt/fix-ui/compose.yaml" &&
-   out="$(worktree_info "$d/wt/fix-ui")" &&
-   [ "$(printf "%s" "$out" | head -1)" = "Worktree fix-ui of app:" ] &&
-   printf "%s" "$out" | grep -q "compose project app-fix-ui" &&
-   printf "%s" "$out" | grep -q "down -v" &&
-   printf "%s" "$out" | grep -q "docker compose port"'
-
-# The branch is a subdomain of the app name in a linked worktree and absent in
-# the main one, which is portless's own rule.
-check "the worktree-info hook prints portless's URL for each kind of worktree" \
-  'd="$(mktemp -d)" &&
-   worktree_fixture "$d" "\"dev\": \"portless run next dev\"" &&
-   worktree_info "$d/wt/fix-ui" | grep -q "https://fix-ui.appsite.localhost" &&
-   worktree_info "$d/app" | grep -q "https://appsite.localhost"'
-
-check "the worktree-info hook prints the tailnet URL for every TLD after the first" \
-  'd="$(mktemp -d)" &&
-   worktree_fixture "$d" "\"dev\": \"portless run next dev\"" &&
-   out="$(PORTLESS_TLD=localhost,mac-mini.example.dev worktree_info "$d/wt/fix-ui")" &&
-   printf "%s" "$out" | grep -q "URL https://fix-ui.appsite.localhost" &&
-   printf "%s" "$out" | grep -q "MacBook: https://fix-ui.appsite.mac-mini.example.dev" &&
-   ! PORTLESS_TLD=localhost worktree_info "$d/wt/fix-ui" | grep -q MacBook'
-
 check "PORTLESS_TLD serves .localhost first and the tailnet name after it" \
   '[ "$(zsh -c "echo \$PORTLESS_TLD")" = "localhost,timche.dev" ]'
 
-
-check "the worktree-info hook prints the Electron profile rule" \
-  'd="$(mktemp -d)" &&
-   worktree_fixture "$d" "" "\"electron\": \"^44.0.0\"" &&
-   worktree_info "$d/wt/fix-ui" | grep -q "DevToolsActivePort"'
 
 # The one gc check a Go test cannot write: a real compose project on a real
 # daemon, which is what proves the labels `hachiko gc` reads are the labels

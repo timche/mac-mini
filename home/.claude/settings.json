@@ -26,8 +26,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$HOME/.claude/hooks/strip-claude-attribution.py\"",
-            "timeout": 10
+            "command": "b=\"$HOME/Library/Caches/claude-hooks/claude-hooks\"; [ -x \"$b\" ] || b=\"$HOME/.local/bin/claude-hooks\"; exec \"$b\" strip-attribution",
+            "timeout": 30
           },
           {
             "type": "command",

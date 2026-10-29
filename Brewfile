@@ -55,12 +55,24 @@ brew "bash"
 brew "fd"
 brew "ffmpeg"
 brew "glow"
-brew "pscale"
 brew "ripgrep"
 brew "shellcheck"
 brew "starship"
 brew "tuicr"
 brew "zoxide"
+
+# The click and the keystroke sent to whatever app is in front, which is the one thing
+# two sessions cannot both do at once: focus-lock serialises it and claude-hooks' guard
+# refuses it outside that lock.
+brew "cliclick"
+
+# Runs a Python tool without installing it, the way bunx and npx do on node, and one of
+# the runners claude-hooks' guard reads through to find the command underneath.
+brew "uv"
+
+# Tim's own rather than any script's: the PlanetScale CLI, for a project whose database
+# is there. Nothing here calls it.
+brew "pscale"
 
 # The secrets scan .gitconfig runs before every commit in every repository here,
 # `hachiko sync`'s included.

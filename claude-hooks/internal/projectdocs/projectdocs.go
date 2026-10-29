@@ -8,9 +8,9 @@
 // or not anything reads the rule.
 //
 // Only $PROJECT_DOCS_DIR/shared, for what applies to every project, and
-// $PROJECT_DOCS_DIR/<project>, one folder per project in the separate docs repository. A
-// checkout's own docs/ is the project's published documentation, not its working docs, so
-// it is never looked at.
+// $PROJECT_DOCS_DIR/<owner>/<repo>, a folder per project under its GitHub owner in the
+// separate docs repository. A checkout's own docs/ is the project's published
+// documentation, not its working docs, so it is never looked at.
 //
 // Says nothing about the project when it has no docs, so the cost on a project without
 // them is the shared listing and one exit.
@@ -87,12 +87,14 @@ func Print(w io.Writer) {
 	list(w, docs)
 }
 
-// The remote name, not the directory: a worktree is named for its branch, and every branch
-// of a repository shares one docs folder. Falls back to the main worktree's directory for
-// a repo with no remote, which is what --git-common-dir points at.
+// The remote's owner and repository, not the directory: a worktree is named for its
+// branch, and every branch of a repository shares one docs folder. Falls back to the main
+// worktree's directory, which is what --git-common-dir points at, for a repo with no
+// remote — a checkout sits at ~/projects/<owner>/<repo>, so its last two components are
+// the same pair.
 func name(dir string) string {
 	if url, err := git(dir, "remote", "get-url", "origin"); err == nil {
-		if project := base(url, ".git"); project != "" {
+		if project := fromURL(url); project != "" {
 			return project
 		}
 	}
@@ -100,7 +102,38 @@ func name(dir string) string {
 	if err != nil || common == "" {
 		return ""
 	}
-	return filepath.Base(filepath.Dir(common))
+	return pair(filepath.Dir(common))
+}
+
+// The <owner>/<repo> a remote URL names, in any of the shapes git takes one in: a URL with
+// a scheme, scp-style git@host:owner/repo, or a path. The host is cut away rather than
+// parsed, since nothing here cares which forge the project is on.
+func fromURL(url string) string {
+	if _, rest, found := strings.Cut(url, "://"); found {
+		url = rest
+	} else if host, rest, found := strings.Cut(url, ":"); found && !strings.Contains(host, "/") {
+		url = rest
+	}
+	return pair(url)
+}
+
+// The last two components of a path, which is both halves of an <owner>/<repo> and nothing
+// of what it hangs under.
+func pair(path string) string {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) < 2 {
+		return ""
+	}
+	owner, repo := parts[len(parts)-2], parts[len(parts)-1]
+	// A remote spelled with .git names the same repository as one without it, bar a
+	// repository whose whole name is `.git`, which keeps it rather than becoming nothing.
+	if repo != ".git" {
+		repo = strings.TrimSuffix(repo, ".git")
+	}
+	if owner == "" || repo == "" {
+		return ""
+	}
+	return owner + "/" + repo
 }
 
 // Top-level files by name, subdirectories as a name and a count. Listing every file put
@@ -156,26 +189,6 @@ func count(dir string) int {
 func isDir(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
-}
-
-// basename(1), down to its edges, because the project name came from it: trailing slashes
-// go, and a suffix that is the whole of what is left stays, so a remote at `.git` is named
-// `.git` rather than nothing at all.
-func base(path, suffix string) string {
-	trimmed := strings.TrimRight(path, "/")
-	if trimmed == "" {
-		if path == "" {
-			return ""
-		}
-		return "/"
-	}
-	if i := strings.LastIndex(trimmed, "/"); i >= 0 {
-		trimmed = trimmed[i+1:]
-	}
-	if trimmed != suffix && strings.HasSuffix(trimmed, suffix) {
-		return strings.TrimSuffix(trimmed, suffix)
-	}
-	return trimmed
 }
 
 // git is the one command run here, and it is run rather than reimplemented because what a

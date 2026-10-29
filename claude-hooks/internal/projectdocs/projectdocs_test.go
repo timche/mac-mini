@@ -19,8 +19,9 @@ type testCase struct {
 	docs []string
 
 	// origin is the remote the project directory is given, and dir the name of the
-	// directory the repository is made in, which is what the listing falls back to
-	// without a remote. No dir at all is a directory that is not a repository.
+	// directory the repository is made in, under an owner folder as a checkout is, which
+	// is what the listing falls back to without a remote. No dir at all and no origin
+	// either is a directory that is not a repository.
 	origin   string
 	dir      string
 	worktree bool
@@ -40,7 +41,7 @@ type testCase struct {
 var cases = []testCase{
 	{
 		about: "outside a repository there is still the shared folder",
-		docs:  []string{"shared/cloudflare.md", "shared/README.md", "widget/decisions.md"},
+		docs:  []string{"shared/cloudflare.md", "shared/README.md", "nobody/widget/decisions.md"},
 		want: `Shared docs for every project: ROOT/shared
 
   cloudflare.md
@@ -50,13 +51,13 @@ var cases = []testCase{
 	},
 	{
 		about:  "a repository with docs of its own gets both",
-		docs:   []string{"shared/cloudflare.md", "widget/decisions.md", "widget/prs.md"},
+		docs:   []string{"shared/cloudflare.md", "nobody/widget/decisions.md", "nobody/widget/prs.md"},
 		origin: "https://example.com/nobody/widget.git",
 		want: `Shared docs for every project: ROOT/shared
 
   cloudflare.md
 
-Working docs for widget: ROOT/widget
+Working docs for nobody/widget: ROOT/nobody/widget
 
   decisions.md
   prs.md
@@ -64,9 +65,9 @@ Working docs for widget: ROOT/widget
 	},
 	{
 		about:  "a docs root with no shared folder starts at the project",
-		docs:   []string{"widget/decisions.md"},
+		docs:   []string{"nobody/widget/decisions.md"},
 		origin: "https://example.com/nobody/widget.git",
-		want: `Working docs for widget: ROOT/widget
+		want: `Working docs for nobody/widget: ROOT/nobody/widget
 
   decisions.md
 `,
@@ -93,30 +94,61 @@ Working docs for widget: ROOT/widget
 		// A worktree is named for its branch and every branch of a repository
 		// shares one docs folder, so the remote is what the folder is looked up by.
 		about:    "a linked worktree is named for the remote and not for its directory",
-		docs:     []string{"widget/decisions.md"},
+		docs:     []string{"nobody/widget/decisions.md"},
 		origin:   "https://example.com/nobody/widget.git",
 		dir:      "widget-some-branch",
 		worktree: true,
-		want: `Working docs for widget: ROOT/widget
+		want: `Working docs for nobody/widget: ROOT/nobody/widget
 
   decisions.md
 `,
 	},
 	{
-		about: "a repository with no remote is named for its directory",
-		docs:  []string{"widget/decisions.md"},
+		// A remote is given in whichever shape it was cloned with, and none of them
+		// says anything about the folder the docs are in that the other two do not.
+		about:  "an scp-style remote names the same project as a URL",
+		docs:   []string{"nobody/widget/decisions.md"},
+		origin: "git@example.com:nobody/widget.git",
+		want: `Working docs for nobody/widget: ROOT/nobody/widget
+
+  decisions.md
+`,
+	},
+	{
+		about:  "an ssh:// remote names the same project as a URL",
+		docs:   []string{"nobody/widget/decisions.md"},
+		origin: "ssh://git@example.com/nobody/widget.git",
+		want: `Working docs for nobody/widget: ROOT/nobody/widget
+
+  decisions.md
+`,
+	},
+	{
+		about:  "a remote with a trailing slash and no .git names it too",
+		docs:   []string{"nobody/widget/decisions.md"},
+		origin: "https://example.com/nobody/widget/",
+		want: `Working docs for nobody/widget: ROOT/nobody/widget
+
+  decisions.md
+`,
+	},
+	{
+		// A checkout sits at ~/projects/<owner>/<repo>, so its last two components
+		// are the pair a remote would have given.
+		about: "a repository with no remote is named for its owner folder and directory",
+		docs:  []string{"nobody/widget/decisions.md"},
 		dir:   "widget",
-		want: `Working docs for widget: ROOT/widget
+		want: `Working docs for nobody/widget: ROOT/nobody/widget
 
   decisions.md
 `,
 	},
 	{
 		about:    "a worktree of a repository with no remote is named for the main one",
-		docs:     []string{"widget/decisions.md"},
+		docs:     []string{"nobody/widget/decisions.md"},
 		dir:      "widget",
 		worktree: true,
-		want: `Working docs for widget: ROOT/widget
+		want: `Working docs for nobody/widget: ROOT/nobody/widget
 
   decisions.md
 `,
@@ -125,9 +157,9 @@ Working docs for widget: ROOT/widget
 		// The order `sort` put these in, which is the order the listing had
 		// before it was this program. internal/collate has the rules.
 		about:  "the listing is in the shell's order, not a byte order",
-		docs:   []string{"widget/prs.md", "widget/README.md", "widget/secrets.md", "widget/mac-mini.md", "widget/mac.md", "widget/10-plan.md", "widget/2-plan.md"},
+		docs:   []string{"nobody/widget/prs.md", "nobody/widget/README.md", "nobody/widget/secrets.md", "nobody/widget/mac-mini.md", "nobody/widget/mac.md", "nobody/widget/10-plan.md", "nobody/widget/2-plan.md"},
 		origin: "https://example.com/nobody/widget.git",
-		want: `Working docs for widget: ROOT/widget
+		want: `Working docs for nobody/widget: ROOT/nobody/widget
 
   10-plan.md
   2-plan.md
@@ -143,17 +175,17 @@ Working docs for widget: ROOT/widget
 		// fifty lines into the context of every session on the largest project.
 		about: "a subdirectory is a name and a count of every .md below it",
 		docs: []string{
-			"widget/decisions.md",
-			"widget/notes.markdown",
-			"widget/plans/a.md",
-			"widget/plans/2026/b.md",
-			"widget/plans/2026/deep/c.md",
-			"widget/plans/2026/deep/not.txt",
-			"widget/empty/",
-			"widget/Archive/old.md",
+			"nobody/widget/decisions.md",
+			"nobody/widget/notes.markdown",
+			"nobody/widget/plans/a.md",
+			"nobody/widget/plans/2026/b.md",
+			"nobody/widget/plans/2026/deep/c.md",
+			"nobody/widget/plans/2026/deep/not.txt",
+			"nobody/widget/empty/",
+			"nobody/widget/Archive/old.md",
 		},
 		origin: "https://example.com/nobody/widget.git",
-		want: `Working docs for widget: ROOT/widget
+		want: `Working docs for nobody/widget: ROOT/nobody/widget
 
   decisions.md
   Archive/ (1)
@@ -167,13 +199,13 @@ Working docs for widget: ROOT/widget
 		// the count standing for everything under that subdirectory.
 		about: "the docs folder's own .git is not in the listing",
 		docs: []string{
-			"widget/.git/config.md",
-			"widget/decisions.md",
-			"widget/sub/.git/inside.md",
-			"widget/sub/n.md",
+			"nobody/widget/.git/config.md",
+			"nobody/widget/decisions.md",
+			"nobody/widget/sub/.git/inside.md",
+			"nobody/widget/sub/n.md",
 		},
 		origin: "https://example.com/nobody/widget.git",
-		want: `Working docs for widget: ROOT/widget
+		want: `Working docs for nobody/widget: ROOT/nobody/widget
 
   decisions.md
   sub/ (2)
@@ -184,13 +216,13 @@ Working docs for widget: ROOT/widget
 		// follows a link.
 		about: "a symlink is neither a file nor a subdirectory",
 		docs: []string{
-			"widget/decisions.md",
-			"widget/plans/a.md",
-			"widget/link.md -> decisions.md",
-			"widget/linkdir -> plans",
+			"nobody/widget/decisions.md",
+			"nobody/widget/plans/a.md",
+			"nobody/widget/link.md -> decisions.md",
+			"nobody/widget/linkdir -> plans",
 		},
 		origin: "https://example.com/nobody/widget.git",
-		want: `Working docs for widget: ROOT/widget
+		want: `Working docs for nobody/widget: ROOT/nobody/widget
 
   decisions.md
   plans/ (1)
@@ -209,10 +241,10 @@ Working docs for widget: ROOT/widget
 	},
 	{
 		about:  "the project is the working directory when nothing says otherwise",
-		docs:   []string{"widget/decisions.md"},
+		docs:   []string{"nobody/widget/decisions.md"},
 		origin: "https://example.com/nobody/widget.git",
 		byCwd:  true,
-		want: `Working docs for widget: ROOT/widget
+		want: `Working docs for nobody/widget: ROOT/nobody/widget
 
   decisions.md
 `,
@@ -286,7 +318,7 @@ func project(t *testing.T, c testCase) string {
 	if name == "" {
 		name = "checkout"
 	}
-	repo := filepath.Join(t.TempDir(), name)
+	repo := filepath.Join(t.TempDir(), "nobody", name)
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -23,6 +23,12 @@ type Config struct {
 	CPUShare  float64
 	CPUWindow time.Duration
 
+	// How long a process has to have looked left behind by a session before it is reported.
+	// An hour, the CPU window's own span and for its reason: a session that has just exited
+	// leaves its children reparented to launchd for a moment while they finish, and the span
+	// is what tells that apart from a leak.
+	StrayWindow time.Duration
+
 	OncallDeadline time.Duration
 
 	// The wait after an on-call session has asked its question and nobody has answered:
@@ -253,6 +259,8 @@ func FromEnv() Config {
 
 		CPUShare:  float64(envInt64("HACHIKO_CPU_SHARE", 50)),
 		CPUWindow: time.Duration(envInt64("HACHIKO_CPU_WINDOW", 3600)) * time.Second,
+
+		StrayWindow: time.Duration(envInt64("HACHIKO_STRAY_WINDOW", 3600)) * time.Second,
 
 		OncallDeadline: time.Duration(envInt64("HACHIKO_ONCALL_DEADLINE", 600)) * time.Second,
 

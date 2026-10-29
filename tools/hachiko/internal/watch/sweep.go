@@ -104,6 +104,7 @@ func (s sweeper) run() error {
 
 	span, spanClamped := sampleSpan(state, now)
 	cpu := s.cpu(state, now)
+	strays := s.strays(state, now, cpu.procs, cpu.read)
 
 	// 20 below 100, so a disk that keeps filling after the first alert says so once
 	// more; nothing is sent again until it is back over 100.
@@ -118,9 +119,9 @@ func (s sweeper) run() error {
 	before := state.LowSpaceLevel
 	lowNow := level != 0 && (before == 0 || level < before)
 
-	newIncident := cpu.fired || lowNow
+	newIncident := cpu.fired || lowNow || strays.fired
 
-	alert := s.alert(cpu, free, level, lowNow)
+	alert := s.alert(cpu, strays, free, level, lowNow)
 
 	// Ahead of everything that follows, because this is the one thing here that is about
 	// hachiko's own agents rather than about the machine, and because it is the half of the
@@ -129,12 +130,18 @@ func (s sweeper) run() error {
 		s.syncRepos(state, now)
 	}
 
-	// disk when free space fired, since that is the half with a deadline on it; the kind
-	// only decides which session the incident goes to, and one session takes the whole of
-	// a run either way.
+	// disk when free space fired, since that is the half with a deadline on it, then the CPU,
+	// and what a session left behind last of the three: it is the one of them that is not
+	// costing the Mac anything this minute. The kind only decides which session the incident
+	// goes to, and one session takes the whole of a run either way.
 	kind := "disk"
-	if !lowNow && cpu.fired {
-		kind = "cpu"
+	if !lowNow {
+		switch {
+		case cpu.fired:
+			kind = "cpu"
+		case strays.fired:
+			kind = "stray"
+		}
 	}
 
 	if s.dry {
@@ -144,7 +151,8 @@ func (s sweeper) run() error {
 		if newIncident {
 			s.say("would open an on-call session as %s and send: %s", kind, alert.lead())
 		}
-		s.say("%s GB free, %d process(es) hot of %d sampled", gbStr(free), len(cpu.hot), cpu.sampled)
+		s.say("%s GB free, %d process(es) hot and %d left behind of %d sampled",
+			gbStr(free), len(cpu.hot), len(strays.strays), cpu.sampled)
 
 		if s.cfg.PostKeep > 0 && s.cfg.Discord.ChannelID != "" {
 			s.say("would look through the forum for posts resolved more than %s ago",
@@ -155,7 +163,7 @@ func (s sweeper) run() error {
 
 		// Said rather than sent: a dry run that checked in would tell shibuya this Mac is
 		// being watched on a run that watched nothing.
-		if reasons := sweepFaults(corrupt, cpu); len(reasons) > 0 {
+		if reasons := sweepFaults(corrupt, cpu, strays); len(reasons) > 0 {
 			s.say("would tell shibuya this sweep did not finish its job: %s", strings.Join(reasons, "; "))
 		} else {
 			s.say("would check in with shibuya")
@@ -202,6 +210,9 @@ func (s sweeper) run() error {
 		cleared["cpu"] = fmt.Sprintf("Nothing is using much CPU any more, out of the %s this check looked at.",
 			wording.CountOf(int64(cpu.sampled), "process", "processes"))
 	}
+	if strays.read && strays.report == "" {
+		cleared["stray"] = "Nothing is left behind by a session that has ended any more."
+	}
 
 	// This minute's numbers, which every message about a question nobody has answered
 	// carries: the answer to a three-hour-old question is about a machine that has moved.
@@ -211,7 +222,7 @@ func (s sweeper) run() error {
 		level:       level,
 		span:        span,
 		spanClamped: spanClamped,
-		sections:    joinBlocks(cpu.report, cpu.sudo),
+		sections:    joinBlocks(cpu.report, cpu.sudo, strays.report),
 		cleared:     cleared,
 	}
 
@@ -221,11 +232,21 @@ func (s sweeper) run() error {
 	// What stays flagged: whatever was flagged before and is still going, plus what
 	// this check raised, and only if the message actually left the machine.
 	keptProcs := cpu.stillGoing
+	keptStrays := strays.stillGoing
 	if raised {
 		keptProcs = append(keptProcs, cpu.fresh...)
+		keptStrays = append(keptStrays, strays.fresh...)
 	}
 
 	state.AlertedProcs = keptProcs
+
+	// A reading that is missing is not a reading that everything has gone, so what has
+	// already been reported stays reported: without a process sample or launchd's own list of
+	// jobs there is nothing to measure, and clearing the record would raise every one of them
+	// again as new on the check that can read both.
+	if strays.read {
+		state.AlertedStrays = keptStrays
+	}
 
 	switch {
 	case level == 0:
@@ -236,6 +257,7 @@ func (s sweeper) run() error {
 
 	state.Disk = statedir.DiskSample{At: now.Unix(), FreeKB: free}
 	state.CPU = cpu.sample
+	state.Strays = strays.since
 
 	expected := stillExpected(state)
 	s.sayDroppedOutcomes(expected)
@@ -252,7 +274,7 @@ func (s sweeper) run() error {
 	// Last, so that what shibuya is told about this Mac is what the check decided rather
 	// than what it had got to — and so that a Worker that will not answer costs the sweep
 	// its ten seconds after everything else is done.
-	s.checkIn(state, corrupt, cpu, free, len(expected))
+	s.checkIn(state, corrupt, cpu, strays, free, len(expected))
 
 	return s.store.Save(state)
 }
@@ -261,7 +283,7 @@ func (s sweeper) run() error {
 // found: the alert about a disk is hachiko's own, and all this says is that the watch is
 // still running — or that it ran and did not finish its job, which is a Mac whose monitor is
 // half blind and nothing a dead man's switch would ever notice by itself.
-func (s sweeper) checkIn(state *statedir.State, corrupt bool, cpu cpuFindings, free int64, open int) {
+func (s sweeper) checkIn(state *statedir.State, corrupt bool, cpu cpuFindings, strays strayFindings, free int64, open int) {
 	in := shibuya.Checkin{
 		FreeGB:        gbNum(free),
 		OpenIncidents: open,
@@ -269,7 +291,7 @@ func (s sweeper) checkIn(state *statedir.State, corrupt bool, cpu cpuFindings, f
 		Display:       s.cfg.Display,
 	}
 
-	if reasons := sweepFaults(corrupt, cpu); len(reasons) > 0 {
+	if reasons := sweepFaults(corrupt, cpu, strays); len(reasons) > 0 {
 		in.Failed, in.Reason = true, strings.Join(reasons, "; ")
 	}
 
@@ -291,14 +313,20 @@ func (s sweeper) checkIn(state *statedir.State, corrupt bool, cpu cpuFindings, f
 	}
 }
 
-// The honest set: the two ways a sweep runs and comes back knowing less than it should.
-// Not an incident, because neither is a fault of the Mac's — they are faults of the watch,
+// The honest set: the ways a sweep runs and comes back knowing less than it should. Not an
+// incident, because none of them is a fault of the Mac's — they are faults of the watch,
 // and the only thing that can report them is something off the machine.
-func sweepFaults(corrupt bool, cpu cpuFindings) []string {
+func sweepFaults(corrupt bool, cpu cpuFindings, strays strayFindings) []string {
 	var reasons []string
 
 	if !cpu.read {
 		reasons = append(reasons, "there was no process sample, so nothing was watching the CPU")
+	}
+	// A sample without launchctl's own list of jobs is half a reading: every agent and every
+	// app of this account's has a parent of launchd, so without that list nothing can be
+	// called left behind and nothing is.
+	if cpu.read && !strays.read {
+		reasons = append(reasons, "launchctl would not say which processes are its own, so nothing was watching for what a session left behind")
 	}
 	if corrupt {
 		reasons = append(reasons, "the state file could not be read, so this check measured nothing against the last")
@@ -330,6 +358,10 @@ type cpuFindings struct {
 	hot     []Hot
 	sampled int
 
+	// The sample itself, for the watch over what a finished session left behind: one ps
+	// answers both, and two would be two readings of a machine that moved between them.
+	procs []process.Process
+
 	// The `Busy processes` section, one bullet per process, and the bullet the short form
 	// of a first alert carries on its own.
 	report      string
@@ -353,7 +385,7 @@ func (s sweeper) cpu(state *statedir.State, now time.Time) cpuFindings {
 	}
 
 	sample, hot := cpuHot(state.CPU, procs, now, s.cfg.CPUShare, s.cfg.CPUWindow)
-	out := cpuFindings{sample: sample, read: true, hot: hot, sampled: len(procs)}
+	out := cpuFindings{sample: sample, read: true, hot: hot, sampled: len(procs), procs: procs}
 
 	mine := process.OwnTree(procs, s.deps.Getpid())
 	allowlist := readAllowlist(s.cfg.CPUAllowPath)
@@ -473,10 +505,10 @@ func (a alertText) lead() string { return a.marker + " " + a.sentence }
 func (a alertText) brief() string { return joinBlocks(a.lead(), a.full) }
 
 // The lead, which is the one line Tim is certain to read and also the title of the forum
-// post this opens. The disk goes first when both halves fired, because it is the half with
-// a deadline on it; critical free space goes above merely low, because what the lead has to
-// say first is how bad it already is.
-func (s sweeper) alert(cpu cpuFindings, free, level int64, lowNow bool) alertText {
+// post this opens. The disk goes first when more than one of them fired, because it is the
+// one with a deadline on it; critical free space goes above merely low, because what the
+// lead has to say first is how bad it already is.
+func (s sweeper) alert(cpu cpuFindings, strays strayFindings, free, level int64, lowNow bool) alertText {
 	out := alertText{marker: wording.MarkerDisk}
 
 	switch {
@@ -487,20 +519,26 @@ func (s sweeper) alert(cpu cpuFindings, free, level int64, lowNow bool) alertTex
 		out.sentence = fmt.Sprintf("Low disk space: %s free", wording.GBUnit(free))
 	case cpu.fired:
 		out.marker, out.sentence = wording.MarkerBusy, cpu.sentence
+	// ⚠️ rather than 🔥: nothing is burning, and what is wrong is a Mac quietly losing
+	// memory to work nobody is waiting on, which is the degraded one of the six.
+	case strays.fired:
+		out.marker, out.sentence = wording.MarkerDegraded, strays.sentence
 	}
 
 	// Free space belongs in a message the disk is part of and nowhere else: a busy daemon
-	// says nothing about how much room is left.
+	// says nothing about how much room is left, and nor does a worker nobody is waiting on.
 	freeField := ""
-	if out.marker != wording.MarkerBusy && out.sentence != "" {
+	if lowNow {
 		freeField = "**" + wording.LabelFreeSpace + ":** " + wording.GBUnit(free)
 		if level != 0 {
 			freeField += fmt.Sprintf(", under the %d GB mark", level)
 		}
 	}
 
-	out.short = joinBlocks(freeField, wording.Section(wording.LabelBusy, nonEmpty(cpu.firstBullet)), cpu.sudo)
-	out.full = joinBlocks(freeField, cpu.report, cpu.sudo)
+	out.short = joinBlocks(freeField,
+		wording.Section(wording.LabelBusy, nonEmpty(cpu.firstBullet)), cpu.sudo,
+		wording.Section(wording.LabelStrays, nonEmpty(strays.firstBullet)))
+	out.full = joinBlocks(freeField, cpu.report, cpu.sudo, strays.report)
 
 	return out
 }

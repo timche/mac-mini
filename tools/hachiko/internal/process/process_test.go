@@ -50,6 +50,39 @@ func TestParseProcessesReadsTheFieldsPsPrints(t *testing.T) {
 	}
 }
 
+// `launchctl list` in the shape it prints: a header, a `-` where a job is loaded and not
+// running, the account's own agents, and an app LaunchServices started — which is in there
+// too, and is why a pid missing from this list is a pid no launchd job and no app accounts
+// for.
+const launchctlSample = `PID	Status	Label
+-	0	com.apple.SafariHistoryServiceAgent
+45864	0	com.apple.cloudphotod
+712	0	com.apple.1password.op-daemon
+57465	0	application.dev.kdrag0n.MacVirt.610321.610336
+15192	0	io.github.timche.herdr
+1	0	com.apple.launchd
+`
+
+func TestParseLaunchdJobsReadsThePidOfEveryRunningJob(t *testing.T) {
+	jobs := ParseLaunchdJobs(launchctlSample)
+
+	for _, pid := range []int{45864, 712, 57465, 15192} {
+		if !jobs[pid] {
+			t.Errorf("%d is a running launchd job and was not read as one", pid)
+		}
+	}
+	// The header, the job that is loaded and not running, and launchd itself, which nothing
+	// here may ever decide anything about.
+	harness.Equal(t, len(jobs), 4, "running jobs read")
+	harness.Equal(t, jobs[1], false, "whether launchd itself is read as a job")
+}
+
+func TestParseLaunchdJobsIgnoresWhatIsNotALine(t *testing.T) {
+	if jobs := ParseLaunchdJobs("\n  \nnot a job line\n"); len(jobs) != 0 {
+		t.Errorf("rubbish was parsed as launchd jobs: %v", jobs)
+	}
+}
+
 func TestParseProcessesIgnoresWhatIsNotALine(t *testing.T) {
 	if procs := ParseProcesses("\n  \nnot a process line\n"); len(procs) != 0 {
 		t.Errorf("rubbish was parsed as processes: %v", procs)

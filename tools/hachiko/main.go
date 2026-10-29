@@ -2,8 +2,9 @@
 // after on a machine with no screen and nobody at it, each of them a command of its own
 // and a package of its own behind that.
 //
-// The watch is the one a bare `hachiko` runs: every five minutes it checks free space and
-// what is burning CPU, and alerts when it matters. Most of the rest are what grew out of
+// The watch is the one a bare `hachiko` runs: every five minutes it checks free space,
+// what is burning CPU and what a finished session left running, and alerts when it
+// matters. Most of the rest are what grew out of
 // that alert — the on-call session hachiko opens in herdr to work an incident, the two
 // commands that session runs for itself, and the listener that takes Tim's reply to it out
 // of Discord. `hachiko gc` is the other thing a Mac with nobody at it needs: every ten
@@ -53,7 +54,8 @@ const usage = `usage: hachiko [--dry-run | --test-alert]
        hachiko approval-request <incident-id> <action-file>
        hachiko listen
 
-  (no option)        check free space and what is burning CPU, and alert when it matters
+  (no option)        check free space, what is burning CPU and what a finished session
+                     left running, and alert when it matters
   --dry-run          report what a check sees, change nothing, alert nothing
   --test-alert       send a short message to the channel, to prove it works
   status             print one screen of how this Mac's own machinery is doing: the

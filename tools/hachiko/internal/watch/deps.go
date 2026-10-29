@@ -36,6 +36,12 @@ type Deps struct {
 	Processes func() ([]process.Process, error)
 	CWD       func(pid int) string
 
+	// Every pid the account's own launchd is running, agents and LaunchServices-started apps
+	// alike. It is what makes a parent of launchd mean anything: every process whose parent
+	// died is reparented there, so the pids launchd accounts for are the ones nothing was
+	// abandoned to it.
+	LaunchdJobs func() (map[int]bool, error)
+
 	// When `hachiko gc` last finished a sweep, and whether this Mac has the agent that runs
 	// it at all. A Mac without one is not a Mac whose sweep has stopped.
 	GCLastRun func() (time.Time, bool)
@@ -122,8 +128,9 @@ func realDeps(cfg config.Config) Deps {
 
 		FreeKB: func() (int64, error) { return FreeKB(cfg.Home) },
 
-		Processes: process.Sample,
-		CWD:       process.CWD,
+		Processes:   process.Sample,
+		CWD:         process.CWD,
+		LaunchdJobs: process.LaunchdJobs,
 
 		GCLastRun: func() (time.Time, bool) { return gcLastRun(cfg) },
 

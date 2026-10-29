@@ -41,6 +41,7 @@ const (
 // a reminder three hours later and the prompt that hands the decision over.
 const (
 	LabelBusy      = "Busy processes"
+	LabelStrays    = "Left behind"
 	LabelFreeSpace = "Free space"
 	LabelNow       = "Now"
 	LabelWaiting   = "Waiting"
@@ -320,6 +321,10 @@ func IncidentWords(kind string) string {
 		return "the CPU incident"
 	case "disk":
 		return "the disk incident"
+	// A phrase rather than "the stray incident", since the kind is a word for the state file
+	// and the agent's name and no message may read as if it were one Tim knows.
+	case "stray":
+		return "the processes left behind"
 	case "update":
 		return "the nightly update"
 	default:

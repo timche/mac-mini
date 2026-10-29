@@ -1,6 +1,7 @@
 // Package watch is hachiko's five-minute check on a Mac with no screen, looking for the
-// two failures nobody is there to notice: a volume running out of room, and a process
-// burning a core for an hour after whatever wanted it has gone. It runs from the
+// three failures nobody is there to notice: a volume running out of room, a process
+// burning a core for an hour after whatever wanted it has gone, and a process a finished
+// session left sitting in a checkout holding memory. It runs from the
 // io.github.timche.hachiko LaunchAgent.
 //
 // Nothing here kills anything, and the only thing it writes outside its own state is the

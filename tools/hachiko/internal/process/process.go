@@ -1,6 +1,7 @@
 // Package process is what hachiko can learn about what is running on this Mac, and the
 // one way it runs anything: the whole-machine ps sample, a process's working directory,
-// the tree between a pid and launchd, and a subprocess with a deadline on it. None of it
+// the tree between a pid and launchd, the pids launchd is itself running, and a subprocess
+// with a deadline on it. None of it
 // belongs to the watch alone — anything here that has to decide whether a process is
 // still somebody's work starts from the same sample.
 package process
@@ -229,12 +230,13 @@ func OwnTree(procs []Process, pid int) map[int]bool {
 
 // Every subprocess here is one a stale mount or a dead socket could stop for good, and a
 // caller that never returns is a sweep holding the lock that keeps the next twelve from
-// running. ps and lsof get seconds, being local reads; op and herdr get longer in the
+// running. ps, lsof and launchctl get seconds, being local reads; op and herdr get longer in the
 // packages that call them, since one resolves a reference over the network and the other
 // starts a session.
 const (
-	SampleTimeout = 15 * time.Second
-	LsofTimeout   = 10 * time.Second
+	SampleTimeout    = 15 * time.Second
+	LsofTimeout      = 10 * time.Second
+	LaunchctlTimeout = 10 * time.Second
 )
 
 func Run(limit time.Duration, name string, args ...string) ([]byte, error) {
@@ -242,6 +244,38 @@ func Run(limit time.Duration, name string, args ...string) ([]byte, error) {
 	defer cancel()
 
 	return exec.CommandContext(ctx, name, args...).Output()
+}
+
+// Every pid the account's launchd is itself running, which is what tells a daemon apart
+// from something a session abandoned: on macOS every process whose parent dies is
+// reparented to launchd, so a parent of launchd on its own says nothing at all.
+//
+// `launchctl list` answers for the gui domain of whoever runs it, and it covers more than
+// the LaunchAgents this Mac installs: an app LaunchServices started is in there too, under
+// an `application.<bundle id>.<n>.<n>` label. So a pid missing from it is a process no
+// launchd job and no app accounts for.
+//
+// The pid is the first of three tab-separated columns, `-` for a job that is loaded and not
+// running, and the first line is a header — all three of which fail to parse as a number,
+// which is the whole of the filtering this needs.
+func LaunchdJobs() (map[int]bool, error) {
+	out, err := Run(LaunchctlTimeout, "launchctl", "list")
+	if err != nil {
+		return nil, fmt.Errorf("launchctl list: %w", err)
+	}
+	return ParseLaunchdJobs(string(out)), nil
+}
+
+func ParseLaunchdJobs(out string) map[int]bool {
+	jobs := map[int]bool{}
+
+	for _, line := range strings.Split(out, "\n") {
+		field, _, _ := strings.Cut(line, "\t")
+		if pid, err := strconv.Atoi(strings.TrimSpace(field)); err == nil && pid > 1 {
+			jobs[pid] = true
+		}
+	}
+	return jobs
 }
 
 // lsof for the hot pids alone: asking it about every process on the machine costs

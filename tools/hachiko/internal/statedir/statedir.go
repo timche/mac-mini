@@ -31,6 +31,18 @@ type State struct {
 
 	AlertedProcs []string `json:"alerted_procs,omitempty"`
 
+	// When each process that looks left behind by a finished session was first seen so, keyed
+	// the way the CPU sample is: a pid is reused, and the span behind one belongs to whoever
+	// held it. Rebuilt whole out of what is running on every check, so a process that has
+	// gone is forgotten rather than carried as an age nothing can ever clear.
+	Strays map[string]int64 `json:"strays,omitempty"`
+
+	// And which of those have already been reported, so one that is still sitting there is
+	// still one incident. A list of its own rather than AlertedProcs, because the two watches
+	// are about different faults in the same process: a worker both busy and abandoned is
+	// worth saying twice, and sharing the list would have the first alert silence the second.
+	AlertedStrays []string `json:"alerted_strays,omitempty"`
+
 	// The threshold the last alert was about, in GB, so a disk that keeps filling
 	// says so once more and says nothing again until it has recovered.
 	LowSpaceLevel int64 `json:"low_space_level,omitempty"`
@@ -301,6 +313,8 @@ type Asked struct {
 func (s *State) HasDiskSample() bool { return s.Disk.At > 0 }
 
 func (s *State) AlertedProc(key string) bool { return Contains(s.AlertedProcs, key) }
+
+func (s *State) AlertedStray(key string) bool { return Contains(s.AlertedStrays, key) }
 
 func Contains(list []string, want string) bool {
 	for _, v := range list {

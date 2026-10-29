@@ -189,6 +189,26 @@ var messageKinds = []messageKind{{
 		return f.lastSent()
 	},
 }, {
+	name:   "processes-left-behind",
+	marker: wording.MarkerDegraded,
+	wants: []string{
+		"⚠️ 2 processes left behind by sessions that have ended, holding 2 GB",
+		"**Left behind:**",
+		"- node (pid 7018) — left behind for 1 hour, 1 GB memory, started yesterday at ",
+		"(the meru worktree fix-ui)",
+		"An agent is looking into it — attach in herdr: workspace `.mac-mini`, tab `stray-0000`. Details to follow.",
+	},
+	render: func(t *testing.T) string {
+		f := newFixture(t)
+		f.setProcs(
+			strayProc(f, 7018, mcpServer, f.worktree()),
+			strayProc(f, 7019, "/usr/local/bin/node /Users/timche/mcp/other.js", f.worktree()),
+		)
+		f.at(0).sweep()
+		f.at(3600).sweep()
+		return f.lastSent()
+	},
+}, {
 	name:   "nightly-update-one-step",
 	marker: wording.MarkerDegraded,
 	wants: []string{

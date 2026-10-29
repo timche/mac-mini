@@ -59,6 +59,13 @@ type fixture struct {
 	cwd       map[int]string
 	allowlist string
 
+	// The pids launchd itself is running, and the failure to read them: without that list
+	// nothing may be called left behind, since every agent on this Mac has a parent of
+	// launchd. Empty unless a test puts a job in it, which is the Mac where a process with
+	// ppid 1 is nothing launchd knows about.
+	jobs    map[int]bool
+	jobsErr error
+
 	// Whether this Mac has the agent that runs the worktree sweep, and when that sweep last
 	// finished — which is on this very check unless a test pins it, since these tests walk
 	// the clock for hours and a sweep is not what they are about.
@@ -148,6 +155,7 @@ func newFixture(t *testing.T) *fixture {
 
 		CPUShare:       50,
 		CPUWindow:      time.Hour,
+		StrayWindow:    time.Hour,
 		OncallDeadline: 10 * time.Minute,
 
 		LogCapKB: logCapKB,
@@ -181,8 +189,9 @@ func newFixture(t *testing.T) *fixture {
 		// The account hachiko runs as, which every process the fixture makes belongs to
 		// unless a test says otherwise: a process of somebody else's is a system process, and
 		// that is a test of its own.
-		uid: accountUID,
-		cwd: map[int]string{},
+		uid:  accountUID,
+		cwd:  map[int]string{},
+		jobs: map[int]bool{},
 		// Nothing is waiting on a question until a test says so, which is what every
 		// check written before the wait existed assumes.
 		status: map[string]string{},
@@ -243,6 +252,12 @@ func (f *fixture) deps() Deps {
 			return f.procs, nil
 		},
 		CWD: func(pid int) string { return f.cwd[pid] },
+		LaunchdJobs: func() (map[int]bool, error) {
+			if f.jobsErr != nil {
+				return nil, f.jobsErr
+			}
+			return f.jobs, nil
+		},
 
 		GCLastRun: func() (time.Time, bool) { return f.lastSweep(), f.gcInstalled },
 

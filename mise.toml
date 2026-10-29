@@ -28,7 +28,6 @@ go = "1.27"
 # hand, directories included.
 
 [dotfiles]
-"~/.bashrc" = { source = "home/.bashrc", mode = "symlink" }
 "~/.gitconfig" = { source = "home/.gitconfig", mode = "symlink" }
 "~/.zprofile" = { source = "home/.zprofile", mode = "symlink" }
 "~/.zshenv" = { source = "home/.zshenv", mode = "symlink" }

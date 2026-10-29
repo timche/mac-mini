@@ -40,7 +40,7 @@ check() {
 
 # Symlinks. -L and -e together mean the link exists and its target does too, so
 # a link left pointing at a moved file counts as a failure.
-for path in .zshrc .zshenv .zprofile .bashrc .gitconfig \
+for path in .zshrc .zshenv .zprofile .gitconfig \
             .config/mise/config.toml .config/mise/mise.lock \
             .config/mise/locks \
             .config/ccstatusline/settings.json \
@@ -120,7 +120,7 @@ check "interactive zsh initialises completion" \
 # Read off the file rather than from a shell, because an interactive zsh would
 # pass either way while a clone nothing here installs happens to be on disk.
 check "the .zshrc sources no framework" \
-  '! grep -q "oh-my-zsh" "$HOME/.zshrc"'
+  '! grep -qE "^[^#]*(oh-my-zsh|\\\$ZSH/)" "$HOME/.zshrc"'
 
 # Machine-wide: one proxy holds port 443, and one CA signs for every .localhost
 # name.
@@ -203,10 +203,9 @@ check "the Dock holds none of the icons macOS ships with, recorded as done once"
 check "a second pass over the declared defaults has nothing to write" \
   'mise -C "$repo" bootstrap macos defaults status --missing'
 
-# The rc files have to work in a real interactive shell, which is the only
-# place the mise block is reached.
+# The .zshrc has to work in a real interactive shell, which is the only place
+# the mise block is reached.
 check "interactive zsh resolves node"  'PATH=$stock_path zsh -ic "node --version" | grep -q "^v"'
-check "interactive bash resolves node" 'PATH=$stock_path bash -ic "node --version" | grep -q "^v"'
 check "non-interactive zsh resolves node" 'PATH=$stock_path zsh -c "node --version" | grep -q "^v"'
 check "interactive zsh draws the prompt with starship" \
   'PATH=$stock_path zsh -ic "print -r -- starship:\$STARSHIP_SHELL" | grep -qx "starship:zsh"'

@@ -113,7 +113,7 @@ mise trust "$repo"
 # mise never removes a link mise.toml stops listing, so one left pointing into this
 # checkout at a file it does not have is taken away here, with the folder it was the last
 # thing in.
-for link in "$HOME/.config/mochi/config.json" "$HOME/.local/bin/mochi.env.op" \
+for link in "$HOME/.bashrc" "$HOME/.config/mochi/config.json" "$HOME/.local/bin/mochi.env.op" \
   "$HOME/.local/bin/hachiko.env.op" "$HOME/.config/hachiko/cpu-allow" \
   "$HOME/.config/hachiko/discord" "$HOME/.config/hachiko/shibuya" \
   "$HOME/.config/hachiko/sync"; do

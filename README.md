@@ -181,7 +181,7 @@ The GitHub token goes in a file rather than the login keychain (`gh auth login -
 | `home/.claude/CLAUDE.md` `settings.json` | Global instructions; hooks, effort, permission mode |
 | `home/.claude/skills/` `hooks/` | Personal skills, and the scripts the hooks call |
 | `home/.claude/agents/` | Custom subagents: the model, effort and instructions each role runs with |
-| `home/.zshrc` `.zshenv` `.zprofile` `.bashrc` `.gitconfig` | Shell, PATH, prompt, signed commits |
+| `home/.zshrc` `.zshenv` `.zprofile` `.gitconfig` | Shell, PATH, prompt, signed commits |
 | `home/.config/starship.toml` | The prompt |
 | `home/.config/git/worktree-install` | The post-checkout hook that installs a new worktree's dependencies |
 | `home/.config/git/strip-claude-attribution` | The commit-msg hook that takes Claude's attribution out of every commit message |
@@ -227,7 +227,7 @@ mise is a version manager for language runtimes and nothing else. The global lis
 
 Three tools are their authors' installers rather than a package, and for one reason each: mise, because [its install page](https://mise.jdx.dev/installing-mise.html) calls the standalone install the recommended route and only that one supports `mise self-update`; Claude Code, because it updates itself in the background on the default channel and pinning it would mean turning that off and owning what it was doing; and herdr, because `herdr update` overwrites whichever binary it runs from, which under Homebrew is a Cellar path the formula then no longer matches. `install.sh` fetches each only when the binary is missing and leaves it alone afterwards. `~/.local/bin` sits ahead of Homebrew's prefix in `.zshenv` so that a `brew install` of any of them cannot answer first, and `install.sh` asks whether the file exists rather than asking PATH for the same reason.
 
-Neither rc file names a path for mise: `.zshenv` puts the shims, then `~/.local/bin`, then Homebrew's prefix in front of the system directories, and both shells activate whichever `mise` that finds, `.bashrc` building the same order for itself since bash reads none of the zsh files. Homebrew is also why there is a `.zprofile` — macOS runs `path_helper` from `/etc/zprofile` in every login shell, which rebuilds PATH with the system directories first, so `.zprofile` runs after it and re-reads `.zshenv`, `typeset -U` keeping the second pass from listing anything twice.
+No shell file names a path for mise: `.zshenv` puts the shims, then `~/.local/bin`, then Homebrew's prefix in front of the system directories, and `.zshrc` activates whichever `mise` that finds. Homebrew is also why there is a `.zprofile` — macOS runs `path_helper` from `/etc/zprofile` in every login shell, which rebuilds PATH with the system directories first, so `.zprofile` runs after it and re-reads `.zshenv`, `typeset -U` keeping the second pass from listing anything twice.
 
 Claude Code's Bash tool runs Homebrew's bash 5, named by `CLAUDE_CODE_SHELL` in `home/.claude/settings.json`, while zsh stays the login shell for everything else. bash is what a model writes, and zsh's differences from it fail quietly: its `log` builtin shadows `/usr/bin/log`, an unmatched glob aborts the command and an unquoted variable is not split. `/bin/bash` 3.2 would trade those for every bash 4 feature a model reaches for, so the tool gets Homebrew's. Claude Code is started from zsh, so it carries the environment `.zshenv` built, PATH and mise's activation included.
 
@@ -299,7 +299,7 @@ What stays unsolved either way is approval: computer use asks for each app once 
 
 A project that resolves its secrets with `op run --env-file .env.op -- <cmd>` gets the service-account token from `~/.local/bin/op`, a wrapper ahead of Homebrew's `op` on PATH, so the project never learns how `op` signs in and the same command works on a Mac where the 1Password app does it. When `OP_SERVICE_ACCOUNT_TOKEN` is unset and the token file is readable, the wrapper sets the variable for that one `op` process and nothing else, where exporting it from `.zshenv` would put it in every process and so in transcripts and logs. `op run` hands its own environment to the command it starts, so the wrapper puts `env -u OP_SERVICE_ACCOUNT_TOKEN` right after the first `--`; a command that calls `op` by name comes back through the wrapper and is signed in again. This keeps the token out of projects and build tools' environments rather than away from the account, which can read the file anyway, and the scripts here read the file themselves and do not depend on it.
 
-Signing and notarising a macOS build is the project's own configuration, in a `.env.signing.op` it runs the build under, rather than a wrapper here. `.zshenv` and `.bashrc` also set `DO_NOT_TRACK=1`, the cross-tool opt-out at donottrack.sh, so no CLI a session runs sends usage analytics or writes an install id.
+Signing and notarising a macOS build is the project's own configuration, in a `.env.signing.op` it runs the build under, rather than a wrapper here. `.zshenv` also sets `DO_NOT_TRACK=1`, the cross-tool opt-out at donottrack.sh, so no CLI a session runs sends usage analytics or writes an install id.
 
 ## Preferences
 

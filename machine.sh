@@ -40,27 +40,27 @@ if ! sudo -n true 2>/dev/null && ! sudo -v; then
   exit 1
 fi
 
-"$repo/bootstrap-system.sh"
-"$repo/remote-login.sh"
-"$repo/unattended.sh"
-"$repo/tailscale.sh"
-"$repo/docker.sh"
+"$repo/machine/bootstrap-system.sh"
+"$repo/machine/remote-login.sh"
+"$repo/machine/unattended.sh"
+"$repo/machine/tailscale.sh"
+"$repo/machine/docker.sh"
 
 # Not fatal: a Mac that cannot run x86_64 tools is still reachable and still
 # everything else here, and the footer below says it is left to do.
-"$repo/rosetta.sh" || true
+"$repo/machine/rosetta.sh" || true
 
 # Last of the steps that decide how this Mac is reached, because it is the one
 # that turns password logins off. With no authorized_keys yet it asks for a key to
 # paste, and skips itself when none is given rather than locking you out of a
 # machine that is nowhere near you.
-"$repo/harden-ssh.sh"
+"$repo/machine/harden-ssh.sh"
 
 # After the steps that decide how this Mac is reached, because none of them
 # depends on it and a run that stopped here would still leave a reachable Mac. It
 # skips itself rather than prompting where there is no terminal to type a password
 # at.
-"$repo/root-helper.sh"
+"$repo/machine/root-helper.sh"
 
 # After everything else, because it is an 11GB download and an Apple ID typed in
 # at the time: nothing in the run should wait behind that. A terminal is the whole
@@ -69,7 +69,7 @@ fi
 xcode_left=false
 
 if [ -t 0 ]; then
-  "$repo/xcode.sh" || xcode_left=true
+  "$repo/machine/xcode.sh" || xcode_left=true
 else
   xcode_left=true
   echo
@@ -85,7 +85,7 @@ echo
 # means the same thing here. The prefix is spelled out for the same reason as
 # OrbStack below.
 if ! /opt/homebrew/bin/tailscale status >/dev/null 2>&1; then
-  echo "  - $repo/tailscale.sh — this Mac is not on the tailnet."
+  echo "  - $repo/machine/tailscale.sh — this Mac is not on the tailnet."
 fi
 
 # harden-ssh.sh skips itself rather than locking a Mac out of its own sshd, and
@@ -93,7 +93,7 @@ fi
 # Read rather than sudoed: the file is root-owned but world-readable, and the
 # directory above it is too.
 if [ ! -f /etc/ssh/sshd_config.d/10-hardening.conf ]; then
-  echo "  - $repo/harden-ssh.sh — ssh still takes a password. Run it again in a"
+  echo "  - $repo/machine/harden-ssh.sh — ssh still takes a password. Run it again in a"
   echo "    terminal and paste the public key you connect with when it asks."
 fi
 
@@ -102,17 +102,17 @@ fi
 # did. Read rather than sudoed: the file is root-owned and world-executable, as is
 # every directory above it.
 if [ ! -x /usr/local/libexec/claude-root ]; then
-  echo "  - $repo/root-helper.sh — a session still has no sudo of its own, so"
+  echo "  - $repo/machine/root-helper.sh — a session still has no sudo of its own, so"
   echo "    every root command waits for you."
 fi
 
 if ! /usr/bin/arch -x86_64 /usr/bin/true 2>/dev/null; then
-  echo "  - $repo/rosetta.sh — Rosetta, which meru's Windows build runs its x86_64"
+  echo "  - $repo/machine/rosetta.sh — Rosetta, which meru's Windows build runs its x86_64"
   echo "    tools under. Installing it agrees to Apple's Rosetta licence."
 fi
 
 if [ "$xcode_left" = true ]; then
-  echo "  - $repo/xcode.sh — Xcode itself, which signs meru's builds. It wants a"
+  echo "  - $repo/machine/xcode.sh — Xcode itself, which signs meru's builds. It wants a"
   echo "    terminal, an Apple ID and an hour."
 fi
 
@@ -121,7 +121,7 @@ fi
 # because this shell can predate Homebrew being on any PATH — bootstrap-system.sh
 # put it on its own, not on this one.
 if [ "$(/opt/homebrew/bin/orb status 2>/dev/null || true)" != Running ]; then
-  echo "  - $repo/docker.sh — OrbStack is not running. If it has never been set up,"
+  echo "  - $repo/machine/docker.sh — OrbStack is not running. If it has never been set up,"
   echo "    that is a click nothing here can make: open it over Screen Sharing,"
   echo "    click through the welcome screen and choose Docker."
 fi

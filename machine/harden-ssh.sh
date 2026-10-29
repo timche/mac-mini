@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 user="${1:-$(id -un)}"
 config=/etc/ssh/sshd_config
 drop_in=/etc/ssh/sshd_config.d/10-hardening.conf
@@ -135,7 +135,7 @@ if ! has_usable_key && [ "${FORCE_HARDEN:-false}" != true ]; then
     echo "password logins now would leave Screen Sharing as the only way in." >&2
     echo "Add the key you connect with to $home/.ssh/authorized_keys, then run" >&2
   fi
-  echo "  $repo/harden-ssh.sh $user" >&2
+  echo "  $dir/harden-ssh.sh $user" >&2
   exit 0
 fi
 
@@ -156,7 +156,7 @@ fi
 
 staged="$(mktemp)"
 trap 'rm -f "$staged"' EXIT
-sed "s/__USER__/$user/" "$repo/system/ssh/10-hardening.conf" >"$staged"
+sed "s/__USER__/$user/" "$dir/system/ssh/10-hardening.conf" >"$staged"
 
 sudo install -d -m 0755 /etc/ssh/sshd_config.d
 sudo install -m 0644 -o root -g wheel "$staged" "$drop_in"

@@ -562,7 +562,7 @@ func (u *updater) appleUpdates() {
 const refusedAction = "not an allowed action"
 
 // The installer that replaces it, which is the one thing he has to run for any of this.
-const rootHelperInstaller = "~/.mac-mini/root-helper.sh"
+const rootHelperInstaller = "~/.mac-mini/machine/root-helper.sh"
 
 // One update the helper installed, off the lines it writes for the purpose: `installed: ` and
 // then the title and the version either side of a comma, the way softwareupdate itself prints

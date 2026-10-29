@@ -208,8 +208,8 @@ list() {
   echo "Proxy TLDs: ${portless_tlds[*]}"
   echo
   echo "Anything else is refused. To add a daemon, edit"
-  echo "system/libexec/claude-root in the mac-mini checkout and re-run"
-  echo "root-helper.sh, which is Tim's password."
+  echo "machine/system/libexec/claude-root in the mac-mini checkout and re-run"
+  echo "machine/root-helper.sh, which is Tim's password."
 }
 
 restart_daemon() {

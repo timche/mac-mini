@@ -19,8 +19,7 @@ on:
       - claude-hooks/**
       - shibuya/**
       - claude/**
-      - launchd/**
-      - system/**
+      - machine/**
       - test/**
       - .github/**
       - home/**
@@ -100,8 +99,8 @@ jobs:
       # with several Xcodes already, which is the half this can exercise: select
       # one, accept the licence, finish the first launch, and reach for no
       # download. Twice, for the same reason as above.
-      - run: ./xcode.sh
-      - run: ./xcode.sh
+      - run: ./machine/xcode.sh
+      - run: ./machine/xcode.sh
       - run: test/assert-machine.sh
 
       # The account phase, which starts with install.sh — so the bare install.sh
@@ -206,5 +205,5 @@ jobs:
           chmod 700 ~/.ssh
           ssh-keygen -q -t ed25519 -N '' -C ci -f /tmp/ci
           install -m 600 /tmp/ci.pub ~/.ssh/authorized_keys
-          ./harden-ssh.sh
+          ./machine/harden-ssh.sh
       - run: test/assert-machine.sh

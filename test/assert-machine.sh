@@ -54,7 +54,7 @@ check "the Brewfile's dependencies are satisfied" \
 # reads as a package install.
 check "every package is the Brewfile's, bar the Xcode download's two" \
   '! grep -qE "^(brew|cask) \"(xcodes|aria2)\"" "$root/Brewfile" &&
-   for script in "$root"/*.sh; do
+   for script in "$root"/*.sh "$root"/machine/*.sh; do
      case "${script##*/}" in xcode.sh) continue ;; esac
      ! grep -qE "(^|[^A-Za-z])brew install " "$script" || exit 1
    done'
@@ -271,7 +271,7 @@ check "macOS checks for updates on its own" \
 # is what each setter prints when it writes. Given no stdin, because a Mac being
 # checked by hand has a terminal and unattended.sh would ask it for a password.
 if /usr/bin/sudo -n /usr/bin/true 2>/dev/null; then
-  export rerun="$("$root/unattended.sh" </dev/null 2>/dev/null || true)"
+  export rerun="$("$root/machine/unattended.sh" </dev/null 2>/dev/null || true)"
 
   check "a second unattended.sh changes nothing" \
     '! printf "%s\n" "$rerun" | grep -q "is now"'
@@ -346,7 +346,7 @@ else
   check "no drop-in until there is a key to log in with" \
     '[ ! -f /etc/ssh/sshd_config.d/10-hardening.conf ]'
   check "harden-ssh.sh refuses rather than failing the run, and writes nothing" \
-    '"$root/harden-ssh.sh" && [ ! -f /etc/ssh/sshd_config.d/10-hardening.conf ]'
+    '"$root/machine/harden-ssh.sh" && [ ! -f /etc/ssh/sshd_config.d/10-hardening.conf ]'
 fi
 
 # macOS has shipped the Include since Monterey, and without it the drop-in above
@@ -358,7 +358,7 @@ check "sshd_config includes the drop-in directory" \
 # root-owned copies and nothing else, and both halves of it matter: that the
 # helper runs with no password, and that sudo still refuses everything outside it.
 helper=/usr/local/libexec/claude-root
-helper_source="$root/system/libexec/claude-root"
+helper_source="$root/machine/system/libexec/claude-root"
 sudoers_file=/etc/sudoers.d/claude-root
 export helper helper_source sudoers_file
 
@@ -369,7 +369,7 @@ rendered="$(mktemp -d)"
 trap 'rm -rf "$rendered"' EXIT
 export rendered
 
-sed "s/__USER__/$(id -un)/g" "$root/system/sudoers/claude-root" \
+sed "s/__USER__/$(id -un)/g" "$root/machine/system/sudoers/claude-root" \
   >"$rendered/sudoers"
 
 # A rule sudo cannot parse takes sudo away from Tim as well as from every session,

@@ -14,8 +14,8 @@
      exact contents of an ad-hoc signed binary and asks its questions of the
      responsible process, which for a launchd job is the job's own process and for
      that process's children is it again. So the grants belong to the launcher,
-     which install.sh compiles from launchd/herdr-launcher.c and rebuilds only when
-     that file changes, and `herdr update` no longer drops them. -->
+     which install.sh compiles from machine/launchd/herdr-launcher.c and rebuilds
+     only when that file changes, and `herdr update` no longer drops them. -->
 <plist version="1.0">
 <dict>
   <key>Label</key>

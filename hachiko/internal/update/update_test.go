@@ -587,7 +587,7 @@ func TestARootHelperWithoutTheActionIsSomethingWaitingOnTim(t *testing.T) {
 	harness.Equal(t, len(b.failing()), 0, "steps left for the check")
 	harness.Wants(t, b.summary(), "⚠️ Nightly update: nothing moved, 1 needs you")
 	harness.Wants(t, b.summary(), "**Needs you:**\n- the root helper has no `install-apple-updates` "+
-		"action yet: run `~/.mac-mini/root-helper.sh` so the nightly update can install Apple's "+
+		"action yet: run `~/.mac-mini/machine/root-helper.sh` so the nightly update can install Apple's "+
 		"updates that need no restart")
 }
 

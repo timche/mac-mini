@@ -15,7 +15,8 @@
 
 set -euo pipefail
 
-repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo="$(cd "$dir/.." && pwd)"
 
 homebrew_install=https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh
 
@@ -45,7 +46,7 @@ fi
 # their own packages: an OrbStack that will not install is no reason to leave the Mac
 # without its hardened sshd. brew bundle names what it could not do.
 if ! brew bundle --no-upgrade --file="$repo/Brewfile"; then
-  echo "some of the Brewfile did not install — rerun $repo/bootstrap-system.sh" >&2
+  echo "some of the Brewfile did not install — rerun $dir/bootstrap-system.sh" >&2
   echo "once the reason above is fixed." >&2
 fi
 
@@ -58,6 +59,6 @@ for required in gh jq op; do
   fi
 
   echo "$required is not installed, and nothing after this works without it." >&2
-  echo "Fix the install above and rerun $repo/bootstrap-system.sh." >&2
+  echo "Fix the install above and rerun $dir/bootstrap-system.sh." >&2
   exit 1
 done

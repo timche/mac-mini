@@ -22,10 +22,10 @@
 
 set -euo pipefail
 
-repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 user="${1:-$(id -un)}"
 
-helper_source="$repo/system/libexec/claude-root"
+helper_source="$dir/system/libexec/claude-root"
 helper=/usr/local/libexec/claude-root
 helper_dir=/usr/local/libexec
 sudoers_file=/etc/sudoers.d/claude-root
@@ -60,7 +60,7 @@ trap 'rm -rf "$work"' EXIT
 
 # Nothing here is written for one account name, so the rule carries the account
 # as a placeholder and this is where it becomes a file.
-sed "s/__USER__/$user/g" "$repo/system/sudoers/claude-root" >"$work/sudoers"
+sed "s/__USER__/$user/g" "$dir/system/sudoers/claude-root" >"$work/sudoers"
 
 # Before anything goes near /etc. A sudoers file sudo cannot parse takes sudo away
 # from Tim as well as from every session, and on this Mac that is only fixable
@@ -78,7 +78,7 @@ fi
 if ! sudo -n true 2>/dev/null && [ ! -t 0 ]; then
   echo
   echo "Skipped the root helper: sudo wants a password and there is no terminal" >&2
-  echo "to type it at. Run $repo/root-helper.sh from a terminal." >&2
+  echo "to type it at. Run $dir/root-helper.sh from a terminal." >&2
   exit 0
 fi
 
@@ -95,7 +95,7 @@ fi
 if ! sudoers_text="$(sudo cat /etc/sudoers 2>/dev/null)"; then
   echo
   echo "Skipped the root helper: /etc/sudoers could not be read, so whether a" >&2
-  echo "drop-in there is included is unknown. Run $repo/root-helper.sh from a" >&2
+  echo "drop-in there is included is unknown. Run $dir/root-helper.sh from a" >&2
   echo "terminal that can answer sudo." >&2
   exit 0
 fi
@@ -111,7 +111,7 @@ fi
 
 if ! sudo install -d -m 0755 -o root -g wheel "$helper_dir"; then
   echo "warning: could not make $helper_dir root-owned, so nothing was" >&2
-  echo "installed. $repo/root-helper.sh will try again." >&2
+  echo "installed. $dir/root-helper.sh will try again." >&2
   exit 0
 fi
 
@@ -169,7 +169,7 @@ install_copy() {
   # step among what is left.
   if ! sudo install -m "$mode" -o root -g wheel "$source" "$destination"; then
     echo "warning: could not install $destination, so the root helper is" >&2
-    echo "incomplete. $repo/root-helper.sh will try again." >&2
+    echo "incomplete. $dir/root-helper.sh will try again." >&2
     exit 0
   fi
 

@@ -41,7 +41,8 @@ if [ "$(uname -s)" != Darwin ]; then
   exit 1
 fi
 
-repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo="$(cd "$dir/.." && pwd)"
 console=https://login.tailscale.com/admin
 
 if ! command -v brew >/dev/null 2>&1 && [ -x /opt/homebrew/bin/brew ]; then
@@ -59,7 +60,7 @@ brew_prefix="$(brew --prefix tailscale 2>/dev/null || true)"
 if [ -z "$brew_bin" ] || [ -z "$brew_prefix" ] ||
    [ ! -x "$brew_prefix/bin/tailscaled" ]; then
   echo "tailscaled is not installed — it is declared in $repo/Brewfile, which" >&2
-  echo "$repo/bootstrap-system.sh installs; rerun that, then $repo/tailscale.sh." >&2
+  echo "$dir/bootstrap-system.sh installs; rerun that, then $dir/tailscale.sh." >&2
   exit 0
 fi
 
@@ -74,7 +75,7 @@ label="$("$brew_bin" services info tailscale --json 2>/dev/null |
 if [ -z "$label" ]; then
   echo "warning: 'brew services info tailscale' said nothing about a service, so" >&2
   echo "the daemon was left as it is. 'brew services info tailscale' says why," >&2
-  echo "and $repo/tailscale.sh will try again." >&2
+  echo "and $dir/tailscale.sh will try again." >&2
   exit 0
 fi
 
@@ -92,7 +93,7 @@ if [ "$registered" = false ]; then
   # A first install, with nothing running to drop.
   if ! sudo "$brew_bin" services start tailscale; then
     echo "warning: 'sudo brew services start tailscale' did not take, so this" >&2
-    echo "Mac has no tailscaled. Run it again, or $repo/tailscale.sh." >&2
+    echo "Mac has no tailscaled. Run it again, or $dir/tailscale.sh." >&2
     exit 0
   fi
 

@@ -25,7 +25,7 @@ if [ "$(uname -s)" != Darwin ]; then
   exit 1
 fi
 
-repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if ! command -v brew >/dev/null 2>&1 && [ -x /opt/homebrew/bin/brew ]; then
   eval "$(/opt/homebrew/bin/brew shellenv)"
@@ -59,7 +59,7 @@ if [ -z "$app" ]; then
 
   if [ "$free_gib" -lt 40 ]; then
     echo "Xcode needs about 40GB free while it unpacks and / has ${free_gib}GB." >&2
-    echo "Clear some space and run $repo/xcode.sh again." >&2
+    echo "Clear some space and run $dir/xcode.sh again." >&2
     exit 1
   fi
 
@@ -94,7 +94,7 @@ EOF
   # while core pours a bottle for it.
   if ! printf '%s\n' "$installed" | grep -qxF xcodes; then
     if ! brew install xcodes; then
-      echo "could not install xcodes — rerun $repo/xcode.sh to try again" >&2
+      echo "could not install xcodes — rerun $dir/xcode.sh to try again" >&2
       exit 1
     fi
   fi
@@ -103,7 +103,7 @@ EOF
   # rather than leaving 11GB in a Trash that nobody is at the screen to empty.
   if ! xcodes install --latest --empty-trash; then
     echo "xcodes did not install Xcode. If the Apple ID was the problem, 'xcodes" >&2
-    echo "signout' clears the stored one and $repo/xcode.sh asks again." >&2
+    echo "signout' clears the stored one and $dir/xcode.sh asks again." >&2
     exit 1
   fi
 

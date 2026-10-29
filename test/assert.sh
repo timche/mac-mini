@@ -861,7 +861,7 @@ check "the herdr agent runs the launcher and is always kept alive" \
 # source, and never from the build-in-place wrapper the Go tools use, whose rebuild
 # depends on whatever go mise resolved that day.
 export launcher="$HOME/.local/libexec/herdr-launcher"
-export launcher_src="$repo/launchd/herdr-launcher.c"
+export launcher_src="$repo/machine/launchd/herdr-launcher.c"
 
 check "the launcher is a real executable at the path the plist names" \
   '[ -x "$launcher" ] && [ ! -L "$launcher" ] && [ -f "$launcher" ]'

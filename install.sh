@@ -597,13 +597,13 @@ fi
 # responsible for itself, and a child inherits that unless it disclaims, so grants
 # given to the launcher cover the herdr it runs as its child.
 #
-# Built here and only when launchd/herdr-launcher.c has changed, rather than by a
-# build-in-place wrapper like hachiko's. A grant is pinned to the exact contents of
-# an ad-hoc signed binary, and the whole point of the launcher is that those
-# contents do not move: a rebuild because mise or Xcode shipped a new compiler
-# would drop the grants it exists to keep, and only Tim can give them back, on the
-# Mac's own screen.
-launcher_src="$repo/launchd/herdr-launcher.c"
+# Built here and only when machine/launchd/herdr-launcher.c has changed, rather
+# than by a build-in-place wrapper like hachiko's. A grant is pinned to the exact
+# contents of an ad-hoc signed binary, and the whole point of the launcher is that
+# those contents do not move: a rebuild because mise or Xcode shipped a new
+# compiler would drop the grants it exists to keep, and only Tim can give them
+# back, on the Mac's own screen.
+launcher_src="$repo/machine/launchd/herdr-launcher.c"
 launcher="$HOME/.local/libexec/herdr-launcher"
 launcher_stamp="$state/herdr-launcher.sha256"
 launcher_hash="$(shasum -a 256 "$launcher_src" | cut -d' ' -f1)"

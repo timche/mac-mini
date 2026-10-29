@@ -38,7 +38,8 @@ if [ "$(uname -s)" != Darwin ]; then
   exit 1
 fi
 
-repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo="$(cd "$dir/.." && pwd)"
 
 if ! command -v brew >/dev/null 2>&1 && [ -x /opt/homebrew/bin/brew ]; then
   eval "$(/opt/homebrew/bin/brew shellenv)"
@@ -54,7 +55,7 @@ fi
 # state worth naming.
 if [ ! -d /Applications/OrbStack.app ] || ! command -v orb >/dev/null 2>&1; then
   echo "OrbStack is not installed — it is declared in $repo/Brewfile, which" >&2
-  echo "$repo/bootstrap-system.sh installs; rerun that, then $repo/docker.sh." >&2
+  echo "$dir/bootstrap-system.sh installs; rerun that, then $dir/docker.sh." >&2
   exit 0
 fi
 
@@ -81,7 +82,7 @@ welcome screen on the Mac's own screen, and Next there is what accepts OrbStack'
 terms. Over Screen Sharing, open OrbStack, click through it, and choose Docker when
 it asks what to use. If it is set up already, 'orb start' is the whole of it.
 
-Then rerun $repo/docker.sh, which settles the settings that first run leaves at
+Then rerun $dir/docker.sh, which settles the settings that first run leaves at
 OrbStack's defaults.
 EOF
   exit 0

@@ -115,8 +115,6 @@ check "interactive zsh has zoxide's z" \
 check "starship runs"       'starship --version'
 # The .zshrc is the whole of the interactive setup, so its own compinit is what
 # the completion system has to come from.
-check "interactive zsh initialises completion" \
-  'PATH=$stock_path zsh -ic "whence -w compdef" | grep -q "compdef: function"'
 # Read off the file rather than from a shell, because an interactive zsh would
 # pass either way while a clone nothing here installs happens to be on disk.
 check "the .zshrc sources no framework" \

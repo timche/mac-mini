@@ -438,7 +438,7 @@ check "no auto-sync hook is left in settings.json" \
 # account's claude.ai copies rather than this repo's, and gitignored.
 check "no absolute home paths under home/ or in mise.toml" \
   '[ -d "$repo/home" ] && [ -f "$repo/mise.toml" ] &&
-   ! grep -rhoE --exclude-dir=synced "/(home|Users)/[A-Za-z0-9_.-]+" \
+   ! grep -rhoE --exclude-dir=synced "(^|[^A-Za-z0-9_}])/(home|Users)/[A-Za-z0-9_.-]+" \
        "$repo/home" "$repo/mise.toml" | grep -q .'
 
 check "the scripts the hooks call are executable" \

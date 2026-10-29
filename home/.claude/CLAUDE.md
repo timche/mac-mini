@@ -50,7 +50,7 @@
 # Worktrees
 
 - Code changes happen in a worktree, never in a repository's main checkout, which other sessions share; a project's CLAUDE.md can lift this. A worktree is herdr's or Claude Code's to make, never a `git worktree add` anywhere else: `hachiko gc` sweeps those two roots alone.
-- A worktree's compose project (`COMPOSE_PROJECT_NAME`, which the shell sets), dev URL and Electron profile are derived from it, so hardcode none of them, nor a host port. A dev server takes the port it is given, portless's `PORT` or `0`, and whatever needs its URL gets it as an environment variable. A compose file maps a container port with no host port, `"5432"` not `"5432:5432"`, and `docker compose port <service> 5432` reads back the one it got.
+- A worktree's dev URL and Electron profile are derived from it, so hardcode neither, nor a host port. A dev server takes the port it is given, portless's `PORT` or `0`, and whatever needs its URL gets it as an environment variable. A compose file maps a container port with no host port, `"5432"` not `"5432:5432"`, and `docker compose port <service> 5432` reads back the one it got.
 - The output of anything long-running goes to a Claude Code background task or a size-capped log, never an unbounded file in `/tmp` or elsewhere: a process that lost what it retries on writes tens of gigabytes an hour.
 - Never stop, reuse or clean up another worktree's processes, containers, volumes or profiles; `hachiko gc` sweeps what a removed worktree leaves behind. Stop your own by PID or TaskStop, and leave shared processes and scratch files as you found them.
 

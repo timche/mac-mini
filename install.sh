@@ -112,11 +112,15 @@ mise trust "$repo"
 (cd "$repo" && mise bootstrap --yes --force-dotfiles)
 
 # mise never removes a link mise.toml stops listing, so one left pointing into this
-# checkout at a file it does not have is taken away here.
-for link in "$HOME/.config/mochi/config.toml"; do
+# checkout at a file it does not have is taken away here, with the folder it was the last
+# thing in.
+for link in "$HOME/.config/mochi/config.json" "$HOME/.local/bin/mochi.env.op"; do
   if [ -L "$link" ] && [ ! -e "$link" ]; then
     case "$(readlink "$link")" in
-      "$repo"/*) rm "$link" && echo "removed $link, a link to a file this checkout does not have" ;;
+      "$repo"/*)
+        rm "$link" && echo "removed $link, a link to a file this checkout does not have"
+        rmdir "$(dirname "$link")" 2>/dev/null || true
+        ;;
     esac
   fi
 done

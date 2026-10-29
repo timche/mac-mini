@@ -495,7 +495,7 @@ check "the mochi plugin is declared at user level and left off there" \
 # Every repository mochi serves that is checked out here has it on; one not checked out yet,
 # and one whose ignore rules miss the file, are install.sh's to report.
 check "the mochi plugin is on in each repository mochi serves" \
-  'config="$HOME/.config/mochi/config.json" && [ -f "$config" ] &&
+  'config="$HOME/.mochi/config.json" && [ -f "$config" ] &&
    jq -r ".server[]?.repo" "$config" | while IFS= read -r r; do
      case $r in "~/"*) r="$HOME/${r#"~/"}" ;; esac
      git -C "$r" rev-parse --is-inside-work-tree >/dev/null 2>&1 || continue
@@ -1334,16 +1334,20 @@ check "mochi is a live symlink and runs through its wrapper" \
    mochi --help | grep -q "post" &&
    mochi --help | grep -q "history"'
 
-check "mochi's token is an op:// reference beside it, and nothing resolved" \
-  '[ -L "$HOME/.local/bin/mochi.env.op" ] && [ -e "$HOME/.local/bin/mochi.env.op" ] &&
+# Both linked into mochi's own folder, which is where the binary looks: the wrapper hands
+# `op run --env-file` the reference there, so a missing link is an alert that was not sent
+# rather than one sent somewhere else.
+check "mochi's token is an op:// reference in its folder, and nothing resolved" \
+  '[ -L "$HOME/.mochi/mochi.env.op" ] && [ -e "$HOME/.mochi/mochi.env.op" ] &&
    grep -qx "MOCHI_DISCORD_BOT_TOKEN=op://dev/mochi-discord/bot token" \
-     "$HOME/.local/bin/mochi.env.op" &&
-   ! grep -qE "^[A-Z_]+=[^o]" "$HOME/.local/bin/mochi.env.op"'
+     "$HOME/.mochi/mochi.env.op" &&
+   ! grep -qE "^[A-Z_]+=[^o]" "$HOME/.mochi/mochi.env.op" &&
+   [ ! -L "$HOME/.local/bin/mochi.env.op" ]'
 
 check "mochi's server mapping is linked and takes instructions from Tim alone" \
-  '[ -L "$HOME/.config/mochi/config.json" ] && [ -e "$HOME/.config/mochi/config.json" ] &&
-   [ "$(plutil -extract user raw -o - "$HOME/.config/mochi/config.json")" = 94004892942741504 ] &&
-   [ ! -L "$HOME/.config/mochi/config.toml" ]'
+  '[ -L "$HOME/.mochi/config.json" ] && [ -e "$HOME/.mochi/config.json" ] &&
+   [ "$(plutil -extract user raw -o - "$HOME/.mochi/config.json")" = 94004892942741504 ] &&
+   [ ! -L "$HOME/.config/mochi/config.json" ]'
 
 export mochi_plist="$HOME/Library/LaunchAgents/io.github.timche.mochi.plist"
 
@@ -1369,16 +1373,38 @@ check "the mochi agent is loaded" \
 # What launchd hands the agent: a HOME, the plist's PATH, / as the working directory and
 # nothing else of a session's. The build has to come out of the checkout alone, with the
 # network refused for modules and no toolchain download either.
+#
+# MOCHI_STATE_DIR here and in the gate checks below, because the binary a fixture builds is
+# the one being tested and HOME has to be this Mac's for mise to find its go: without it, a
+# test run would take the live listener's state over as its own first act.
 check "the mochi wrapper builds under launchd's environment from the checkout alone" \
   'd="$(mktemp -d)" && gate_fixture "$d" &&
    (cd / && env -i HOME="$HOME" PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
-      MISE_TRUSTED_CONFIG_PATHS="$d" MOCHI_CACHE_DIR="$d/cache" GOPROXY=off \
+      MISE_TRUSTED_CONFIG_PATHS="$d" MOCHI_CACHE_DIR="$d/cache" MOCHI_STATE_DIR="$d/state" GOPROXY=off \
       /bin/sh "$d/home/.local/bin/mochi" --help) | grep -q "history" &&
    [ -x "$d/cache/mochi" ]'
 
+# The state mochi kept in the build cache is taken into its own folder by any command it is
+# given, and the build output in there is left alone. The binary is built with this Mac's
+# HOME, which is where mise and its go are, and then run with a HOME holding an old folder.
+check "mochi takes the state it kept beside its binary into its own folder" \
+  'd="$(mktemp -d)" && gate_fixture "$d" &&
+   export MISE_TRUSTED_CONFIG_PATHS="$d" MOCHI_CACHE_DIR="$d/cache" MOCHI_STATE_DIR="$d/state" &&
+   "$d/home/.local/bin/mochi" --help >/dev/null &&
+   old="$d/its-own-home/Library/Caches/mochi" && mkdir -p "$old/sessions/t1" &&
+   printf "the marks\n" > "$old/marks.json" &&
+   printf "shot\n" > "$old/sessions/t1/shot.png" &&
+   printf "a binary\n" > "$old/mochi" && printf "a hash\n" > "$old/source.sha256" &&
+   HOME="$d/its-own-home" MOCHI_STATE_DIR= "$d/home/.local/bin/mochi" version >/dev/null &&
+   [ "$(cat "$d/its-own-home/.mochi/marks.json")" = "the marks" ] &&
+   [ -f "$d/its-own-home/.mochi/sessions/t1/shot.png" ] &&
+   [ ! -e "$old/marks.json" ] && [ ! -e "$old/sessions" ] &&
+   [ "$(cat "$old/mochi")" = "a binary" ] && [ "$(cat "$old/source.sha256")" = "a hash" ] &&
+   [ ! -e "$d/its-own-home/.mochi/mochi" ]'
+
 check "a mochi build whose tests fail leaves the binary that was already there" \
   'd="$(mktemp -d)" && gate_fixture "$d" &&
-   export MISE_TRUSTED_CONFIG_PATHS="$d" MOCHI_CACHE_DIR="$d/cache" &&
+   export MISE_TRUSTED_CONFIG_PATHS="$d" MOCHI_CACHE_DIR="$d/cache" MOCHI_STATE_DIR="$d/state" &&
    "$d/home/.local/bin/mochi" --help >/dev/null &&
    was="$(shasum -a 256 "$d/cache/mochi" | cut -d" " -f1)" &&
    printf "package fence\n\nimport \"testing\"\n\nfunc TestTheGateMustCatchThis(t *testing.T) { t.Fatal(\"on purpose\") }\n" \
@@ -1390,7 +1416,7 @@ check "a mochi build whose tests fail leaves the binary that was already there" 
 # The Discord client beside it is built into the same binary, so its tests are the same gate.
 check "a mochi build whose Discord client fails its tests leaves the binary that was already there" \
   'd="$(mktemp -d)" && gate_fixture "$d" &&
-   export MISE_TRUSTED_CONFIG_PATHS="$d" MOCHI_CACHE_DIR="$d/cache" &&
+   export MISE_TRUSTED_CONFIG_PATHS="$d" MOCHI_CACHE_DIR="$d/cache" MOCHI_STATE_DIR="$d/state" &&
    "$d/home/.local/bin/mochi" --help >/dev/null &&
    was="$(shasum -a 256 "$d/cache/mochi" | cut -d" " -f1)" &&
    printf "package rest\n\nimport \"testing\"\n\nfunc TestTheGateMustCatchThis(t *testing.T) { t.Fatal(\"on purpose\") }\n" \

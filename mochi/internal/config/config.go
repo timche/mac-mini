@@ -61,11 +61,13 @@ type Config struct {
 
 	Home string `json:"-"`
 
-	// The binary, the state, the heartbeat and every session's attachments: all of it is
-	// mochi's own and none of it belongs in a repository.
-	CacheDir string `json:"-"`
+	// Everything mochi records about itself — its marks, the sessions it is running, the
+	// heartbeat, every session's attachments — in a folder of its own rather than beside the
+	// binary in ~/Library/Caches, which macOS and cleaning tools treat as clearable.
+	StateDir string `json:"-"`
 
-	// Beside the wrapper, where mise links both of them.
+	// In mochi's folder, where mise links it beside the config, so the binary in the build
+	// cache resolves the token without knowing where the checkout is.
 	EnvFile string `json:"-"`
 
 	// The standing orders every session mochi starts gets at the top of its brief, in this
@@ -106,61 +108,54 @@ func (c Config) Links() ([]string, error) {
 	return all, errors.Join(errs...)
 }
 
-func (c Config) StatePath() string { return filepath.Join(c.CacheDir, "state.json") }
-func (c Config) Heartbeat() string { return filepath.Join(c.CacheDir, "heartbeat") }
+func (c Config) StatePath() string { return filepath.Join(c.StateDir, "state.json") }
+func (c Config) Heartbeat() string { return filepath.Join(c.StateDir, "heartbeat") }
 
 // Questions mochi has asked Tim and not had answered, kept on disk so a restart can still take
 // the answer.
-func (c Config) PendingPath() string { return filepath.Join(c.CacheDir, "pending.json") }
+func (c Config) PendingPath() string { return filepath.Join(c.StateDir, "pending.json") }
 
 // Which sessions are waiting on Tim, and whether he has been told since his last word to them.
-func (c Config) WaitsPath() string { return filepath.Join(c.CacheDir, "waits.json") }
+func (c Config) WaitsPath() string { return filepath.Join(c.StateDir, "waits.json") }
 
 // The pull requests sessions posted that mochi follows.
-func (c Config) WatchesPath() string { return filepath.Join(c.CacheDir, "prs.json") }
+func (c Config) WatchesPath() string { return filepath.Join(c.StateDir, "prs.json") }
 
 // What mochi's reactions and thread names show, shared by the listener and `mochi post`.
-func (c Config) MarksPath() string { return filepath.Join(c.CacheDir, "marks.json") }
+func (c Config) MarksPath() string { return filepath.Join(c.StateDir, "marks.json") }
 
 // The marker the outer half leaves before it hands over to `op run`, which the inner half
 // removes once it has a token: one still there on the next start means 1Password did not
 // answer last time.
-func (c Config) OpAttempt() string { return filepath.Join(c.CacheDir, "op-attempt") }
+func (c Config) OpAttempt() string { return filepath.Join(c.StateDir, "op-attempt") }
 
 func (c Config) SessionDir(thread string) string {
-	return filepath.Join(c.CacheDir, "sessions", thread)
+	return filepath.Join(c.StateDir, "sessions", thread)
 }
 
-func cacheDir(home string) string {
-	return envOr("MOCHI_CACHE_DIR", filepath.Join(home, "Library", "Caches", "mochi"))
-}
+// Dir is mochi's folder in HOME: the config and the token's references mise links into it,
+// and the state below, which MOCHI_STATE_DIR moves for a test or a second listener.
+func Dir(home string) string { return filepath.Join(home, ".mochi") }
+
+func stateDir(home string) string { return envOr(StateDirVar, Dir(home)) }
 
 // Where sessions' hooks leave their events: known without the config file, since the hook
 // runs before anything else is read and has to be done in milliseconds.
-func EventsDirFromEnv() string {
-	home := os.Getenv("HOME")
-	if home == "" {
-		home, _ = os.UserHomeDir()
-	}
-	return filepath.Join(cacheDir(home), "events")
-}
+func EventsDirFromEnv() string { return filepath.Join(stateDir(homeDir()), "events") }
 
-func (c Config) EventsDir() string { return filepath.Join(c.CacheDir, "events") }
+func (c Config) EventsDir() string { return filepath.Join(c.StateDir, "events") }
 
 func FromEnv() (Config, error) {
-	home := os.Getenv("HOME")
-	if home == "" {
-		home, _ = os.UserHomeDir()
-	}
+	home := homeDir()
 
-	path := envOr("MOCHI_CONFIG", filepath.Join(home, ".config", "mochi", "config.json"))
+	path := envOr("MOCHI_CONFIG", filepath.Join(Dir(home), "config.json"))
 	cfg, err := Load(path, home)
 	if err != nil {
 		return Config{}, err
 	}
 
-	cfg.CacheDir = cacheDir(home)
-	cfg.EnvFile = envOr("MOCHI_ENV_FILE", filepath.Join(home, ".local", "bin", "mochi.env.op"))
+	cfg.StateDir = stateDir(home)
+	cfg.EnvFile = envOr("MOCHI_ENV_FILE", filepath.Join(Dir(home), "mochi.env.op"))
 	cfg.Briefing = envOr("MOCHI_BRIEFING", filepath.Join(home, ".mac-mini", "claude-plugins", "mochi", "briefing.md"))
 	return cfg, nil
 }
@@ -223,6 +218,14 @@ func expand(path, home string) string {
 		return filepath.Join(home, rest)
 	}
 	return path
+}
+
+func homeDir() string {
+	home := os.Getenv("HOME")
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	return home
 }
 
 func envOr(key, fallback string) string {

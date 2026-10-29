@@ -43,7 +43,7 @@ const (
 // The outer half, which holds no token: it hands over to `op run`, unless the last start's
 // hand-over never reached the inner half, in which case it waits first.
 func Run(cfg config.Config, log *slog.Logger) error {
-	if err := os.MkdirAll(cfg.CacheDir, 0o700); err != nil {
+	if err := os.MkdirAll(cfg.StateDir, 0o700); err != nil {
 		return err
 	}
 	if info, err := os.Stat(cfg.OpAttempt()); err == nil {
@@ -116,7 +116,7 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 		},
 		sleep: time.Sleep,
 		now:   time.Now,
-		stamp: filepath.Join(cfg.CacheDir, "identify"),
+		stamp: filepath.Join(cfg.StateDir, "identify"),
 		log:   log,
 		scrub: func(err error) string { return chat.Redact(err, token) },
 	}

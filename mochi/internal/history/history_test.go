@@ -20,7 +20,7 @@ const (
 
 func fixture(t *testing.T) (config.Config, *chattest.Fake) {
 	t.Helper()
-	cfg := config.Config{CacheDir: t.TempDir()}
+	cfg := config.Config{StateDir: t.TempDir()}
 	api := chattest.New()
 	api.Bot = &discord.User{ID: "1400000000000000003", Username: "mochi", Bot: true}
 	api.AddChannel(&discord.Channel{ID: source, GuildID: guild, Type: discord.ChannelTypeGuildText})

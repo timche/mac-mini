@@ -190,7 +190,7 @@ The GitHub token goes in a file rather than the login keychain (`gh auth login -
 | `home/.config/herdr/config.toml` `home/.terminfo/x/xterm-ghostty` | herdr config, Ghostty terminfo |
 | `home/.config/mise/config.toml` | Every runtime mise installs globally |
 | `home/.config/hachiko/` | Where hachiko alerts, whose replies it takes, where it checks in, and the repositories sync publishes |
-| `home/.config/mochi/config.json` | Who mochi takes instructions from, and which Discord server maps to which herdr workspace |
+| `home/.mochi/` | Linked into mochi's own folder in `HOME`: who mochi takes instructions from, which Discord server maps to which herdr workspace, and its bot token's `op://` reference |
 | `home/Library/LaunchAgents/` | The agents launchd runs |
 | `home/.local/bin/` | The machine's own scripts: the wrappers for hachiko's, mochi's and claude-hooks' binaries, the `op` wrapper, the window screenshot, the foreground lock |
 | `launchd/` | The herdr launcher's source, which is what that agent starts |

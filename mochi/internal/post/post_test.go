@@ -131,7 +131,7 @@ func TestAPostWithALinkOrAPathIsRefused(t *testing.T) {
 		"join discord.gg/abcdef",
 		"or discord.com/invite/abcdef",
 		"the log is in /Users/timche/projects/repeekgg/repeek/log.txt",
-		"see ~/Library/Caches/mochi/sessions/1/brief.md",
+		"see ~/.mochi/sessions/1/brief.md",
 		"(/private/tmp/shot.png)",
 	} {
 		err := Send(api, store, nil, repeek, thread, Post{Text: text})

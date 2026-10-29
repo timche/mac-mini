@@ -8,7 +8,7 @@
 # and per person, and gitignored where Claude Code made it, so the plugin reaches
 # nobody else who clones the repository.
 #
-# The repositories are the ones ~/.config/mochi/config.json maps a server to,
+# The repositories are the ones ~/.mochi/config.json maps a server to,
 # which is what mochi itself starts sessions in. Run by install.sh, after the link
 # to that file is in place.
 #
@@ -26,7 +26,7 @@
 set -euo pipefail
 
 plugin="mochi@mac-mini"
-config="${MOCHI_CONFIG:-$HOME/.config/mochi/config.json}"
+config="${MOCHI_CONFIG:-$HOME/.mochi/config.json}"
 
 if [ ! -f "$config" ]; then
   echo "there is no $config, so the mochi plugin is on in no repository" >&2

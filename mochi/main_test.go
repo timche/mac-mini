@@ -357,15 +357,15 @@ func TestPostTextCanComeOnStdin(t *testing.T) {
 
 // The hook's command: no output, no config, nothing written outside a mochi session.
 func TestSessionEventIsSilentAndNeedsNoConfig(t *testing.T) {
-	cache := t.TempDir()
-	t.Setenv("MOCHI_CACHE_DIR", cache)
+	state := t.TempDir()
+	t.Setenv(config.StateDirVar, state)
 	t.Setenv("MOCHI_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	t.Setenv("MOCHI_THREAD", "")
 	if err := run([]string{"session-event", "stop"}); err != nil {
 		t.Fatal(err)
 	}
-	if entries, _ := os.ReadDir(filepath.Join(cache, "events")); len(entries) != 0 {
+	if entries, _ := os.ReadDir(filepath.Join(state, "events")); len(entries) != 0 {
 		t.Errorf("wrote %v outside a session", entries)
 	}
 
@@ -373,7 +373,7 @@ func TestSessionEventIsSilentAndNeedsNoConfig(t *testing.T) {
 	if err := run([]string{"session-event", "ask"}); err != nil {
 		t.Fatal(err)
 	}
-	if entries, _ := os.ReadDir(filepath.Join(cache, "events")); len(entries) != 1 {
+	if entries, _ := os.ReadDir(filepath.Join(state, "events")); len(entries) != 1 {
 		t.Errorf("events = %v", entries)
 	}
 }

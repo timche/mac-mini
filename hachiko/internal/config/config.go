@@ -304,7 +304,7 @@ func FromEnv() Config {
 
 		MochiPlist: envString("HACHIKO_MOCHI_PLIST",
 			filepath.Join(home, "Library", "LaunchAgents", "io.github.timche.mochi.plist")),
-		MochiStamp: envString("HACHIKO_MOCHI_STAMP", filepath.Join(cache, "mochi", "heartbeat")),
+		MochiStamp: envString("HACHIKO_MOCHI_STAMP", filepath.Join(home, ".mochi", "heartbeat")),
 		// The listener's ten minutes, for the listener's reason: mochi's agent throttles a
 		// start to one every five.
 		MochiStaleAfter: time.Duration(envInt64("HACHIKO_MOCHI_STALE", 600)) * time.Second,

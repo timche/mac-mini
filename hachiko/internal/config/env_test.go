@@ -94,7 +94,7 @@ func TestTheMochiDefaults(t *testing.T) {
 	cfg := FromEnv()
 
 	harness.Equal(t, cfg.MochiStaleAfter, 10*time.Minute, "how old mochi's heartbeat may get")
-	harness.Equal(t, cfg.MochiStamp, filepath.Join(home, "Library", "Caches", "mochi", "heartbeat"), "mochi's heartbeat")
+	harness.Equal(t, cfg.MochiStamp, filepath.Join(home, ".mochi", "heartbeat"), "mochi's heartbeat")
 	harness.Equal(t, cfg.MochiLabel(), "io.github.timche.mochi", "mochi's label")
 }
 

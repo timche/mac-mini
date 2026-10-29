@@ -127,7 +127,7 @@ func TestAnOldPostsStateTagGoesWithItsNextChange(t *testing.T) {
 		Tasks: []split.Task{{Title: "Overlay", Instruction: "fix it", Type: split.Bug}}}, nil, nil)
 	f.h.Handle(f.mention(channel, 1, tim, "fix the overlay", nil))
 	p := postID(1)
-	old := filepath.Join(f.cfg.CacheDir, "marks.json")
+	old := filepath.Join(f.cfg.StateDir, "marks.json")
 	body, _ := os.ReadFile(old)
 	body = []byte(strings.ReplaceAll(string(body), `"Bug"`, `"Running", "Bug"`))
 	os.WriteFile(old, body, 0o600)

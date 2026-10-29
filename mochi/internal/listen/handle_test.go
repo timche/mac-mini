@@ -215,7 +215,7 @@ func newFixture(t *testing.T) *fixture {
 	cfg := config.Config{
 		User:     tim.ID,
 		Servers:  []config.Server{{Guild: guild, Workspace: "repeek", Repo: "/repos/repeek"}},
-		CacheDir: t.TempDir(),
+		StateDir: t.TempDir(),
 		Briefing: briefingPath(),
 	}
 	hd := newHerdr()

@@ -82,7 +82,15 @@ type usageError struct{ error }
 // Said before `op run`, so a command outside a session costs no 1Password read.
 var errNoSession = errors.New("this runs only inside a session mochi started, and MOCHI_THREAD is not set")
 
+// The hooks' command, which says nothing whatever happens.
+const sessionEvent = "session-event"
+
 func main() {
+	hook := len(os.Args) > 1 && os.Args[1] == sessionEvent
+	if err := config.MoveState(); err != nil && !hook {
+		fmt.Fprintf(os.Stderr, "mochi: %v\n", err)
+	}
+
 	err := run(os.Args[1:])
 	var bad usageError
 	switch {
@@ -102,7 +110,7 @@ func main() {
 func run(args []string) error {
 	// Left out of the usage: Claude Code's Stop and AskUserQuestion hooks run it in every
 	// session, so it reads no config, needs no token and prints nothing.
-	if len(args) > 0 && args[0] == "session-event" {
+	if len(args) > 0 && args[0] == sessionEvent {
 		if len(args) == 2 {
 			event.Write(os.Stdin, os.Getenv, config.EventsDirFromEnv(), args[1], time.Now)
 		}

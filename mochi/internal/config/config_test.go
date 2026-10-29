@@ -25,7 +25,7 @@ func write(t *testing.T, body string) string {
 // relies on is the one the tests read.
 func TestTheShippedConfigMapsRepeek(t *testing.T) {
 	_, here, _, _ := runtime.Caller(0)
-	shipped := filepath.Join(filepath.Dir(here), "..", "..", "..", "home", ".config", "mochi", "config.json")
+	shipped := filepath.Join(filepath.Dir(here), "..", "..", "..", "home", ".mochi", "config.json")
 
 	cfg, err := Load(shipped, "/home/x")
 	if err != nil {
@@ -86,7 +86,7 @@ func TestPathsComeFromTheEnvironment(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("MOCHI_CONFIG", write(t, `{"user": "94004892942741504"}`))
-	t.Setenv("MOCHI_CACHE_DIR", "")
+	t.Setenv(StateDirVar, "")
 	t.Setenv("MOCHI_ENV_FILE", "")
 	t.Setenv("MOCHI_BRIEFING", "")
 
@@ -94,10 +94,10 @@ func TestPathsComeFromTheEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(home, "Library", "Caches", "mochi"); cfg.CacheDir != want {
-		t.Errorf("cache = %s", cfg.CacheDir)
+	if want := filepath.Join(home, ".mochi"); cfg.StateDir != want {
+		t.Errorf("state = %s", cfg.StateDir)
 	}
-	if !strings.HasSuffix(cfg.EnvFile, ".local/bin/mochi.env.op") {
+	if want := filepath.Join(home, ".mochi", "mochi.env.op"); cfg.EnvFile != want {
 		t.Errorf("env file = %s", cfg.EnvFile)
 	}
 	if want := filepath.Join(home, ".mac-mini", "claude-plugins", "mochi", "briefing.md"); cfg.Briefing != want {
@@ -107,7 +107,7 @@ func TestPathsComeFromTheEnvironment(t *testing.T) {
 	if cfg, _ := FromEnv(); cfg.Briefing != "/checkout/claude-plugins/mochi/briefing.md" {
 		t.Errorf("briefing = %s", cfg.Briefing)
 	}
-	if cfg.SessionDir("123") != filepath.Join(cfg.CacheDir, "sessions", "123") {
+	if cfg.SessionDir("123") != filepath.Join(cfg.StateDir, "sessions", "123") {
 		t.Errorf("session dir = %s", cfg.SessionDir("123"))
 	}
 }

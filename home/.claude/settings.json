@@ -127,7 +127,7 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "\"$HOME/.local/share/mise/shims/ccstatusline\"",
+    "command": "b=\"$HOME/Library/Caches/claude-hooks/claude-hooks\"; [ -x \"$b\" ] || b=\"$HOME/.local/bin/claude-hooks\"; exec \"$b\" statusline \"$HOME/.local/share/mise/shims/ccstatusline\"",
     "padding": 0,
     "refreshInterval": 10
   },

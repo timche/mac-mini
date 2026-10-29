@@ -409,6 +409,21 @@ check "the statusLine draws a line with mise's ccstatusline" \
    mise which ccstatusline | grep -q "/installs/npm-ccstatusline/" &&
    printf "{}" | "$HOME/.local/share/mise/shims/ccstatusline" | grep -q .'
 
+# The status line is the only place Claude Code says how much of the account's usage limits
+# is left, and every session on this Mac spends them together — so claude-hooks sits in
+# front of ccstatusline, keeps that reading where hachiko's check reads it, and hands the
+# event on. Run as settings.json registers it, with the reading sent to a directory of its
+# own, because what must not happen is a session losing its line over a number nobody asked
+# for. What the tap decides is tools/claude-hooks/internal/statusline's tests.
+check "the statusLine is claude-hooks' tap in front of ccstatusline, and it keeps the usage reading" \
+  'command="$(jq -r ".statusLine.command" "$HOME/.claude/settings.json")" &&
+   case "$command" in *"exec \"\$b\" statusline "*mise/shims/ccstatusline*) ;; *) exit 1 ;; esac &&
+   d="$(mktemp -d)" &&
+   event="{\"session_id\":\"t\",\"rate_limits\":{\"five_hour\":{\"used_percentage\":23.5,\"resets_at\":4102444800}}}" &&
+   line="$(printf "%s" "$event" | HACHIKO_USAGE_STATE_DIR="$d" bash -c "$command")" &&
+   [ -n "$line" ] &&
+   jq -e ".read_at > 0 and .rate_limits.five_hour.used_percentage == 23.5" "$d/latest.json"'
+
 # Asked of ~/.claude.json rather than `claude mcp list`, which starts every server
 # to report its health.
 check "chrome-devtools-mcp is mise's npm install" \
@@ -556,8 +571,12 @@ striphook() { guardevent "$1" | "$repo/home/.local/bin/claude-hooks" strip-attri
 export -f striphook
 
 # Every hook the binary has, read off its own usage, so one added and never registered
-# fails below rather than being a hook that is silently off.
-claudehooks() { "$repo/home/.local/bin/claude-hooks" 2>&1 | awk '/^  [a-z]/ { print $1 }'; }
+# fails below rather than being a hook that is silently off. `statusline` is left out
+# because it is no hook: it is registered as the statusLine command, with the program it
+# draws through as an argument, and it is checked on its own further down.
+claudehooks() {
+  "$repo/home/.local/bin/claude-hooks" 2>&1 | awk '/^  [a-z]/ { print $1 }' | grep -vx statusline
+}
 export -f claudehooks
 
 # The commands settings.json registers, whatever the event, as they are registered there.

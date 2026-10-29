@@ -21,6 +21,10 @@
 // and follows that title as it moves, so a sidebar of tabs says what each session is on
 // without a session having to name its own tab.
 //
+// statusline is the one command here that is not a hook: it sits in front of the program
+// that draws the status line, keeps what Claude Code says is left of the account's usage
+// limits where hachiko's check reads it, and hands the event on untouched.
+//
 // It is a compiled binary rather than a script because a hook that cannot run is a hook
 // that is silently off: a Python that a mise or a brew upgrade moved takes the hook with
 // it, and nothing in a session says so. This depends on a kernel and nothing else.
@@ -34,6 +38,7 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/timche/mac-mini/claude-hooks/internal/attribution"
 	"github.com/timche/mac-mini/claude-hooks/internal/focus"
@@ -43,6 +48,7 @@ import (
 	"github.com/timche/mac-mini/claude-hooks/internal/hook"
 	"github.com/timche/mac-mini/claude-hooks/internal/killbypid"
 	"github.com/timche/mac-mini/claude-hooks/internal/projectdocs"
+	"github.com/timche/mac-mini/claude-hooks/internal/statusline"
 )
 
 // The folder this was built from and the wrapper that built it, written in by the wrapper
@@ -54,6 +60,7 @@ var (
 )
 
 const usage = `usage: claude-hooks <hook>
+       claude-hooks statusline <command> [argument…]
 
   guard               read a PreToolUse hook event on stdin and print a deny decision when
                       the command it carries kills by name, pattern or port, or takes the
@@ -75,6 +82,11 @@ const usage = `usage: claude-hooks <hook>
                       each as a path and the shape of what is in it, for a SessionStart
                       hook to inject into the session
 
+  statusline          read the status line event on stdin, keep what it says is left of
+                      the account's Claude usage limits where hachiko's check reads it,
+                      and run <command> with the same event: its line, its stderr and its
+                      exit status are the answer. Not a hook
+
   strip-attribution   read a PreToolUse hook event on stdin and print the command it
                       carries with Claude's attribution gone from it, having taken the
                       same out of the body files its gh commands name; print a deny
@@ -84,13 +96,38 @@ const usage = `usage: claude-hooks <hook>
 // 1 and never 2: 2 is how a PreToolUse hook blocks the command, so a hook that was called
 // wrong reports itself without costing the session its command.
 func main() {
-	if len(os.Args) != 2 {
+	args := os.Args[1:]
+	if len(args) == 0 {
+		fmt.Fprint(os.Stderr, usage)
+		os.Exit(1)
+	}
+
+	// Dispatched ahead of the hooks and apart from them: it is the one command here that
+	// takes arguments, and the one whose exit status is somebody else's answer rather than
+	// a decision of its own.
+	if args[0] == "statusline" {
+		if len(args) < 2 {
+			fmt.Fprint(os.Stderr, usage)
+			os.Exit(1)
+		}
+		handoff()
+		os.Exit(statusline.Draw(statusline.Params{
+			In:      os.Stdin,
+			Out:     os.Stdout,
+			Err:     os.Stderr,
+			File:    statusline.ReadingFile(),
+			Now:     time.Now,
+			Command: args[1:],
+		}))
+	}
+
+	if len(args) != 1 {
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(1)
 	}
 
 	var run func() error
-	switch os.Args[1] {
+	switch args[0] {
 	case "guard":
 		run = guard
 	case "herdr-tab":

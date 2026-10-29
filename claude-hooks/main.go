@@ -10,6 +10,9 @@
 // strip-attribution takes Claude's attribution out of what a gh command sends GitHub,
 // which git's own hooks never see, and refuses a commit or a push that skips those hooks.
 //
+// project-docs prints the shared docs folder and the project's own at session start, so
+// finding them is a mechanism rather than a rule a session has to remember.
+//
 // It is a compiled binary rather than a script because a hook that cannot run is a hook
 // that is silently off: a Python that a mise or a brew upgrade moved takes the hook with
 // it, and nothing in a session says so. This depends on a kernel and nothing else.
@@ -29,6 +32,7 @@ import (
 	"github.com/timche/mac-mini/claude-hooks/internal/fresh"
 	"github.com/timche/mac-mini/claude-hooks/internal/hook"
 	"github.com/timche/mac-mini/claude-hooks/internal/killbypid"
+	"github.com/timche/mac-mini/claude-hooks/internal/projectdocs"
 )
 
 // The folder this was built from and the wrapper that built it, written in by the wrapper
@@ -44,6 +48,10 @@ const usage = `usage: claude-hooks <hook>
   guard               read a PreToolUse hook event on stdin and print a deny decision when
                       the command it carries kills by name, pattern or port, or takes the
                       Mac's one foreground outside focus-lock; print nothing otherwise
+
+  project-docs        print the shared docs folder and the one this project's docs are in,
+                      each as a path and the shape of what is in it, for a SessionStart
+                      hook to inject into the session
 
   strip-attribution   read a PreToolUse hook event on stdin and print the command it
                       carries with Claude's attribution gone from it, having taken the
@@ -63,6 +71,8 @@ func main() {
 	switch os.Args[1] {
 	case "guard":
 		run = guard
+	case "project-docs":
+		run = projectDocsHook
 	case "strip-attribution":
 		run = stripAttribution
 	default:
@@ -84,6 +94,13 @@ func guard() error {
 		{Denies: focus.Denies, Reason: focus.Reason},
 	}
 	return hook.PreToolUse(os.Stdin, os.Stdout, checks)
+}
+
+// A SessionStart hook speaks by printing and has nothing to answer, so this never fails:
+// what it could not read is a line the listing does not have.
+func projectDocsHook() error {
+	projectdocs.Print(os.Stdout)
+	return nil
 }
 
 func stripAttribution() error {

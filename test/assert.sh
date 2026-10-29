@@ -442,8 +442,7 @@ check "no absolute home paths under home/ or in mise.toml" \
        "$repo/home" "$repo/mise.toml" | grep -q .'
 
 check "the scripts the hooks call are executable" \
-  '[ -x "$HOME/.claude/hooks/herdr-agent-state.sh" ] &&
-   [ -x "$HOME/.claude/hooks/project-docs.sh" ]'
+  '[ -x "$HOME/.claude/hooks/herdr-agent-state.sh" ]'
 
 # mochi's sessions tell it when they stop on Tim, with a Stop hook and a PreToolUse hook on
 # AskUserQuestion, and when Tim answers in the session, with a PostToolUse hook on
@@ -541,13 +540,14 @@ check "turning the mochi plugin on merges into a repository settings file and re
    [ ! -e "$d/p/open/.claude" ] && grep -q "is not gitignored in $d/p/open" "$d/err" &&
    [ ! -e "$d/p/absent" ] && [ -z "$(ls "$d/p/kept/.claude" | grep -v "^settings.local.json$")" ]'
 
-# claude-hooks, the PreToolUse hooks on Bash: guard, which refuses a kill by name, pattern
-# or port, since every session runs its own copy of the same dev servers, and anything that
-# takes the Mac's one foreground outside focus-lock; and strip-attribution, which takes
-# Claude's attribution out of a gh command and the body files it names, and refuses a
-# commit or a push that skips the git hooks doing the same. What each decides of a command
-# is the specification in claude-hooks/internal/*/*_test.go; here they are wired up,
-# linked, answering, and reached by an edit to their sources.
+# claude-hooks, every Claude Code hook on this Mac: guard, which refuses a kill by name,
+# pattern or port, since every session runs its own copy of the same dev servers, and
+# anything that takes the Mac's one foreground outside focus-lock; strip-attribution, which
+# takes Claude's attribution out of a gh command and the body files it names, and refuses a
+# commit or a push that skips the git hooks doing the same; and project-docs, which prints
+# the docs folders a session starts with. What each of them decides is the specification in
+# claude-hooks/internal/*/*_test.go; here they are wired up, linked, answering, and reached
+# by an edit to their sources.
 guardevent() {
   jq -nc --arg value "$1" \
     '{session_id:"t",hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$value}}'
@@ -565,10 +565,10 @@ export -f striphook
 claudehooks() { "$repo/home/.local/bin/claude-hooks" 2>&1 | awk '/^  [a-z]/ { print $1 }'; }
 export -f claudehooks
 
-# The commands settings.json registers for Bash, as they are registered there.
+# The commands settings.json registers, whatever the event, as they are registered there.
 registeredhooks() {
-  jq -r '.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[].command |
-         select(contains("claude-hooks"))' "$HOME/.claude/settings.json"
+  jq -r '.hooks[][].hooks[].command | select(contains("claude-hooks"))' \
+    "$HOME/.claude/settings.json"
 }
 export -f registeredhooks
 
@@ -600,17 +600,17 @@ export -f guardallowed
 check "claude-hooks is a live symlink" \
   '[ -L "$HOME/.local/bin/claude-hooks" ] && [ -x "$HOME/.local/bin/claude-hooks" ]'
 
-# Each hook once and with no `if`, so each reads every command: a filter would be a second
-# list of the programs a hook reads, and any program missing from it a command that hook
-# never sees. And what is registered is the built binary rather than the wrapper that
-# builds it: a shell, a find, a shasum and a mise before every Bash call in every session
-# cost several times the checks they are there for. The wrapper is what a missing binary
-# falls back to, which is the only thing that can build one — and the binary hands an event
-# back to it when the sources have moved.
-check "settings.json runs each claude-hooks hook on every Bash command, once and as the binary" \
+# Each hook once and with no `if`, so each sees every event it is registered for: a filter
+# would be a second list of the programs a hook reads, and any program missing from it a
+# command that hook never sees. And what is registered is the built binary rather than the
+# wrapper that builds it: a shell, a find, a shasum and a mise before every Bash call in
+# every session cost several times the checks they are there for. The wrapper is what a
+# missing binary falls back to, which is the only thing that can build one — and the binary
+# hands an event back to it when the sources have moved.
+check "settings.json registers each claude-hooks hook once and as the binary" \
   'names="$(claudehooks)" && [ -n "$names" ] &&
    [ "$(registeredhooks | wc -l)" -eq "$(printf "%s\n" "$names" | wc -l)" ] &&
-   [ "$(jq -c "[.hooks.PreToolUse[] | select(.matcher == \"Bash\") | .hooks[] |
+   [ "$(jq -c "[.hooks[][].hooks[] |
         select(.command | contains(\"claude-hooks\")) | has(\"if\")] | any" \
         "$HOME/.claude/settings.json")" = false ] &&
    for name in $names; do
@@ -1619,39 +1619,19 @@ check "DO_NOT_TRACK is set in every shell" \
 failures=$((failures + $?))
 
 # Finding the docs is a mechanism rather than a rule Claude has to remember, so
-# the wiring is what makes the global CLAUDE.md's docs section true.
-check "the project-docs hook is wired to SessionStart" \
-  'grep -q "hooks/project-docs.sh" "$HOME/.claude/settings.json"'
-
-# A repository with no docs folder has to stay silent, or every session on
-# every other project starts with an apology. A bare repository of its own,
-# since this one carries docs/ now and ~/projects/docs may hold a folder for
-# anything, and an empty docs root, since the real one has shared/.
-check "the project-docs hook says nothing without a docs folder" \
-  'bare="$(mktemp -d)" && root="$(mktemp -d)" && git -C "$bare" init -q &&
-   git -C "$bare" remote add origin https://example.com/nobody/no-docs-here.git &&
-   [ -z "$(cd "$bare" && PROJECT_DOCS_DIR="$root" bash "$HOME/.claude/hooks/project-docs.sh")" ]'
-
-# shared/ is what applies across projects, so it is listed even where the
-# project has no docs of its own, and outside a repository altogether.
-check "the project-docs hook lists the shared docs in any directory" \
-  'root="$(mktemp -d)" && out="$(mktemp -d)" &&
-   mkdir "$root/shared" && : > "$root/shared/cloudflare.md" &&
-   [ "$(cd "$out" && PROJECT_DOCS_DIR="$root" bash "$HOME/.claude/hooks/project-docs.sh" | head -1)" = \
-     "Shared docs for every project: $root/shared" ]'
-
-# ~/projects/docs/<repo> and nothing else: a checkout's own docs/ is the project's
-# published documentation rather than its working docs. Run against a throwaway
-# HOME, so the check does not leave a folder in the real one for `hachiko sync`
-# to publish.
-check "the project-docs hook reads ~/projects/docs/<repo>, not the checkout's docs folder" \
-  'hook="$HOME/.claude/hooks/project-docs.sh" &&
-   h="$(mktemp -d)" && d="$(mktemp -d)" && git -C "$d" init -q &&
-   git -C "$d" remote add origin https://example.com/nobody/has-docs.git &&
-   mkdir "$d/docs" && : > "$d/docs/README.md" &&
-   mkdir -p "$h/projects/docs/has-docs" && : > "$h/projects/docs/has-docs/decisions.md" &&
-   [ "$(cd "$d" && HOME="$h" PROJECT_DOCS_DIR="$h/projects/docs" bash "$hook" | head -1)" = \
-     "Working docs for has-docs: $h/projects/docs/has-docs" ]'
+# the wiring is what makes the global CLAUDE.md's docs section true. What the
+# listing holds is claude-hooks/internal/projectdocs's tests; this is the hook
+# reaching the one folder on this Mac that no fixture can stand in for. The
+# clone is not fatal in install.sh, so a machine without it is not a failure.
+check "project-docs runs at session start and lists the real shared docs" \
+  'jq -e "[.hooks.SessionStart[].hooks[].command |
+          select(endswith(\"project-docs\"))] | length == 1" "$HOME/.claude/settings.json" &&
+   { [ ! -d "$HOME/projects/docs/shared" ] ||
+     { out="$(PROJECT_DOCS_DIR="$HOME/projects/docs" \
+         "$repo/home/.local/bin/claude-hooks" project-docs)" &&
+       [ "$(printf "%s\n" "$out" | head -1)" = \
+         "Shared docs for every project: $HOME/projects/docs/shared" ] &&
+       printf "%s\n" "$out" | grep -q "^  .*\.md$"; }; }'
 
 if [ "$failures" -gt 0 ]; then
   echo "  $failures check(s) failed"

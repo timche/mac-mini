@@ -21,9 +21,10 @@ type event struct {
 
 type decision struct {
 	Output struct {
-		EventName string `json:"hookEventName"`
-		Decision  string `json:"permissionDecision"`
-		Reason    string `json:"permissionDecisionReason"`
+		EventName    string                     `json:"hookEventName"`
+		Decision     string                     `json:"permissionDecision"`
+		Reason       string                     `json:"permissionDecisionReason"`
+		UpdatedInput map[string]json.RawMessage `json:"updatedInput,omitempty"`
 	} `json:"hookSpecificOutput"`
 }
 
@@ -60,11 +61,76 @@ func PreToolUse(in io.Reader, out io.Writer, checks []Check) (err error) {
 		answer.Output.EventName = "PreToolUse"
 		answer.Output.Decision = "deny"
 		answer.Output.Reason = check.Reason
-		// A reason is read by a person as often as by a model, and `kill <pid>` in it is
-		// not HTML.
-		encoder := json.NewEncoder(out)
-		encoder.SetEscapeHTML(false)
-		return encoder.Encode(answer)
+		return write(out, answer)
 	}
 	return nil
+}
+
+// What a hook that may change the command answers with: a refusal and its reason, a
+// command that takes the place of the one the event carried, or neither, which lets the
+// command run as it was written.
+type Answer struct {
+	Deny    bool
+	Reason  string
+	Command string
+}
+
+// The event as a hook that rewrites reads it: the whole tool input, since what it answers
+// with is that input back with one field changed, and Claude Code runs what it is handed.
+type input struct {
+	ToolInput map[string]json.RawMessage `json:"tool_input"`
+}
+
+// PreToolUseRewrite hands the command the event carries to read and writes what it
+// answers: a deny, or an allow carrying the tool input with the new command in it.
+func PreToolUseRewrite(in io.Reader, out io.Writer, read func(command string) Answer) (err error) {
+	defer func() {
+		if recover() != nil {
+			err = nil
+		}
+	}()
+
+	body, err := io.ReadAll(in)
+	if err != nil {
+		return nil
+	}
+	var ev input
+	if json.Unmarshal(body, &ev) != nil {
+		return nil
+	}
+	var command string
+	if json.Unmarshal(ev.ToolInput["command"], &command) != nil || command == "" {
+		return nil
+	}
+
+	answer := read(command)
+	decided := decision{}
+	decided.Output.EventName = "PreToolUse"
+	decided.Output.Reason = answer.Reason
+	switch {
+	case answer.Deny:
+		decided.Output.Decision = "deny"
+	case answer.Command != "":
+		decided.Output.Decision = "allow"
+		replaced, err := json.Marshal(answer.Command)
+		if err != nil {
+			return nil
+		}
+		updated := make(map[string]json.RawMessage, len(ev.ToolInput))
+		for key, value := range ev.ToolInput {
+			updated[key] = value
+		}
+		updated["command"] = replaced
+		decided.Output.UpdatedInput = updated
+	default:
+		return nil
+	}
+	return write(out, decided)
+}
+
+// A reason is read by a person as often as by a model, and `kill <pid>` in it is not HTML.
+func write(out io.Writer, answer decision) error {
+	encoder := json.NewEncoder(out)
+	encoder.SetEscapeHTML(false)
+	return encoder.Encode(answer)
 }

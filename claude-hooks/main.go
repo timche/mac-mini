@@ -1,11 +1,14 @@
 // claude-hooks is the binary every Claude Code hook on this Mac runs as a subcommand of,
 // so that one build, one cache and one wrapper serve all of them.
 //
-// Its first is guard, which reads a command every session is about to run and refuses the
-// two kinds of command that reach out of the session that ran them: a kill that picks its
-// target by name, pattern or port, which stops another session's copy of the same dev
-// server, and a command that takes the Mac's one foreground without the lock that
-// serialises it, which types and clicks into another session's app.
+// guard reads a command every session is about to run and refuses the two kinds of
+// command that reach out of the session that ran them: a kill that picks its target by
+// name, pattern or port, which stops another session's copy of the same dev server, and a
+// command that takes the Mac's one foreground without the lock that serialises it, which
+// types and clicks into another session's app.
+//
+// strip-attribution takes Claude's attribution out of what a gh command sends GitHub,
+// which git's own hooks never see, and refuses a commit or a push that skips those hooks.
 //
 // It is a compiled binary rather than a script because a hook that cannot run is a hook
 // that is silently off: a Python that a mise or a brew upgrade moved takes the hook with
@@ -21,6 +24,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/timche/mac-mini/claude-hooks/internal/attribution"
 	"github.com/timche/mac-mini/claude-hooks/internal/focus"
 	"github.com/timche/mac-mini/claude-hooks/internal/fresh"
 	"github.com/timche/mac-mini/claude-hooks/internal/hook"
@@ -37,9 +41,14 @@ var (
 
 const usage = `usage: claude-hooks <hook>
 
-  guard     read a PreToolUse hook event on stdin and print a deny decision when the
-            command it carries kills by name, pattern or port, or takes the Mac's one
-            foreground outside focus-lock; print nothing otherwise
+  guard               read a PreToolUse hook event on stdin and print a deny decision when
+                      the command it carries kills by name, pattern or port, or takes the
+                      Mac's one foreground outside focus-lock; print nothing otherwise
+
+  strip-attribution   read a PreToolUse hook event on stdin and print the command it
+                      carries with Claude's attribution gone from it, having taken the
+                      same out of the body files its gh commands name; print a deny
+                      decision when it skips git's hooks, and nothing otherwise
 `
 
 // 1 and never 2: 2 is how a PreToolUse hook blocks the command, so a hook that was called
@@ -54,6 +63,8 @@ func main() {
 	switch os.Args[1] {
 	case "guard":
 		run = guard
+	case "strip-attribution":
+		run = stripAttribution
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(1)
@@ -73,6 +84,10 @@ func guard() error {
 		{Denies: focus.Denies, Reason: focus.Reason},
 	}
 	return hook.PreToolUse(os.Stdin, os.Stdout, checks)
+}
+
+func stripAttribution() error {
+	return hook.PreToolUseRewrite(os.Stdin, os.Stdout, attribution.Decide)
 }
 
 // Keeping an edit live, from the side of the arrangement that cannot build: settings.json

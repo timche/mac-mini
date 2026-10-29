@@ -676,11 +676,13 @@ check "the on-call guard refuses a call it cannot read rather than allowing it" 
      HACHIKO_ONCALL_SESSION=update python3 "$HOME/.claude/hooks/oncall-guard.py"
    [ $? -eq 2 ]'
 
-# claude-hooks guard, the PreToolUse hook on Bash: no kill by name, pattern or port, since
-# every session runs its own copy of the same dev servers, and nothing that takes the Mac's
-# one foreground outside focus-lock. What it decides of each command is the specification
-# in claude-hooks/internal/*/*_test.go; here it is wired up, linked, answering, and reached
-# by an edit to its sources.
+# claude-hooks, the PreToolUse hooks on Bash: guard, which refuses a kill by name, pattern
+# or port, since every session runs its own copy of the same dev servers, and anything that
+# takes the Mac's one foreground outside focus-lock; and strip-attribution, which takes
+# Claude's attribution out of a gh command and the body files it names, and refuses a
+# commit or a push that skips the git hooks doing the same. What each decides of a command
+# is the specification in claude-hooks/internal/*/*_test.go; here they are wired up,
+# linked, answering, and reached by an edit to their sources.
 guardevent() {
   jq -nc --arg value "$1" \
     '{session_id:"t",hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$value}}'
@@ -690,11 +692,22 @@ export -f guardevent
 guardhook() { guardevent "$1" | "$repo/home/.local/bin/claude-hooks" guard; }
 export -f guardhook
 
-# The one command settings.json registers for Bash, as it is registered there.
-guardcommand() {
+striphook() { guardevent "$1" | "$repo/home/.local/bin/claude-hooks" strip-attribution; }
+export -f striphook
+
+# Every hook the binary has, read off its own usage, so one added and never registered
+# fails below rather than being a hook that is silently off.
+claudehooks() { "$repo/home/.local/bin/claude-hooks" 2>&1 | awk '/^  [a-z]/ { print $1 }'; }
+export -f claudehooks
+
+# The commands settings.json registers for Bash, as they are registered there.
+registeredhooks() {
   jq -r '.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[].command |
          select(contains("claude-hooks"))' "$HOME/.claude/settings.json"
 }
+export -f registeredhooks
+
+guardcommand() { registeredhooks | grep -F 'exec "$b" guard'; }
 export -f guardcommand
 
 # A copy of the module with a cache of its own, because the checks below break the sources
@@ -722,29 +735,53 @@ export -f guardallowed
 check "claude-hooks is a live symlink" \
   '[ -L "$HOME/.local/bin/claude-hooks" ] && [ -x "$HOME/.local/bin/claude-hooks" ]'
 
-# Once and with no `if`, so it reads every command: a filter would be a second list of the
-# programs guard reads, and any program missing from it a command guard never sees.
-check "settings.json runs the guard hook on every Bash command, once" \
-  '[ "$(jq "[.hooks.PreToolUse[] | select(.matcher == \"Bash\") | .hooks[] |
-            select(.command | contains(\"claude-hooks\"))] |
-            [length, (map(has(\"if\")) | any)]" -c "$HOME/.claude/settings.json")" = "[1,false]" ]'
+# Each hook once and with no `if`, so each reads every command: a filter would be a second
+# list of the programs a hook reads, and any program missing from it a command that hook
+# never sees. And what is registered is the built binary rather than the wrapper that
+# builds it: a shell, a find, a shasum and a mise before every Bash call in every session
+# cost several times the checks they are there for. The wrapper is what a missing binary
+# falls back to, which is the only thing that can build one — and the binary hands an event
+# back to it when the sources have moved.
+check "settings.json runs each claude-hooks hook on every Bash command, once and as the binary" \
+  'names="$(claudehooks)" && [ -n "$names" ] &&
+   [ "$(registeredhooks | wc -l)" -eq "$(printf "%s\n" "$names" | wc -l)" ] &&
+   [ "$(jq -c "[.hooks.PreToolUse[] | select(.matcher == \"Bash\") | .hooks[] |
+        select(.command | contains(\"claude-hooks\")) | has(\"if\")] | any" \
+        "$HOME/.claude/settings.json")" = false ] &&
+   for name in $names; do
+     [ "$(registeredhooks | grep -cFx "b=\"\$HOME/Library/Caches/claude-hooks/claude-hooks\"; [ -x \"\$b\" ] || b=\"\$HOME/.local/bin/claude-hooks\"; exec \"\$b\" $name")" -eq 1 ] ||
+       exit 1
+   done'
 
-# The built binary and not the wrapper that builds it: a shell, a find, a shasum and a mise
-# before every Bash call in every session cost several times the check they are there for.
-# The wrapper is what a missing binary falls back to, which is the only thing that can
-# build one — and the binary hands an event back to it when the sources have moved.
-check "the Bash hook runs the claude-hooks binary, falling back to the wrapper" \
-  '[ "$(guardcommand)" = "b=\"\$HOME/Library/Caches/claude-hooks/claude-hooks\"; [ -x \"\$b\" ] || b=\"\$HOME/.local/bin/claude-hooks\"; exec \"\$b\" guard" ]'
-
-check "nothing is left of the hook the guard replaced" \
-  '! grep -q kill-by-pid "$HOME/.claude/settings.json" &&
-   [ ! -e "$repo/home/.claude/hooks/kill-by-pid.py" ]'
+check "nothing is left of the python hooks these replaced" \
+  '! grep -qE "kill-by-pid|strip-claude-attribution.py" "$HOME/.claude/settings.json" &&
+   [ ! -e "$repo/home/.claude/hooks/kill-by-pid.py" ] &&
+   [ ! -e "$repo/home/.claude/hooks/strip-claude-attribution.py" ]'
 
 check "guard refuses a kill by name and allows one by pid" \
   'guarddenied "pkill -f vite" && guardallowed "kill 123"'
 
 check "guard refuses the foreground and allows it under focus-lock" \
   'guarddenied "cliclick c:1,1" && guardallowed "focus-lock cliclick c:1,1"'
+
+# A commit message that names the flag is a commit like any other, which is the whole
+# reason this reads the command rather than matching its text.
+check "strip-attribution refuses a commit that skips the hooks and allows one that names the flag" \
+  'striphook "git commit --no-verify -m x" |
+     jq -e ".hookSpecificOutput.permissionDecision == \"deny\"" >/dev/null &&
+   out=$(striphook "git commit -q -m \"add a --no-verify guard\"") && [ -z "$out" ]'
+
+check "strip-attribution takes the attribution out of a gh command and leaves the rest alone" \
+  'updated=$(striphook "gh pr edit 1 --body \"Fixes it. Co-Authored-By: Claude <noreply@anthropic.com>\"" |
+     jq -r ".hookSpecificOutput.updatedInput.command") &&
+   case $updated in *Co-Authored-By*) exit 1 ;; *"Fixes it."*) ;; *) exit 1 ;; esac &&
+   out=$(striphook "gh pr view 1 --json body -q .body") && [ -z "$out" ]'
+
+check "strip-attribution takes the attribution out of a body file a gh command names" \
+  'd=$(mktemp -d) &&
+   printf "Body\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n" >"$d/body.md" &&
+   out=$(striphook "gh pr edit 1 --body-file $d/body.md") && [ -z "$out" ] &&
+   grep -q Body "$d/body.md" && ! grep -q Co-Authored-By "$d/body.md"'
 
 # A guard on every session's shell that refused what it could not read would cost them
 # all their shell, so an event it cannot read goes through.

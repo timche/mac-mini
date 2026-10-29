@@ -18,7 +18,6 @@ package wording
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -264,10 +263,6 @@ func CodeSpan(s string) string {
 	}
 	return fence + s + fence
 }
-
-// The file a lead names, by its base name: the whole path is in the detail below, and a
-// lead is read at a glance.
-func BaseLabel(path string) string { return PlainWords(Clip(filepath.Base(path), NameLimit)) }
 
 // The characters Discord gives a meaning to in a message body. A backslash before each of
 // them is how Discord is told to render the character and nothing else.

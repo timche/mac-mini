@@ -299,7 +299,6 @@ type Asked struct {
 }
 
 func (s *State) HasDiskSample() bool { return s.Disk.At > 0 }
-func (s *State) HasCPUSample() bool  { return s.CPU.At > 0 }
 
 func (s *State) AlertedProc(key string) bool { return Contains(s.AlertedProcs, key) }
 

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/harness"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 )
@@ -92,39 +93,16 @@ func TestOnlyTheFiveShapesOfTargetAreTaken(t *testing.T) {
 	}
 }
 
-// A process of its own, which is what anything inside hachiko that asks for one needs: moving
-// a version takes minutes, and the five-minute check it would be asked from has five.
-func TestASecurityUpgradeIsStartedAsAProcessOfItsOwn(t *testing.T) {
-	var started [][]string
-	start := func(args ...string) error {
-		started = append(started, args)
-		return nil
-	}
-
-	if err := security(start, []string{"brew:aria2", "mise:node"}); err != nil {
-		t.Fatal(err)
-	}
-
-	harness.Equal(t, len(started), 1, "upgrades started")
-	harness.Equal(t, strings.Join(started[0], " "), "update --security brew:aria2 mise:node", "what it started")
-}
-
-// Refused where it is built as well as where it runs, so the check that built it finds out
-// rather than a tool being handed something a source chose.
+// Every target is read before the first of them is acted on, so one a tool would take as a
+// flag refuses the whole run rather than being handed over: the refusal happens before the
+// updater exists, which is what lets this drive it against no fixture at all.
 func TestATargetThatWouldNotRunIsRefusedBeforeAnythingStarts(t *testing.T) {
-	var started [][]string
-	start := func(args ...string) error {
-		started = append(started, args)
-		return nil
-	}
-
-	err := security(start, []string{"brew:aria2", "brew:--force"})
+	err := RunSecurity(config.Config{}, []string{"brew:aria2", "brew:--force"}, false)
 
 	if err == nil {
 		t.Fatal("an upgrade of something that is not a target was started")
 	}
 	harness.Wants(t, err.Error(), `"brew:--force" is not a target hachiko update takes`)
-	harness.Equal(t, len(started), 0, "upgrades started")
 }
 
 // Only what the advisory named. A night's upgrading is a decision about keeping this Mac
@@ -276,7 +254,7 @@ func TestAPipTargetIsUpgradedInThePythonTheTargetNames(t *testing.T) {
 	b.misePython("3.15.0", installed)
 	b.movePip(python3, "certifi", "2026.1.14", "2026.9.30")
 
-	b.security(false, PipTarget("3.15.0", "certifi"))
+	b.security(false, "pip:3.15.0:certifi")
 
 	harness.Equal(t, b.ran(python3+" -m pip install --upgrade certifi"), true, "the upgrade")
 	harness.Wants(t, b.summary(),
@@ -293,7 +271,7 @@ func TestAPipPackageThatDidNotMoveIsLeftForTheCheck(t *testing.T) {
 	b.misePython("3.15.0", installed)
 	b.says(installed+"/bin/python3 -m pip show certifi", "Name: certifi\nVersion: 2026.1.14\n")
 
-	b.security(false, PipTarget("3.15.0", "certifi"))
+	b.security(false, "pip:3.15.0:certifi")
 
 	failing := b.failing()
 	harness.Equal(t, len(failing), 1, "steps left for the check")
@@ -306,7 +284,7 @@ func TestAPipTargetForAPythonMiseNoLongerHasIsSaid(t *testing.T) {
 	b := newBox(t)
 	b.misePython("3.14.7", home+"/.local/share/mise/installs/python/3.14.7")
 
-	b.security(false, PipTarget("3.15.0", "certifi"))
+	b.security(false, "pip:3.15.0:certifi")
 
 	failing := b.failing()
 	harness.Equal(t, len(failing), 1, "steps left for the check")

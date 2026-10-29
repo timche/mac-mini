@@ -51,7 +51,7 @@ func TestAMissingStateFileIsAnEmptyStateRatherThanAnError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.HasDiskSample() || state.HasCPUSample() {
+	if state.HasDiskSample() {
 		t.Error("an empty state claims to hold a sample")
 	}
 }

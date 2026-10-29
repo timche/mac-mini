@@ -224,15 +224,10 @@ func TestAClipCutsBetweenCharactersAndNotThroughOne(t *testing.T) {
 		t.Error("the clipped name is not valid UTF-8")
 	}
 
-	// The same through the two things that clip a name for a message.
+	// The same through the one thing that clips a name for a message.
 	long := "/private/tmp/" + strings.Repeat("ド", 40) + ".log"
-	for what, got := range map[string]string{
-		"safe":      Safe(long, 17),
-		"baseLabel": BaseLabel(long),
-	} {
-		if !utf8.ValidString(got) {
-			t.Errorf("%s left invalid UTF-8: %q", what, got)
-		}
+	if got := Safe(long, 17); !utf8.ValidString(got) {
+		t.Errorf("safe left invalid UTF-8: %q", got)
 	}
 
 	// A byte that was never a character to begin with goes the same way.

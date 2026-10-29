@@ -54,48 +54,20 @@ var targetName = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._@/:+-]*\z`)
 const (
 	targetMise = "mise:"
 	targetBrew = "brew:"
-	targetPip  = "pip:"
+
+	// A pip package is installed into one python rather than onto the machine, so this one
+	// carries which: mise keeps a python per version, and `pip install` reaches whichever
+	// interpreter runs it, so the target is `pip:<python>:<package>`.
+	targetPip = "pip:"
 
 	// And the two that are one thing each, so there is no name after them.
 	MiseSelfTarget = "mise-self"
 	HerdrTarget    = "herdr"
 )
 
-// The spelling of each kind, so whatever names a target and this, which reads it back,
-// cannot be two spellings.
-func MiseTarget(tool string) string    { return targetMise + tool }
-func BrewTarget(formula string) string { return targetBrew + formula }
-
-// A pip package is installed into one python rather than onto the machine, so the target says
-// which: mise keeps a python per version, and `pip install` reaches whichever interpreter runs
-// it.
-func PipTarget(python, pkg string) string { return targetPip + python + ":" + pkg }
-
-// Security starts the run as a process of its own, which is what anything inside hachiko that
-// asks for one needs: moving a version takes minutes, and the five-minute check it would be
-// asked from has five. A target this would not run is refused here rather than passed on, so
-// whatever built it finds out.
-func Security(cfg config.Config, targets []string) error {
-	return security(realDeps(cfg).Spawn, targets)
-}
-
-func security(start func(args ...string) error, targets []string) error {
-	if len(targets) == 0 {
-		return nil
-	}
-
-	for _, target := range targets {
-		if !ValidTarget(target) {
-			return fmt.Errorf("%q is not a target hachiko update takes",
-				wording.Safe(target, wording.NameLimit))
-		}
-	}
-	return start(append([]string{"update", "--security"}, targets...)...)
-}
-
 // Whether a target is one of the five shapes, with a name this would pass to a tool. Checked
-// where it is built and again where it runs, because the second of those is a command a person
-// or a session can type: `hachiko update --security` takes this and nothing else.
+// before a run takes any of them, because what reaches it is a command a person or a session
+// can type: `hachiko update --security` takes these and nothing else.
 func ValidTarget(target string) bool {
 	switch {
 	case target == MiseSelfTarget || target == HerdrTarget:

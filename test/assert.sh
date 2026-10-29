@@ -443,7 +443,6 @@ check "no absolute home paths under home/ or in mise.toml" \
 
 check "the scripts the hooks call are executable" \
   '[ -x "$HOME/.claude/hooks/herdr-agent-state.sh" ] &&
-   [ -x "$HOME/.claude/hooks/herdr-tab-reset.sh" ] &&
    [ -x "$HOME/.claude/hooks/project-docs.sh" ] &&
    [ -x "$HOME/.claude/hooks/worktree-info.sh" ]'
 

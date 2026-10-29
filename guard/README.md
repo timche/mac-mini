@@ -15,7 +15,7 @@ An event it cannot read is allowed, and so is a command it cannot read: `interna
 
 ## How it is wired
 
-`home/.claude/settings.json` registers it once per `if` filter, one permission rule each, so no process starts for a command that cannot carry either thing. `guard filters` prints the rules, built from the programs each check acts on and the runners the lexer reads through, and settings.json is a copy of that list: `test/assert.sh` fails when they differ, so a program added to a check without its rule, or a rule left behind, is caught. The filter is checked against every subcommand, inside `$()` and backticks, and after Claude Code strips `timeout`, `nice`, `nohup` and the rest; it does not look inside `bash -c`, which is why the shells are filters of their own, and it strips neither `sudo` nor `env` nor `op run`, which is why those are too. The timeout is 30 seconds, since a rebuild after an edit runs inside the hook.
+`home/.claude/settings.json` registers it once for every Bash command, with no `if` filter. A filter would be a second list of the programs guard reads, kept in step by hand with the first, and Claude Code's matching sees through only its own fixed set of wrappers, so any runner missing from the filter would be a command guard never saw. The timeout is 30 seconds, since a rebuild after an edit runs inside the hook.
 
 ## Setup, state and logs
 

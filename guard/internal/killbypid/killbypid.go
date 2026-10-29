@@ -22,16 +22,6 @@ var denied = errors.New("killing by name, pattern or port")
 
 var killersByName = map[string]bool{"pkill": true, "killall": true, "killall5": true, "skill": true}
 
-// Commands are the programs this check acts on, which is what the hook has to be started
-// for: a finder alone kills nothing, so it needs no `if` rule of its own.
-func Commands() []string {
-	names := []string{"kill", "fuser"}
-	for name := range killersByName {
-		names = append(names, name)
-	}
-	return names
-}
-
 // What picks a process by name or by port: whatever one of these prints is a pid chosen
 // the way a pkill would have chosen it.
 var finders = map[string]bool{

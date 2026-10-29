@@ -698,15 +698,12 @@ export -f guardallowed
 check "guard is a live symlink" \
   '[ -L "$HOME/.local/bin/guard" ] && [ -x "$HOME/.local/bin/guard" ]'
 
-# One handler per `if` rule, because a hook with no `if` would start a process on every
-# Bash call there is. guard owns the rules; a program a check reads that settings.json
-# leaves out is one that check never sees, and a rule guard no longer needs starts it
-# for nothing.
-check "settings.json registers guard under exactly the if rules guard prints" \
-  'diff <("$repo/home/.local/bin/guard" filters) \
-        <(jq -r ".hooks.PreToolUse[] | select(.matcher == \"Bash\") | .hooks[] |
-                 select(.command | contains(\"guard\\\" pre-tool-use\")) | .if" \
-              "$HOME/.claude/settings.json" | sort)'
+# Once and with no `if`, so it reads every command: a filter would be a second list of the
+# programs guard reads, and any program missing from it a command guard never sees.
+check "settings.json runs guard on every Bash command, once" \
+  '[ "$(jq "[.hooks.PreToolUse[] | select(.matcher == \"Bash\") | .hooks[] |
+            select(.command | contains(\"guard\\\" pre-tool-use\"))] |
+            [length, (map(has(\"if\")) | any)]" -c "$HOME/.claude/settings.json")" = "[1,false]" ]'
 
 check "nothing is left of the hook guard replaced" \
   '! grep -q kill-by-pid "$HOME/.claude/settings.json" &&

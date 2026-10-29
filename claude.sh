@@ -58,10 +58,10 @@ fi
 # machine, and which is rerun from here once there is one. Needs a terminal for
 # the browser flows.
 if [ -t 0 ]; then
-  "$repo/claude/login.sh"
+  "$repo/account/login.sh"
 else
   echo
-  echo "Skipped login.sh — no terminal. Run $repo/claude/login.sh to log in to"
+  echo "Skipped login.sh — no terminal. Run $repo/account/login.sh to log in to"
   echo "GitHub and Claude Code."
 fi
 
@@ -69,11 +69,11 @@ signing_failed=0
 
 # After install.sh, because the principal this writes into allowed_signers is
 # the user.email out of the .gitconfig it links.
-"$repo/claude/signing-key.sh" || signing_failed=1
+"$repo/account/signing-key.sh" || signing_failed=1
 
 # After signing-key.sh, which has stored the service-account token by now. Not
 # fatal: without it a session cannot reach the VMs, and nothing else here needs it.
-"$repo/claude/vm-key.sh" || echo "the VM key was not installed — run $repo/claude/vm-key.sh" >&2
+"$repo/account/vm-key.sh" || echo "the VM key was not installed — run $repo/account/vm-key.sh" >&2
 
 # shibuya, the dead man's switch, after signing-key.sh: both steps here reach 1Password
 # through `op run`, and the service-account token they need is what signing-key.sh has just
@@ -90,7 +90,7 @@ shibuya_token="${SHIBUYA_TOKEN_FILE:-$HOME/.hachiko/shibuya-token}"
 
 if [ ! -f "$op_token_file" ]; then
   echo "no service-account token, so shibuya was left alone — the deploy and the ping" >&2
-  echo "token both reach 1Password through \`op run\`. Run $repo/claude/signing-key.sh," >&2
+  echo "token both reach 1Password through \`op run\`. Run $repo/account/signing-key.sh," >&2
   echo "then $repo/shibuya/deploy.sh and $repo/shibuya/secrets.sh." >&2
 elif ! "$repo/shibuya/deploy.sh"; then
   echo "shibuya was not deployed, so the dead man's switch is whatever was deployed" >&2
@@ -114,7 +114,7 @@ echo
 # Still not logged in means login.sh was skipped or did not finish, and with it
 # the Claude Code login and the project docs.
 if ! gh auth status >/dev/null 2>&1; then
-  echo "  - $repo/claude/login.sh — GitHub and Claude Code, and the rerun of"
+  echo "  - $repo/account/login.sh — GitHub and Claude Code, and the rerun of"
   echo "    install.sh that clones the project docs in between."
 else
   # claude is install.sh's, from Anthropic's installer into ~/.local/bin, behind
@@ -124,7 +124,7 @@ else
   if ! command -v claude >/dev/null 2>&1; then
     echo "  - $repo/install.sh — it did not get as far as installing claude."
   elif ! claude auth status >/dev/null 2>&1; then
-    echo "  - claude auth login — $repo/claude/login.sh tried and did not get"
+    echo "  - claude auth login — $repo/account/login.sh tried and did not get"
     echo "    there."
   fi
 fi
@@ -137,7 +137,7 @@ fi
 portless_ca="$HOME/.portless/ca.pem"
 if [ -f "$portless_ca" ]; then
   portless_fingerprint="$(openssl x509 -in "$portless_ca" -noout -fingerprint -sha256 | sed 's/.*=//')"
-  if ! "$repo/claude/portless-ca-trusted.sh"; then
+  if ! "$repo/account/portless-ca-trusted.sh"; then
     echo "  - portless trust — in Terminal over Screen Sharing; over SSH or in a herdr"
     echo "    pane it fails with \"Permission denied\" even after sudo."
   fi

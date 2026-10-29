@@ -180,7 +180,7 @@ fi
 # trust in prose with no machine-readable form. A missing CA means portless has
 # never run at all, and `portless trust` generates one as it trusts it.
 if command -v portless >/dev/null 2>&1; then
-  if "$repo/claude/portless-ca-trusted.sh"; then
+  if "$repo/account/portless-ca-trusted.sh"; then
     echo "portless's CA is already trusted"
   # Not attempted over SSH, because it cannot succeed there and trying is worse than
   # saying so: the sudo prompt lands on this terminal, but the change to the system
@@ -283,8 +283,8 @@ mcp_server context7 '{"type": "http", "url": "https://mcp.context7.com/mcp"}'
 # The mochi plugin, which settings.json leaves off, on in each repository mochi
 # serves; the script says why there rather than everywhere. Reported rather than
 # fatal, since the account side is no less set up without it.
-"$repo/claude/mochi-plugin.sh" ||
-  echo "could not turn the mochi plugin on in mochi's repositories; rerun claude/mochi-plugin.sh" >&2
+"$repo/account/mochi-plugin.sh" ||
+  echo "could not turn the mochi plugin on in mochi's repositories; rerun account/mochi-plugin.sh" >&2
 # A worktree's dev server reaches Tim's MacBook as https://<branch>.<app>.<tld>
 # for the second TLD in PORTLESS_TLD, whose wildcard DNS record points at this
 # Mac's tailnet address. Tailscale Serve hands the tailnet's port 443 to portless

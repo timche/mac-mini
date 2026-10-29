@@ -156,7 +156,7 @@ func FromEnv() (Config, error) {
 
 	cfg.StateDir = stateDir(home)
 	cfg.EnvFile = envOr("MOCHI_ENV_FILE", filepath.Join(Dir(home), "mochi.env.op"))
-	cfg.Briefing = envOr("MOCHI_BRIEFING", filepath.Join(home, ".mac-mini", "claude-plugins", "mochi", "briefing.md"))
+	cfg.Briefing = envOr("MOCHI_BRIEFING", filepath.Join(home, ".mac-mini", "account", "claude-plugins", "mochi", "briefing.md"))
 	return cfg, nil
 }
 

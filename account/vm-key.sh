@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 item="${VM_KEY_OP_ITEM:-op://dev/vm-ssh}"
 
@@ -30,7 +30,7 @@ if ! command -v op >/dev/null 2>&1; then
 fi
 
 token_status=0
-"$repo/op-token.sh" || token_status=$?
+"$dir/op-token.sh" || token_status=$?
 case "$token_status" in
   0) ;;
   2)
@@ -40,4 +40,4 @@ case "$token_status" in
   *) exit 1 ;;
 esac
 
-"$repo/ssh-key.sh" "$item" "$HOME/.ssh/id_vm"
+"$dir/ssh-key.sh" "$item" "$HOME/.ssh/id_vm"

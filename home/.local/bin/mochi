@@ -40,7 +40,7 @@ export MOCHI_ENV_FILE
 
 # The standing orders every session mochi starts opens on, from the plugin in the checkout
 # this wrapper runs from rather than wherever the binary in the cache was built.
-MOCHI_BRIEFING="${MOCHI_BRIEFING:-$repo/claude-plugins/mochi/briefing.md}"
+MOCHI_BRIEFING="${MOCHI_BRIEFING:-$repo/account/claude-plugins/mochi/briefing.md}"
 export MOCHI_BRIEFING
 
 . "$repo/home/.local/libexec/go-tool"

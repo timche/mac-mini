@@ -164,8 +164,8 @@ Nothing here installs the Developer ID certificate, and nothing should: electron
 `claude.sh` is the second phase and the part that needs an account. It installs no packages of its own — every package is the `Brewfile`'s — and runs four steps in order:
 
 1. `install.sh` links this checkout into `$HOME` and `~/.claude` and installs the tooling those files configure.
-2. `claude/login.sh` logs in to GitHub and to Claude Code, both of which want a browser on some other machine, and reruns `install.sh` for the half that wanted a token.
-3. `claude/signing-key.sh` writes the commit-signing key into `~/.ssh` and registers its public half, and `claude/vm-key.sh` writes `~/.ssh/id_vm`, the key sessions reach the local VMs with, from `op://dev/vm-ssh`. Both go through `claude/ssh-key.sh`.
+2. `account/login.sh` logs in to GitHub and to Claude Code, both of which want a browser on some other machine, and reruns `install.sh` for the half that wanted a token.
+3. `account/signing-key.sh` writes the commit-signing key into `~/.ssh` and registers its public half, and `account/vm-key.sh` writes `~/.ssh/id_vm`, the key sessions reach the local VMs with, from `op://dev/vm-ssh`. Both go through `account/ssh-key.sh`.
 4. [shibuya](shibuya/README.md) is deployed, and its ping token made if the Mac has none, so a fresh Mac checks in rather than being reported offline a quarter of an hour after its first sweep.
 
 `install.sh` first, because `login.sh` logs in to a Claude Code that `install.sh` is what installs, and `signing-key.sh` writes the `user.email` from the `.gitconfig` `install.sh` links. shibuya last, because both of its scripts reach 1Password through `op run` with the service-account token `signing-key.sh` stores — a Mac that has no token file yet has shibuya skipped and said so, and a deploy that fails is reported rather than fatal. This is the only deploy nobody asks for; `install.sh` runs neither step. Run `claude.sh` again when a token expires; run `install.sh` alone after a pull that changed a link or a tool.
@@ -180,7 +180,6 @@ The GitHub token goes in a file rather than the login keychain (`gh auth login -
 | --- | --- |
 | `home/.claude/CLAUDE.md` `settings.json` | Global instructions; hooks, effort, permission mode |
 | `home/.claude/skills/` `hooks/` | Personal skills, and the scripts the hooks call |
-| `claude-plugins/` | A local plugin marketplace: the `mochi` plugin, on only in the repositories mochi serves |
 | `home/.claude/agents/` | Custom subagents: the model, effort and instructions each role runs with |
 | `home/.zshrc` `.zshenv` `.zprofile` `.bashrc` `.gitconfig` | Shell, PATH, prompt, signed commits |
 | `home/.config/starship.toml` | The prompt |
@@ -194,6 +193,8 @@ The GitHub token goes in a file rather than the login keychain (`gh auth login -
 | `home/Library/LaunchAgents/` | The agents launchd runs |
 | `home/.local/bin/` | The machine's own scripts: an entry per Go tool — hachiko's, mochi's and claude-hooks' — the `op` wrapper, the window screenshot, the foreground lock |
 | `home/.local/libexec/go-tool` | The build-in-place arrangement those three entries share, sourced out of the checkout and linked nowhere |
+| `account/` | The account half's scripts: what `claude.sh` runs in the order its comments give, and the two `install.sh` reaches for |
+| `account/claude-plugins/` | A local plugin marketplace: the `mochi` plugin, on only in the repositories mochi serves |
 | `machine/` | The machine half's scripts, which `machine.sh` runs in the order its comments give |
 | `machine/system/` | What lands outside `$HOME` as a root-owned copy: the claude-root helper, the sudoers rule naming it, the sshd drop-in |
 | `machine/launchd/` | The herdr launcher's source, which is what that agent starts |
@@ -242,7 +243,7 @@ Four git hooks are defined in `.gitconfig` as config hooks, which git 2.54 runs 
 
 ## The signing key
 
-The key is the same one every machine here signs with, and it lives in 1Password. `claude/signing-key.sh` writes it to this Mac as two files: `~/.ssh/id_signing`, mode 600 in a directory at 700, and `~/.ssh/id_signing.pub` beside it, which is what `.gitconfig` names as `user.signingkey`. Nothing asks an ssh-agent for a key, so nothing has to be running for a commit to sign — there is no job to load and no socket to find, whether the session came in over SSH, out of a LaunchAgent or from a pane of the herdr server. The third derived file is `~/.ssh/allowed_signers`, a principal and a public key so that git can verify what it signs.
+The key is the same one every machine here signs with, and it lives in 1Password. `account/signing-key.sh` writes it to this Mac as two files: `~/.ssh/id_signing`, mode 600 in a directory at 700, and `~/.ssh/id_signing.pub` beside it, which is what `.gitconfig` names as `user.signingkey`. Nothing asks an ssh-agent for a key, so nothing has to be running for a commit to sign — there is no job to load and no socket to find, whether the session came in over SSH, out of a LaunchAgent or from a pane of the herdr server. The third derived file is `~/.ssh/allowed_signers`, a principal and a public key so that git can verify what it signs.
 
 The private half goes from `op read` down a pipe into a temporary file in `~/.ssh` under `umask 077` and then a rename, so it is never under a world-readable `TMPDIR`, never briefly readable at its final path, and never in a variable, a trace or an argument. What bounds it is the account, which can read that file and can equally read the service-account token and fetch the same key from 1Password. The key signs commits and authenticates nothing, and GitHub revokes it in one click.
 
@@ -251,7 +252,7 @@ None of the three files is a second source: the script rewrites the trust list f
 What it expects:
 
 - A 1Password item with the key in it, at `op://dev/ssh-commit-signing`, whose `private key` and `public key` fields are the two halves. `SIGNING_KEY_OP_ITEM` names a different one.
-- A 1Password service account with read access to that vault. `claude/op-token.sh`, which `signing-key.sh` calls, asks for its token once without echoing it, checks it can read the item, and stores it in `~/.config/op/service-account-token`, where `signing-key.sh` reads it and the `op` wrapper does for every `op run`. After rotating the token in 1Password, run `claude/op-token.sh --replace` at a terminal to store the new one.
+- A 1Password service account with read access to that vault. `account/op-token.sh`, which `signing-key.sh` calls, asks for its token once without echoing it, checks it can read the item, and stores it in `~/.config/op/service-account-token`, where `signing-key.sh` reads it and the `op` wrapper does for every `op run`. After rotating the token in 1Password, run `account/op-token.sh --replace` at a terminal to store the new one.
 
 ```sh
 ls -l ~/.ssh/id_signing ~/.ssh/id_signing.pub         # the key, 600 and 644
@@ -259,7 +260,7 @@ ssh-keygen -y -f ~/.ssh/id_signing                    # the public half it carri
 git commit --allow-empty -m test && git log --format='%G?' -1
 ```
 
-`error: No private key found for public key "…/.ssh/id_signing.pub"` means the public half is there and the private one is not, which is a `claude/signing-key.sh` away. `error: user.signingKey needs to be set for ssh signing` means the config itself is not in place, so `./install.sh` has not linked `.gitconfig`.
+`error: No private key found for public key "…/.ssh/id_signing.pub"` means the public half is there and the private one is not, which is a `account/signing-key.sh` away. `error: user.signingKey needs to be set for ssh signing` means the config itself is not in place, so `./install.sh` has not linked `.gitconfig`.
 
 ## The project docs
 
@@ -326,7 +327,7 @@ There are four assert scripts. `test/assert-machine.sh`, `test/assert.sh` and `t
 
 The compiled tools are the one part the assert scripts deliberately do not test. `go vet`, `go test ./...` and a pinned `govulncheck` run for each of them and for `discord/` in the same job, and that is where every rule a tool decides by is checked, against injected seams rather than against the Mac. What `test/assert.sh` adds is the wiring Go cannot see: that the wrapper is linked and runs, that the agents are valid plists and loaded, and that the wrapper's own gate works — a tree whose tests fail leaves the last binary that passed in place, checked against a copy of the checkout, since it has to break a test on purpose and the wrapper builds from the working tree it would be broken in. [shibuya](shibuya/README.md)'s `npm test` and a `wrangler deploy --dry-run` are in that job too, although nothing about them needs a Mac: they run in workerd, and this is the job that has mise's node.
 
-Two tests do what no file read can. `test/signing-key.sh` runs the real `claude/signing-key.sh` against a throwaway `HOME` with a stub `op` on PATH, and refuses to run outside CI unless `MAC_MINI_TEST_ANYWAY=1`, since it would register its throwaway key on whatever GitHub account `gh` is logged in to. `test/sync-agent.sh` loads a plist under a label of its own and asserts what only a real `bootstrap` can: that a symlinked plist loads, that the `HOME` launchd hands a gui-domain job is what the shell expands, and that the status reaching `KeepAlive` is the program's.
+Two tests do what no file read can. `test/signing-key.sh` runs the real `account/signing-key.sh` against a throwaway `HOME` with a stub `op` on PATH, and refuses to run outside CI unless `MAC_MINI_TEST_ANYWAY=1`, since it would register its throwaway key on whatever GitHub account `gh` is logged in to. `test/sync-agent.sh` loads a plist under a label of its own and asserts what only a real `bootstrap` can: that a symlinked plist loads, that the `HOME` launchd hands a gui-domain job is what the shell expands, and that the status reaching `KeepAlive` is the program's.
 
 A local run is `./install.sh && test/assert.sh` on the Mac itself, the quick check after a change to the account half, and `./machine.sh && test/assert-machine.sh` for the other one. Both run against a Mac that is already built, so the fresh-Mac path is CI's alone and a change to it is tried by pushing the branch and reading that job — and not from nothing even there, since a hosted runner arrives with Homebrew and the command line tools already.
 

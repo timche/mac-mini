@@ -18,7 +18,7 @@ on:
       - mochi/**
       - claude-hooks/**
       - shibuya/**
-      - claude/**
+      - account/**
       - machine/**
       - test/**
       - .github/**

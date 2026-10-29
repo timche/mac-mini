@@ -4,7 +4,7 @@
 # claude.sh because both want a person at the keyboard, and kept a script of its
 # own because it is what you rerun when one was skipped or has since expired.
 # The tailnet is the machine's business rather than an account's, so tailscale.sh
-# stays in the generic half.
+# stays in machine/.
 #
 # Neither of them is fatal. By the time this runs the machine is built; what is
 # missing is an account on it, and that can be sorted out later.
@@ -13,8 +13,8 @@
 
 set -euo pipefail
 
-repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-root="$(cd "$repo/.." && pwd)"
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo="$(cd "$dir/.." && pwd)"
 
 if [ ! -t 0 ]; then
   echo "login.sh needs a terminal for the browser flows — run it directly." >&2
@@ -51,7 +51,7 @@ EOF
   # and its personal half are cloned; asking also skips the prompt.
   gh auth login --hostname github.com --git-protocol https --web \
     --insecure-storage --scopes write:ssh_signing_key ||
-    echo "gh login did not finish — rerun $repo/login.sh to try again" >&2
+    echo "gh login did not finish — rerun $dir/login.sh to try again" >&2
 fi
 
 # install.sh skipped its gh-authenticated half on the way here — the project
@@ -63,7 +63,7 @@ if [ "$gh_was_authenticated" = false ] && gh auth status >/dev/null 2>&1; then
   echo "gh is logged in now — rerunning install.sh for the parts that needed it."
   echo
 
-  "$root/install.sh"
+  "$repo/install.sh"
 fi
 
 # Claude Code
@@ -75,7 +75,7 @@ export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$PATH"
 
 if ! command -v claude >/dev/null 2>&1; then
   echo "claude is not installed, so it was not logged in — install.sh is what" >&2
-  echo "installs it; run $root/install.sh and rerun $repo/login.sh" >&2
+  echo "installs it; run $repo/install.sh and rerun $dir/login.sh" >&2
 elif claude auth status >/dev/null 2>&1; then
   echo "claude is already authenticated"
 else
@@ -94,7 +94,7 @@ other way to carry it.
 EOF
 
   claude auth login ||
-    echo "claude login did not finish — rerun $repo/login.sh to try again" >&2
+    echo "claude login did not finish — rerun $dir/login.sh to try again" >&2
 fi
 
 # The credential is only half of it: the TUI gates its first run on setup state

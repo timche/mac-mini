@@ -28,7 +28,7 @@ ping_token="${SHIBUYA_TOKEN_FILE:-$HOME/.hachiko/shibuya-token}"
 op_token="${OP_SERVICE_ACCOUNT_TOKEN_FILE:-$HOME/.config/op/service-account-token}"
 if [ -z "${OP_SERVICE_ACCOUNT_TOKEN:-}" ] && [ ! -f "$op_token" ]; then
   echo "no 1Password service-account token, so shibuya cannot be deployed — run" \
-       "claude/signing-key.sh, which stores one" >&2
+       "account/signing-key.sh, which stores one" >&2
   exit 1
 fi
 

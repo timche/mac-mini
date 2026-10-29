@@ -20,7 +20,7 @@ set -euo pipefail
 # print it.
 set +x
 
-repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 key_file="$HOME/.ssh/id_signing.pub"
 
@@ -40,7 +40,7 @@ fi
 
 if [ -z "$public" ]; then
   echo "$key_file is not there and $item could not be read, so nothing was" >&2
-  echo "registered — run $repo/signing-key.sh first" >&2
+  echo "registered — run $dir/signing-key.sh first" >&2
   exit 0
 fi
 

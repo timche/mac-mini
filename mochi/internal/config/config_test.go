@@ -100,11 +100,11 @@ func TestPathsComeFromTheEnvironment(t *testing.T) {
 	if want := filepath.Join(home, ".mochi", "mochi.env.op"); cfg.EnvFile != want {
 		t.Errorf("env file = %s", cfg.EnvFile)
 	}
-	if want := filepath.Join(home, ".mac-mini", "claude-plugins", "mochi", "briefing.md"); cfg.Briefing != want {
+	if want := filepath.Join(home, ".mac-mini", "account", "claude-plugins", "mochi", "briefing.md"); cfg.Briefing != want {
 		t.Errorf("briefing = %s", cfg.Briefing)
 	}
-	t.Setenv("MOCHI_BRIEFING", "/checkout/claude-plugins/mochi/briefing.md")
-	if cfg, _ := FromEnv(); cfg.Briefing != "/checkout/claude-plugins/mochi/briefing.md" {
+	t.Setenv("MOCHI_BRIEFING", "/checkout/account/claude-plugins/mochi/briefing.md")
+	if cfg, _ := FromEnv(); cfg.Briefing != "/checkout/account/claude-plugins/mochi/briefing.md" {
 		t.Errorf("briefing = %s", cfg.Briefing)
 	}
 	if cfg.SessionDir("123") != filepath.Join(cfg.StateDir, "sessions", "123") {

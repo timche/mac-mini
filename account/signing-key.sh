@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Install the commit-signing key. Claude-side rather than part of the machine,
+# Install the commit-signing key. The account's rather than the machine's,
 # because it is not how the Mac is reached but how it signs as the person whose
 # accounts it works from: home/.gitconfig names ~/.ssh/id_signing.pub, this is
 # what writes both halves of that key, and register-signing-key.sh puts the
@@ -25,7 +25,7 @@
 
 set -euo pipefail
 
-repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 allowed_signers="$HOME/.ssh/allowed_signers"
 key="$HOME/.ssh/id_signing"
@@ -52,7 +52,7 @@ if ! command -v op >/dev/null 2>&1; then
 fi
 
 token_status=0
-"$repo/op-token.sh" || token_status=$?
+"$dir/op-token.sh" || token_status=$?
 case "$token_status" in
   0) ;;
   2)
@@ -62,7 +62,7 @@ case "$token_status" in
   *) exit 1 ;;
 esac
 
-"$repo/ssh-key.sh" "$item" "$key"
+"$dir/ssh-key.sh" "$item" "$key"
 
 key_body() {
   awk 'NF >= 2 { print $1" "$2 }'
@@ -105,7 +105,7 @@ trust_signer() {
 
 trust_signer
 
-"$repo/register-signing-key.sh"
+"$dir/register-signing-key.sh"
 
 cat <<EOF
 

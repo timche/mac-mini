@@ -58,7 +58,7 @@ while IFS= read -r repo; do
          "not turned on there: a setting written there could be committed for everyone." \
          "Add .claude/settings.local.json to its .gitignore, or check that" \
          "~/.config/git/ignore is linked and nothing in the repository un-ignores it," \
-         "then rerun claude/mochi-plugin.sh" >&2
+         "then rerun account/mochi-plugin.sh" >&2
     continue
   fi
 

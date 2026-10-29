@@ -34,7 +34,7 @@ check() {
 # calls register-signing-key.sh, and on a Mac with gh logged in that would put a
 # throwaway key on the real GitHub account.
 if [ "${CI:-}" != true ] && [ "${MAC_MINI_TEST_ANYWAY:-}" != 1 ]; then
-  echo "signing-key.sh runs the real claude/signing-key.sh, which would register its" >&2
+  echo "signing-key.sh runs the real account/signing-key.sh, which would register its" >&2
   echo "throwaway key on whatever GitHub account gh is logged in to — run it on a" >&2
   echo "throwaway machine, or set MAC_MINI_TEST_ANYWAY=1 if you are certain." >&2
   exit 1
@@ -95,8 +95,8 @@ HOME="$home" git config --global user.signingkey '~/.ssh/id_signing.pub'
 HOME="$home" git config --global gpg.ssh.allowedSignersFile '~/.ssh/allowed_signers'
 HOME="$home" git config --global commit.gpgsign true
 
-echo "--- claude/signing-key.sh"
-if ! HOME="$home" "$root/claude/signing-key.sh"; then
+echo "--- account/signing-key.sh"
+if ! HOME="$home" "$root/account/signing-key.sh"; then
   echo "  FAIL  signing-key.sh exited non-zero"
   failures=$((failures + 1))
 fi
@@ -146,8 +146,8 @@ check "a commit cannot sign with the private half out of reach" \
 
 # Documented as safe to re-run, so prove it: nothing may be rewritten, and the key
 # has to come out of it still signing.
-echo "--- claude/signing-key.sh again"
-if ! HOME="$home" "$root/claude/signing-key.sh"; then
+echo "--- account/signing-key.sh again"
+if ! HOME="$home" "$root/account/signing-key.sh"; then
   echo "  FAIL  signing-key.sh is not idempotent"
   failures=$((failures + 1))
 fi

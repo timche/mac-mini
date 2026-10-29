@@ -21,7 +21,7 @@ func shipped(t *testing.T, parts ...string) string {
 // the rules a session is given are the ones tested here.
 func plugin() string {
 	_, here, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(here), "..", "..", "..", "claude-plugins", "mochi")
+	return filepath.Join(filepath.Dir(here), "..", "..", "..", "account", "claude-plugins", "mochi")
 }
 
 // The briefing every opening carries; the fixture reads it where the listener does.

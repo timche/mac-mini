@@ -34,18 +34,18 @@ check() {
 # the ones that would otherwise open a browser flow, because that failure mode is a
 # hang rather than an exit status.
 check "login.sh exits without a terminal" \
-  '"$root/claude/login.sh" < /dev/null'
+  '"$root/account/login.sh" < /dev/null'
 check "op-token.sh skips without a terminal or a stored token" \
-  'OP_SERVICE_ACCOUNT_TOKEN_FILE="$(mktemp -u)" "$root/claude/op-token.sh" < /dev/null; [ $? -eq 2 ]'
+  'OP_SERVICE_ACCOUNT_TOKEN_FILE="$(mktemp -u)" "$root/account/op-token.sh" < /dev/null; [ $? -eq 2 ]'
 check "op-token.sh --replace refuses without a terminal" \
-  '! OP_SERVICE_ACCOUNT_TOKEN_FILE="$(mktemp -u)" "$root/claude/op-token.sh" --replace < /dev/null'
+  '! OP_SERVICE_ACCOUNT_TOKEN_FILE="$(mktemp -u)" "$root/account/op-token.sh" --replace < /dev/null'
 check "signing-key.sh exits without a terminal or a stored token" \
-  'OP_SERVICE_ACCOUNT_TOKEN_FILE="$(mktemp -u)" "$root/claude/signing-key.sh" < /dev/null'
+  'OP_SERVICE_ACCOUNT_TOKEN_FILE="$(mktemp -u)" "$root/account/signing-key.sh" < /dev/null'
 # A HOME of its own, so that the key file a provisioned Mac has cannot answer for
 # the one a fresh Mac does not.
 check "register-signing-key.sh skips with no key file, no vault and no gh" \
   'HOME="$(mktemp -d)" OP_SERVICE_ACCOUNT_TOKEN_FILE="$(mktemp -u)" \
-     "$root/claude/register-signing-key.sh"'
+     "$root/account/register-signing-key.sh"'
 
 # Several of these are run by launchd or by a bootstrap with nothing watching,
 # neither of which would say why a syntax error stopped one.

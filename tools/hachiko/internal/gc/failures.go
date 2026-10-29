@@ -9,7 +9,7 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
-// The six things a sweep can fail at. Routine cleanup is a log and nothing else — this is
+// The seven things a sweep can fail at. Routine cleanup is a log and nothing else — this is
 // what Tim hears about, because every one of them is work left undone that the next sweep
 // will fail at in exactly the same way.
 const (
@@ -19,6 +19,7 @@ const (
 	failedRemove      = "remove"
 	failedPrune       = "git-prune"
 	failedDockerPrune = "prune"
+	failedWorktree    = "worktree-remove"
 )
 
 // The labels these messages go under. Here rather than in wording because they are gc's own
@@ -33,6 +34,7 @@ const (
 	labelProcess  = "Process"
 	labelCommand  = "Command"
 	labelPrune    = "Prune"
+	labelPull     = "Pull request"
 	labelSaid     = "What it said"
 	labelSince    = "Failing since"
 )
@@ -59,6 +61,30 @@ func (s *sweeper) failed(f Failure) {
 	s.failures = append(s.failures, f)
 }
 
+// A failure of one kind that is still open on a sweep which did not run the pass that finds
+// it. The failure model says a thing has stopped failing when a sweep did not fail at it,
+// and that is right for the four passes that run every ten minutes — but the prune is a day
+// apart and the merged sweep an hour, so the same reading there would be a 🟢 about work
+// nothing has attempted since it failed.
+//
+// Silent, and carrying what the command said with it: a failure whose message never left
+// the machine is one the next sweep sends again, and a sweep that did not run the pass has
+// nothing of its own to say about why. The record is what has to hold it.
+func (s *sweeper) keepOpen(state *State, kind string, label func(Posted) string) {
+	for _, key := range sortedKeys(state.Posted) {
+		rec := state.Posted[key]
+		if rec.Kind != kind {
+			continue
+		}
+
+		f := Failure{Kind: rec.Kind, Subject: rec.Subject, Detail: rec.Detail}
+		if label != nil {
+			f.Label = label(rec)
+		}
+		s.failures = append(s.failures, f)
+	}
+}
+
 // The log's version, which is one line and carries no markdown.
 func (f Failure) line() string {
 	switch f.Kind {
@@ -72,6 +98,8 @@ func (f Failure) line() string {
 		return fmt.Sprintf("docker would not prune its %s: %s", safe(f.Subject), f.Detail)
 	case failedRemove:
 		return fmt.Sprintf("%s could not be removed: %s", safe(f.Subject), f.Detail)
+	case failedWorktree:
+		return fmt.Sprintf("the merged worktree %s would not go: %s", safe(f.Subject), f.Detail)
 	default:
 		return fmt.Sprintf("%s's worktree entries could not be pruned: %s", safe(f.Subject), f.Detail)
 	}
@@ -172,6 +200,14 @@ func (f Failure) message(host string, since, now time.Time) string {
 		m.Field(labelProcess, f.Label).Field(labelCommand, wording.CodeSpan(short(f.Detail)))
 	case failedRemove:
 		m.Field(labelFolder, wording.CodeSpan(short(f.Subject)))
+	case failedWorktree:
+		// The pull request only where this sweep is the one that found it: a failure carried
+		// over from an earlier sweep's record has the subject and what git said, and naming
+		// one it did not read would be naming one it guessed at.
+		m.Field(labelWorktree, wording.CodeSpan(short(f.Subject)))
+		if f.Label != "" {
+			m.Field(labelPull, f.Label)
+		}
 	case failedPrune:
 		m.Field(labelRepo, wording.CodeSpan(short(f.Subject)))
 	case failedDockerPrune:
@@ -210,6 +246,10 @@ func (f Failure) action() string {
 	case f.Kind == failedPrune:
 		return "**Needs you:** run " + wording.CodeSpan("git worktree prune -v") +
 			" in the repository named above and see what it says."
+	case f.Kind == failedWorktree:
+		return "**Needs you:** the worktree above is a merged pull request's, and nothing " +
+			"was using it when the sweep tried. Remove it by hand and see what git says; " +
+			"the sweep tries again every hour."
 	case f.Kind == failedDockerPrune:
 		return "**You can run:** " + wording.CodeSpan(f.Label) +
 			" — the sweep tries it again at its next daily prune, and nothing but disk is at stake."
@@ -235,6 +275,8 @@ func failSentence(kind string) string {
 		return "A finished session's scratch folder would not go"
 	case failedDockerPrune:
 		return "Docker would not prune what nothing is using"
+	case failedWorktree:
+		return "A merged pull request's worktree would not go"
 	default:
 		return "A repository's worktree entries would not prune"
 	}
@@ -252,6 +294,8 @@ func clearSentence(kind string) string {
 		return "The scratch folder that would not go is gone now"
 	case failedDockerPrune:
 		return "Docker prunes what nothing is using again"
+	case failedWorktree:
+		return "The merged pull request's worktree is gone now"
 	default:
 		return "A repository's worktree entries prune cleanly again"
 	}
@@ -277,6 +321,8 @@ func subjectLabel(kind string) string {
 		return labelProcess
 	case failedRemove:
 		return labelFolder
+	case failedWorktree:
+		return labelWorktree
 	case failedDockerPrune:
 		return labelPrune
 	default:

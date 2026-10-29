@@ -8,7 +8,8 @@
 // that alert — the on-call session hachiko opens in herdr to work an incident, the two
 // commands that session runs for itself, and the listener that takes Tim's reply to it out
 // of Discord. `hachiko gc` is the other thing a Mac with nobody at it needs: every ten
-// minutes it sweeps what a removed worktree and a finished session left behind. `hachiko
+// minutes it sweeps what a removed worktree and a finished session left behind, and once an
+// hour it removes the worktree of a branch whose pull request has merged. `hachiko
 // sync` is the third, and the one that never finishes: it polls the repositories it is given
 // and commits and pushes what gets written in them, so a session's work publishes itself.
 //
@@ -64,8 +65,10 @@ const usage = `usage: hachiko [--dry-run | --test-alert]
                      sync keeps upstream, and the logs it caps. Reads and nothing else
   gc                 sweep what a removed worktree and a finished session left behind:
                      their compose projects, volumes, processes and scratch folders,
-                     and once a day docker's build cache and the images nothing refers
-                     to; --dry-run says what a sweep would do and changes nothing
+                     once an hour the worktree of a branch whose pull request has
+                     merged and nothing is using, and once a day docker's build cache
+                     and the images nothing refers to; --dry-run says what a sweep
+                     would do and changes nothing
   sync               commit and push the repositories ~/.hachiko/sync lists, as
                      they change, until stopped; --once is one pass over every one of
                      them with the push delay ignored, and --dry-run says what the

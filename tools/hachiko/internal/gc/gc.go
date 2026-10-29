@@ -1,7 +1,9 @@
 // Package gc sweeps what a finished session leaves behind: a removed worktree's compose
 // project and the volumes that project made, the processes still sitting in its folder, the
 // scratch folder of a session nobody is running any more, and the worktree entries git
-// keeps for folders that are gone. Once a day it also prunes docker's build cache and the
+// keeps for folders that are gone. Once an hour it also removes the worktree itself where
+// the pull request on its branch has merged and nothing is using it, which is the session's
+// own duty that a session can forget; once a day it prunes docker's build cache and the
 // images nothing refers to, which are the one thing here that grows whether or not anything
 // was left behind. It runs from the io.github.timche.hachiko-gc LaunchAgent.
 //
@@ -62,6 +64,12 @@ type sweeper struct {
 	// costs the whole of `docker info`'s timeout to establish.
 	dockerUp    bool
 	dockerKnown bool
+
+	// Which directory every process on the machine is sitting in, asked once for the same
+	// reason: one lsof over all of them, and two sweeps read it.
+	cwds      []CWD
+	cwdsErr   error
+	cwdsKnown bool
 }
 
 // Only ever one line of output per thing done, and nothing at all on a quiet sweep: this
@@ -98,6 +106,11 @@ func (s *sweeper) run() error {
 		// removal — so it removes no volume this run rather than stopping.
 		s.say("%v", err)
 	}
+
+	// First, because it is the one pass that makes a worktree gone rather than reacting to
+	// one that is: a worktree it removes here is one the four passes below sweep up in this
+	// same run, its compose project, its volumes and its processes together.
+	s.mergedWorktrees(state, now)
 
 	// The order the bash script swept in, with the volumes behind the compose projects: a
 	// project this sweep has just taken down has no volumes left to find, so the record of

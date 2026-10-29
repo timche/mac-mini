@@ -75,6 +75,17 @@ type fixture struct {
 	pruneOut map[string]string
 	pruneErr map[string]string
 
+	// The merged sweep's two outside answers. git itself is the real one, so a rule about a
+	// dirty tree, a commit's ancestry or a worktree being removed is tested by git: what is
+	// faked is what GitHub says about a branch and what herdr says it has open.
+	ghUp       bool
+	merged     map[string]*PullRequest
+	mergedErr  map[string]string
+	asked      []string
+	herdrHolds map[string]bool
+	herdrErr   string
+	listed     []string
+
 	sent    []discord.Outgoing
 	sendErr string
 	threads int
@@ -92,14 +103,18 @@ func newFixture(t *testing.T) *fixture {
 
 		dockerUp: true,
 		gitUp:    true,
+		ghUp:     true,
 
-		downErr:   map[string]string{},
-		volumeErr: map[string]string{},
-		alive:     map[int]bool{},
-		stubborn:  map[int]bool{},
-		immortal:  map[int]bool{},
-		pruneOut:  map[string]string{},
-		pruneErr:  map[string]string{},
+		downErr:    map[string]string{},
+		volumeErr:  map[string]string{},
+		alive:      map[int]bool{},
+		stubborn:   map[int]bool{},
+		immortal:   map[int]bool{},
+		pruneOut:   map[string]string{},
+		pruneErr:   map[string]string{},
+		merged:     map[string]*PullRequest{},
+		mergedErr:  map[string]string{},
+		herdrHolds: map[string]bool{},
 
 		// Nothing old enough to prune, which is what the daily prune finds on all but the
 		// first run of a day — and what keeps a sweep with nothing else to do a quiet one.
@@ -114,7 +129,9 @@ func newFixture(t *testing.T) *fixture {
 		cfg: config.Config{
 			GCPruneEvery:   24 * time.Hour,
 			GCPruneAge:     "168h",
+			GCMergedEvery:  time.Hour,
 			Home:           home,
+			MachineDir:     filepath.Join(home, ".mac-mini"),
 			HerdrRoot:      filepath.Join(home, ".herdr", "worktrees"),
 			ScratchRoot:    filepath.Join(home, ".cache", "claude-tmp"),
 			GCProjectsRoot: filepath.Join(home, "projects"),
@@ -180,6 +197,23 @@ func (f *fixture) deps() Deps {
 				return []byte(said), fmt.Errorf("exit status 128")
 			}
 			return []byte(f.pruneOut[repo]), nil
+		},
+
+		GitIn: real.GitIn,
+		GH:    func() bool { return f.ghUp },
+		MergedPR: func(dir, branch string) (*PullRequest, error) {
+			f.asked = append(f.asked, branch)
+			if said, bad := f.mergedErr[branch]; bad {
+				return nil, fmt.Errorf("%s", said)
+			}
+			return f.merged[branch], nil
+		},
+		HerdrWorktrees: func(repo string) (map[string]bool, error) {
+			f.listed = append(f.listed, repo)
+			if f.herdrErr != "" {
+				return nil, fmt.Errorf("%s", f.herdrErr)
+			}
+			return f.herdrHolds, nil
 		},
 
 		Send: f.send,

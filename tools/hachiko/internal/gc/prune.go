@@ -96,27 +96,10 @@ func (s *sweeper) pruneFailed(subject, detail string) {
 	})
 }
 
-// A prune failure that is still open on a sweep which did not prune. The failure model says
-// one thing has stopped failing when a sweep did not fail at it, and that is right for the
-// four passes that run every ten minutes — but the next prune is a day away, so the same
-// reading here would be a 🟢 about a command nothing has run since it failed.
-//
-// Silent, and carrying what docker said with it: a failure whose message never left the
-// machine is one the next sweep sends again, and a sweep that did not prune has nothing of its
-// own to say about why. The record is what has to hold it.
 func (s *sweeper) keepOpenPrunes(state *State) {
-	for _, key := range sortedKeys(state.Posted) {
-		rec := state.Posted[key]
-		if rec.Kind != failedDockerPrune {
-			continue
-		}
-		s.failures = append(s.failures, Failure{
-			Kind:    rec.Kind,
-			Subject: rec.Subject,
-			Detail:  rec.Detail,
-			Label:   pruneCommand(rec.Subject, s.cfg.GCPruneAge),
-		})
-	}
+	s.keepOpen(state, failedDockerPrune, func(rec Posted) string {
+		return pruneCommand(rec.Subject, s.cfg.GCPruneAge)
+	})
 }
 
 // The command as Tim would run it, built out of the subject and the age and nothing that

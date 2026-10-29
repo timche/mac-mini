@@ -20,6 +20,17 @@ const termGrace = 10
 // reparented to reaps in microseconds.
 const killGrace = 2 * time.Second
 
+// Asked once per sweep: one lsof over every process on the machine is the most expensive
+// read here, and two passes need it — this one, and the merged sweep, for which a process
+// sitting in a worktree is the plainest sign that somebody is still working in it.
+func (s *sweeper) openDirs() ([]CWD, error) {
+	if !s.cwdsKnown {
+		s.cwds, s.cwdsErr = s.deps.CWDs()
+		s.cwdsKnown = true
+	}
+	return s.cwds, s.cwdsErr
+}
+
 // A process whose cwd no longer exists, inside a worktree that no longer exists. Both
 // halves matter: a cwd that is still there belongs to a session that is still working, and
 // a removed subdirectory of a worktree that survived is the project's business rather than
@@ -31,7 +42,7 @@ func (s *sweeper) processes() {
 		return
 	}
 
-	open, err := s.deps.CWDs()
+	open, err := s.openDirs()
 	if err != nil {
 		s.say("lsof would not say which directory anything is in, so nothing left in a removed worktree was touched: %v", err)
 		return

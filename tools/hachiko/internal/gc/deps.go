@@ -2,6 +2,9 @@ package gc
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -73,6 +76,28 @@ type Deps struct {
 	Git   func() bool
 	Prune func(repo string, dry bool) ([]byte, error)
 
+	// git in one directory, for the questions the merged sweep asks about a worktree and the
+	// two commands that remove it. One runner rather than a function per question, because
+	// the tests give it real repositories in temp directories: a rule about a dirty tree or
+	// about a commit's ancestry is only tested by a git that answers for real.
+	GitIn func(dir string, args ...string) ([]byte, error)
+
+	// Whether there is a gh on PATH. Absent is a sweep that skips the merged pass in
+	// silence, the way a stopped docker daemon skips the two docker passes.
+	GH func() bool
+
+	// The merged pull request for a branch, or nil where there is none. GitHub rather than
+	// git, and the reason this pass costs the network at all: a squash merge is the norm
+	// here, so a merged branch's commits are nowhere in the base's history and no local
+	// test can see the merge.
+	MergedPR func(dir, branch string) (*PullRequest, error)
+
+	// Which of a repository's worktrees herdr has a workspace open on, which is what Tim has
+	// in his sidebar. Nil and no error where there is no herdr at all; an error where there
+	// is one that will not answer, since a sweep that cannot tell what is open removes
+	// nothing of that repository's.
+	HerdrWorktrees func(repo string) (map[string]bool, error)
+
 	// Reaches the channel Tim watches, and answers with the thread it opened. The only
 	// thing that ever sees the bot token, and it is the watch's own sender: a failure here
 	// goes out the same way an alert does.
@@ -105,6 +130,15 @@ type CWD struct {
 	Dir string
 }
 
+// PullRequest is the merged pull request of a worktree's branch, as gh answers for it. Head
+// is the last commit GitHub had on the branch, which is what says whether anything was
+// committed in the worktree after the merge.
+type PullRequest struct {
+	Number int    `json:"number"`
+	URL    string `json:"url"`
+	Head   string `json:"headRefOid"`
+}
+
 // Every subprocess here is one a stale mount or a dead daemon could stop for good, and a
 // sweep that never returns is one holding the lock that keeps the next six from running.
 // `down` gets the longest because it stops containers and waits on them.
@@ -119,6 +153,12 @@ const (
 	// whose honest worst case is minutes rather than seconds — and it runs once a day, where
 	// the others run six times an hour.
 	cachePruneTimeout = 180 * time.Second
+
+	// git in a worktree is local and answers in milliseconds, except `worktree remove`,
+	// which deletes a node_modules. gh is a round trip to GitHub, so it gets the longer of
+	// the two.
+	gitTimeout = 120 * time.Second
+	ghTimeout  = 30 * time.Second
 )
 
 func realDeps(cfg config.Config) Deps {
@@ -187,6 +227,20 @@ func realDeps(cfg config.Config) Deps {
 			return run(pruneTimeout, "git", args...)
 		},
 
+		// `--no-optional-locks` on every one of them: a plain `git status` refreshes the index
+		// and takes `index.lock` with it, in worktrees a session may be working in.
+		GitIn: func(dir string, args ...string) ([]byte, error) {
+			return run(gitTimeout, "git",
+				append([]string{"--no-optional-locks", "-C", dir}, args...)...)
+		},
+
+		GH: func() bool {
+			_, err := exec.LookPath("gh")
+			return err == nil
+		},
+		MergedPR:       mergedPR,
+		HerdrWorktrees: herdrWorktrees,
+
 		Send: func(out discord.Outgoing) (string, error) { return discord.SendThroughOP(cfg, out) },
 	}
 }
@@ -199,6 +253,87 @@ func run(limit time.Duration, name string, args ...string) ([]byte, error) {
 	defer cancel()
 
 	return exec.CommandContext(ctx, name, args...).CombinedOutput()
+}
+
+// The branch's merged pull request, asked from inside the worktree so that gh works out
+// which GitHub repository it is from the remotes git has there rather than from anything
+// this passes it. One row at most: a branch with two merged pull requests behind it is the
+// most recent one's, whose head is the furthest along.
+//
+// stdout alone, since what is parsed is JSON and gh writes its complaints on stderr — and
+// that stderr is the whole of the account of a gh that is not logged in or a repository
+// that is not on GitHub.
+func mergedPR(dir, branch string) (*PullRequest, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), ghTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "gh", "pr", "list",
+		"--head", branch, "--state", "merged", "--limit", "1",
+		"--json", "number,url,headRefOid")
+	cmd.Dir = dir
+
+	out, err := cmd.Output()
+	if err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && len(exit.Stderr) > 0 {
+			return nil, fmt.Errorf("%s", lastLine(exit.Stderr, err))
+		}
+		return nil, err
+	}
+
+	var rows []PullRequest
+	if err := json.Unmarshal(out, &rows); err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 || rows[0].Head == "" {
+		return nil, nil
+	}
+	return &rows[0], nil
+}
+
+// The repository's worktrees that herdr has a workspace open on. A workspace is the sidebar
+// entry Tim sees, so one on a worktree is a session he has open whatever is running in it —
+// and herdr's own `worktree remove` takes a workspace id, so the only worktree herdr could
+// remove for us is exactly the one this sweep has to leave alone. Hence `git worktree
+// remove` for the rest, whose sidebar entry herdr closed when the last tab left it.
+//
+// `worktree list` rather than `workspace list`: a workspace's own record carries the
+// checkout it belongs to only sometimes, where every worktree in this listing carries the
+// workspace it is open in or nothing. It is a listing and makes no workspace — the field is
+// empty for a checkout herdr has not opened.
+//
+// No herdr on PATH is no workspace open, and so no reason not to sweep. A herdr that is
+// there and will not answer is a question this cannot get an answer to, and the repository's
+// worktrees are left alone rather than guessed at.
+func herdrWorktrees(repo string) (map[string]bool, error) {
+	if _, err := exec.LookPath("herdr"); err != nil {
+		return nil, nil
+	}
+
+	out, err := run(listTimeout, "herdr", "worktree", "list", "--cwd", repo)
+	if err != nil {
+		return nil, fmt.Errorf("%s", lastLine(out, err))
+	}
+
+	var answer struct {
+		Result struct {
+			Worktrees []struct {
+				Path      string `json:"path"`
+				Workspace string `json:"open_workspace_id"`
+			} `json:"worktrees"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(out, &answer); err != nil {
+		return nil, err
+	}
+
+	held := map[string]bool{}
+	for _, worktree := range answer.Result.Worktrees {
+		if worktree.Path != "" && worktree.Workspace != "" {
+			held[worktree.Path] = true
+		}
+	}
+	return held, nil
 }
 
 func containers() ([]Container, error) {

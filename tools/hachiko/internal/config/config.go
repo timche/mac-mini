@@ -100,6 +100,13 @@ type Config struct {
 	GCPruneEvery time.Duration
 	GCPruneAge   string
 
+	// How often the sweep asks GitHub which worktrees' pull requests have merged. The one
+	// pass here that leaves the machine, and the slowest: a `gh` call per worktree in the
+	// roots, where everything else the sweep knows comes off this disk. An hour, because a
+	// worktree a session forgot to remove is one nothing is in a hurry about, and six times
+	// an hour would be a hundred and forty GitHub calls a day to be told the same thing.
+	GCMergedEvery time.Duration
+
 	// `hachiko update`, which is the one thing on this Mac that moves a version. Its own
 	// state directory and its own lock for the reason gc's are its own: an upgrade holds
 	// the lock across however long brew takes, and the five-minute check may not wait on
@@ -310,6 +317,7 @@ func FromEnv() Config {
 		GCStaleAfter:   time.Duration(envInt64("HACHIKO_GC_STALE", 3600)) * time.Second,
 		GCPruneEvery:   time.Duration(envInt64("HACHIKO_GC_PRUNE_EVERY", 86400)) * time.Second,
 		GCPruneAge:     envString("HACHIKO_GC_PRUNE_AGE", "168h"),
+		GCMergedEvery:  time.Duration(envInt64("HACHIKO_GC_MERGED_EVERY", 3600)) * time.Second,
 
 		UpdateStateDir: envString(UpdateStateDirVar, filepath.Join(state, "update")),
 		UpdateLock:     envString("HACHIKO_UPDATE_LOCK", filepath.Join(state, "update.lock")),

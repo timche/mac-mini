@@ -11,27 +11,38 @@ import (
 // where this machine's repositories are, and a .git directory rather than a file, which is
 // what a worktree itself has.
 func (s *sweeper) worktreeEntries() {
-	root := s.cfg.GCProjectsRoot
-	if !s.deps.IsDir(root) || !s.deps.Git() {
+	if !s.deps.Git() {
 		return
+	}
+	for _, repo := range s.repositories() {
+		s.pruneEntries(repo)
+	}
+}
+
+// Every repository under the projects root, where this machine's checkouts are. A checkout
+// sits at <owner>/<repo>, so a directory that is not a repository itself is the owner's
+// folder and the repositories are one level in; the docs clone, directly under the root, is
+// the other shape. A .git directory rather than a file, which is what a worktree itself has.
+func (s *sweeper) repositories() []string {
+	root := s.cfg.GCProjectsRoot
+	if !s.deps.IsDir(root) {
+		return nil
 	}
 
 	names, err := s.deps.ReadDir(root)
 	if err != nil {
-		s.say("%s could not be read, so no worktree entry was pruned: %v", safe(root), err)
-		return
+		s.say("%s could not be read, so the repositories under it were left alone: %v", safe(root), err)
+		return nil
 	}
 
+	var repos []string
 	for _, name := range names {
 		dir := filepath.Join(root, name)
 		if s.deps.IsDir(filepath.Join(dir, ".git")) {
-			s.pruneEntries(dir)
+			repos = append(repos, dir)
 			continue
 		}
 
-		// A checkout sits at <owner>/<repo>, so a directory that is not a repository itself
-		// is the owner's folder and the repositories are one level in. The docs clone, which
-		// is directly under the root, is the first branch above.
 		owned, err := s.deps.ReadDir(dir)
 		if err != nil {
 			continue
@@ -39,10 +50,11 @@ func (s *sweeper) worktreeEntries() {
 		for _, sub := range owned {
 			repo := filepath.Join(dir, sub)
 			if s.deps.IsDir(filepath.Join(repo, ".git")) {
-				s.pruneEntries(repo)
+				repos = append(repos, repo)
 			}
 		}
 	}
+	return repos
 }
 
 func (s *sweeper) pruneEntries(repo string) {

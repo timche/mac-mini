@@ -32,7 +32,7 @@ func (s *sweeper) scratch(now time.Time) {
 		return
 	}
 
-	live := s.liveSessions()
+	_, live := s.sessions()
 	since := now.Add(-scratchGrace)
 
 	for _, slug := range slugs {
@@ -93,21 +93,19 @@ func (s *sweeper) scratch(now time.Time) {
 	}
 }
 
-// The session ids of every Claude Code process still running. The record outlives the
-// process it describes, so the pid in the filename is what decides whether a session is
-// live, and the id inside is only what it claims.
-//
-// A record that is not valid JSON claims no session, which is safe on its own because the
-// folder of a session live enough to be half-written was written to this week.
-func (s *sweeper) liveSessions() map[string]bool {
+// Every Claude Code session still running: the directory each one is in, which is what says
+// a worktree is somebody's, and the session ids they claim, which is what keeps a scratch
+// folder. The record outlives the process it describes, so the pid in the filename is what
+// decides whether a session is live, and what is inside is only what it claims.
+func (s *sweeper) sessions() (dirs []string, ids map[string]bool) {
 	dir := filepath.Join(s.cfg.Home, ".claude", "sessions")
 
 	names, err := s.deps.ReadDir(dir)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 
-	live := map[string]bool{}
+	ids = map[string]bool{}
 	for _, name := range names {
 		pid, ok := strings.CutSuffix(name, ".json")
 		if !ok {
@@ -122,14 +120,23 @@ func (s *sweeper) liveSessions() map[string]bool {
 			continue
 		}
 
+		// A record that is not valid JSON claims no session, which is safe on its own because
+		// the folder of a session live enough to be half-written was written to this week.
 		var record struct {
 			SessionID string `json:"sessionId"`
+			Cwd       string `json:"cwd"`
 		}
-		if json.Unmarshal(body, &record) == nil && record.SessionID != "" {
-			live[record.SessionID] = true
+		if json.Unmarshal(body, &record) != nil {
+			continue
+		}
+		if record.SessionID != "" {
+			ids[record.SessionID] = true
+		}
+		if record.Cwd != "" {
+			dirs = append(dirs, record.Cwd)
 		}
 	}
-	return live
+	return dirs, ids
 }
 
 // A UUID as Claude Code writes one, which is the one shape of name this sweep will remove.

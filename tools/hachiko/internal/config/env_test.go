@@ -82,6 +82,16 @@ func TestThePruneDefaults(t *testing.T) {
 	harness.Equal(t, cfg.GCPruneAge, "1h", "the age a knob set")
 }
 
+// How often the sweep asks GitHub which worktrees' pull requests have merged, which is the
+// one pass there that leaves the machine.
+func TestTheMergedWorktreeInterval(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	harness.Equal(t, FromEnv().GCMergedEvery, time.Hour, "how often pull requests are read")
+
+	t.Setenv("HACHIKO_GC_MERGED_EVERY", "60")
+	harness.Equal(t, FromEnv().GCMergedEvery, time.Minute, "the interval a knob set")
+}
+
 // mochi's heartbeat is where mochi's own default cache puts it, a module this one does not
 // import, so the two paths are pinned here.
 func TestTheMochiDefaults(t *testing.T) {

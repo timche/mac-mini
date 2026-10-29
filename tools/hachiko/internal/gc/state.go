@@ -30,6 +30,10 @@ type State struct {
 	// here measured in days rather than in whether a folder is gone. Remembered because the
 	// sweep runs six times an hour and the prune is worth once a day.
 	Pruned int64 `json:"pruned,omitempty"`
+
+	// When GitHub was last asked which worktrees' pull requests have merged. Remembered for
+	// the same reason: that pass is a network call per worktree, and worth an hour.
+	Merged int64 `json:"merged,omitempty"`
 }
 
 type Project struct {

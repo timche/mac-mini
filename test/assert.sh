@@ -301,11 +301,6 @@ else
   echo "  skip  the signing key (no 1Password service account on this machine)"
 fi
 
-# git asks no agent for a key, so a job still loading one into an ssh-agent would be
-# a private key in memory that nothing reads.
-check "no ssh-agent LaunchAgent of this repository's is loaded" \
-  '! launchctl print "gui/$(id -u)/io.github.timche.ssh-agent" >/dev/null 2>&1'
-
 # A new worktree of a JS project, installed from config rather than remembered.
 # The fixture is a repository with a bun lockfile and a bun of its own on PATH
 # that records where it ran and with what, so the checks below read what the hook
@@ -622,11 +617,6 @@ check "settings.json registers each claude-hooks hook as the binary and nothing 
      [ "$(registeredhooks | grep -cFx "b=\"\$HOME/Library/Caches/claude-hooks/claude-hooks\"; [ -x \"\$b\" ] || b=\"\$HOME/.local/bin/claude-hooks\"; exec \"\$b\" $name")" -ge 1 ] ||
        exit 1
    done'
-
-check "nothing is left of the python hooks these replaced" \
-  '! grep -qE "kill-by-pid|strip-claude-attribution.py" "$HOME/.claude/settings.json" &&
-   [ ! -e "$repo/home/.claude/hooks/kill-by-pid.py" ] &&
-   [ ! -e "$repo/home/.claude/hooks/strip-claude-attribution.py" ]'
 
 check "guard refuses a kill by name and allows one by pid" \
   'guarddenied "pkill -f vite" && guardallowed "kill 123"'

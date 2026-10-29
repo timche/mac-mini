@@ -59,13 +59,12 @@ check "this repository's own CLAUDE.md stays under 2,000 words" \
 # Markdown prose is never hard-wrapped: a paragraph or list item is one line.
 # Reports each line that continues the one before it, which is exactly what an
 # unwrap would join; code fences, tables, headings, frontmatter and hard breaks
-# are left alone. The synced skills are Anthropic's and written their own way, and
-# node_modules is a Worker's dependencies — thousands of READMEs nobody here wrote,
-# present on the Mac after a `npm ci` and absent on the Linux runner, which would
-# make this pass or fail by where it ran.
+# are left alone. node_modules is a Worker's dependencies — thousands of READMEs
+# nobody here wrote, present on the Mac after a `npm ci` and absent on the Linux
+# runner, which would make this pass or fail by where it ran.
 export wrapped_prose="$(
   find "$repo" -name node_modules -prune -o -name '*.md' \
-    -not -path '*/.git/*' -not -path '*/synced/*' \
+    -not -path '*/.git/*' \
     -exec awk '
       function starts_block(s) {
         return s ~ /^[ \t]*$/ || s ~ /^[ \t]*[#|><]/ || s ~ /^[ \t]*(```|~~~)/ ||

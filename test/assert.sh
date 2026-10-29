@@ -430,11 +430,10 @@ check "no auto-sync hook is left in settings.json" \
 # Nothing under home/ spells a home directory out, and mise.toml is in it because
 # a dotfile entry there could render one in. The account differs between this Mac
 # and a runner, and a path written for one is a hook that never fires for the
-# other, silently. The synced skills are the
-# account's claude.ai copies rather than this repo's, and gitignored.
+# other, silently.
 check "no absolute home paths under home/ or in mise.toml" \
   '[ -d "$repo/home" ] && [ -f "$repo/mise.toml" ] &&
-   ! grep -rhoE --exclude-dir=synced "(^|[^A-Za-z0-9_}])/(home|Users)/[A-Za-z0-9_.-]+" \
+   ! grep -rhoE "(^|[^A-Za-z0-9_}])/(home|Users)/[A-Za-z0-9_.-]+" \
        "$repo/home" "$repo/mise.toml" | grep -q .'
 
 check "the scripts the hooks call are executable" \

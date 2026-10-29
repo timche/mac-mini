@@ -13,11 +13,7 @@ on:
       - "*.sh"
       - Brewfile
       - mise.toml
-      - hachiko/**
-      - discord/**
-      - mochi/**
-      - claude-hooks/**
-      - shibuya/**
+      - tools/**
       - account/**
       - machine/**
       - test/**
@@ -119,51 +115,51 @@ jobs:
       # -C names the checkout rather than trusting the working directory, because mise
       # decides which tools are active from the directory it is asked about and a go that
       # is not active reads as a go that is not installed.
-      - name: go vet and go test in hachiko/
+      - name: go vet and go test in tools/hachiko/
         run: |
           mise="$HOME/.local/bin/mise"
           repo="$GITHUB_WORKSPACE"
-          "$mise" exec -C "$repo" -- go vet -C "$repo/hachiko" ./...
-          "$mise" exec -C "$repo" -- go test -C "$repo/hachiko" ./...
-          test -z "$("$mise" exec -C "$repo" -- gofmt -l "$repo/hachiko")"
+          "$mise" exec -C "$repo" -- go vet -C "$repo/tools/hachiko" ./...
+          "$mise" exec -C "$repo" -- go test -C "$repo/tools/hachiko" ./...
+          test -z "$("$mise" exec -C "$repo" -- gofmt -l "$repo/tools/hachiko")"
 
       # The Discord client the tools share, a library with tests of its own.
-      - name: go vet and go test in discord/
+      - name: go vet and go test in tools/lib/discord/
         run: |
           mise="$HOME/.local/bin/mise"
           repo="$GITHUB_WORKSPACE"
-          "$mise" exec -C "$repo" -- go vet -C "$repo/discord" ./...
-          "$mise" exec -C "$repo" -- go test -C "$repo/discord" -race ./...
-          test -z "$("$mise" exec -C "$repo" -- gofmt -l "$repo/discord")"
+          "$mise" exec -C "$repo" -- go vet -C "$repo/tools/lib/discord" ./...
+          "$mise" exec -C "$repo" -- go test -C "$repo/tools/lib/discord" -race ./...
+          test -z "$("$mise" exec -C "$repo" -- gofmt -l "$repo/tools/lib/discord")"
 
       # mochi the same way, built against the Discord client beside it.
-      - name: go vet and go test in mochi/
+      - name: go vet and go test in tools/mochi/
         run: |
           mise="$HOME/.local/bin/mise"
           repo="$GITHUB_WORKSPACE"
-          "$mise" exec -C "$repo" -- go vet -C "$repo/mochi" ./...
-          "$mise" exec -C "$repo" -- go test -C "$repo/mochi" ./...
-          test -z "$("$mise" exec -C "$repo" -- gofmt -l "$repo/mochi")"
+          "$mise" exec -C "$repo" -- go vet -C "$repo/tools/mochi" ./...
+          "$mise" exec -C "$repo" -- go test -C "$repo/tools/mochi" ./...
+          test -z "$("$mise" exec -C "$repo" -- gofmt -l "$repo/tools/mochi")"
 
       # claude-hooks the same way. Its cases are what every session on the Mac may run, and
       # the wrapper that installs it runs these same tests as its gate.
-      - name: go vet and go test in claude-hooks/
+      - name: go vet and go test in tools/claude-hooks/
         run: |
           mise="$HOME/.local/bin/mise"
           repo="$GITHUB_WORKSPACE"
-          "$mise" exec -C "$repo" -- go vet -C "$repo/claude-hooks" ./...
-          "$mise" exec -C "$repo" -- go test -C "$repo/claude-hooks" ./...
-          test -z "$("$mise" exec -C "$repo" -- gofmt -l "$repo/claude-hooks")"
+          "$mise" exec -C "$repo" -- go vet -C "$repo/tools/claude-hooks" ./...
+          "$mise" exec -C "$repo" -- go test -C "$repo/tools/claude-hooks" ./...
+          test -z "$("$mise" exec -C "$repo" -- gofmt -l "$repo/tools/claude-hooks")"
 
       # Known vulnerabilities in what each Go module builds with: the standard library of the
       # go mise installed, and any module a tool may one day pin. Run at a pinned version
       # rather than required, since it is a tool of CI's and no dependency of theirs.
-      - name: govulncheck in hachiko/, discord/, mochi/ and claude-hooks/
+      - name: govulncheck in every Go module under tools/
         run: |
           mise="$HOME/.local/bin/mise"
           repo="$GITHUB_WORKSPACE"
-          for module in hachiko discord mochi claude-hooks; do
-            "$mise" exec -C "$repo" -- go run -C "$repo/$module" golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+          for module in hachiko lib/discord mochi claude-hooks; do
+            "$mise" exec -C "$repo" -- go run -C "$repo/tools/$module" golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
           done
 
       # shibuya, which needs no Mac: the tests run in workerd and would be happier on
@@ -175,14 +171,14 @@ jobs:
       #
       # `tsc --noEmit` is in `npm test` as well as vitest: a Durable Object's whole
       # interface is a type, and the pool cannot run what does not compile.
-      - name: npm test in shibuya/
+      - name: npm test in tools/shibuya/
         run: |
           mise="$HOME/.local/bin/mise"
           repo="$GITHUB_WORKSPACE"
           node="$("$mise" which -C "$repo" node)"
           PATH="$(dirname "$node"):$PATH"
           export PATH
-          cd "$repo/shibuya"
+          cd "$repo/tools/shibuya"
           npm ci
           npm test
           npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/shibuya-dry"

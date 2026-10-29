@@ -546,7 +546,7 @@ check "turning the mochi plugin on merges into a repository settings file and re
 # takes Claude's attribution out of a gh command and the body files it names, and refuses a
 # commit or a push that skips the git hooks doing the same; and project-docs, which prints
 # the docs folders a session starts with. What each of them decides is the specification in
-# claude-hooks/internal/*/*_test.go; here they are wired up, linked, answering, and reached
+# tools/claude-hooks/internal/*/*_test.go; here they are wired up, linked, answering, and reached
 # by an edit to their sources.
 guardevent() {
   jq -nc --arg value "$1" \
@@ -581,8 +581,8 @@ export -f guardcommand
 claude_hooks_fixture() {
   local d="$1"
 
-  mkdir -p "$d/home/.local/bin" "$d/home/.local/libexec" &&
-    cp -R "$repo/claude-hooks" "$d/claude-hooks" &&
+  mkdir -p "$d/home/.local/bin" "$d/home/.local/libexec" "$d/tools" &&
+    cp -R "$repo/tools/claude-hooks" "$d/tools/claude-hooks" &&
     cp "$repo/mise.toml" "$d/mise.toml" &&
     cp "$repo/home/.local/bin/claude-hooks" "$d/home/.local/bin/claude-hooks" &&
     cp "$repo/home/.local/libexec/go-tool" "$d/home/.local/libexec/go-tool" &&
@@ -652,7 +652,7 @@ check "strip-attribution takes the attribution out of a body file a gh command n
    out=$(striphook "gh pr edit 1 --body-file $d/body.md") && [ -z "$out" ] &&
    grep -q Body "$d/body.md" && ! grep -q Co-Authored-By "$d/body.md"'
 
-# What herdr-worktree does to a workspace is claude-hooks/internal/herdrworktree's tests,
+# What herdr-worktree does to a workspace is tools/claude-hooks/internal/herdrworktree's tests,
 # against a herdr that writes down what it was asked; here it is the wiring, since a hook
 # that follows a worktree must see the two tools that enter and leave one, the Bash calls
 # that can move the branch under it, and the end of a session still in one. Silent in a
@@ -686,8 +686,8 @@ check "the binary hands an event to the wrapper when its sources have moved" \
    guardevent "pkill -f vite" | "$d/home/.local/bin/claude-hooks" guard >/dev/null &&
    [ -x "$d/cache/claude-hooks" ] && attempted="$(cat "$d/cache/attempted")" &&
    sed -i.bak "s/const Reason = \"Killing/const Reason = \"REBUILT. Killing/" \
-     "$d/claude-hooks/internal/killbypid/killbypid.go" &&
-   rm -f "$d/claude-hooks/internal/killbypid/killbypid.go.bak" &&
+     "$d/tools/claude-hooks/internal/killbypid/killbypid.go" &&
+   rm -f "$d/tools/claude-hooks/internal/killbypid/killbypid.go.bak" &&
    guardevent "pkill -f vite" | "$d/cache/claude-hooks" guard 2>"$d/err" | grep -q REBUILT &&
    [ ! -s "$d/err" ] &&
    [ "$(cat "$d/cache/attempted")" != "$attempted" ]'
@@ -699,7 +699,7 @@ check "the wrapper builds a tree that does not compile once, not before every co
   'cd / && d="$(mktemp -d)" && claude_hooks_fixture "$d" &&
    export MISE_TRUSTED_CONFIG_PATHS="$d" && export CLAUDE_HOOKS_CACHE_DIR="$d/cache" &&
    guardevent "pkill -f vite" | "$d/home/.local/bin/claude-hooks" guard >/dev/null &&
-   printf "func broken( {\n" >>"$d/claude-hooks/main.go" &&
+   printf "func broken( {\n" >>"$d/tools/claude-hooks/main.go" &&
    guardevent "pkill -f vite" | "$d/cache/claude-hooks" guard 2>"$d/first" | grep -q deny &&
    grep -q "do not build, so this is the last binary that did" "$d/first" &&
    guardevent "pkill -f vite" | "$d/cache/claude-hooks" guard 2>"$d/second" | grep -q deny &&
@@ -712,10 +712,10 @@ check "the wrapper catches the marker up when the sources were touched but not c
   'cd / && d="$(mktemp -d)" && claude_hooks_fixture "$d" &&
    export MISE_TRUSTED_CONFIG_PATHS="$d" && export CLAUDE_HOOKS_CACHE_DIR="$d/cache" &&
    guardevent "pkill -f vite" | "$d/home/.local/bin/claude-hooks" guard >/dev/null &&
-   built="$(stat -f %m "$d/cache/claude-hooks")" && sleep 1 && touch "$d/claude-hooks/main.go" &&
+   built="$(stat -f %m "$d/cache/claude-hooks")" && sleep 1 && touch "$d/tools/claude-hooks/main.go" &&
    guardevent "pkill -f vite" | "$d/cache/claude-hooks" guard | grep -q deny &&
    [ "$(stat -f %m "$d/cache/claude-hooks")" = "$built" ] &&
-   [ ! "$d/claude-hooks/main.go" -nt "$d/cache/attempted" ]'
+   [ ! "$d/tools/claude-hooks/main.go" -nt "$d/cache/attempted" ]'
 
 # The third thing that keeps the handoff from happening twice, after a binary newer than
 # its sources and a marker newer still: the wrapper says it is the one that started this
@@ -753,7 +753,7 @@ check "PORTLESS_TLD serves .localhost first and the tailnet name after it" \
 # The one gc check a Go test cannot write: a real compose project on a real
 # daemon, which is what proves the labels `hachiko gc` reads are the labels
 # compose actually sets. Everything else the sweep decides is `go test ./...` in
-# hachiko/, against injected seams.
+# tools/hachiko/, against injected seams.
 #
 # The sweep runs against a HOME of its own, so the fixture's worktree roots are
 # throwaway ones and the check leaves nothing in the real home directory. That
@@ -1113,7 +1113,7 @@ check "the sync config names the docs whole and this repository's home/.claude a
    [ "$(grep -c "^paths = " "$HOME/.hachiko/sync")" = 1 ] &&
    ! grep -q "/Users/" "$HOME/.hachiko/sync"'
 
-# hachiko, the one compiled tool here. Its behaviour is `go test ./...` in hachiko/,
+# hachiko, the one compiled tool here. Its behaviour is `go test ./...` in tools/hachiko/,
 # which drives the whole of the decision-making against injected seams; what is left
 # for this script is the wiring a Go test cannot see — the links, the agent, and the
 # wrapper that builds the binary.
@@ -1178,16 +1178,17 @@ check "hachiko status prints one screen of this Mac and writes nothing" \
 # it is concerned.
 #
 # The whole of home/ comes with it, because the tests read the files this repo ships —
-# the sync config among them — through their own relative path out of hachiko/.
+# the sync config among them — through their own relative path out of tools/hachiko/.
 # MISE_TRUSTED_CONFIG_PATHS rather than `mise trust`, which would leave a temp folder in
 # the machine's trust store on every run.
 gate_fixture() {
   local dir="$1"
 
   cp "$repo/mise.toml" "$repo/mise.lock" "$dir/"
-  cp -R "$repo/hachiko" "$dir/hachiko"
-  cp -R "$repo/mochi" "$dir/mochi"
-  cp -R "$repo/discord" "$dir/discord"
+  mkdir -p "$dir/tools/lib"
+  cp -R "$repo/tools/hachiko" "$dir/tools/hachiko"
+  cp -R "$repo/tools/mochi" "$dir/tools/mochi"
+  cp -R "$repo/tools/lib/discord" "$dir/tools/lib/discord"
   cp -R "$repo/home" "$dir/home"
   # mochi's tests read the skill and the briefing its plugin ships.
   mkdir -p "$dir/account"
@@ -1204,7 +1205,7 @@ check "a build whose tests fail leaves the binary that was already there" \
    "$d/home/.local/bin/hachiko" --help >/dev/null &&
    was="$(shasum -a 256 "$d/cache/hachiko" | cut -d" " -f1)" &&
    printf "package wording\n\nimport \"testing\"\n\nfunc TestTheGateMustCatchThis(t *testing.T) { t.Fatal(\"on purpose\") }\n" \
-     > "$d/hachiko/internal/wording/zz_gate_test.go" &&
+     > "$d/tools/hachiko/internal/wording/zz_gate_test.go" &&
    out="$("$d/home/.local/bin/hachiko" --help 2>&1 >/dev/null)" &&
    printf "%s" "$out" | grep -q "do not pass" &&
    [ "$was" = "$(shasum -a 256 "$d/cache/hachiko" | cut -d" " -f1)" ] &&
@@ -1231,7 +1232,7 @@ check "the Discord config is a live symlink naming a channel and a user" \
    grep -qE "^user *= *[0-9]{17,20}$" "$HOME/.hachiko/discord"'
 
 # shibuya, the half of the watch that is not on this Mac. Its own behaviour is `npm test` in
-# shibuya/, against the same wrangler config the deploy reads; what is left for this script
+# tools/shibuya/, against the same wrangler config the deploy reads; what is left for this script
 # is the wiring — the config file hachiko reads, the token file's mode, and the one script
 # that deploys it.
 check "the shibuya URL is a live symlink and holds one https URL and no token" \
@@ -1240,7 +1241,7 @@ check "the shibuya URL is a live symlink and holds one https URL and no token" \
    grep -qx "https://shibuya.timche.dev" "$HOME/.hachiko/shibuya" &&
    ! grep -qE "^[^#]*(token|Bearer|op://)" "$HOME/.hachiko/shibuya"'
 
-# Not in the repository and not in 1Password: generated on the Mac by shibuya/secrets.sh,
+# Not in the repository and not in 1Password: generated on the Mac by tools/shibuya/secrets.sh,
 # because hachiko reads it twice an hour and every `op run` counts against the service
 # account's day. A Mac that has never run that script has no file here, which is a switch
 # nothing checks in with rather than a broken one — so this asserts the mode and only when
@@ -1251,24 +1252,24 @@ check "the ping token, if it is there, is readable by nobody but the account" \
 
 check "the ping token is in no .env.op and in no op:// reference" \
   '! grep -q "shibuya-token" "$HOME/.hachiko/hachiko.env.op" &&
-   ! grep -q "PING_TOKEN" "$repo/shibuya/.env.op"'
+   ! grep -q "PING_TOKEN" "$repo/tools/shibuya/.env.op"'
 
 check "shibuya's .env.op is op:// references and nothing resolved" \
-  'grep -qx "CLOUDFLARE_API_TOKEN=op://dev/shibuya/api token" "$repo/shibuya/.env.op" &&
-   grep -qx "DISCORD_BOT_TOKEN=op://dev/shibuya-discord/bot token" "$repo/shibuya/.env.op" &&
-   ! grep -qE "^[A-Z_]+=[^o]" "$repo/shibuya/.env.op"'
+  'grep -qx "CLOUDFLARE_API_TOKEN=op://dev/shibuya/api token" "$repo/tools/shibuya/.env.op" &&
+   grep -qx "DISCORD_BOT_TOKEN=op://dev/shibuya-discord/bot token" "$repo/tools/shibuya/.env.op" &&
+   ! grep -qE "^[A-Z_]+=[^o]" "$repo/tools/shibuya/.env.op"'
 
 check "the two shibuya scripts are executable and parse" \
-  '[ -x "$repo/shibuya/deploy.sh" ] && [ -x "$repo/shibuya/secrets.sh" ] &&
-   bash -n "$repo/shibuya/deploy.sh" && bash -n "$repo/shibuya/secrets.sh"'
+  '[ -x "$repo/tools/shibuya/deploy.sh" ] && [ -x "$repo/tools/shibuya/secrets.sh" ] &&
+   bash -n "$repo/tools/shibuya/deploy.sh" && bash -n "$repo/tools/shibuya/secrets.sh"'
 
 # One entrance. A workers.dev subdomain or a version preview URL is a second hostname
 # serving the same Worker, with the ping token as the only thing in front of it.
 check "shibuya is deployed to its custom domain alone" \
-  'grep -q "\"workers_dev\": false" "$repo/shibuya/wrangler.jsonc" &&
-   grep -q "\"preview_urls\": false" "$repo/shibuya/wrangler.jsonc" &&
-   grep -q "shibuya.timche.dev" "$repo/shibuya/wrangler.jsonc" &&
-   grep -q "new_sqlite_classes" "$repo/shibuya/wrangler.jsonc"'
+  'grep -q "\"workers_dev\": false" "$repo/tools/shibuya/wrangler.jsonc" &&
+   grep -q "\"preview_urls\": false" "$repo/tools/shibuya/wrangler.jsonc" &&
+   grep -q "shibuya.timche.dev" "$repo/tools/shibuya/wrangler.jsonc" &&
+   grep -q "new_sqlite_classes" "$repo/tools/shibuya/wrangler.jsonc"'
 
 check "the CPU allowlist is a live symlink and names the VMs and the indexer" \
   '[ -L "$HOME/.hachiko/cpu-allow" ] &&
@@ -1331,7 +1332,7 @@ PHRASES
 export -f hachiko_limits_in_step
 
 check "the partner's limits are the same words as the standing orders'" \
-  'hachiko_limits_in_step "$HOME/.claude/agents/oncall-partner.md" "$repo/hachiko/internal/oncall/oncall.go"'
+  'hachiko_limits_in_step "$HOME/.claude/agents/oncall-partner.md" "$repo/tools/hachiko/internal/oncall/oncall.go"'
 
 # The go the wrapper builds with is this repository's own, in its root mise.toml: this
 # repo is one of the projects that wants a runtime for itself.
@@ -1339,8 +1340,8 @@ check "this repo declares the go its compiled tools are built with" \
   'grep -qE "^go = \"[0-9]" "$repo/mise.toml"'
 
 check "the hachiko module is standard library only and builds without cgo" \
-  '[ ! -f "$repo/hachiko/go.sum" ] &&
-   ! grep -q "^require" "$repo/hachiko/go.mod" &&
+  '[ ! -f "$repo/tools/hachiko/go.sum" ] &&
+   ! grep -q "^require" "$repo/tools/hachiko/go.mod" &&
    grep -q "CGO_ENABLED=0" "$repo/home/.local/libexec/go-tool" &&
    grep -q "GOTOOLCHAIN=local" "$repo/home/.local/libexec/go-tool"'
 
@@ -1386,7 +1387,7 @@ check "the listener is kept alive and throttled to five minutes" \
 check "the listener agent is loaded" \
   'launchctl print "gui/$(id -u)/io.github.timche.hachiko-listen" >/dev/null'
 
-# mochi, the second compiled tool. Its behaviour is `go test ./...` in mochi/ against a fake
+# mochi, the second compiled tool. Its behaviour is `go test ./...` in tools/mochi/ against a fake
 # Discord and a fake herdr; what is left here is the wiring a Go test cannot see.
 check "mochi is a live symlink and runs through its wrapper" \
   '[ -L "$HOME/.local/bin/mochi" ] && [ -x "$HOME/.local/bin/mochi" ] &&
@@ -1470,13 +1471,13 @@ check "mochi hashes the Discord client beside it and holds it to the same gate" 
    export MISE_TRUSTED_CONFIG_PATHS="$d" MOCHI_CACHE_DIR="$d/cache" MOCHI_STATE_DIR="$d/state" &&
    "$d/home/.local/bin/mochi" --help >/dev/null &&
    built="$(cat "$d/cache/attempted")" &&
-   printf "\n// an edit to the client and not to mochi\n" >> "$d/discord/rest/rest.go" &&
+   printf "\n// an edit to the client and not to mochi\n" >> "$d/tools/lib/discord/rest/rest.go" &&
    "$d/home/.local/bin/mochi" --help >/dev/null 2>"$d/err" &&
    [ ! -s "$d/err" ] &&
    [ "$(cat "$d/cache/attempted")" != "$built" ] &&
    was="$(shasum -a 256 "$d/cache/mochi" | cut -d" " -f1)" &&
    printf "package rest\n\nimport \"testing\"\n\nfunc TestTheGateMustCatchThis(t *testing.T) { t.Fatal(\"on purpose\") }\n" \
-     > "$d/discord/rest/zz_gate_test.go" &&
+     > "$d/tools/lib/discord/rest/zz_gate_test.go" &&
    out="$("$d/home/.local/bin/mochi" --help 2>&1 >/dev/null)" &&
    printf "%s" "$out" | grep -q "do not pass" &&
    [ "$was" = "$(shasum -a 256 "$d/cache/mochi" | cut -d" " -f1)" ]'
@@ -1484,11 +1485,11 @@ check "mochi hashes the Discord client beside it and holds it to the same gate" 
 # Every module mochi builds with is a folder of this checkout: nothing to fetch, nothing in a
 # go.sum to pin.
 check "mochi requires no module from outside this checkout" \
-  '[ ! -e "$repo/mochi/go.sum" ] &&
-   [ "$(grep -c "^require" "$repo/mochi/go.mod")" = 1 ] && ! grep -q "^require (" "$repo/mochi/go.mod" &&
-   grep -qx "require github.com/timche/mac-mini/discord v0.0.0" "$repo/mochi/go.mod" &&
-   grep -qx "replace github.com/timche/mac-mini/discord => ../discord" "$repo/mochi/go.mod" &&
-   [ ! -e "$repo/discord/go.sum" ] && ! grep -q "^require" "$repo/discord/go.mod"'
+  '[ ! -e "$repo/tools/mochi/go.sum" ] &&
+   [ "$(grep -c "^require" "$repo/tools/mochi/go.mod")" = 1 ] && ! grep -q "^require (" "$repo/tools/mochi/go.mod" &&
+   grep -qx "require github.com/timche/mac-mini/discord v0.0.0" "$repo/tools/mochi/go.mod" &&
+   grep -qx "replace github.com/timche/mac-mini/discord => ../lib/discord" "$repo/tools/mochi/go.mod" &&
+   [ ! -e "$repo/tools/lib/discord/go.sum" ] && ! grep -q "^require" "$repo/tools/lib/discord/go.mod"'
 
 # The one check that is the agent rather than a description of it. Everything else here
 # runs hachiko as this session, which holds the privacy grants herdr was given — and that
@@ -1589,8 +1590,8 @@ check "hachiko finishes a sweep under launchd, where it has no privacy grants" \
 hachiko_wrapper_fixture() {
   local d="$1"
 
-  mkdir -p "$d/home/.local/bin" "$d/home/.local/libexec" "$d/bin" &&
-    cp -R "$repo/hachiko" "$d/hachiko" &&
+  mkdir -p "$d/home/.local/bin" "$d/home/.local/libexec" "$d/bin" "$d/tools" &&
+    cp -R "$repo/tools/hachiko" "$d/tools/hachiko" &&
     cp "$repo/mise.toml" "$d/mise.toml" &&
     cp "$repo/home/.local/bin/hachiko" "$d/home/.local/bin/hachiko" &&
     cp "$repo/home/.local/libexec/go-tool" "$d/home/.local/libexec/go-tool" &&
@@ -1608,7 +1609,7 @@ check "the wrapper rebuilds from the directory launchd starts the agent in" \
    "$d/home/.local/bin/hachiko" --help >/dev/null 2>"$d/first" &&
    [ ! -s "$d/first" ] &&
    built="$(cat "$d/cache/attempted")" &&
-   printf "\n// an edit that landed while the agent was running\n" >>"$d/hachiko/main.go" &&
+   printf "\n// an edit that landed while the agent was running\n" >>"$d/tools/hachiko/main.go" &&
    "$d/home/.local/bin/hachiko" --help 2>"$d/err" | grep -q "dry-run" &&
    [ ! -s "$d/err" ] &&
    [ "$(cat "$d/cache/attempted")" != "$built" ]'
@@ -1621,7 +1622,7 @@ check "the wrapper keeps the last good binary when the sources do not compile" \
    [ -x "$d/cache/hachiko" ] &&
    was="$(shasum -a 256 "$d/cache/hachiko" | cut -d" " -f1)" &&
    built="$(cat "$d/cache/attempted")" &&
-   printf "func broken( {\n" >>"$d/hachiko/main.go" &&
+   printf "func broken( {\n" >>"$d/tools/hachiko/main.go" &&
    "$d/home/.local/bin/hachiko" --help 2>"$d/err" | grep -q "dry-run" &&
    grep -q "do not build, so this is the last binary that did" "$d/err" &&
    [ "$was" = "$(shasum -a 256 "$d/cache/hachiko" | cut -d" " -f1)" ] &&
@@ -1635,11 +1636,11 @@ check "the wrapper keeps the last good binary when the sources do not compile" \
 check "the wrapper says why it could not rebuild and keeps watching" \
   'cd / && d="$(mktemp -d)" && hachiko_wrapper_fixture "$d" &&
    "$d/home/.local/bin/hachiko" --help >/dev/null &&
-   mv "$d/hachiko" "$d/hachiko.moved" &&
+   mv "$d/tools/hachiko" "$d/tools/hachiko.moved" &&
    "$d/home/.local/bin/hachiko" --help 2>"$d/gone" | grep -q "dry-run" &&
    grep -q "is not there, so hachiko was not rebuilt" "$d/gone" &&
-   mv "$d/hachiko.moved" "$d/hachiko" &&
-   printf "edit\n" >>"$d/hachiko/main.go" &&
+   mv "$d/tools/hachiko.moved" "$d/tools/hachiko" &&
+   printf "edit\n" >>"$d/tools/hachiko/main.go" &&
    printf "#!/bin/sh\nexit 1\n" >"$d/bin/mise" && chmod +x "$d/bin/mise" &&
    PATH="$d/bin:$stock_path" HOME="$d" "$d/home/.local/bin/hachiko" --help \
      2>"$d/nogo" | grep -q "dry-run" &&
@@ -1775,7 +1776,7 @@ failures=$((failures + $?))
 
 # Finding the docs is a mechanism rather than a rule Claude has to remember, so
 # the wiring is what makes the global CLAUDE.md's docs section true. What the
-# listing holds is claude-hooks/internal/projectdocs's tests; this is the hook
+# listing holds is tools/claude-hooks/internal/projectdocs's tests; this is the hook
 # reaching the one folder on this Mac that no fixture can stand in for. The
 # clone is not fatal in install.sh, so a machine without it is not a failure.
 check "project-docs runs at session start and lists the real shared docs" \

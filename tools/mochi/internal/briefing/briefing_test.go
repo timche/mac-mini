@@ -13,7 +13,7 @@ import (
 func shipped(t *testing.T) string {
 	t.Helper()
 	_, here, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(here), "..", "..", "..", "account", "claude-plugins", "mochi", "briefing.md")
+	return filepath.Join(filepath.Dir(here), "..", "..", "..", "..", "account", "claude-plugins", "mochi", "briefing.md")
 }
 
 func TestTheShippedBriefingReads(t *testing.T) {

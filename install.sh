@@ -130,7 +130,7 @@ done
 
 # The one thing in the old folder that is a file rather than a link, so the sweep above
 # leaves it and the folder it is in: shibuya's ping token, generated on this Mac by
-# shibuya/secrets.sh and in no repository and no vault, which is why it is moved and not
+# tools/shibuya/secrets.sh and in no repository and no vault, which is why it is moved and not
 # made again. Never over one already in hachiko's folder, that being the live token.
 old_token="$HOME/.config/hachiko/shibuya-token"
 if [ -f "$old_token" ] && [ ! -e "$HOME/.hachiko/shibuya-token" ]; then
@@ -166,7 +166,7 @@ if (cd "$repo" && mise exec -- go version) >/dev/null 2>&1; then
   echo "go is installed for this repo's compiled tools"
 else
   echo "mise could not install the go this repo's mise.toml asks for — the tools" \
-       "under hachiko/ and any beside it cannot be rebuilt until it can, and each" \
+       "under tools/ cannot be rebuilt until it can, and each" \
        "keeps running the last binary it built" >&2
 fi
 

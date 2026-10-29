@@ -1,6 +1,6 @@
 // Package discord is Discord's API v10 objects as this repository's tools read and send them:
 // only the fields something here uses, under the JSON names Discord gives them. The REST
-// client is in discord/rest and the gateway in discord/gateway.
+// client is in the rest package and the gateway in gateway.
 package discord
 
 import (

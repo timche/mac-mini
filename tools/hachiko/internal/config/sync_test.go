@@ -269,7 +269,7 @@ func TestSyncNamesTheLineItRefused(t *testing.T) {
 func TestTheShippedSyncConfigNamesTheDocsAndThisRepositorysClaudeFiles(t *testing.T) {
 	home := t.TempDir()
 
-	cfg, err := LoadSync(filepath.Join("..", "..", "..", "home", ".hachiko", "sync"), home)
+	cfg, err := LoadSync(filepath.Join("..", "..", "..", "..", "home", ".hachiko", "sync"), home)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -23,7 +23,7 @@
 # manage threads being what closes a post the bot did not open; an Open tag and a Resolved
 # tag on the forum; a `bot token` field on the hachiko-discord item in the dev vault; and an
 # `approval` one-time-password field on the same item, which is the second factor an action
-# on the never list needs. hachiko/README.md has the whole of it.
+# on the never list needs. tools/hachiko/README.md has the whole of it.
 
 channel = 1556226410828275722
 user = 94004892942741504

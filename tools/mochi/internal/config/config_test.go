@@ -25,7 +25,7 @@ func write(t *testing.T, body string) string {
 // relies on is the one the tests read.
 func TestTheShippedConfigMapsRepeek(t *testing.T) {
 	_, here, _, _ := runtime.Caller(0)
-	shipped := filepath.Join(filepath.Dir(here), "..", "..", "..", "home", ".mochi", "config.json")
+	shipped := filepath.Join(filepath.Dir(here), "..", "..", "..", "..", "home", ".mochi", "config.json")
 
 	cfg, err := Load(shipped, "/home/x")
 	if err != nil {

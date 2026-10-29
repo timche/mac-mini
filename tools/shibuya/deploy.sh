@@ -6,7 +6,7 @@
 # nothing to publish, exactly as for the Go tools. claude.sh runs it on the way in, so a
 # fresh Mac has a switch rather than being reported offline a quarter of an hour after its
 # first sweep; every deploy after that is a decision somebody makes, which is why no
-# install runs it. What it does not do is set the secrets — shibuya/secrets.sh is that,
+# install runs it. What it does not do is set the secrets — tools/shibuya/secrets.sh is that,
 # once, by hand, because a token generated on the Mac is not in 1Password for a re-run to
 # find.
 
@@ -17,8 +17,8 @@ if [ "$#" -gt 0 ]; then
   exit 2
 fi
 
-repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-dir="$repo/shibuya"
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo="$(cd "$dir/../.." && pwd)"
 ping_token="${SHIBUYA_TOKEN_FILE:-$HOME/.hachiko/shibuya-token}"
 
 # op with no token and a terminal offers to add a personal account rather than failing, so
@@ -72,5 +72,5 @@ echo "deployed shibuya"
 # all, so a Mac that has never run secrets.sh has a switch that is deployed and deaf.
 if [ ! -f "$ping_token" ]; then
   echo "$ping_token is missing, so nothing on this Mac can check in with shibuya —" \
-       "run shibuya/secrets.sh once to make the token and set the Worker's secrets" >&2
+       "run tools/shibuya/secrets.sh once to make the token and set the Worker's secrets" >&2
 fi

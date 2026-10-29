@@ -69,7 +69,7 @@ go = "1.27"
 # The watch over free space and the CPU: the wrapper, and in hachiko's own folder its
 # secrets' references, which is where the binary looks for them, and the config below. That
 # folder is also where hachiko keeps everything it records about itself. The wrapper is all
-# that is linked — the binary it builds from hachiko/ lives in ~/Library/Caches/hachiko,
+# that is linked — the binary it builds from tools/hachiko/ lives in ~/Library/Caches/hachiko,
 # which is a build cache and nobody's dotfile.
 "~/.local/bin/hachiko" = { source = "home/.local/bin/hachiko", mode = "symlink" }
 "~/.hachiko/hachiko.env.op" = { source = "home/.hachiko/hachiko.env.op", mode = "symlink" }
@@ -80,7 +80,7 @@ go = "1.27"
 "~/.hachiko/discord" = { source = "home/.hachiko/discord", mode = "symlink" }
 
 # Where hachiko checks in, which is the half of the watch that is not on this Mac. The URL
-# alone: the ping token goes in ~/.hachiko/shibuya-token, which shibuya/secrets.sh generates
+# alone: the ping token goes in ~/.hachiko/shibuya-token, which tools/shibuya/secrets.sh generates
 # on the Mac and nothing here links, because it is the one secret this repository makes
 # rather than references.
 "~/.hachiko/shibuya" = { source = "home/.hachiko/shibuya", mode = "symlink" }

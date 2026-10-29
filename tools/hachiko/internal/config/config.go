@@ -211,7 +211,7 @@ func (c Config) MochiLabel() string {
 func (c Config) WorkspaceLabel() string { return filepath.Base(c.MachineDir) }
 
 // Dir is hachiko's folder in HOME: the four config files mise links into it, the ping token
-// shibuya/secrets.sh generates beside them, the references its secrets are resolved from,
+// tools/shibuya/secrets.sh generates beside them, the references its secrets are resolved from,
 // and the state below. The binary stays in ~/Library/Caches, which macOS and cleaning tools
 // treat as clearable — the right place for something a build makes again in seconds and the
 // wrong one for the record of what has been reported.

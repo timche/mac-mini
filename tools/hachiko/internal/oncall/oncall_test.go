@@ -336,7 +336,7 @@ func TestTheUpdatePromptOffersOneAttemptAndNoHandover(t *testing.T) {
 		"The nightly update could not finish a step",
 		// What there is to read, which is a log, some code and the tools themselves.
 		"~/Library/Logs/hachiko.log",
-		"hachiko/internal/update",
+		"tools/hachiko/internal/update",
 		"root cause",
 		"two to four of them with their trade-offs",
 		// The attempt, and what it may be made of: a step run again, a version put back, or

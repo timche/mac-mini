@@ -3,7 +3,7 @@
 # since the binary in the cache was made. Why the Go tools here are built on the way past
 # at all is in the shared script this ends by sourcing.
 #
-# What is mochi's own: the Discord client in discord/ beside it, a module of this checkout
+# What is mochi's own: the Discord client in tools/lib/discord/, a module of this checkout
 # that mochi's go.mod replaces with that folder. Its sources are hashed with mochi's, so an
 # edit to either is a rebuild, and its tests are part of the gate — named by module, which
 # is how a go command in mochi reaches the folder its go.mod replaces the module with.
@@ -30,7 +30,7 @@ done
 self=$(cd "$(dirname "$self")" && pwd)/$(basename "$self")
 repo=$(cd "$(dirname "$self")/../../.." && pwd)
 
-hashed="$repo/mochi $repo/discord"
+hashed="$repo/tools/mochi $repo/tools/lib/discord"
 test_packages="./... github.com/timche/mac-mini/discord/..."
 
 # In mochi's own folder, which is where mise links it, so the token has a reference to

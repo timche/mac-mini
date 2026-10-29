@@ -7,7 +7,7 @@
 #   repo, self     the checkout and the wrapper's own resolved path
 #   no_binary      the line for a cache with no binary in it and no way to build one
 #   cache          the tool's own cache override, empty for the default worked out here
-#   src            the module to build and test, $repo/$tool unless the wrapper says
+#   src            the module to build and test, $repo/tools/$tool unless the wrapper says
 #   hashed         the folders fingerprinted, $src unless the wrapper says, split on
 #                  whitespace so that a tool can name more than one
 #   test_packages  what the gate runs, ./... unless the wrapper says, split the same way
@@ -43,7 +43,7 @@
 # hook, where 2 is how a hook blocks the command it was asked about, so a wrapper with no
 # binary would otherwise refuse every command it was matched against.
 
-: "${src:=$repo/$tool}"
+: "${src:=$repo/tools/$tool}"
 : "${hashed:=$src}"
 : "${test_packages:=./...}"
 # A build or a test run that hangs is an agent that never comes back, so each is given a

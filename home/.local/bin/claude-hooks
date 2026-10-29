@@ -38,7 +38,7 @@ done
 self=$(cd "$(dirname "$self")" && pwd)/$(basename "$self")
 repo=$(cd "$(dirname "$self")/../../.." && pwd)
 
-src="$repo/claude-hooks"
+src="$repo/tools/claude-hooks"
 
 # Written into the binary so that it can compare its sources' times without being told
 # anything at run time, since the hook hands it nothing but the event.

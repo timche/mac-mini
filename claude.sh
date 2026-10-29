@@ -91,19 +91,19 @@ shibuya_token="${SHIBUYA_TOKEN_FILE:-$HOME/.hachiko/shibuya-token}"
 if [ ! -f "$op_token_file" ]; then
   echo "no service-account token, so shibuya was left alone — the deploy and the ping" >&2
   echo "token both reach 1Password through \`op run\`. Run $repo/account/signing-key.sh," >&2
-  echo "then $repo/shibuya/deploy.sh and $repo/shibuya/secrets.sh." >&2
-elif ! "$repo/shibuya/deploy.sh"; then
+  echo "then $repo/tools/shibuya/deploy.sh and $repo/tools/shibuya/secrets.sh." >&2
+elif ! "$repo/tools/shibuya/deploy.sh"; then
   echo "shibuya was not deployed, so the dead man's switch is whatever was deployed" >&2
-  echo "last — run $repo/shibuya/deploy.sh when Cloudflare and 1Password are both" >&2
+  echo "last — run $repo/tools/shibuya/deploy.sh when Cloudflare and 1Password are both" >&2
   echo "reachable." >&2
 elif [ ! -f "$shibuya_token" ]; then
   # Only when there is no token file, because this makes one and replaces the Worker's
   # PING_TOKEN with it: there is one Mac checking in, so the token it just generated is
   # the only one that has to work, and a Mac that already has a file keeps the token
   # hachiko is using rather than spending an `op run` to set the same value again.
-  if ! "$repo/shibuya/secrets.sh"; then
+  if ! "$repo/tools/shibuya/secrets.sh"; then
     echo "shibuya has no ping token, so nothing is watching hachiko — run" >&2
-    echo "$repo/shibuya/secrets.sh when 1Password is reachable" >&2
+    echo "$repo/tools/shibuya/secrets.sh when 1Password is reachable" >&2
   fi
 fi
 

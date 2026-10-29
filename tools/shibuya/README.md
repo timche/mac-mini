@@ -20,7 +20,7 @@ A check-in arms the alarm a grace ahead of itself — `GRACE_MINUTES`, fifteen �
 
 A failing streak is the other half, and it is a streak rather than an incident per sweep. The first `/fail` opens a post of its own, `⚠️ Mac mini: hachiko's checks are failing · <time>`, with the reason; the ones after it post nothing, with one reminder at the hour, and a clean sweep says so in that post and closes it. What hachiko reports as a failure is the honest set — a check with no process sample, a state file it could not read — both faults of the watch rather than of the Mac.
 
-What the Mac is called is the check-in's to say: hachiko sends `display`, cut to forty characters and stripped of anything a terminal would act on, and shibuya uses it in every post title and every lead line. Without one it falls back to the host slug, which is a storage key spelled by whatever the router called the Mac rather than anything a person would write; the slug is still in the one line of each message nobody acts on, beside the build, and `GET /status` answers with both. The shape of a message is `shibuya/src/message.ts`, and it is the shape `hachiko/internal/wording` writes, because the two post into one channel.
+What the Mac is called is the check-in's to say: hachiko sends `display`, cut to forty characters and stripped of anything a terminal would act on, and shibuya uses it in every post title and every lead line. Without one it falls back to the host slug, which is a storage key spelled by whatever the router called the Mac rather than anything a person would write; the slug is still in the one line of each message nobody acts on, beside the build, and `GET /status` answers with both. The shape of a message is `tools/shibuya/src/message.ts`, and it is the shape `tools/hachiko/internal/wording` writes, because the two post into one channel.
 
 ## Discord
 
@@ -47,13 +47,13 @@ A forget that lands while an alert is still in flight stands, which takes saying
 
 ## Its secrets
 
-Three, and they are reached in opposite ways. `DISCORD_BOT_TOKEN` is the `shibuya` bot's, the `bot token` field of the `shibuya-discord` item in the `dev` vault. `CLOUDFLARE_API_TOKEN` is `op://dev/shibuya/api token`, made from Cloudflare's **Edit Cloudflare Workers** template, which carries both permissions a Custom Domain deploy needs — *Workers Scripts: Edit* on the account and *Workers Routes: Edit* on the zone — and no DNS permission, since Cloudflare makes that record itself. Both are `op://` references in `shibuya/.env.op` beside the code, resolved by `op run --env-file` at the moment they are needed and never written anywhere.
+Three, and they are reached in opposite ways. `DISCORD_BOT_TOKEN` is the `shibuya` bot's, the `bot token` field of the `shibuya-discord` item in the `dev` vault. `CLOUDFLARE_API_TOKEN` is `op://dev/shibuya/api token`, made from Cloudflare's **Edit Cloudflare Workers** template, which carries both permissions a Custom Domain deploy needs — *Workers Scripts: Edit* on the account and *Workers Routes: Edit* on the zone — and no DNS permission, since Cloudflare makes that record itself. Both are `op://` references in `tools/shibuya/.env.op` beside the code, resolved by `op run --env-file` at the moment they are needed and never written anywhere.
 
 The bot is a Discord application of its own named `shibuya`, with **Public Bot** off — which Discord refuses to save until the application's Install Link is set to None — and no privileged intent, since it reads which posts are open and never what is in them. It is invited to the private server and given, on the alerts forum, View Channel, Send Messages, Send Messages in Threads, Create Public Threads, Manage Threads and Read Message History, and nothing server-wide beyond that, so a token that leaks from Cloudflare can post and tag in that one forum. Manage Threads is the one that tags and closes a post.
 
-`PING_TOKEN` is deliberately neither. hachiko reads it twice an hour for ever, which as a 1Password reference would be two hundred and eighty-eight `op run` calls a day against a service account with a daily limit; and writing a resolved `op://` value into a file is the one thing this machine never does. So it is generated on the Mac instead — `shibuya/secrets.sh`, 32 random bytes of hex at `~/.hachiko/shibuya-token`, mode 0600, in no repository and in no vault. What it can do if it leaks is fake a check-in, which is worth the asymmetry; hachiko refuses a token file anything but the account can read, because a loose one is a token every session on this Mac has and the fix is one `chmod` rather than a rotation.
+`PING_TOKEN` is deliberately neither. hachiko reads it twice an hour for ever, which as a 1Password reference would be two hundred and eighty-eight `op run` calls a day against a service account with a daily limit; and writing a resolved `op://` value into a file is the one thing this machine never does. So it is generated on the Mac instead — `tools/shibuya/secrets.sh`, 32 random bytes of hex at `~/.hachiko/shibuya-token`, mode 0600, in no repository and in no vault. What it can do if it leaks is fake a check-in, which is worth the asymmetry; hachiko refuses a token file anything but the account can read, because a loose one is a token every session on this Mac has and the fix is one `chmod` rather than a rotation.
 
-If the token is lost or leaked, delete `~/.hachiko/shibuya-token` and run `shibuya/secrets.sh` again: it generates a new one and puts it on the Worker as `PING_TOKEN`, and the old one stops working the moment that lands. Between the two, hachiko has no token to send and says so once rather than every five minutes, and shibuya posts the Mac offline a quarter of an hour later — the honest signal, since nothing is checking in — and the check-in that works again posts the recovery into that same post.
+If the token is lost or leaked, delete `~/.hachiko/shibuya-token` and run `tools/shibuya/secrets.sh` again: it generates a new one and puts it on the Worker as `PING_TOKEN`, and the old one stops working the moment that lands. Between the two, hachiko has no token to send and says so once rather than every five minutes, and shibuya posts the Mac offline a quarter of an hour later — the honest signal, since nothing is checking in — and the check-in that works again posts the recovery into that same post.
 
 The URL is not a secret and is in the checkout, `home/.hachiko/shibuya`, one `https` line linked to `~/.hachiko/shibuya`. A Mac with no file there is one with the switch off rather than one with a broken switch: hachiko says so once and goes on watching.
 
@@ -62,8 +62,8 @@ The URL is not a secret and is in the checkout, `home/.hachiko/shibuya`, one `ht
 Two steps, in this order, because `wrangler secret put` wants a Worker to put a secret on:
 
 ```sh
-~/.mac-mini/shibuya/deploy.sh      # creates the Worker and its Custom Domain
-~/.mac-mini/shibuya/secrets.sh     # makes the ping token if there is none, then sets the secrets
+~/.mac-mini/tools/shibuya/deploy.sh      # creates the Worker and its Custom Domain
+~/.mac-mini/tools/shibuya/secrets.sh     # makes the ping token if there is none, then sets the secrets
 ```
 
 `claude.sh` takes both on a fresh Mac, so neither has to be run by hand there — a Mac being provisioned has to come out with a switch, since there is nothing else to notice that it never did. The second only where there is no token file, since a token generated on the Mac has nowhere for a later run to read it back from and there is one Mac checking in. Between the two the Worker answers `401` to everything, which costs nothing: no check-in has ever arrived, so no alarm is armed and there is no outage to report. `secrets.sh` pipes both values into `wrangler secret put` on stdin, never an argument, and prompts for nothing, so a provision with nobody watching takes it.
@@ -79,7 +79,7 @@ curl -s https://shibuya.timche.dev            # shibuya, and nothing else
 printf 'header = "Authorization: Bearer %s"\n' "$(cat ~/.hachiko/shibuya-token)" |
   curl -s -K - 'https://shibuya.timche.dev/status?host=tims-mac-mini'
 
-cd ~/.mac-mini/shibuya && npx wrangler tail   # what the Worker is saying, live
+cd ~/.mac-mini/tools/shibuya && npx wrangler tail   # what the Worker is saying, live
 ```
 
 ## Environment knobs

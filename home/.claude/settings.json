@@ -99,11 +99,6 @@
             "type": "command",
             "command": "bash \"$HOME/.claude/hooks/project-docs.sh\"",
             "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "bash \"$HOME/.claude/hooks/worktree-info.sh\"",
-            "timeout": 10
           }
         ]
       },

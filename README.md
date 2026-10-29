@@ -2,15 +2,42 @@
 
 [![test](https://github.com/timche/mac-mini/actions/workflows/test.yml/badge.svg)](https://github.com/timche/mac-mini/actions/workflows/test.yml)
 
-The Mac mini Claude Code runs on and controls: a headless Apple Silicon Mac that exists for agentic coding, several sessions at a time, reached over the tailnet from somewhere else. This repository is the whole of it — the machine and the account on it — and one command puts it there. As the account the machine is for, which unlike a VM's already exists:
+The Mac mini Claude Code runs on and controls: a headless Apple Silicon Mac that exists for agentic coding, several sessions at a time, reached over the tailnet from somewhere else. This repository is the whole of it, the machine and the account on it.
+
+## Installing
+
+This section is written for Tim. Everything after it is written for the sessions that work on the repository.
+
+### At the Mac, before the first run
+
+1. Setup Assistant: create the account the Mac is for, as an administrator. An Apple ID is only needed for Xcode; the iCloud features can stay off.
+2. System Settings > Users & Groups: turn FileVault off, then Automatic login on for that account. Automatic login needs FileVault off, and everything here waits for a logged-in session after a restart.
+3. System Settings > General > Sharing: turn on Remote Login (to run the install over SSH) and Screen Sharing (for every click later on).
+
+### The install
+
+Over SSH on the LAN, as that account:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/timche/mac-mini/main/bootstrap.sh | bash
 ```
 
-A fresh Mac has no git and no package manager, so there is nothing to clone this with — which is what `bootstrap.sh` is for. It installs Homebrew, which brings the Xcode command line tools through `softwareupdate` rather than the dialog nobody is in front of, clones this repo to `~/.mac-mini` and runs its two phases: `machine.sh` builds the Mac, `claude.sh` makes it the one Claude Code works from.
+It asks, in order, for the sudo password, a tailnet login URL, the Apple ID and a 2FA code for Xcode, a GitHub device code, a Claude Code login and the 1Password service-account token.
 
-The clone stays, because a Mac is a machine you pull and re-run rather than one you reprovision from a URL — hidden because it is machinery rather than work:
+### Afterwards, over Screen Sharing
+
+1. System Settings > Privacy & Security: give `~/.local/libexec/herdr-launcher` (add it with **+**, then ⇧⌘G to type the path) **Screen & System Audio Recording**, **Device Control and Data Access** and **Full Disk Access**.
+2. System Settings > Lock Screen: "Require password after screen saver begins or display is turned off" to **Never**.
+3. Open OrbStack once, accept its terms and choose Docker.
+
+`machine.sh` lists whichever of these is still missing every time it runs.
+
+### In the Tailscale admin console
+
+1. Add an `ssh` rule for whoever should reach the Mac.
+2. Disable key expiry for the Mac, or it drops off the tailnet after 180 days.
+
+### Keeping it up to date
 
 ```sh
 git -C ~/.mac-mini pull
@@ -18,9 +45,24 @@ git -C ~/.mac-mini pull
 ~/.mac-mini/claude.sh
 ```
 
+Re-running changes nothing that is already right and moves no version; hachiko's nightly update is what moves versions.
+
+### What only you do later
+
+- **A prompt on the Mac's screen:** answer it over Screen Sharing. A session that causes one says what it is for.
+- **The root helper:** when a session says it changed, run `~/.mac-mini/machine/root-helper.sh`. It asks for your password and shows a diff first.
+- **The permissions above, again,** when a session says `herdr-launcher` was rebuilt.
+- **A sudo command a session prints for you:** read it, then run it.
+
+## How it is put together
+
+A fresh Mac has no git and no package manager, so there is nothing to clone this with — which is what `bootstrap.sh` is for. It installs Homebrew, which brings the Xcode command line tools through `softwareupdate` rather than the dialog nobody is in front of, clones this repo to `~/.mac-mini` and runs its two phases: `machine.sh` builds the Mac, `claude.sh` makes it the one Claude Code works from. The clone stays, because a Mac is a machine you pull and re-run rather than one you reprovision from a URL.
+
 `MAC_MINI_DIR` puts it somewhere else. It is not a clone to delete: everything in `$HOME` is a symlink into it, and the LaunchAgents launchd loads are links into it too, so moving the checkout means re-running `claude.sh` to point the links at the new place.
 
 Every script opens with a comment saying why it exists and what would break if it ran elsewhere in the order. That comment is where what a script does is written down; this file is the shape of the whole and the reasoning that spans more than one script, and `CLAUDE.md` is how to work in the repository.
+
+Why each of the steps under [Installing](#installing) is needed: auto-login, because the herdr server, the LaunchAgents and every privacy grant live in the login session; Screen Sharing, because it is the one sharing setting no script can turn on, that pane also registering the rights the sharing agent needs; the three privacy grants, for the reasons [Privacy permissions](#privacy-permissions) gives; the Lock Screen setting, so the display can sleep without a password standing between Screen Sharing and the desktop; OrbStack, whose terms and Docker choice are on a welcome screen no script can click; and the key expiry, since a node whose key expires drops off the tailnet until somebody logs in at it again.
 
 ## The principles
 
@@ -28,20 +70,6 @@ Every script opens with a comment saying why it exists and what would break if i
 - **A re-run moves no version.** `brew bundle --no-upgrade` and `mise install --locked` install what is missing and leave what is there, which is what makes both phases safe after every pull. [`hachiko update`](tools/hachiko/README.md#updates) is the one thing here that moves one, once a night.
 - **Nothing waits for a click.** Several sessions run unattended on a Mac with no screen, so anything that would prompt checks for a terminal first and says what it skipped instead. What genuinely needs a click is named on every run rather than assumed done.
 - **Nothing is written for one account.** The Mac's is `timche` and CI's is `runner`. Paths go through `$HOME`, a mise template, or a `~` the reading program expands itself.
-
-## A fresh Mac
-
-What the scripts cannot do happens at the Mac itself, with a screen and a keyboard, before the first run:
-
-1. Setup Assistant: the account the machine is for, as an administrator. An Apple ID only matters for Xcode, which `xcodes` downloads with it; the iCloud features can all stay off.
-2. FileVault off, then Automatic login for that account in System Settings > Users & Groups. Auto-login needs FileVault off, and everything that lives in the login session waits for it after every restart.
-3. Remote Login and Screen Sharing on, in System Settings > General > Sharing: the first is how the bootstrap is run from another machine over the LAN, the second is how everything that needs a click gets done once the screen is gone, including the [privacy permissions](#privacy-permissions) below. Screen Sharing is the one of the two no script can turn on, because that pane is also what registers the rights the sharing agent needs.
-
-Then, over SSH on the LAN, the command above. It asks, in order, for the sudo password, a tailnet login URL, the Apple ID and a 2FA code for Xcode, then a GitHub device code, a Claude Code login and the 1Password service-account token.
-
-Afterwards, over Screen Sharing: the [privacy permissions](#privacy-permissions) below, System Settings > Lock Screen > "Require password after screen saver begins or display is turned off" set to Never, and OrbStack opened once — its welcome screen is where OrbStack's terms are accepted and where Docker is chosen, and no script can click either. `machine.sh` names all three every time it runs, so a Mac that is missing one says so rather than being quietly unable to take a screenshot or start a container.
-
-And in the Tailscale admin console: add an `ssh` rule for whoever should reach the Mac, and disable key expiry for it, since a node whose key expires drops off the tailnet after 180 days until somebody logs in at it again.
 
 ## The machine
 
@@ -51,7 +79,7 @@ Every package is the `Brewfile` at the repo root, applied with `brew bundle --no
 
 `unattended.sh` is what makes a Mac nobody is sitting at usable: restart after power loss and never sleep, no crash dialogs, no screensaver, macOS updates downloaded but never installed, no Spotlight indexing and no media analysis. The script has the reasoning for each, and two are worth knowing from outside it. `displaysleep 0` is in the list although there is no display, because a `screencapture` taken while the display is asleep comes back the same black frame a missing Screen Recording grant gives. And an update that installs itself restarts the Mac, taking every session's worktree state, every running build and every browser with it — so installing one is Tim's decision, and [the nightly update](tools/hachiko/README.md#updates) says what is waiting and why nothing here can install it. Background Security Improvement is the exception that is not settable at all: it lives in declarative device management, which needs a supervised MDM enrollment, it is on, and it can restart the Mac.
 
-The three things in **A fresh Mac** that stay Tim's are Tim's because each needs the pane itself, and `unattended.sh` names all three on every run rather than assuming them done. Auto-login, because turning it on writes the account password to `/etc/kcpassword`, obfuscated rather than encrypted — and a Mac sitting at its login window has no `gui/<uid>` domain, so neither docker nor any of the agents is running, tailscaled being the exception that keeps it reachable. Screen Sharing, because `launchctl enable` clears the `Disabled` flag but the screen recording rights the sharing agent needs are registered by the Sharing pane itself, so a Mac enabled from a script comes out with the job loaded, the toggle reading off and nothing answering on port 5900 — which is why the check looks at the port rather than at launchd's opinion of the job, and why this is the one to fix first. And the screen lock, which on macOS 27 is in no preference domain and whose `sysadminctl` reading cannot be trusted, so nothing writes it, reads it back or asserts it; what the pane actually did is checked by watching, `pmset displaysleepnow` and then a `screencapture` that comes back a real desktop rather than a login window.
+The three settings under [Installing](#installing) that stay Tim's are Tim's because each needs the pane itself, and `unattended.sh` names all three on every run rather than assuming them done. Auto-login, because turning it on writes the account password to `/etc/kcpassword`, obfuscated rather than encrypted — and a Mac sitting at its login window has no `gui/<uid>` domain, so neither docker nor any of the agents is running, tailscaled being the exception that keeps it reachable. Screen Sharing, because `launchctl enable` clears the `Disabled` flag but the screen recording rights the sharing agent needs are registered by the Sharing pane itself, so a Mac enabled from a script comes out with the job loaded, the toggle reading off and nothing answering on port 5900 — which is why the check looks at the port rather than at launchd's opinion of the job, and why this is the one to fix first. And the screen lock, which on macOS 27 is in no preference domain and whose `sysadminctl` reading cannot be trusted, so nothing writes it, reads it back or asserts it; what the pane actually did is checked by watching, `pmset displaysleepnow` and then a `screencapture` that comes back a real desktop rather than a login window.
 
 `harden-ssh.sh` refuses to disable password logins unless the user has a key sshd could actually let them in with, because on a Mac there is no provider console to fall back to. A Mac reached with a password comes out of a run unhardened and told what to do about it; `FORCE_HARDEN=true` overrides that if you are certain of another way in. `root-helper.sh` runs after it, because nothing in the way this Mac is reached depends on the helper.
 

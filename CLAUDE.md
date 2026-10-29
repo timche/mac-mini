@@ -7,7 +7,9 @@ Two files here are named CLAUDE.md. This one is guidance for working in the repo
 ## Where things are written
 
 - A script's header comment: why it exists, what it does and what would break if it ran elsewhere in the order. `bootstrap.sh`, `machine.sh` and `claude.sh` are the entry points and name the order.
-- `README.md`: the shape of the whole and the reasoning that spans more than one script, plus what only a person can do. Read it before changing structure.
+- `README.md`: the shape of the whole and the reasoning that spans more than one script. Read it before changing structure. Its Installing section is written for Tim, who reads nothing else here: plain numbered steps of what only he does, each with the exact command or setting and no reasoning, which goes in the section after it. A change to what he has to do updates that section in the same commit.
+
+Everything else here, the READMEs, `CLAUDE.md` and every comment, is written for the sessions that work on the repository, so it carries the why in full and assumes the reader is an agent.
 - `tools/<tool>/README.md`: one tool — what it is, its commands, setup, state and logs, how it fails. Its tests are the specification; the README is not a prose copy of them.
 - `$PROJECT_DOCS_DIR/timche/mac-mini/decisions.md`: why something is the way it is and when it changed, by topic. The other files there are procedures and status, and can go stale against this repo; correct them when you touch the same subject.
 

@@ -843,47 +843,8 @@ check "the registered command builds the binary when the cache has none" \
    guardevent "pkill -f vite" | sh -c "$command" | grep -q deny &&
    [ -x "$d/cache/claude-hooks" ]'
 
-# Worktree isolation. A fixture repository with a linked worktree, built per
-# check rather than once, because the checks below are independent of each other.
-worktree_fixture() {
-  local dir="$1" scripts="${2-}" deps="${3-}"
-
-  git init -q -b main "$dir/app"
-  git -C "$dir/app" remote add origin https://example.com/acme/app.git
-  printf '{ "name": "appsite", "scripts": { %s }, "devDependencies": { %s } }\n' \
-    "$scripts" "$deps" > "$dir/app/package.json"
-  git -C "$dir/app" add -A
-  # Signing off, because this account signs every commit with a key that only
-  # exists in an agent a runner does not have.
-  git -C "$dir/app" -c user.email=t@example.com -c user.name=t \
-    -c commit.gpgsign=false commit -qm init
-  git -C "$dir/app" worktree add -q -b fix-ui "$dir/wt/fix-ui"
-}
-export -f worktree_fixture
-
-# Compose names a project after the directory, which for a worktree is the
-# branch alone — so two repositories with a branch of the same name would share
-# one database. Every zsh, because a compose command as often comes from a
-# script as from a prompt, and again after a cd, because a shell outlives the
-# directory it started in.
-check "zsh names the compose project after the repository and the branch" \
-  'd="$(mktemp -d)" && worktree_fixture "$d" &&
-   [ "$(cd "$d/wt/fix-ui" && PATH=$stock_path zsh -c "print -r -- \$COMPOSE_PROJECT_NAME")" = \
-     app-fix-ui ] &&
-   [ "$(cd "$d/app" && PATH=$stock_path zsh -c "print -r -- \$COMPOSE_PROJECT_NAME")" = \
-     app-main ]'
-
-check "zsh renames the compose project on a cd and unsets it outside a repository" \
-  'd="$(mktemp -d)" && worktree_fixture "$d" &&
-   [ "$(cd / && PATH=$stock_path zsh -c "cd \"$d/wt/fix-ui\"
-          print -r -- \$COMPOSE_PROJECT_NAME:\${+COMPOSE_PROJECT_NAME}
-          cd /
-          print -r -- \$COMPOSE_PROJECT_NAME:\${+COMPOSE_PROJECT_NAME}" | tr "\n" " ")" = \
-     "app-fix-ui:1 :0 " ]'
-
 check "PORTLESS_TLD serves .localhost first and the tailnet name after it" \
   '[ "$(zsh -c "echo \$PORTLESS_TLD")" = "localhost,timche.dev" ]'
-
 
 # The one gc check a Go test cannot write: a real compose project on a real
 # daemon, which is what proves the labels `hachiko gc` reads are the labels

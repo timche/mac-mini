@@ -2,10 +2,6 @@
 # manager: what an interactive shell here needs is a dozen settings, and each is
 # one line of zsh that nothing has to keep up to date. PATH and everything a
 # non-interactive shell also needs is in .zshenv instead, which every zsh reads.
-#
-# Only the end of the file is order-dependent: zsh-syntax-highlighting wraps the
-# line-editor widgets that exist when it is sourced, so it comes after anything
-# that defines or rebinds one.
 
 HISTFILE="$HOME/.zsh_history"
 HISTSIZE=50000
@@ -57,15 +53,6 @@ alias ls='ls -G'
 
 eval "$(starship init zsh)"
 eval "$(zoxide init zsh)"
-
-# Homebrew's, at the Apple Silicon prefix and then the Intel one.
-for _highlighting in /opt/homebrew/share /usr/local/share; do
-  if [[ -r $_highlighting/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ]]; then
-    source $_highlighting/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
-    break
-  fi
-done
-unset _highlighting
 
 # Claude
 alias c="claude"

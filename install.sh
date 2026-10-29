@@ -31,8 +31,7 @@ if [ -x /opt/homebrew/bin/brew ]; then
 fi
 
 # Fatal rather than a warning, because the packages below are brew's: a shell
-# would come out of here without its syntax highlighting and nothing would say
-# why.
+# would come out of here without its prompt and nothing would say why.
 if ! command -v brew >/dev/null 2>&1; then
   echo "Homebrew is missing — run machine.sh first, which installs it along" \
        "with gh and tailscale, then re-run this" >&2

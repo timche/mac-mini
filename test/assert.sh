@@ -65,16 +65,8 @@ done
 check "login shell is zsh" \
   'dscl . -read "/Users/$USER" UserShell | grep -q zsh'
 
-# Tooling. The highlighting first: a Mac is not handed over with it, so this fails
-# unless install.sh installed it — brew's, zsh itself coming with the OS.
+# Tooling. zsh comes with the OS; everything after it is brew's or mise's.
 check "zsh installed"       'command -v zsh'
-check "zsh highlighting installed" \
-  '[ -f "$(brew --prefix)/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" ]'
-# Tagged, because the prompt prints to stdout in an interactive shell too and
-# a bare version number is easy to match by accident.
-check "interactive zsh loads the highlighting" \
-  'PATH=$stock_path zsh -ic "print -r -- highlighting:\$ZSH_HIGHLIGHT_VERSION" |
-     grep -qE "^highlighting:[0-9]"'
 check "glow runs"           'glow --version'
 check "ffmpeg runs"         'ffmpeg -version'
 check "rg runs"             'rg --version'

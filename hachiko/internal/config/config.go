@@ -210,30 +210,35 @@ func (c Config) MochiLabel() string {
 // instructions loaded.
 func (c Config) WorkspaceLabel() string { return filepath.Base(c.MachineDir) }
 
+// Dir is hachiko's folder in HOME: the four config files mise links into it, the ping token
+// shibuya/secrets.sh generates beside them, the references its secrets are resolved from,
+// and the state below. The binary stays in ~/Library/Caches, which macOS and cleaning tools
+// treat as clearable — the right place for something a build makes again in seconds and the
+// wrong one for the record of what has been reported.
+func Dir(home string) string { return filepath.Join(home, ".hachiko") }
+
+// The four state directories under one folder rather than beside the config, because `sync`
+// is a config file and the sweep's, the update's and sync's own folders cannot be told apart
+// from it by name.
+func stateRoot(home string) string { return filepath.Join(Dir(home), "state") }
+
 func FromEnv() Config {
-	home, _ := os.UserHomeDir()
-	if h := os.Getenv("HOME"); h != "" {
-		home = h
-	}
+	home := homeDir()
 
 	machineDir := envString("MAC_MINI_DIR", filepath.Join(home, ".mac-mini"))
 
-	cache := filepath.Join(home, ".cache")
-	if _, err := os.Stat(filepath.Join(home, "Library", "Caches")); err == nil {
-		cache = filepath.Join(home, "Library", "Caches")
-	}
+	state := stateRoot(home)
 
-	stateDir := envString("HACHIKO_STATE_DIR", filepath.Join(cache, "hachiko"))
+	stateDir := envString(StateDirVar, filepath.Join(state, "watch"))
 	host := os.Getenv("HACHIKO_HOST")
 	hostFromTailnet := false
 	if host == "" {
 		host, hostFromTailnet = machineName(stateDir)
 	}
 
-	// Beside the wrapper rather than beside the binary: the wrapper is what mise
-	// links into ~/.local/bin, and the env file is linked next to it, while the
-	// binary lives in a cache that holds nothing else.
-	envFile := envString("HACHIKO_ENV_FILE", filepath.Join(home, ".local", "bin", "hachiko.env.op"))
+	// In hachiko's own folder, where mise links it beside the config, so the alert has
+	// somewhere to go without the binary in the cache knowing where the checkout is.
+	envFile := envString("HACHIKO_ENV_FILE", filepath.Join(Dir(home), "hachiko.env.op"))
 
 	projects := envString("HACHIKO_PROJECTS", filepath.Join(home, "projects"))
 
@@ -259,20 +264,18 @@ func FromEnv() Config {
 		HerdrRoot:    filepath.Join(home, ".herdr", "worktrees"),
 		ProjectsRoot: projects,
 
-		CPUAllowPath: envString("HACHIKO_CPU_ALLOW", filepath.Join(home, ".config", "hachiko", "cpu-allow")),
+		CPUAllowPath: envString("HACHIKO_CPU_ALLOW", filepath.Join(Dir(home), "cpu-allow")),
 		EnvFile:      envFile,
 		RootHelper:   envString("HACHIKO_ROOT_HELPER", "/usr/local/libexec/claude-root"),
-		SwitchConfig: envString("HACHIKO_SWITCH_CONFIG",
-			filepath.Join(home, ".config", "hachiko", "shibuya")),
-		SwitchToken: envString("HACHIKO_SWITCH_TOKEN",
-			filepath.Join(home, ".config", "hachiko", "shibuya-token")),
+		SwitchConfig: envString("HACHIKO_SWITCH_CONFIG", filepath.Join(Dir(home), "shibuya")),
+		SwitchToken:  envString("HACHIKO_SWITCH_TOKEN", filepath.Join(Dir(home), "shibuya-token")),
 
 		StateDir: stateDir,
 		WatchPlist: envString("HACHIKO_PLIST",
 			filepath.Join(home, "Library", "LaunchAgents", "io.github.timche.hachiko.plist")),
 
-		GCStateDir: envString("HACHIKO_GC_STATE_DIR", filepath.Join(cache, "hachiko-gc")),
-		GCLock:     envString("HACHIKO_GC_LOCK", filepath.Join(cache, "hachiko-gc.lock")),
+		GCStateDir: envString(GCStateDirVar, filepath.Join(state, "gc")),
+		GCLock:     envString("HACHIKO_GC_LOCK", filepath.Join(state, "gc.lock")),
 		GCPlist: envString("HACHIKO_GC_PLIST",
 			filepath.Join(home, "Library", "LaunchAgents", "io.github.timche.hachiko-gc.plist")),
 		GCProjectsRoot: envString("HACHIKO_GC_PROJECTS", projects),
@@ -280,14 +283,13 @@ func FromEnv() Config {
 		GCPruneEvery:   time.Duration(envInt64("HACHIKO_GC_PRUNE_EVERY", 86400)) * time.Second,
 		GCPruneAge:     envString("HACHIKO_GC_PRUNE_AGE", "168h"),
 
-		UpdateStateDir: envString("HACHIKO_UPDATE_STATE_DIR", filepath.Join(cache, "hachiko-update")),
-		UpdateLock:     envString("HACHIKO_UPDATE_LOCK", filepath.Join(cache, "hachiko-update.lock")),
+		UpdateStateDir: envString(UpdateStateDirVar, filepath.Join(state, "update")),
+		UpdateLock:     envString("HACHIKO_UPDATE_LOCK", filepath.Join(state, "update.lock")),
 		UpdateHour:     envHour("HACHIKO_UPDATE_HOUR", 4),
 		OhMyZsh:        envString("HACHIKO_OH_MY_ZSH", filepath.Join(home, ".oh-my-zsh")),
 
-		SyncConfig: envString("HACHIKO_SYNC_CONFIG",
-			filepath.Join(home, ".config", "hachiko", "sync")),
-		SyncStateDir: envString("HACHIKO_SYNC_STATE_DIR", filepath.Join(cache, "hachiko-sync")),
+		SyncConfig:   envString("HACHIKO_SYNC_CONFIG", filepath.Join(Dir(home), "sync")),
+		SyncStateDir: envString(SyncStateDirVar, filepath.Join(state, "sync")),
 		SyncPlist: envString("HACHIKO_SYNC_PLIST",
 			filepath.Join(home, "Library", "LaunchAgents", "io.github.timche.hachiko-sync.plist")),
 		SyncStaleAfter: time.Duration(envInt64("HACHIKO_SYNC_STALE", 600)) * time.Second,
@@ -310,7 +312,7 @@ func FromEnv() Config {
 		MochiStaleAfter: time.Duration(envInt64("HACHIKO_MOCHI_STALE", 600)) * time.Second,
 
 		Discord: readDiscordConfig(envString("HACHIKO_DISCORD_CONFIG",
-			filepath.Join(home, ".config", "hachiko", "discord"))),
+			filepath.Join(Dir(home), "discord"))),
 
 		PostKeep: time.Duration(envInt64("HACHIKO_POST_KEEP", 3*86400)) * time.Second,
 
@@ -318,6 +320,14 @@ func FromEnv() Config {
 		hostFromTailnet: hostFromTailnet,
 		Display:         envString("HACHIKO_DISPLAY", "Mac mini"),
 	}
+}
+
+func homeDir() string {
+	home, _ := os.UserHomeDir()
+	if h := os.Getenv("HOME"); h != "" {
+		home = h
+	}
+	return home
 }
 
 func envString(name, fallback string) string {

@@ -19,7 +19,7 @@ fi
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dir="$repo/shibuya"
-ping_token="${SHIBUYA_TOKEN_FILE:-$HOME/.config/hachiko/shibuya-token}"
+ping_token="${SHIBUYA_TOKEN_FILE:-$HOME/.hachiko/shibuya-token}"
 
 # op with no token and a terminal offers to add a personal account rather than failing, so
 # a Mac that has none is told instead of prompted at. claude.sh deploys once

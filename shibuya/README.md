@@ -4,7 +4,7 @@
 
 It exists because a watch cannot report its own silence. A LaunchAgent that never loaded because the Mac is sitting at its login window, a sweep hung on a mount whose server went away, a Mac that lost power, a binary that stopped compiling and left the last one that did — every one of those is hachiko saying nothing, which is also what a quiet Mac looks like. The only thing that can tell the two apart is something off the machine.
 
-A Cloudflare Worker with one SQLite-backed Durable Object per host, which is the only kind the free plan runs, and the object's alarm is the deadline. `idFromName(host)` is how a host gets its own, so the Mac that checks in is the Mac that is reported missing. hachiko sends its name on the tailnet, the first label of `tailscale status --json`'s `Self.DNSName`, rather than its hostname, which the router can change under a running Mac and which shibuya would read as this Mac going offline; the last name the tailnet gave is kept in `~/Library/Caches/hachiko/host` for a sweep while tailscale is not answering, a Mac never on a tailnet falls back to its hostname, and `HACHIKO_HOST` overrides all three. The name is reduced to a slug and validated as `^[a-z0-9-]{1,32}$` before it reaches a storage key. The cost is about three hundred requests a day against a hundred thousand, and nothing runs between them.
+A Cloudflare Worker with one SQLite-backed Durable Object per host, which is the only kind the free plan runs, and the object's alarm is the deadline. `idFromName(host)` is how a host gets its own, so the Mac that checks in is the Mac that is reported missing. hachiko sends its name on the tailnet, the first label of `tailscale status --json`'s `Self.DNSName`, rather than its hostname, which the router can change under a running Mac and which shibuya would read as this Mac going offline; the last name the tailnet gave is kept in `~/.hachiko/state/watch/host` for a sweep while tailscale is not answering, a Mac never on a tailnet falls back to its hostname, and `HACHIKO_HOST` overrides all three. The name is reduced to a slug and validated as `^[a-z0-9-]{1,32}$` before it reaches a storage key. The cost is about three hundred requests a day against a hundred thousand, and nothing runs between them.
 
 ## The routes
 
@@ -37,7 +37,7 @@ An object outlives its reason to exist: a hostname typed wrong once has a Durabl
 ```sh
 # The header goes down a pipe rather than into -H, because `ps` shows one process's
 # arguments to every other on this Mac, and printf is a shell builtin.
-printf 'header = "Authorization: Bearer %s"\n' "$(cat ~/.config/hachiko/shibuya-token)" |
+printf 'header = "Authorization: Bearer %s"\n' "$(cat ~/.hachiko/shibuya-token)" |
   curl -s -K - -X DELETE 'https://shibuya.timche.dev/host?host=probe-test'
 ```
 
@@ -51,11 +51,11 @@ Three, and they are reached in opposite ways. `DISCORD_BOT_TOKEN` is the `shibuy
 
 The bot is a Discord application of its own named `shibuya`, with **Public Bot** off — which Discord refuses to save until the application's Install Link is set to None — and no privileged intent, since it reads which posts are open and never what is in them. It is invited to the private server and given, on the alerts forum, View Channel, Send Messages, Send Messages in Threads, Create Public Threads, Manage Threads and Read Message History, and nothing server-wide beyond that, so a token that leaks from Cloudflare can post and tag in that one forum. Manage Threads is the one that tags and closes a post.
 
-`PING_TOKEN` is deliberately neither. hachiko reads it twice an hour for ever, which as a 1Password reference would be two hundred and eighty-eight `op run` calls a day against a service account with a daily limit; and writing a resolved `op://` value into a file is the one thing this machine never does. So it is generated on the Mac instead — `shibuya/secrets.sh`, 32 random bytes of hex at `~/.config/hachiko/shibuya-token`, mode 0600, in no repository and in no vault. What it can do if it leaks is fake a check-in, which is worth the asymmetry; hachiko refuses a token file anything but the account can read, because a loose one is a token every session on this Mac has and the fix is one `chmod` rather than a rotation.
+`PING_TOKEN` is deliberately neither. hachiko reads it twice an hour for ever, which as a 1Password reference would be two hundred and eighty-eight `op run` calls a day against a service account with a daily limit; and writing a resolved `op://` value into a file is the one thing this machine never does. So it is generated on the Mac instead — `shibuya/secrets.sh`, 32 random bytes of hex at `~/.hachiko/shibuya-token`, mode 0600, in no repository and in no vault. What it can do if it leaks is fake a check-in, which is worth the asymmetry; hachiko refuses a token file anything but the account can read, because a loose one is a token every session on this Mac has and the fix is one `chmod` rather than a rotation.
 
-If the token is lost or leaked, delete `~/.config/hachiko/shibuya-token` and run `shibuya/secrets.sh` again: it generates a new one and puts it on the Worker as `PING_TOKEN`, and the old one stops working the moment that lands. Between the two, hachiko has no token to send and says so once rather than every five minutes, and shibuya posts the Mac offline a quarter of an hour later — the honest signal, since nothing is checking in — and the check-in that works again posts the recovery into that same post.
+If the token is lost or leaked, delete `~/.hachiko/shibuya-token` and run `shibuya/secrets.sh` again: it generates a new one and puts it on the Worker as `PING_TOKEN`, and the old one stops working the moment that lands. Between the two, hachiko has no token to send and says so once rather than every five minutes, and shibuya posts the Mac offline a quarter of an hour later — the honest signal, since nothing is checking in — and the check-in that works again posts the recovery into that same post.
 
-The URL is not a secret and is in the checkout, `home/.config/hachiko/shibuya`, one `https` line linked to `~/.config/hachiko/shibuya`. A Mac with no file there is one with the switch off rather than one with a broken switch: hachiko says so once and goes on watching.
+The URL is not a secret and is in the checkout, `home/.hachiko/shibuya`, one `https` line linked to `~/.hachiko/shibuya`. A Mac with no file there is one with the switch off rather than one with a broken switch: hachiko says so once and goes on watching.
 
 ## Deploying it
 
@@ -76,7 +76,7 @@ Every deploy after that is run by hand, and no install runs one: an `op run` cou
 curl -s https://shibuya.timche.dev            # shibuya, and nothing else
 
 # up or down, the last check-in and its reading
-printf 'header = "Authorization: Bearer %s"\n' "$(cat ~/.config/hachiko/shibuya-token)" |
+printf 'header = "Authorization: Bearer %s"\n' "$(cat ~/.hachiko/shibuya-token)" |
   curl -s -K - 'https://shibuya.timche.dev/status?host=tims-mac-mini'
 
 cd ~/.mac-mini/shibuya && npx wrangler tail   # what the Worker is saying, live

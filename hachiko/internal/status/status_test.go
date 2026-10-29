@@ -126,10 +126,10 @@ func TestFreeSpaceUnderTheLowMarkIsColouredWhereAnybodyIsLooking(t *testing.T) {
 func TestASectionThatCouldNotBeReadSaysSoInItself(t *testing.T) {
 	f := newFixture(t)
 	f.freeErr = errors.New("statfs: no such file or directory")
-	f.reposErr = errors.New("/Users/someone/.config/hachiko/sync could not be read")
+	f.reposErr = errors.New("/Users/someone/.hachiko/sync could not be read")
 
 	harness.Wants(t, f.section("Disk"), "could not be read: statfs")
-	harness.Wants(t, f.section("Sync"), "~/.config/hachiko/sync could not be read")
+	harness.Wants(t, f.section("Sync"), "~/.hachiko/sync could not be read")
 }
 
 func TestAQuietMacHasNothingOpen(t *testing.T) {

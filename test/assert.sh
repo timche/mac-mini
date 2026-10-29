@@ -50,7 +50,7 @@ for path in .zshrc .zshenv .zprofile .bashrc .gitconfig \
             .config/git/ignore \
             .config/herdr/config.toml .config/starship.toml \
             .terminfo/x/xterm-ghostty .terminfo/78/xterm-ghostty \
-            .config/hachiko/sync; do
+            .hachiko/sync; do
   check "$path is a live symlink" "[ -L \"\$HOME/$path\" ] && [ -e \"\$HOME/$path\" ]"
 done
 
@@ -1080,22 +1080,39 @@ check "a sync that exits is restarted, after a wait" \
 # would commit a half-written script behind a session mid-edit. The docs clone is the one
 # install.sh makes rather than the one it runs from, which is why the load is gated on it.
 check "the sync config names the docs whole and this repository's home/.claude alone, and is live" \
-  'grep -qx "mode = live" "$HOME/.config/hachiko/sync" &&
-   grep -qx "repo = ~/projects/docs" "$HOME/.config/hachiko/sync" &&
-   grep -qx "repo = ~/.mac-mini" "$HOME/.config/hachiko/sync" &&
-   grep -qx "paths = home/.claude" "$HOME/.config/hachiko/sync" &&
-   grep -qx "debounce = 2m" "$HOME/.config/hachiko/sync" &&
-   grep -qx "subject_model = haiku" "$HOME/.config/hachiko/sync" &&
-   [ "$(grep -c "^repo = " "$HOME/.config/hachiko/sync")" = 2 ] &&
-   [ "$(grep -c "^paths = " "$HOME/.config/hachiko/sync")" = 1 ] &&
-   ! grep -q "/Users/" "$HOME/.config/hachiko/sync"'
+  'grep -qx "mode = live" "$HOME/.hachiko/sync" &&
+   grep -qx "repo = ~/projects/docs" "$HOME/.hachiko/sync" &&
+   grep -qx "repo = ~/.mac-mini" "$HOME/.hachiko/sync" &&
+   grep -qx "paths = home/.claude" "$HOME/.hachiko/sync" &&
+   grep -qx "debounce = 2m" "$HOME/.hachiko/sync" &&
+   grep -qx "subject_model = haiku" "$HOME/.hachiko/sync" &&
+   [ "$(grep -c "^repo = " "$HOME/.hachiko/sync")" = 2 ] &&
+   [ "$(grep -c "^paths = " "$HOME/.hachiko/sync")" = 1 ] &&
+   ! grep -q "/Users/" "$HOME/.hachiko/sync"'
 
 # hachiko, the one compiled tool here. Its behaviour is `go test ./...` in hachiko/,
 # which drives the whole of the decision-making against injected seams; what is left
 # for this script is the wiring a Go test cannot see — the links, the agent, and the
 # wrapper that builds the binary.
+
+# Every check below runs a hachiko binary with this Mac's own HOME, because the build needs
+# the mise and the go that are in it — and a hachiko reaching any command moves the state it
+# finds in the folders it used to keep beside its binary into ~/.hachiko. So each of them
+# names a fixture folder for all four, which is what turns that move off: without it a test
+# run would take the live watch's incidents, the sweep's record and sync's heartbeat over as
+# its first act, and the agents still running the last binary would write to the folders it
+# had emptied.
+hachiko_fixture_state() {
+  local dir="$1"
+
+  export HACHIKO_STATE_DIR="$dir/watch" HACHIKO_GC_STATE_DIR="$dir/gc" \
+    HACHIKO_UPDATE_STATE_DIR="$dir/update" HACHIKO_SYNC_STATE_DIR="$dir/sync"
+}
+export -f hachiko_fixture_state
+
 check "hachiko is a live symlink and runs through its wrapper" \
-  '[ -L "$HOME/.local/bin/hachiko" ] && [ -x "$HOME/.local/bin/hachiko" ] &&
+  'hachiko_fixture_state "$(mktemp -d)" &&
+   [ -L "$HOME/.local/bin/hachiko" ] && [ -x "$HOME/.local/bin/hachiko" ] &&
    hachiko --help | grep -q "dry-run" &&
    hachiko --help | grep -q "notify" &&
    hachiko --help | grep -q "oncall" &&
@@ -1109,7 +1126,8 @@ check "hachiko is a live symlink and runs through its wrapper" \
 # only against a Go test's table: one of the five shapes, or nothing happens at all. Nothing
 # here moves a version — every one of these is refused before a tool is run.
 check "hachiko update --security refuses a target that is not one of its five shapes" \
-  'hachiko update --security "--version" 2>&1 | grep -q "is not a target" &&
+  'hachiko_fixture_state "$(mktemp -d)" &&
+   hachiko update --security "--version" 2>&1 | grep -q "is not a target" &&
    hachiko update --security "brew:a; rm -rf /" 2>&1 | grep -q "is not a target" &&
    hachiko update --security "pip:3.15.0" 2>&1 | grep -q "is not a target" &&
    hachiko update --security "apt:curl" 2>&1 | grep -q "is not a target" &&
@@ -1121,8 +1139,8 @@ check "hachiko update --security refuses a target that is not one of its five sh
 # after, is what says so — the real one is rewritten by the watch every five minutes and could
 # not tell a write of this command's from a sweep's.
 check "hachiko status prints one screen of this Mac and writes nothing" \
-  'd="$(mktemp -d)" &&
-   out="$(HACHIKO_STATE_DIR="$d" hachiko status)" &&
+  'd="$(mktemp -d)" && hachiko_fixture_state "$d" &&
+   out="$(hachiko status)" &&
    for section in Agents Disk Incidents Sync Logs; do
      printf "%s\n" "$out" | grep -qx "$section" || exit 1
    done &&
@@ -1157,7 +1175,7 @@ export -f gate_fixture
 # lands in this repository is main with no review behind it, and the wrapper is what
 # refuses to install a tree whose tests do not pass.
 check "a build whose tests fail leaves the binary that was already there" \
-  'd="$(mktemp -d)" && gate_fixture "$d" &&
+  'd="$(mktemp -d)" && gate_fixture "$d" && hachiko_fixture_state "$d/state" &&
    export MISE_TRUSTED_CONFIG_PATHS="$d" HACHIKO_CACHE_DIR="$d/cache" &&
    "$d/home/.local/bin/hachiko" --help >/dev/null &&
    was="$(shasum -a 256 "$d/cache/hachiko" | cut -d" " -f1)" &&
@@ -1168,34 +1186,35 @@ check "a build whose tests fail leaves the binary that was already there" \
    [ "$was" = "$(shasum -a 256 "$d/cache/hachiko" | cut -d" " -f1)" ] &&
    ! ls "$d/cache"/hachiko.* >/dev/null 2>&1'
 
-# Beside the wrapper because that is where the wrapper looks: `op run --env-file` is
-# given the path next to the script's own resolved location, so a missing link is an
-# alert that was not sent rather than one sent somewhere else.
-check "hachiko's secrets are op:// references beside it, and nothing resolved" \
-  '[ -L "$HOME/.local/bin/hachiko.env.op" ] &&
-   [ -e "$HOME/.local/bin/hachiko.env.op" ] &&
+# In hachiko's own folder because that is where the wrapper looks: `op run --env-file` is
+# given the reference there, so a missing link is an alert that was not sent rather than one
+# sent somewhere else.
+check "hachiko's secrets are op:// references in its folder, and nothing resolved" \
+  '[ -L "$HOME/.hachiko/hachiko.env.op" ] &&
+   [ -e "$HOME/.hachiko/hachiko.env.op" ] &&
+   [ ! -L "$HOME/.local/bin/hachiko.env.op" ] &&
    grep -qx "HACHIKO_DISCORD_BOT_TOKEN=op://dev/hachiko-discord/bot token" \
-     "$HOME/.local/bin/hachiko.env.op" &&
+     "$HOME/.hachiko/hachiko.env.op" &&
    grep -qx "HACHIKO_APPROVAL_TOTP=op://dev/hachiko-discord/approval" \
-     "$HOME/.local/bin/hachiko.env.op" &&
-   ! grep -qE "^[A-Z_]+=[^o]" "$HOME/.local/bin/hachiko.env.op"'
+     "$HOME/.hachiko/hachiko.env.op" &&
+   ! grep -qE "^[A-Z_]+=[^o]" "$HOME/.hachiko/hachiko.env.op"'
 
 # Answering from Discord, which is off until the config file names a channel and a user.
 # The channel is where every alert goes, so a config without one is a Mac that cannot alert.
 check "the Discord config is a live symlink naming a channel and a user" \
-  '[ -L "$HOME/.config/hachiko/discord" ] && [ -e "$HOME/.config/hachiko/discord" ] &&
-   grep -qE "^channel *= *[0-9]{17,20}$" "$HOME/.config/hachiko/discord" &&
-   grep -qE "^user *= *[0-9]{17,20}$" "$HOME/.config/hachiko/discord"'
+  '[ -L "$HOME/.hachiko/discord" ] && [ -e "$HOME/.hachiko/discord" ] &&
+   grep -qE "^channel *= *[0-9]{17,20}$" "$HOME/.hachiko/discord" &&
+   grep -qE "^user *= *[0-9]{17,20}$" "$HOME/.hachiko/discord"'
 
 # shibuya, the half of the watch that is not on this Mac. Its own behaviour is `npm test` in
 # shibuya/, against the same wrangler config the deploy reads; what is left for this script
 # is the wiring — the config file hachiko reads, the token file's mode, and the one script
 # that deploys it.
 check "the shibuya URL is a live symlink and holds one https URL and no token" \
-  '[ -L "$HOME/.config/hachiko/shibuya" ] && [ -e "$HOME/.config/hachiko/shibuya" ] &&
-   [ "$(grep -cE "^[^#]" "$HOME/.config/hachiko/shibuya" | tr -d " ")" -ge 1 ] &&
-   grep -qx "https://shibuya.timche.dev" "$HOME/.config/hachiko/shibuya" &&
-   ! grep -qE "^[^#]*(token|Bearer|op://)" "$HOME/.config/hachiko/shibuya"'
+  '[ -L "$HOME/.hachiko/shibuya" ] && [ -e "$HOME/.hachiko/shibuya" ] &&
+   [ "$(grep -cE "^[^#]" "$HOME/.hachiko/shibuya" | tr -d " ")" -ge 1 ] &&
+   grep -qx "https://shibuya.timche.dev" "$HOME/.hachiko/shibuya" &&
+   ! grep -qE "^[^#]*(token|Bearer|op://)" "$HOME/.hachiko/shibuya"'
 
 # Not in the repository and not in 1Password: generated on the Mac by shibuya/secrets.sh,
 # because hachiko reads it twice an hour and every `op run` counts against the service
@@ -1203,11 +1222,11 @@ check "the shibuya URL is a live symlink and holds one https URL and no token" \
 # nothing checks in with rather than a broken one — so this asserts the mode and only when
 # there is a file to assert it on.
 check "the ping token, if it is there, is readable by nobody but the account" \
-  't="$HOME/.config/hachiko/shibuya-token";
+  't="$HOME/.hachiko/shibuya-token";
    [ ! -e "$t" ] || [ "$(stat -f %Lp "$t")" = 600 ]'
 
 check "the ping token is in no .env.op and in no op:// reference" \
-  '! grep -q "shibuya-token" "$HOME/.local/bin/hachiko.env.op" &&
+  '! grep -q "shibuya-token" "$HOME/.hachiko/hachiko.env.op" &&
    ! grep -q "PING_TOKEN" "$repo/shibuya/.env.op"'
 
 check "shibuya's .env.op is op:// references and nothing resolved" \
@@ -1228,11 +1247,27 @@ check "shibuya is deployed to its custom domain alone" \
    grep -q "new_sqlite_classes" "$repo/shibuya/wrangler.jsonc"'
 
 check "the CPU allowlist is a live symlink and names the VMs and the indexer" \
-  '[ -L "$HOME/.config/hachiko/cpu-allow" ] &&
-   [ -e "$HOME/.config/hachiko/cpu-allow" ] &&
-   grep -qx "OrbStack Helper" "$HOME/.config/hachiko/cpu-allow" &&
-   grep -qx "mds" "$HOME/.config/hachiko/cpu-allow" &&
-   grep -qx "backupd" "$HOME/.config/hachiko/cpu-allow"'
+  '[ -L "$HOME/.hachiko/cpu-allow" ] &&
+   [ -e "$HOME/.hachiko/cpu-allow" ] &&
+   grep -qx "OrbStack Helper" "$HOME/.hachiko/cpu-allow" &&
+   grep -qx "mds" "$HOME/.hachiko/cpu-allow" &&
+   grep -qx "backupd" "$HOME/.hachiko/cpu-allow"'
+
+# One folder, which is the whole point of it: the four links and the ping token are in
+# hachiko's own, and nothing is left in the one they were in — a config file read from there
+# would be a Mac where an edit to this repository changes nothing.
+check "hachiko's config is in its own folder and nothing is left in ~/.config" \
+  '[ ! -e "$HOME/.config/hachiko" ]'
+
+# The build cache holds a build and nothing else: what hachiko records about itself is under
+# ~/.hachiko/state, where macOS does not treat it as a gigabyte to reclaim.
+check "the build cache holds hachiko's binary and none of its state" \
+  'c="$HOME/Library/Caches/hachiko" &&
+   [ -x "$c/hachiko" ] && [ -f "$c/source.sha256" ] &&
+   for left in state.json host update-raised.json reported approvals listen; do
+     [ ! -e "$c/$left" ] || exit 1
+   done &&
+   [ -d "$HOME/.hachiko/state/watch" ]'
 
 # The standing orders send the on-call session to this agent before it acts on its own,
 # so an agent file that is not there is an autonomous action with nobody checking it. The
@@ -1442,8 +1477,8 @@ check "mochi requires no module from outside this checkout" \
 # Full Disk Access answers "operation not permitted" at once, but one behind a consent
 # prompt makes open() wait for a dialog on a screen this Mac does not have, so the sweep
 # never returns and never releases its lock — and the sweep reads this machine's own logs
-# under ~/Library/Logs and its state under ~/Library/Caches on every run. `launchctl
-# submit` is the smallest way to get that shape: a job in the same gui domain, the built
+# under ~/Library/Logs and its state under ~/.hachiko on every run. `launchctl submit` is
+# the smallest way to get that shape: a job in the same gui domain, the built
 # binary, a state and cache directory of its own, and the whole of it removed afterwards
 # whatever happens.
 #
@@ -1454,7 +1489,9 @@ hachiko_launchd() {
   local bin="$1" dir="$2" label="$3" waited=0
 
   launchctl submit -l "$label" -o "$dir/out" -e "$dir/err" -- \
-    /usr/bin/env "HACHIKO_STATE_DIR=$dir/state" "HACHIKO_CACHE_DIR=$dir/cache" \
+    /usr/bin/env "HACHIKO_STATE_DIR=$dir/state/watch" "HACHIKO_GC_STATE_DIR=$dir/state/gc" \
+    "HACHIKO_UPDATE_STATE_DIR=$dir/state/update" "HACHIKO_SYNC_STATE_DIR=$dir/state/sync" \
+    "HACHIKO_CACHE_DIR=$dir/cache" \
     "$bin" --dry-run || return 1
 
   while [ "$waited" -lt 40 ]; do
@@ -1502,7 +1539,7 @@ export -f hachiko_tcc_unanswered
 
 check "hachiko finishes a sweep under launchd, where it has no privacy grants" \
   'cd / && d="$(mktemp -d)" && label="io.github.timche.hachiko.assert.$$" &&
-   export HACHIKO_CACHE_DIR="$d/cache" &&
+   export HACHIKO_CACHE_DIR="$d/cache" && hachiko_fixture_state "$d/state" &&
    "$repo/home/.local/bin/hachiko" --help >/dev/null &&
    [ -x "$d/cache/hachiko" ] &&
    since="$(date "+%Y-%m-%d %H:%M:%S")" &&
@@ -1526,9 +1563,9 @@ check "the wrapper rebuilds from the directory launchd starts the agent in" \
    cp -R "$repo/hachiko" "$d/hachiko" &&
    cp "$repo/mise.toml" "$d/mise.toml" &&
    cp "$repo/home/.local/bin/hachiko" "$d/home/.local/bin/hachiko" &&
-   cp -R "$repo/home/.config" "$d/home/.config" &&
+   cp -R "$repo/home/.hachiko" "$d/home/.hachiko" &&
    export MISE_TRUSTED_CONFIG_PATHS="$d" &&
-   export HACHIKO_CACHE_DIR="$d/cache" &&
+   export HACHIKO_CACHE_DIR="$d/cache" && hachiko_fixture_state "$d/state" &&
    "$d/home/.local/bin/hachiko" --help >/dev/null 2>"$d/first" &&
    [ ! -s "$d/first" ] &&
    built="$(cat "$d/cache/source.sha256")" &&
@@ -1542,9 +1579,9 @@ check "the wrapper keeps the last good binary when the sources do not compile" \
    cp -R "$repo/hachiko" "$d/hachiko" &&
    cp "$repo/mise.toml" "$d/mise.toml" &&
    cp "$repo/home/.local/bin/hachiko" "$d/home/.local/bin/hachiko" &&
-   cp -R "$repo/home/.config" "$d/home/.config" &&
+   cp -R "$repo/home/.hachiko" "$d/home/.hachiko" &&
    export MISE_TRUSTED_CONFIG_PATHS="$d" &&
-   export HACHIKO_CACHE_DIR="$d/cache" &&
+   export HACHIKO_CACHE_DIR="$d/cache" && hachiko_fixture_state "$d/state" &&
    "$d/home/.local/bin/hachiko" --help >/dev/null &&
    [ -x "$d/cache/hachiko" ] &&
    built="$(cat "$d/cache/source.sha256")" &&
@@ -1562,9 +1599,9 @@ check "the wrapper says why it could not rebuild and keeps watching" \
    cp -R "$repo/hachiko" "$d/hachiko" &&
    cp "$repo/mise.toml" "$d/mise.toml" &&
    cp "$repo/home/.local/bin/hachiko" "$d/home/.local/bin/hachiko" &&
-   cp -R "$repo/home/.config" "$d/home/.config" &&
+   cp -R "$repo/home/.hachiko" "$d/home/.hachiko" &&
    export MISE_TRUSTED_CONFIG_PATHS="$d" &&
-   export HACHIKO_CACHE_DIR="$d/cache" &&
+   export HACHIKO_CACHE_DIR="$d/cache" && hachiko_fixture_state "$d/state" &&
    "$d/home/.local/bin/hachiko" --help >/dev/null &&
    mv "$d/hachiko" "$d/hachiko.moved" &&
    "$d/home/.local/bin/hachiko" --help 2>"$d/gone" | grep -q "dry-run" &&
@@ -1583,9 +1620,9 @@ check "the wrapper runs the cached binary without a go of any kind when nothing 
    cp -R "$repo/hachiko" "$d/hachiko" &&
    cp "$repo/mise.toml" "$d/mise.toml" &&
    cp "$repo/home/.local/bin/hachiko" "$d/home/.local/bin/hachiko" &&
-   cp -R "$repo/home/.config" "$d/home/.config" &&
+   cp -R "$repo/home/.hachiko" "$d/home/.hachiko" &&
    export MISE_TRUSTED_CONFIG_PATHS="$d" &&
-   export HACHIKO_CACHE_DIR="$d/cache" &&
+   export HACHIKO_CACHE_DIR="$d/cache" && hachiko_fixture_state "$d/state" &&
    "$d/home/.local/bin/hachiko" --help >/dev/null &&
    printf "#!/bin/sh\nexit 97\n" >"$d/bin/mise" && chmod +x "$d/bin/mise" &&
    PATH="$d/bin:$stock_path" HOME="$d" "$d/home/.local/bin/hachiko" --help \

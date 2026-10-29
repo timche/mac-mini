@@ -64,7 +64,7 @@ const usage = `usage: hachiko [--dry-run | --test-alert]
                      their compose projects, volumes, processes and scratch folders,
                      and once a day docker's build cache and the images nothing refers
                      to; --dry-run says what a sweep would do and changes nothing
-  sync               commit and push the repositories ~/.config/hachiko/sync lists, as
+  sync               commit and push the repositories ~/.hachiko/sync lists, as
                      they change, until stopped; --once is one pass over every one of
                      them with the push delay ignored, and --dry-run says what the
                      daemon would commit and push and changes nothing
@@ -90,6 +90,13 @@ const usage = `usage: hachiko [--dry-run | --test-alert]
 `
 
 func main() {
+	// What hachiko records about itself, out of the build cache it used to share and into the
+	// folder it keeps its config in: on the way into whatever was asked for, which is the one
+	// moment this process is not reading it.
+	if err := config.MoveState(); err != nil {
+		fmt.Fprintf(os.Stderr, "hachiko: %v\n", err)
+	}
+
 	if err := run(os.Args[1:]); err != nil {
 		var usageErr usageError
 		if errors.As(err, &usageErr) {

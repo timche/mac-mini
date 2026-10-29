@@ -1,5 +1,5 @@
 // Package sync is `hachiko sync`: it commits what changes in the repositories
-// ~/.config/hachiko/sync lists and pushes them, so the work of an agent editing files
+// ~/.hachiko/sync lists and pushes them, so the work of an agent editing files
 // publishes itself. It runs from the io.github.timche.hachiko-sync LaunchAgent.
 //
 // It exists for files written by something other than a person at an editor — most often an

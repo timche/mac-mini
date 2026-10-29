@@ -114,7 +114,10 @@ mise trust "$repo"
 # mise never removes a link mise.toml stops listing, so one left pointing into this
 # checkout at a file it does not have is taken away here, with the folder it was the last
 # thing in.
-for link in "$HOME/.config/mochi/config.json" "$HOME/.local/bin/mochi.env.op"; do
+for link in "$HOME/.config/mochi/config.json" "$HOME/.local/bin/mochi.env.op" \
+  "$HOME/.local/bin/hachiko.env.op" "$HOME/.config/hachiko/cpu-allow" \
+  "$HOME/.config/hachiko/discord" "$HOME/.config/hachiko/shibuya" \
+  "$HOME/.config/hachiko/sync"; do
   if [ -L "$link" ] && [ ! -e "$link" ]; then
     case "$(readlink "$link")" in
       "$repo"/*)
@@ -123,6 +126,27 @@ for link in "$HOME/.config/mochi/config.json" "$HOME/.local/bin/mochi.env.op"; d
         ;;
     esac
   fi
+done
+
+# The one thing in the old folder that is a file rather than a link, so the sweep above
+# leaves it and the folder it is in: shibuya's ping token, generated on this Mac by
+# shibuya/secrets.sh and in no repository and no vault, which is why it is moved and not
+# made again. Never over one already in hachiko's folder, that being the live token.
+old_token="$HOME/.config/hachiko/shibuya-token"
+if [ -f "$old_token" ] && [ ! -e "$HOME/.hachiko/shibuya-token" ]; then
+  mkdir -p "$HOME/.hachiko" &&
+    mv "$old_token" "$HOME/.hachiko/shibuya-token" &&
+    echo "moved $old_token into ~/.hachiko, where hachiko reads it now"
+fi
+rmdir "$HOME/.config/hachiko" 2>/dev/null || true
+
+# And the folders the three agents recorded themselves in beside the binary, which hachiko
+# empties itself on its next start: whichever of the two runs last takes them, and neither
+# minds the other having been first. Only when empty, so a state file still waiting to be
+# moved is never one this removes.
+for stale in "$HOME/Library/Caches/hachiko-gc" "$HOME/Library/Caches/hachiko-update" \
+  "$HOME/Library/Caches/hachiko-sync"; do
+  rmdir "$stale" 2>/dev/null || true
 done
 
 # After the link above, because the tool list mise installs from is that file.
@@ -514,7 +538,7 @@ elif ! load_agent "$hachiko_label" "$hachiko_plist"; then
 fi
 
 # The half that listens for a reply in Discord. It is loaded whether or not the
-# feature is configured: with no channel and no user in ~/.config/hachiko/discord it
+# feature is configured: with no channel and no user in ~/.hachiko/discord it
 # says so once per start and exits, and the plist's five-minute throttle is what makes
 # that cost nothing. Loading it only when configured would mean a reply that works on
 # a Mac somebody ran install.sh on after filling the file in and nowhere else.
@@ -545,7 +569,7 @@ elif ! load_agent "$mochi_label" "$mochi_plist"; then
 fi
 
 # The daemon that carries edits upstream: `hachiko sync`, which commits and pushes
-# the repositories ~/.config/hachiko/sync lists. It has to survive a machine with no
+# the repositories ~/.hachiko/sync lists. It has to survive a machine with no
 # session attached — which is what the GUI login unattended.sh arranges is for. A
 # runner may have no GUI session, so none of this is fatal: the links are already
 # made and a real machine starts the daemon on its next install.

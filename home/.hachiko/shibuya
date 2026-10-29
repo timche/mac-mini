@@ -4,7 +4,7 @@
 #
 # Not a secret. It is one hostname on Tim's own zone, it holds no data, and the whole of
 # what it answers without a token is its own name. The token is the file beside this one,
-# ~/.config/hachiko/shibuya-token, which shibuya/secrets.sh makes and which is in no
+# ~/.hachiko/shibuya-token, which shibuya/secrets.sh makes and which is in no
 # repository and in no vault — shibuya/README.md has why.
 #
 # An https URL on a line of its own, and nothing else. A file that is not here at all is a

@@ -18,7 +18,7 @@ set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dir="$repo/shibuya"
-token_file="${SHIBUYA_TOKEN_FILE:-$HOME/.config/hachiko/shibuya-token}"
+token_file="${SHIBUYA_TOKEN_FILE:-$HOME/.hachiko/shibuya-token}"
 
 # The second half of this script, reached only under `op run`, which is the one step that
 # sees either secret.

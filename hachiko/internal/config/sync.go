@@ -123,7 +123,7 @@ func defaultSyncRetry() SyncRetry {
 	return SyncRetry{Attempts: 6, Base: 5 * time.Second, Max: 5 * time.Minute}
 }
 
-// The same `key = value` lines every other file in ~/.config/hachiko is written in, with
+// The same `key = value` lines every other file in ~/.hachiko is written in, with
 // one addition: a `repo =` line starts a repository, and every key after it belongs to that
 // repository until the next one. So the file reads top to bottom with no nesting and no
 // second syntax, and the keys before the first repo are the global ones.

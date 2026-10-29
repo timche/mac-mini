@@ -46,15 +46,17 @@ bindir=$(dirname "$self")
 repo=$(cd "$bindir/../../.." && pwd)
 src="$repo/hachiko"
 
-# Beside this script, which is where mise links both of them, so the alert has
-# somewhere to go without the binary in the cache knowing where the checkout is.
-HACHIKO_ENV_FILE="${HACHIKO_ENV_FILE:-$bindir/hachiko.env.op}"
+# In hachiko's own folder, which is where mise links it beside the config, so the
+# alert has somewhere to go without the binary in the cache knowing where the checkout is.
+HACHIKO_ENV_FILE="${HACHIKO_ENV_FILE:-$HOME/.hachiko/hachiko.env.op}"
 export HACHIKO_ENV_FILE
 
+# The build output alone, and the wrapper's business rather than the binary's: what hachiko
+# records about itself is in ~/.hachiko, which the binary works out for itself.
+#
 # The LaunchAgents run the default cache's binary, so one built from a worktree would have
 # them running that worktree's unmerged sources until the checkout's next change. A linked
-# worktree, whose .git is a file, builds into a cache of its own. The state directory is
-# worked out apart from this and stays the one the agents use.
+# worktree, whose .git is a file, builds into a cache of its own.
 if [ -f "$repo/.git" ]; then
   cache="${HACHIKO_CACHE_DIR:-$HOME/Library/Caches/hachiko/worktrees/$(basename "$repo")}"
 else

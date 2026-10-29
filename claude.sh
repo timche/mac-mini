@@ -86,7 +86,7 @@ signing_failed=0
 # left for the day is not a reason for the account side to fail. Neither script prompts, so
 # a provision with nobody watching finishes either way.
 op_token_file="${OP_SERVICE_ACCOUNT_TOKEN_FILE:-$HOME/.config/op/service-account-token}"
-shibuya_token="${SHIBUYA_TOKEN_FILE:-$HOME/.config/hachiko/shibuya-token}"
+shibuya_token="${SHIBUYA_TOKEN_FILE:-$HOME/.hachiko/shibuya-token}"
 
 if [ ! -f "$op_token_file" ]; then
   echo "no service-account token, so shibuya was left alone — the deploy and the ping" >&2

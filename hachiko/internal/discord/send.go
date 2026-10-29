@@ -40,7 +40,7 @@ const (
 
 // There is nowhere else for a message to go, so a channel nobody has configured is a send
 // that failed rather than one that quietly did nothing.
-const noChannel = "no Discord channel is configured in ~/.config/hachiko/discord, so there is nowhere to send this"
+const noChannel = "no Discord channel is configured in ~/.hachiko/discord, so there is nowhere to send this"
 
 // Where a message goes beyond the channel: into the thread an incident already has, or
 // into one this message is about to open. Both are ids and names rather than secrets, so

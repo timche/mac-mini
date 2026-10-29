@@ -179,7 +179,7 @@ The GitHub token goes in a file rather than the login keychain (`gh auth login -
 | Path | |
 | --- | --- |
 | `home/.claude/CLAUDE.md` `settings.json` | Global instructions; hooks, effort, permission mode |
-| `home/.claude/skills/` `hooks/` | Personal skills, and the scripts the hooks call |
+| `home/.claude/skills/` `hooks/` | Personal skills, and the one hook script herdr installs for itself |
 | `home/.claude/agents/` | Custom subagents: the model, effort and instructions each role runs with |
 | `home/.zshrc` `.zshenv` `.zprofile` `.gitconfig` | Shell, PATH, prompt, signed commits |
 | `home/.config/starship.toml` | The prompt |
@@ -200,7 +200,7 @@ The GitHub token goes in a file rather than the login keychain (`gh auth login -
 | `machine/launchd/` | The herdr launcher's source, which is what that agent starts |
 | `tools/hachiko/` | The watch over this Mac, its worktree sweep, its auto-sync and the nightly update — [tools/hachiko/README.md](tools/hachiko/README.md) |
 | `tools/mochi/` | Tim's Claude Tag for Discord — [tools/mochi/README.md](tools/mochi/README.md) |
-| `tools/claude-hooks/` | Every Claude Code hook as a subcommand of one binary, both of them on every session's Bash calls: the guard, no kill by name and no foreground without the lock, and the attribution stripped out of what `gh` sends GitHub — [tools/claude-hooks/README.md](tools/claude-hooks/README.md) |
+| `tools/claude-hooks/` | Every Claude Code hook as a subcommand of one binary, three of the four on every session's Bash calls: the guard, no kill by name and no foreground without the lock; the attribution stripped out of what `gh` sends GitHub; the worktree a session moved to, named in herdr's sidebar; and the project's docs printed into a session as it starts — [tools/claude-hooks/README.md](tools/claude-hooks/README.md) |
 | `tools/lib/discord/` | Not a tool but a library the tools share: a Discord client, REST and gateway, as a Go module of its own |
 | `tools/shibuya/` | The one tool that does not run on this Mac: hachiko's dead man's switch, a Cloudflare Worker — [tools/shibuya/README.md](tools/shibuya/README.md) |
 
@@ -321,7 +321,7 @@ CI reads every one of these back on the `macos-latest` runner and asserts that a
 
 `.github/workflows/test.yml`, on a `macos-latest` runner and nowhere else: there is no macOS container to put any of this in, and the suite changes the machine it runs on. Hosted runners are free to a public repository, which is the reason this one is public.
 
-The job runs `bootstrap.sh` first, against a clone of the branch under test rather than of main, which is the only path that clones anything. Then each phase by hand with the asserts after each: `machine.sh` twice, `xcode.sh` twice, then `claude.sh` and after it the `install.sh` that is its own first step. The repeat is what keeps the whole of it honest about being safe to re-run, which is the only way a change ever reaches a Mac that is already built, and the runner's account being called `runner` is what proves nothing here assumes an account name. Then the [root helper](#the-root-helper) under sudo, which only a machine with passwordless sudo can exercise: `--list` and three refusals, and none of the actions themselves. Then `test/signing-key.sh` and `test/sync-agent.sh`, the two that need more than a file read, and last `harden-ssh.sh` with a key seeded the way a real Mac has one, because a runner has nothing after it that needs to log in.
+The job runs `bootstrap.sh` first, against a clone of the branch under test rather than of main, which is the only path that clones anything. Then each phase by hand with the asserts after each: `machine.sh` twice, then the [root helper](#the-root-helper) under sudo, which only a machine with passwordless sudo can exercise — `--list` and three refusals, and none of the actions themselves — then `xcode.sh` twice, then `claude.sh` and after it the `install.sh` that is its own first step. The repeat is what keeps the whole of it honest about being safe to re-run, which is the only way a change ever reaches a Mac that is already built, and the runner's account being called `runner` is what proves nothing here assumes an account name. Then `test/signing-key.sh` and `test/sync-agent.sh`, the two that need more than a file read, and last `harden-ssh.sh` with a key seeded the way a real Mac has one, because a runner has nothing after it that needs to log in.
 
 There are four assert scripts. `test/assert-machine.sh`, `test/assert.sh` and `test/assert-account.sh` are one per phase — what `machine.sh` left, what `install.sh` left, and the logins and the signing key. `test/assert-markdown.sh` is the odd one out and the only one about the repository rather than the Mac: the word budgets on the always-loaded `home/.claude/CLAUDE.md` and on this repository's own `CLAUDE.md`, and prose that is never hard-wrapped. `assert.sh` runs it and adds its failures to its own, and `.github/workflows/markdown.yml` runs it alone on `ubuntu-latest` — which is the point of it being a script of its own, since `test.yml`'s paths filter deliberately keeps a markdown-only push off a macOS runner. Which is also why nothing in it may reach for a command only macOS has.
 

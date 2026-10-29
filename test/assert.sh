@@ -766,13 +766,18 @@ export -f gc_compose_fixture
 
 check "window-shot is a live symlink and prints its usage" \
   '[ -L "$HOME/.local/bin/window-shot" ] && [ -x "$HOME/.local/bin/window-shot" ] &&
-   window-shot --help 2>&1 | grep -q "usage: window-shot <owner> <out.png>"'
+   window-shot --help 2>&1 | grep -q "usage: window-shot <pid|owner> <out.png>"'
 check "window-shot refuses a missing output path" \
   'window-shot Finder; [ $? -eq 2 ]'
 check "window-shot exits 1 and says so when the owner has no window, writing nothing" \
   'out="$(mktemp -d)/shot.png" &&
    ! err="$(window-shot "no-such-owner-$$" "$out" 2>&1)" &&
    printf "%s" "$err" | grep -q "no on-screen window owned by no-such-owner-$$" &&
+   [ ! -e "$out" ]'
+check "window-shot reads a numeric first argument as a pid" \
+  'out="$(mktemp -d)/shot.png" &&
+   ! err="$(window-shot "$$" "$out" 2>&1)" &&
+   printf "%s" "$err" | grep -q "no on-screen window owned by pid $$" &&
    [ ! -e "$out" ]'
 
 check "focus-lock is a live symlink and prints its usage" \

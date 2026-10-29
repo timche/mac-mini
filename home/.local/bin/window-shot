@@ -6,14 +6,21 @@
 # run through the Command Line Tools' `swift` as a script rather than as a
 # compiled binary, which would be a build step and a second file to keep current.
 #
+# The app is named by pid first. Every session's development build of one app
+# owns its windows under the same process name, often with the same title, so a
+# name picks whichever copy is frontmost and the shot of another session's app
+# looks right. A name is for an app with one copy on the Mac, such as UTM or
+# System Settings. A numeric first argument is a pid, since no process name the
+# window list gives is all digits.
+#
 # The window list comes front to back, so the first match is the frontmost.
 # Window titles need the Screen Recording grant, which the capture needs anyway.
 
 set -uo pipefail
 
 usage() {
-  echo "usage: window-shot <owner> <out.png> [title substring]" >&2
-  echo "  owner is the app's process name as the window list has it: Electron, Google Chrome, Finder" >&2
+  echo "usage: window-shot <pid|owner> <out.png> [title substring]" >&2
+  echo "  pid is the app's main process; owner, for an app with one copy on the Mac, is its process name as the window list has it: UTM, Finder" >&2
 }
 
 case "${1:-}" in
@@ -24,17 +31,20 @@ if [ $# -lt 2 ] || [ $# -gt 3 ]; then
   exit 2
 fi
 
-owner="$1" out="$2" title="${3:-}"
+app="$1" out="$2" title="${3:-}"
 
-id="$(swift - "$owner" "$title" <<'SWIFT'
+id="$(swift - "$app" "$title" <<'SWIFT'
 import CoreGraphics
 import Foundation
 
-let owner = CommandLine.arguments[1]
+let app = CommandLine.arguments[1]
 let title = CommandLine.arguments[2]
+let pid = Int(app)
 let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
 let normal = windows.filter { ($0[kCGWindowLayer as String] as? Int) == 0 }
-let owned = normal.filter { ($0[kCGWindowOwnerName as String] as? String) == owner }
+func ownerName(_ w: [String: Any]) -> String { (w[kCGWindowOwnerName as String] as? String) ?? "" }
+func ownerPID(_ w: [String: Any]) -> Int { (w[kCGWindowOwnerPID as String] as? Int) ?? -1 }
+let owned = normal.filter { pid != nil ? ownerPID($0) == pid : ownerName($0) == app }
 let match = owned.first { title.isEmpty || (($0[kCGWindowName as String] as? String) ?? "").contains(title) }
 
 if let id = match?[kCGWindowNumber as String] {
@@ -42,13 +52,14 @@ if let id = match?[kCGWindowNumber as String] {
   exit(0)
 }
 let err = FileHandle.standardError
+let who = pid != nil ? "pid \(app)" : app
 if owned.isEmpty {
-  let owners = Set(normal.compactMap { $0[kCGWindowOwnerName as String] as? String }).sorted()
+  let owners = Set(normal.map { "\(ownerName($0)) (pid \(ownerPID($0)))" }).sorted()
   let others = owners.isEmpty ? "no app has a window on screen" : "on screen: \(owners.joined(separator: ", "))"
-  err.write("window-shot: no on-screen window owned by \(owner); \(others)\n".data(using: .utf8)!)
+  err.write("window-shot: no on-screen window owned by \(who); \(others)\n".data(using: .utf8)!)
 } else {
   let titles = owned.map { "\"\(($0[kCGWindowName as String] as? String) ?? "")\"" }
-  err.write("window-shot: no \(owner) window titled with \"\(title)\"; its windows: \(titles.joined(separator: ", "))\n".data(using: .utf8)!)
+  err.write("window-shot: no window of \(who) titled with \"\(title)\"; its windows: \(titles.joined(separator: ", "))\n".data(using: .utf8)!)
 }
 exit(1)
 SWIFT

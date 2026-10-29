@@ -31,7 +31,7 @@
           },
           {
             "type": "command",
-            "command": "b=\"$HOME/Library/Caches/guard/guard\"; [ -x \"$b\" ] || b=\"$HOME/.local/bin/guard\"; exec \"$b\" pre-tool-use",
+            "command": "b=\"$HOME/Library/Caches/claude-hooks/claude-hooks\"; [ -x \"$b\" ] || b=\"$HOME/.local/bin/claude-hooks\"; exec \"$b\" guard",
             "timeout": 30
           }
         ]

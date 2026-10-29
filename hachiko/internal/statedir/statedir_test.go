@@ -19,9 +19,8 @@ func TestStateSurvivesASaveAndALoad(t *testing.T) {
 	store := Store{Dir: filepath.Join(t.TempDir(), "hachiko")}
 
 	want := &State{
-		Disk:          DiskSample{At: base.Unix(), Files: map[string]int64{"/tmp/a.log": 2048}},
+		Disk:          DiskSample{At: base.Unix(), FreeKB: 46 * 1 << 20},
 		CPU:           CPUSample{At: base.Unix(), Procs: map[string]ProcSample{"7018:x": {CPU: 90, HotSince: 1}}},
-		AlertedFiles:  []string{"/tmp/a.log"},
 		AlertedProcs:  []string{"7018:x"},
 		LowSpaceLevel: 20,
 		Pending:       map[string]Pending{"disk-1": {OpenedAt: 1, Tab: "disk-0000", Details: "the lot"}},
@@ -36,11 +35,11 @@ func TestStateSurvivesASaveAndALoad(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	harness.Equal(t, got.Disk.Files["/tmp/a.log"], int64(2048), "a recorded size")
+	harness.Equal(t, got.Disk.FreeKB, int64(46*1<<20), "the recorded free space")
 	harness.Equal(t, got.CPU.Procs["7018:x"].CPU, float64(90), "a recorded cpu time")
 	harness.Equal(t, got.LowSpaceLevel, int64(20), "the recorded threshold")
 	harness.Equal(t, got.Pending["disk-1"].Tab, "disk-0000", "the recorded tab")
-	if !got.AlertedFile("/tmp/a.log") || !got.AlertedProc("7018:x") {
+	if !got.AlertedProc("7018:x") {
 		t.Error("what was alerted on was not recorded")
 	}
 }
@@ -218,7 +217,7 @@ func TestOnlyAnIncidentIdCanBeMarkedReported(t *testing.T) {
 
 // A corrupt sample costs one interval of history; going quiet about it would cost every
 // interval after it, since a file that cannot be read every run is a sweep that can
-// never measure growth.
+// never measure a rate.
 func TestACorruptStateFileIsSaidOutLoud(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "hachiko")
 	if err := os.MkdirAll(dir, 0o755); err != nil {

@@ -161,17 +161,17 @@ func TestALongMessageIsCappedAndSaysWhereTheRestIs(t *testing.T) {
 // span open — and Discord then renders everything after it as code, the line saying the
 // message was truncated included.
 func TestTheCapCutsWholeLinesAndLeavesNoCodeSpanOpen(t *testing.T) {
-	m := wording.Lead(wording.MarkerDisk, "Disk filling: devbackend.log is growing fast").
+	m := wording.Lead(wording.MarkerBusy, "node is busy: 80% of a core for 1 hour").
 		Field(wording.LabelFreeSpace, "500 GB")
 
-	// Enough bullets that the cut lands in the middle of one of them, each carrying a path in
-	// a code span.
+	// Enough bullets that the cut lands in the middle of one of them, each carrying a
+	// command line in a code span.
 	var bullets []string
 	for i := range 40 {
-		bullets = append(bullets, wording.CodeSpan(fmt.Sprintf("/private/tmp/worker-%02d.log", i))+
-			" — 4.3 GB, up 4.3 GB in 5 minutes (about 52 GB an hour), written by sleep (pid 5073)")
+		bullets = append(bullets, fmt.Sprintf("node (pid 70%02d) — 80%% of a core for 1 hour, 512 MB memory, started yesterday at 20:06\n  ", i)+
+			wording.CodeSpan(fmt.Sprintf("/usr/local/bin/node worker-%02d.js", i)))
 	}
-	long := m.Bullets(wording.LabelGrowing, bullets).
+	long := m.Bullets(wording.LabelBusy, bullets).
 		Can("Attach in herdr: workspace `.mac-mini`, tab `disk-1200`.").
 		About("disk-1700000000", "mac-mini").
 		String()
@@ -207,9 +207,9 @@ func TestTheCapCutsWholeLinesAndLeavesNoCodeSpanOpen(t *testing.T) {
 // losing a finding to make room for it: it is the one line Tim never acts on.
 func TestTheCapDropsTheSubtextFirst(t *testing.T) {
 	build := func(pad int) *wording.Message {
-		return wording.Lead(wording.MarkerDisk, "Disk filling: worker.log is growing fast").
-			Bullets(wording.LabelGrowing, []string{
-				wording.CodeSpan("/private/tmp/worker.log") + " — " + strings.Repeat("x", pad)}).
+		return wording.Lead(wording.MarkerBusy, "node is busy: 80% of a core for 1 hour").
+			Bullets(wording.LabelBusy, []string{
+				wording.CodeSpan("/usr/local/bin/node worker.js") + " — " + strings.Repeat("x", pad)}).
 			Can("Attach in herdr.")
 	}
 

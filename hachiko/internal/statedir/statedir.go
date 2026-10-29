@@ -22,26 +22,18 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
-// State is everything a sweep has to remember: the two samples it measures growth
+// State is everything a sweep has to remember: the two samples it measures free space
 // and CPU share against, what has already been alerted on so a thing that is still
 // going is still one incident, and the sessions that owe a report.
 type State struct {
 	Disk DiskSample `json:"disk"`
 	CPU  CPUSample  `json:"cpu"`
 
-	AlertedFiles []string `json:"alerted_files,omitempty"`
 	AlertedProcs []string `json:"alerted_procs,omitempty"`
 
 	// The threshold the last alert was about, in GB, so a disk that keeps filling
 	// says so once more and says nothing again until it has recovered.
 	LowSpaceLevel int64 `json:"low_space_level,omitempty"`
-
-	// Directories that did not answer a read in time, and when. Remembered so that a
-	// walk does not spend the same seconds on the same hung open every five minutes, and
-	// retried after a while so that one slow read under disk pressure — which is exactly
-	// when a runaway writer is thrashing the volume — does not blind the watch to a
-	// whole tree for good.
-	Stalled []Stall `json:"stalled,omitempty"`
 
 	Pending map[string]Pending `json:"pending,omitempty"`
 
@@ -194,13 +186,10 @@ type Behind struct {
 	Thread string `json:"thread,omitempty"`
 }
 
+// DiskSample is the free space at one check and when it was taken, which is what the rate
+// the volume is losing is measured from.
 type DiskSample struct {
-	At    int64            `json:"at,omitempty"`
-	Files map[string]int64 `json:"files,omitempty"`
-
-	// Free space at that sample, so the rate the disk is actually losing can be read
-	// against the rate the files hachiko can see are gaining. A writer it never found is
-	// still taking the disk.
+	At     int64 `json:"at,omitempty"`
 	FreeKB int64 `json:"free_kb,omitempty"`
 }
 
@@ -216,27 +205,6 @@ type ProcSample struct {
 	CPU           float64 `json:"cpu"`
 	HotSince      int64   `json:"hot_since,omitempty"`
 	CPUAtHotSince float64 `json:"cpu_at_hot_since,omitempty"`
-}
-
-// Stall is a directory the walk gave up on, with the first time it did and the last.
-type Stall struct {
-	Dir     string `json:"dir"`
-	FirstAt int64  `json:"first_at"`
-	LastAt  int64  `json:"last_at"`
-}
-
-// Which of them are still being skipped, and which are due to be tried again. A hung open
-// costs one directory timeout to retry, so an hour is cheap; a tree that has come back
-// being invisible until somebody edits a state file is not.
-func DueForRetry(stalled []Stall, now time.Time, after time.Duration) (skip []string, retry []string) {
-	for _, s := range stalled {
-		if now.Sub(time.Unix(s.LastAt, 0)) >= after {
-			retry = append(retry, s.Dir)
-		} else {
-			skip = append(skip, s.Dir)
-		}
-	}
-	return skip, retry
 }
 
 // Pending is an incident an on-call session was opened for and has not reported on.
@@ -325,18 +293,15 @@ type Waiting struct {
 // a material change can be measured against: the options in front of Tim are about
 // these numbers, and once they have moved far enough the question is the wrong one.
 type Asked struct {
-	At      int64            `json:"at,omitempty"`
-	FreeKB  int64            `json:"free_kb,omitempty"`
-	Level   int64            `json:"level,omitempty"`
-	Sizes   map[string]int64 `json:"sizes,omitempty"`
-	Writers []string         `json:"writers,omitempty"`
+	At     int64 `json:"at,omitempty"`
+	FreeKB int64 `json:"free_kb,omitempty"`
+	Level  int64 `json:"level,omitempty"`
 }
 
 func (s *State) HasDiskSample() bool { return s.Disk.At > 0 }
 func (s *State) HasCPUSample() bool  { return s.CPU.At > 0 }
 
-func (s *State) AlertedFile(path string) bool { return Contains(s.AlertedFiles, path) }
-func (s *State) AlertedProc(key string) bool  { return Contains(s.AlertedProcs, key) }
+func (s *State) AlertedProc(key string) bool { return Contains(s.AlertedProcs, key) }
 
 func Contains(list []string, want string) bool {
 	for _, v := range list {
@@ -365,7 +330,7 @@ func (st Store) Path() string { return filepath.Join(st.Dir, "state.json") }
 // A state file that cannot be read is a sweep that starts over rather than one that
 // stops: a corrupt sample costs one interval of history, a refusal costs every
 // interval after it. It is still said out loud, because a file that goes corrupt
-// every run is a sweep that can never measure growth and would otherwise look quiet.
+// every run is a sweep that can never measure a rate and would otherwise look quiet.
 var ErrCorrupt = errors.New("the state file could not be read, so this check measures from nothing")
 
 func (st Store) Load() (*State, error) {

@@ -18,14 +18,6 @@ const GiB = 1 << 20
 type Config struct {
 	LowKB      int64
 	CriticalKB int64
-	BigKB      int64
-	GrowthKB   int64
-
-	// How soon the volume has to run out, at the rate the files found growing are gaining
-	// between two samples, before that growth is worth an alert of its own: a large download
-	// on a mostly empty disk is growth and not a disk filling. Zero leaves growth alone
-	// deciding, which is how a check written in megabytes and minutes trips the arithmetic.
-	FillHorizon time.Duration
 
 	// Per cent of one core, and the unbroken span a process has to hold it for.
 	CPUShare  float64
@@ -40,15 +32,6 @@ type Config struct {
 	WarnAfter     time.Duration
 	HandoverAfter time.Duration
 
-	// What one directory read may take before it is abandoned, and what the whole walk
-	// may take before the sweep goes on without it. Defence in depth behind
-	// PrunedPaths: no single open may cost the machine its only monitor.
-	DirTimeout  time.Duration
-	WalkTimeout time.Duration
-
-	// How long a directory that would not answer stays skipped before it is tried again.
-	StallRetry time.Duration
-
 	// How big one of this machine's own logs may get before the watch caps it, keeping one
 	// previous generation. Ten megabytes: weeks of a quiet agent's lines, and two
 	// generations of every log on the list together are a rounding error against the volume
@@ -57,7 +40,6 @@ type Config struct {
 
 	Home         string
 	MachineDir   string
-	TmpRoot      string
 	ScratchRoot  string
 	LogsRoot     string
 	HerdrRoot    string
@@ -258,10 +240,6 @@ func FromEnv() Config {
 	return Config{
 		LowKB:      envInt64("HACHIKO_LOW_GB", 100) * GiB,
 		CriticalKB: envInt64("HACHIKO_CRITICAL_GB", 20) * GiB,
-		BigKB:      envInt64("HACHIKO_BIG_KB", GiB),
-		GrowthKB:   envInt64("HACHIKO_GROWTH_KB", 2*GiB),
-
-		FillHorizon: time.Duration(envInt64("HACHIKO_FILL_HOURS", 6)) * time.Hour,
 
 		CPUShare:  float64(envInt64("HACHIKO_CPU_SHARE", 50)),
 		CPUWindow: time.Duration(envInt64("HACHIKO_CPU_WINDOW", 3600)) * time.Second,
@@ -272,14 +250,10 @@ func FromEnv() Config {
 		WarnAfter:     time.Duration(envInt64("HACHIKO_WARN_AFTER", 9900)) * time.Second,
 		HandoverAfter: time.Duration(envInt64("HACHIKO_HANDOVER_AFTER", 10800)) * time.Second,
 
-		DirTimeout:  time.Duration(envInt64("HACHIKO_DIR_TIMEOUT", 3)) * time.Second,
-		WalkTimeout: time.Duration(envInt64("HACHIKO_WALK_TIMEOUT", 60)) * time.Second,
-		StallRetry:  time.Duration(envInt64("HACHIKO_STALL_RETRY", 3600)) * time.Second,
-		LogCapKB:    envInt64("HACHIKO_LOG_CAP_KB", 10*1024),
+		LogCapKB: envInt64("HACHIKO_LOG_CAP_KB", 10*1024),
 
 		Home:         home,
 		MachineDir:   machineDir,
-		TmpRoot:      envString("HACHIKO_TMP", "/private/tmp"),
 		ScratchRoot:  envString("CLAUDE_CODE_TMPDIR", filepath.Join(home, ".cache", "claude-tmp")),
 		LogsRoot:     filepath.Join(home, "Library", "Logs"),
 		HerdrRoot:    filepath.Join(home, ".herdr", "worktrees"),
@@ -343,60 +317,6 @@ func FromEnv() Config {
 		Host:            host,
 		hostFromTailnet: hostFromTailnet,
 		Display:         envString("HACHIKO_DISPLAY", "Mac mini"),
-	}
-}
-
-// Roots are the trees a runaway log lands in: the tmp everything reaches for, the
-// account's own home, and the two folders inside ~/Library that hold logs and caches
-// rather than another app's data. The rest of ~/Library is not walked at all — see
-// PrunedPaths — so those two come back as roots of their own.
-func (c Config) Roots() []string {
-	return []string{
-		c.TmpRoot,
-		c.Home,
-		filepath.Join(c.Home, "Library", "Logs"),
-		filepath.Join(c.Home, "Library", "Caches"),
-	}
-}
-
-// PrunedPaths is the whole of what the walk does not open. Everything else under the
-// roots is walked, because a runaway log lands wherever somebody found convenient.
-//
-// All of them are about TCC. Under launchd an unsigned binary is its own
-// TCC-responsible process and has none of the grants a herdr pane has, and what it meets
-// is not a refusal: a folder behind Full Disk Access answers "operation not permitted" in
-// microseconds and is no trouble, but a folder behind a consent prompt makes open() wait
-// for a dialog on a screen nobody is looking at. That is a sweep that never returns, on a
-// Mac whose only monitor it is. It cannot be discovered at runtime either, because the
-// same code run from a session walks all of it fine.
-//
-// ~/Library goes wholesale: it is every other app's data, macOS guards it under Device
-// Control and Data Access, and reading it raises "Data Access Blocked" as well as
-// hundreds of TCC requests. Logs and Caches are walked as roots of their own instead,
-// being this machine's own output rather than anybody's data — the first is where a
-// runaway log lands and where a truncate is allowed, the second is where hachiko's own
-// binary lives. Pruning ~/Library also takes the Containers folders with it, which held
-// the VM disk images that are sparse and so apparently hundreds of gigabytes they are not
-// occupying, and iCloud Drive and the CloudStorage mounts, which are consent-guarded too.
-//
-// The home folders below it are the documents-and-media consent category. Public is the
-// odd one out: it is not guarded at all, it is the folder the Mac shares out, and nothing
-// that writes a log writes it there.
-func (c Config) PrunedPaths() []string {
-	under := func(parts ...string) string {
-		return filepath.Join(append([]string{c.Home}, parts...)...)
-	}
-
-	return []string{
-		under("Library"),
-
-		under("Desktop"),
-		under("Documents"),
-		under("Downloads"),
-		under("Movies"),
-		under("Music"),
-		under("Pictures"),
-		under("Public"),
 	}
 }
 

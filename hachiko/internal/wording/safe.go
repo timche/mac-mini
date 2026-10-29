@@ -6,11 +6,10 @@ import (
 )
 
 // Every string in a message or a prompt that something other than hachiko chose: a
-// path a worker made up, an lsof command name, a command line. Discord caps a message
+// path a worker made up, a process name, a command line. Discord caps a message
 // at 2,000 characters, and one of these at a megabyte would be the whole of it.
 const (
 	PathLimit     = 200
-	WriterLimit   = 200
 	ArgsLimit     = 200
 	FallbackLimit = 200
 

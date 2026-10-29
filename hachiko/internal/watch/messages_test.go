@@ -68,37 +68,9 @@ type messageKind struct {
 	render func(t *testing.T) string
 }
 
-// 4.3 GB in the five minutes between two checks, which is about what the worker that caused
-// all this managed, and the path it chose because it was convenient.
-const (
-	growingKB = 4508877
-	logPath   = "/private/tmp/devbackend.log"
-)
-
-// Paths as the real machine spells them and sizes no test could write, so what is printed is
-// the message Tim would get rather than one about a temporary directory.
-func messageFixture(t *testing.T) *fixture {
-	t.Helper()
-
-	f := newFixture(t)
-	f.cfg.BigKB = config.GiB
-	f.cfg.GrowthKB = 2 * config.GiB
-	f.cfg.TmpRoot = "/private/tmp"
-	f.noTruncate = true
-	f.writer = "sleep (pid 5073), bash (pid 91330)"
-	return f
-}
-
-// A file that was not there on the check before, which is the shape of the failure this
-// whole thing watches for: the whole of it arrived in one interval.
-func growingDisk(f *fixture) {
-	f.at(0).sweep()
-	f.claim(logPath, growingKB)
-}
-
 // Thirteen checks five minutes apart at 80% of a core, which is the hour the rule is about,
 // with a start time the message says "yesterday" about.
-func busyProcess(f *fixture, system bool, command string, pid int, alsoGrowing bool) {
+func busyProcess(f *fixture, system bool, command string, pid int, alsoLowOnSpace bool) {
 	start := f.now.Add(-26 * time.Hour).Format("Mon Jan 2 15:04:05 2006")
 
 	for i := range 13 {
@@ -107,28 +79,24 @@ func busyProcess(f *fixture, system bool, command string, pid int, alsoGrowing b
 		} else {
 			f.proc(pid, float64(i)*240, start, command)
 		}
-		if alsoGrowing && i == 12 {
-			f.claim(logPath, growingKB)
+		if alsoLowOnSpace && i == 12 {
+			f.freeGB = 46
 		}
 		f.at(int64(i) * 300).sweep()
 	}
 }
 
-// A session on its question, with its own fallback option named and the file still going
-// under it: that is where every message about a wait starts from, and a trigger that has
-// stopped is a different piece of news again.
-//
-// The file is 14 GB before the watch ever sees it and gains a little over the growth mark on
-// each check, so it is still growing fast every time without ever doubling on its own.
+// A session on its question, with its own fallback option named and the volume still under
+// the mark beneath it: that is where every message about a wait starts from, and a trigger
+// that has stopped is a different piece of news again.
 func waitingOnAQuestion(t *testing.T) *fixture {
 	t.Helper()
 
-	f := messageFixture(t)
+	f := newFixture(t)
 	f.cfg.RemindAfter = remindAt * time.Second
 	f.cfg.WarnAfter = warnAt * time.Second
 	f.cfg.HandoverAfter = handoverAt * time.Second
-	f.claimedKB = 14 * config.GiB
-	f.keepClaiming, f.claimStep = logPath, 2202010
+	f.freeGB = 46
 
 	f.at(0).sweep()
 	f.at(300).sweep()
@@ -141,47 +109,30 @@ func waitingOnAQuestion(t *testing.T) *fixture {
 }
 
 var messageKinds = []messageKind{{
-	name:   "disk-growing",
-	marker: wording.MarkerDisk,
-	wants: []string{
-		"💾 Disk filling: devbackend.log is growing fast",
-		"**Free space:** 500 GB",
-		"- `/private/tmp/devbackend.log` — 4.3 GB, up 4.3 GB in 5 minutes (about 52 GB an hour), written by sleep (pid 5073), bash (pid 91330)",
-		"An agent is looking into it — attach in herdr: workspace `.mac-mini`, tab `disk-0000`. Details to follow.",
-	},
-	render: func(t *testing.T) string {
-		f := messageFixture(t)
-		growingDisk(f)
-		f.at(300).sweep()
-		return f.lastSent()
-	},
-}, {
 	name:   "low-space",
 	marker: wording.MarkerDisk,
 	wants: []string{
 		"💾 Low disk space: 46 GB free",
 		"**Free space:** 46 GB, under the 100 GB mark",
+		"An agent is looking into it — attach in herdr: workspace `.mac-mini`, tab `disk-0000`. Details to follow.",
 	},
 	render: func(t *testing.T) string {
-		f := messageFixture(t)
+		f := newFixture(t)
 		f.freeGB = 46
 		f.at(0).sweep()
 		return f.lastSent()
 	},
 }, {
-	name:   "disk-critical-and-emptied",
+	name:   "disk-critical",
 	marker: wording.MarkerDown,
 	wants: []string{
-		"🔴 Disk critical: 1 GB free, and devbackend.log was emptied",
+		"🔴 Disk critical: 1 GB free",
 		"**Free space:** 1 GB, under the 20 GB mark",
-		"**Emptied to keep the Mac going:** `/private/tmp/devbackend.log` — its writer was left running, so the space is back now",
-		"**Growing fast:**",
 	},
 	render: func(t *testing.T) string {
-		f := messageFixture(t)
+		f := newFixture(t)
 		f.freeGB = 1
-		growingDisk(f)
-		f.at(300).sweep()
+		f.at(0).sweep()
 		return f.lastSent()
 	},
 }, {
@@ -194,7 +145,7 @@ var messageKinds = []messageKind{{
 		"\n  `/usr/local/bin/node worker.js`",
 	},
 	render: func(t *testing.T) string {
-		f := messageFixture(t)
+		f := newFixture(t)
 		busyProcess(f, false, "/usr/local/bin/node worker.js", 7018, false)
 		return f.lastSent()
 	},
@@ -207,7 +158,7 @@ var messageKinds = []messageKind{{
 		"restart-daemon dasd` — it restarts the daemon with no password needed.",
 	},
 	render: func(t *testing.T) string {
-		f := messageFixture(t)
+		f := newFixture(t)
 		f.rootHelper("dasd")
 		busyProcess(f, true, "/usr/libexec/dasd", 147, false)
 		return f.lastSent()
@@ -220,7 +171,7 @@ var messageKinds = []messageKind{{
 		"**Needs you:** `sudo kill 147` — stopping a system process needs sudo, and launchd starts most daemons again.",
 	},
 	render: func(t *testing.T) string {
-		f := messageFixture(t)
+		f := newFixture(t)
 		busyProcess(f, true, "/usr/libexec/dasd", 147, false)
 		return f.lastSent()
 	},
@@ -228,12 +179,12 @@ var messageKinds = []messageKind{{
 	name:   "disk-and-cpu-in-one-message",
 	marker: wording.MarkerDisk,
 	wants: []string{
-		"💾 Disk filling: devbackend.log is growing fast",
-		"**Growing fast:**",
+		"💾 Low disk space: 46 GB free",
+		"**Free space:** 46 GB, under the 100 GB mark",
 		"**Busy processes:**",
 	},
 	render: func(t *testing.T) string {
-		f := messageFixture(t)
+		f := newFixture(t)
 		busyProcess(f, false, "/usr/local/bin/node worker.js", 7018, true)
 		return f.lastSent()
 	},
@@ -295,15 +246,14 @@ var messageKinds = []messageKind{{
 	marker: wording.MarkerDegraded,
 	wants: []string{
 		"⚠️ No report from the agent on the disk incident after 10 minutes",
-		"**Growing fast:**",
-		"written by sleep (pid 5073), bash (pid 91330)",
+		"**Free space:** 46 GB, under the 100 GB mark",
 		"Attach in herdr: workspace `.mac-mini`, tab `disk-0000`.",
 	},
 	render: func(t *testing.T) string {
-		f := messageFixture(t)
-		growingDisk(f)
-		f.at(300).sweep()
-		f.at(900).sweep()
+		f := newFixture(t)
+		f.freeGB = 46
+		f.at(0).sweep()
+		f.at(600).sweep()
 		return f.lastSent()
 	},
 }, {
@@ -311,8 +261,7 @@ var messageKinds = []messageKind{{
 	marker: wording.MarkerDegraded,
 	wants: []string{
 		"⚠️ Still no answer on the disk incident after 12 minutes",
-		"**Now:** 500 GB free",
-		"**Growing fast:**",
+		"**Now:** 46 GB free, under the 100 GB mark",
 		"Answer in herdr: workspace `.mac-mini`, tab `disk-0000`.",
 	},
 	render: func(t *testing.T) string {
@@ -327,7 +276,7 @@ var messageKinds = []messageKind{{
 		"⚠️ No answer on the disk incident — the agent decides in 3 minutes",
 		"**Waiting:** 33 minutes",
 		"**If no answer:** stop pid 5073 and empty the log",
-		"**Now:** 500 GB free",
+		"**Now:** 46 GB free, under the 100 GB mark",
 	},
 	render: func(t *testing.T) string {
 		f := waitingOnAQuestion(t)
@@ -438,14 +387,19 @@ func TestTheClearedReadingIsPlainWords(t *testing.T) {
 	f := waitingOnAQuestion(t)
 	incident := f.state().Waiting["disk"].Incident
 
-	f.keepClaiming, f.claimed = "", []FileSize{}
+	// Free space back over the mark is a change of its own, which reaches the agent first;
+	// the news that nothing is firing any more takes two readings after it.
+	f.freeGB = 500
 	f.at(900).sweep()
+	f.blocks("disk")
 	f.at(1200).sweep()
+	f.blocks("disk")
+	f.at(1500).sweep()
 
 	prompt := f.lastInterrupt()
 	t.Logf("\n\nthe prompt that carries it:\n%s\n", prompt)
 
-	harness.Wants(t, prompt, "Nothing is growing fast any more, and free space is back over every mark at 500 GB.")
+	harness.Wants(t, prompt, "Free space is back over every mark, at 500 GB.")
 	harness.Wants(t, prompt, "What fired this incident is no longer firing")
 	harness.Wants(t, prompt, "Check for yourself whether it has really resolved")
 	harness.Wants(t, prompt, incident)

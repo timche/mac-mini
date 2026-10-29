@@ -80,7 +80,7 @@ func TestOnAForumTheFirstMessageOpensThePostItself(t *testing.T) {
 	})
 
 	post, err := sendThroughBot(bot, "chan", Outgoing{
-		Text:       "💾 Disk filling: devbackend.log is growing fast\n**Free space:** 1 GB",
+		Text:       "💾 Low disk space: 46 GB free\n**Free space:** 46 GB, under the 100 GB mark",
 		OpenThread: "disk-42",
 	})
 	if err != nil {
@@ -97,8 +97,8 @@ func TestOnAForumTheFirstMessageOpensThePostItself(t *testing.T) {
 	if err := json.Unmarshal([]byte(opened), &body); err != nil {
 		t.Fatal(err)
 	}
-	harness.Equal(t, body.Name, "💾 Disk filling: devbackend.log is growing fast", "the post's name")
-	harness.Wants(t, body.Message.Content, "**Free space:** 1 GB")
+	harness.Equal(t, body.Name, "💾 Low disk space: 46 GB free", "the post's name")
+	harness.Wants(t, body.Message.Content, "**Free space:** 46 GB, under the 100 GB mark")
 	harness.Wants(t, opened, `"allowed_mentions":{"parse":[]}`)
 
 	// And every message after it goes into the post, with nothing asked about the channel a
@@ -257,13 +257,13 @@ func TestTheThreadIsNamedByTheMessagesLead(t *testing.T) {
 	})
 
 	if _, err := sendThroughBot(bot, "chan", Outgoing{
-		Text:       "💾 Disk filling: devbackend.log is growing fast\n**Free space:** 1 GB",
+		Text:       "💾 Low disk space: 46 GB free\n**Free space:** 46 GB, under the 100 GB mark",
 		OpenThread: "disk-1700000300",
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	harness.Equal(t, name, "💾 Disk filling: devbackend.log is growing fast", "the thread's name")
+	harness.Equal(t, name, "💾 Low disk space: 46 GB free", "the thread's name")
 }
 
 // Discord bans a bot that ignores a 429 rather than slowing it down, so the wait is the one

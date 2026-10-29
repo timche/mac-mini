@@ -3,7 +3,6 @@ package watch
 import (
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
@@ -88,12 +87,9 @@ type nowReading struct {
 	prevFree int64
 	level    int64
 	span     time.Duration
-	grewKB   int64
-	sizes    map[string]int64
-	writers  []string
 
-	// The detail sections as a message shows them, already labelled and bulleted: what was
-	// emptied, what is growing fast, what is busy, and what stopping it would take.
+	// The detail sections as a message shows them, already labelled and bulleted: what is
+	// busy, and what stopping it would take.
 	sections string
 
 	// Whether the span is one the check had to invent rather than one it measured, which is
@@ -101,29 +97,14 @@ type nowReading struct {
 	spanClamped bool
 
 	// Per kind, what this check found is no longer firing, in hachiko's own words and with
-	// its own numbers: no file growing fast and room back on the volume, or nothing over the
-	// CPU share. Empty for a kind whose trigger is still going, and empty on a check whose
-	// reading of that half was missing rather than clear.
+	// its own numbers: room back on the volume, or nothing over the CPU share. Empty for a
+	// kind whose trigger is still going, and empty on a check whose reading of that half was
+	// missing rather than clear.
 	cleared map[string]string
-
-	// The directories the walk did not open, which the wait reads against the files its
-	// question was asked about: one of them under a skipped directory is a file nothing
-	// looked at rather than a file that stopped growing.
-	stalled []statedir.Stall
 }
 
 func (r nowReading) snapshot(now time.Time) statedir.Asked {
-	sizes := make(map[string]int64, len(r.sizes))
-	for path, kb := range r.sizes {
-		sizes[path] = kb
-	}
-	return statedir.Asked{
-		At:      now.Unix(),
-		FreeKB:  r.free,
-		Level:   r.level,
-		Sizes:   sizes,
-		Writers: append([]string(nil), r.writers...),
-	}
+	return statedir.Asked{At: now.Unix(), FreeKB: r.free, Level: r.level}
 }
 
 // What the machine looks like this minute, which every message about an unanswered
@@ -846,7 +827,7 @@ To report to the channel Tim watches, write your message to a file and run:
 // the same quiet machine.
 func (s sweeper) clearing(w statedir.Waiting, reading nowReading, now time.Time, kind string) (statedir.Waiting, change) {
 	detail, clear := reading.cleared[statedir.KindOf(w.Incident)]
-	if !clear || statedir.Contains(w.Steps, stepCleared) || skippedTheQuestion(reading.stalled, w.Asked.Sizes) {
+	if !clear || statedir.Contains(w.Steps, stepCleared) {
 		w.Clear = 0
 		return w, change{}
 	}
@@ -863,25 +844,6 @@ func (s sweeper) clearing(w statedir.Waiting, reading nowReading, now time.Time,
 		detail: detail,
 		once:   stepCleared,
 	}
-}
-
-// Whether a directory the walk did not open could be holding one of the files the question
-// was asked about. A file under a skipped directory is not a file that stopped growing, it is
-// a file nothing looked at, and the two readings are identical: in neither does it appear.
-//
-// Measured against the question's own files rather than against what is still flagged,
-// because what is still flagged is emptied by the first check that cannot see the file — so
-// one skipped check would have hidden the directory from every check after it.
-func skippedTheQuestion(stalled []statedir.Stall, asked map[string]int64) bool {
-	for _, stall := range stalled {
-		prefix := strings.TrimSuffix(stall.Dir, "/") + "/"
-		for path := range asked {
-			if strings.HasPrefix(path, prefix) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // Whether waiting the rest of the three hours would cost more than asking again is the
@@ -925,16 +887,20 @@ func (s sweeper) worsening(w statedir.Waiting, reading nowReading, waited time.D
 		s.cfg.CriticalGB(), wording.DurationPhrase(until))
 }
 
-// How long until free space reaches the critical threshold, at the faster of the two
-// rates there are to go by: what the files hachiko can see are gaining, and what the
-// volume is actually losing. The second catches a writer the walk never found — a file
-// under a folder TCC keeps it out of, or one being written faster than it is big.
+// Capped because a volume losing a kilobyte between two checks projects centuries, and a
+// century overflows a Duration into a negative one — which reads here as a disk about to
+// fill.
+const longestFill = 100000 * time.Hour
+
+// How long until free space reaches the critical threshold, at the rate the volume is
+// actually losing it. The volume rather than anything hachiko can see being written: a
+// writer under a folder TCC keeps it out of takes the disk just the same.
 func timeToCritical(cfg config.Config, reading nowReading) (time.Duration, bool) {
 	// A span the check had to invent is a clock that moved, not an interval: the machine
 	// slept, somebody set the time, a sample arrived with a timestamp in the future. Dividing
-	// a real growth by a made-up second says the disk is about to go and is the one way this
+	// a real loss by a made-up second says the disk is about to go and is the one way this
 	// projection can be wildly wrong on a quiet Mac.
-	if reading.spanClamped {
+	if reading.spanClamped || reading.prevFree <= 0 {
 		return 0, false
 	}
 
@@ -943,12 +909,7 @@ func timeToCritical(cfg config.Config, reading nowReading) (time.Duration, bool)
 		return 0, false
 	}
 
-	rate := float64(reading.grewKB) / seconds
-	if reading.prevFree > 0 {
-		if lost := float64(reading.prevFree-reading.free) / seconds; lost > rate {
-			rate = lost
-		}
-	}
+	rate := float64(reading.prevFree-reading.free) / seconds
 	if rate <= 0 {
 		return 0, false
 	}
@@ -957,7 +918,10 @@ func timeToCritical(cfg config.Config, reading nowReading) (time.Duration, bool)
 	if left <= 0 {
 		return 0, true
 	}
-	return time.Duration(left/rate) * time.Second, true
+	if until := left / rate; until < longestFill.Seconds() {
+		return time.Duration(until) * time.Second, true
+	}
+	return longestFill, true
 }
 
 // What changed, said twice. `why` is in hachiko's own words and names nothing a path or a
@@ -979,10 +943,18 @@ type change struct {
 
 func (c change) happened() bool { return c.why != "" }
 
-// A change big enough that the options in front of Tim are about something else. Each
-// one is measured against the question rather than against the last check, because the
-// question is what has gone stale.
+// A change big enough that the options in front of Tim are about something else. Measured
+// against the question rather than against the last check, because the question is what has
+// gone stale.
 func materialChange(w statedir.Waiting, reading nowReading) change {
+	// Nothing has been asked yet, so there is no question for the reading to have gone stale
+	// against. An incident raised this minute has no snapshot behind it, and reading its zero
+	// level as a mark the volume has crossed told the session its brand-new brief was already
+	// out of date.
+	if w.Asked.At == 0 {
+		return change{}
+	}
+
 	if reading.level != w.Asked.Level {
 		if reading.level == 0 {
 			return change{
@@ -994,38 +966,6 @@ func materialChange(w statedir.Waiting, reading nowReading) change {
 			why: fmt.Sprintf("free space crossed the %d GB mark", reading.level),
 			detail: fmt.Sprintf("Free space crossed the %d GB mark and is now %s.",
 				reading.level, wording.GBUnit(reading.free)),
-		}
-	}
-
-	var paths []string
-	for path := range reading.sizes {
-		paths = append(paths, path)
-	}
-	sort.Strings(paths)
-
-	for _, path := range paths {
-		asked := w.Asked.Sizes[path]
-		if asked > 0 && reading.sizes[path] >= 2*asked {
-			return change{
-				why: "a file has at least doubled in size since the question was asked",
-				detail: fmt.Sprintf("This file has at least doubled since the question was asked, from %s to %s: %s",
-					wording.GBUnit(asked), wording.GBUnit(reading.sizes[path]), wording.Safe(path, wording.PathLimit)),
-			}
-		}
-	}
-
-	// Only against writers that were actually recorded. A file between writes when the
-	// question went up has none, and reading the one found on the next check as new would
-	// cancel the question on nearly every incident there is.
-	if len(w.Asked.Writers) > 0 {
-		for _, writer := range reading.writers {
-			if !statedir.Contains(w.Asked.Writers, writer) {
-				return change{
-					why: "a process is writing that was not there when the question was asked",
-					detail: "This writer was not there when the question was asked: " +
-						wording.Safe(writer, wording.WriterLimit),
-				}
-			}
 		}
 	}
 

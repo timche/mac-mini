@@ -13,7 +13,6 @@ import (
 func TestEverySweepTellsShibuyaWhatItRead(t *testing.T) {
 	f := newFixture(t)
 	f.freeGB = 787
-	f.grow("tmp/worker.log", 3*mb)
 
 	harness.Equal(t, f.sweep(), "", "a quiet check's log")
 
@@ -28,28 +27,17 @@ func TestEverySweepTellsShibuyaWhatItRead(t *testing.T) {
 // what it came back to rather than only that it came back.
 func TestAnOpenIncidentIsCounted(t *testing.T) {
 	f := newFixture(t)
-	f.grow("tmp/worker.log", 3*mb)
 	f.at(0).sweep()
 
-	f.grow("tmp/worker.log", 4*mb)
+	f.freeGB = 90
 	f.at(300).sweep()
 
 	harness.Equal(t, f.checkins[len(f.checkins)-1].OpenIncidents, 1, "the open incidents reported")
 }
 
-// The three faults of the watch rather than of the Mac. Each of them is a sweep that ran
-// and came back knowing less than it should, which is exactly what nothing on this machine
-// can report about itself.
-func TestAWalkThatRanOutOfSecondsIsAFailedSweep(t *testing.T) {
-	f := newFixture(t)
-	f.cutShort = true
-
-	f.sweep()
-
-	harness.Equal(t, f.checkins[0].Failed, true, "whether the sweep reported a fault")
-	harness.Wants(t, f.checkins[0].Reason, "saw only part of the disk")
-}
-
+// The two faults of the watch rather than of the Mac. Each of them is a sweep that ran and
+// came back knowing less than it should, which is exactly what nothing on this machine can
+// report about itself.
 func TestNoProcessSampleIsAFailedSweep(t *testing.T) {
 	f := newFixture(t)
 	f.procsErr = errors.New("ps: no such process")
@@ -78,21 +66,25 @@ func TestAnUnreadableStateIsAFailedSweep(t *testing.T) {
 // Two faults in one sweep are one check-in, because they are one sweep.
 func TestTwoFaultsAreOneReason(t *testing.T) {
 	f := newFixture(t)
-	f.cutShort = true
 	f.procsErr = errors.New("ps: no such process")
+	if err := os.MkdirAll(f.cfg.StateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.cfg.StateDir, "state.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	f.sweep()
 
 	harness.Equal(t, len(f.checkins), 1, "check-ins")
-	harness.Wants(t, f.checkins[0].Reason, "saw only part of the disk")
 	harness.Wants(t, f.checkins[0].Reason, "no process sample")
+	harness.Wants(t, f.checkins[0].Reason, "the state file could not be read")
 }
 
 // A dry run changes nothing anywhere, and a check-in is a change at the other end: a Mac
 // told it is being watched on a run that watched nothing.
 func TestADryRunChecksInWithNothing(t *testing.T) {
 	f := newFixture(t)
-	f.grow("tmp/worker.log", 3*mb)
 
 	out := f.dryRun()
 
@@ -102,7 +94,7 @@ func TestADryRunChecksInWithNothing(t *testing.T) {
 
 func TestADryRunSaysWhatItWouldReportAsAFault(t *testing.T) {
 	f := newFixture(t)
-	f.cutShort = true
+	f.procsErr = errors.New("ps: no such process")
 
 	out := f.dryRun()
 

@@ -505,8 +505,8 @@ if [ ! -f "$hachiko_plist" ]; then
   echo "$hachiko_plist is missing — mise links it from mise.toml" >&2
 elif ! load_agent "$hachiko_label" "$hachiko_plist"; then
   echo "could not load $hachiko_label — the gui/$uid domain needs a GUI session" \
-       "logged in on the Mac; until it is loaded nothing notices a process" \
-       "logging the disk full or burning a core, and hachiko runs by hand" >&2
+       "logged in on the Mac; until it is loaded nothing notices the disk" \
+       "filling up or a process burning a core, and hachiko runs by hand" >&2
 fi
 
 # The half that listens for a reply in Discord. It is loaded whether or not the

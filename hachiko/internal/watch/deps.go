@@ -18,7 +18,6 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/shibuya"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/update"
-	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
 // Deps is everything a sweep learns about the machine or does to it. Each one is a
@@ -33,12 +32,7 @@ type Deps struct {
 	// one the on-call session can stop only through the root helper, and otherwise only he can.
 	Getuid func() int
 
-	FreeKB func() (int64, error)
-	// skip is what earlier sweeps found would not answer, on top of the folders this
-	// never opens at all.
-	BigFiles  func(skip []string) WalkResult
-	Writers   func(path string) string
-	Truncate  func(path string) error
+	FreeKB    func() (int64, error)
 	Processes func() ([]process.Process, error)
 	CWD       func(pid int) string
 
@@ -118,10 +112,6 @@ func realDeps(cfg config.Config) Deps {
 	now := config.ClockFromEnv()
 	log := logs.Logger{Out: os.Stdout, Now: now}
 
-	// The volume free space is being counted on, so a path that has become a link to
-	// another one is not truncated in its name.
-	device, _ := deviceOf(cfg.Home)
-
 	hand := update.Handoff{Dir: cfg.UpdateStateDir, WatchDir: cfg.StateDir}
 
 	return Deps{
@@ -131,20 +121,6 @@ func realDeps(cfg config.Config) Deps {
 		Getuid: os.Getuid,
 
 		FreeKB: func() (int64, error) { return FreeKB(cfg.Home) },
-		BigFiles: func(skip []string) WalkResult {
-			return Walk{
-				Roots:  cfg.Roots(),
-				Pruned: append(cfg.PrunedPaths(), skip...),
-				MinKB:  cfg.BigKB,
-				// Wall clock, not the sweep's: these deadlines are about how long an open
-				// has really been waiting, which a simulated clock would never reach.
-				Now:         time.Now,
-				DirTimeout:  cfg.DirTimeout,
-				WalkTimeout: cfg.WalkTimeout,
-			}.Run()
-		},
-		Writers:  writers,
-		Truncate: func(path string) error { return truncateLog(path, device) },
 
 		Processes: process.Sample,
 		CWD:       process.CWD,
@@ -348,71 +324,3 @@ func syncRepoState(repo SyncRepo) SyncRepoState {
 }
 
 const gitTimeout = 10 * time.Second
-
-func deviceOf(path string) (int32, bool) {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return -1, false
-	}
-	st, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return -1, false
-	}
-	return st.Dev, true
-}
-
-// Never an rm and never a kill: the writer keeps its descriptor and its offset, so a
-// log it appends to goes on working and the space comes back at once.
-//
-// O_NOFOLLOW and then a second look at what was actually opened, because minutes pass
-// between the walk that chose this path and the decision to empty it, and the one
-// thing that may not happen is emptying a file somebody swapped a link in for.
-func truncateLog(path string, device int32) error {
-	file, err := os.OpenFile(path, os.O_WRONLY|syscall.O_NOFOLLOW, 0)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	info, err := file.Stat()
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("%s is no longer a regular file", path)
-	}
-	if st, ok := info.Sys().(*syscall.Stat_t); !ok || (device >= 0 && st.Dev != device) {
-		return fmt.Errorf("%s is no longer on the volume this is counting space on", path)
-	}
-
-	return file.Truncate(0)
-}
-
-// pid and command of whoever holds the file open. Named rather than acted on: the
-// point of an alert is that a person decides what to do about the writer.
-func writers(path string) string {
-	out, err := process.Run(process.LsofTimeout, "lsof", "-Fpc", "--", path)
-	if err != nil && len(out) == 0 {
-		return "no writer lsof can see"
-	}
-
-	var found []string
-	pid := ""
-	for _, line := range strings.Split(string(out), "\n") {
-		switch {
-		case strings.HasPrefix(line, "p"):
-			pid = line[1:]
-		case strings.HasPrefix(line, "c") && pid != "":
-			// Name first and the pid in parentheses, the same way every other process in a
-			// message reads. One stable string, because it is compared across checks to spot
-			// a writer that was not there when the question went up.
-			found = append(found, wording.PIDLabel(line[1:], pid))
-			pid = ""
-		}
-	}
-
-	if len(found) == 0 {
-		return "no writer lsof can see"
-	}
-	return strings.Join(found, ", ")
-}

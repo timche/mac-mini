@@ -3,7 +3,6 @@ package watch
 import (
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -99,13 +98,11 @@ func (s sweeper) run() error {
 		return err
 	}
 
-	// Ahead of the walk, so the sizes it records are the ones the cap left: a log capped
-	// after being measured would be read as having shrunk on the next check, and the baseline
-	// a growth is measured against would be a size that no longer exists. Inside the lock,
-	// because two sweeps capping the same log would race each other's generation.
+	// Inside the lock, because two sweeps capping the same log would race each other's
+	// generation.
 	s.capLogs(state)
 
-	disk := s.disk(state, now, free)
+	span, spanClamped := sampleSpan(state, now)
 	cpu := s.cpu(state, now)
 
 	// 20 below 100, so a disk that keeps filling after the first alert says so once
@@ -121,14 +118,9 @@ func (s sweeper) run() error {
 	before := state.LowSpaceLevel
 	lowNow := level != 0 && (before == 0 || level < before)
 
-	// A truncate is the one thing here that changes somebody's disk, so it is always an
-	// incident of its own — including on a run where the file was already flagged and
-	// the threshold was already crossed, which is every run but the first.
-	truncated := disk.truncated != ""
+	newIncident := cpu.fired || lowNow
 
-	newIncident := disk.fired || cpu.fired || lowNow || truncated
-
-	alert := s.alert(disk, cpu, free, level, lowNow, truncated)
+	alert := s.alert(cpu, free, level, lowNow)
 
 	// Ahead of everything that follows, because this is the one thing here that is about
 	// hachiko's own agents rather than about the machine, and because it is the half of the
@@ -137,11 +129,11 @@ func (s sweeper) run() error {
 		s.syncRepos(state, now)
 	}
 
-	// disk when anything about the disk fired, since that is the half with a deadline
-	// on it; the kind only decides which session the incident goes to, and one
-	// session takes the whole of a run either way.
+	// disk when free space fired, since that is the half with a deadline on it; the kind
+	// only decides which session the incident goes to, and one session takes the whole of
+	// a run either way.
 	kind := "disk"
-	if !disk.fired && !lowNow && !truncated && cpu.fired {
+	if !lowNow && cpu.fired {
 		kind = "cpu"
 	}
 
@@ -152,8 +144,7 @@ func (s sweeper) run() error {
 		if newIncident {
 			s.say("would open an on-call session as %s and send: %s", kind, alert.lead())
 		}
-		s.say("%s GB free, %d file(s) growing fast, %d over %s GB, %d process(es) hot of %d sampled, %d director(ies) skipped for not answering",
-			gbStr(free), len(disk.growing), len(disk.sizes), gbStr(s.cfg.BigKB), len(cpu.hot), cpu.sampled, len(disk.stalled))
+		s.say("%s GB free, %d process(es) hot of %d sampled", gbStr(free), len(cpu.hot), cpu.sampled)
 
 		if s.cfg.PostKeep > 0 && s.cfg.Discord.ChannelID != "" {
 			s.say("would look through the forum for posts resolved more than %s ago",
@@ -164,7 +155,7 @@ func (s sweeper) run() error {
 
 		// Said rather than sent: a dry run that checked in would tell shibuya this Mac is
 		// being watched on a run that watched nothing.
-		if reasons := sweepFaults(corrupt, disk, cpu); len(reasons) > 0 {
+		if reasons := sweepFaults(corrupt, cpu); len(reasons) > 0 {
 			s.say("would tell shibuya this sweep did not finish its job: %s", strings.Join(reasons, "; "))
 		} else {
 			s.say("would check in with shibuya")
@@ -183,10 +174,10 @@ func (s sweeper) run() error {
 
 	raised := false
 	if newIncident {
-		// Free space already critical, or a file this emptied: either way Tim needs the whole
-		// of it now rather than when an agent has finished reading.
+		// Free space already critical: Tim needs the whole of it now rather than when an
+		// agent has finished reading.
 		raised = s.raise(state, now, fmt.Sprintf("%s-%d", kind, now.Unix()), alert,
-			free < s.cfg.CriticalKB || truncated)
+			free < s.cfg.CriticalKB)
 	}
 
 	// After the disk and the CPU, which are the halves with a deadline on them, and before
@@ -199,14 +190,13 @@ func (s sweeper) run() error {
 	// itself leaves a session waiting on a question about a process that is not there any
 	// more, and nobody is told until somebody asks.
 	//
-	// A reading that is missing is not a reading that is clear, so neither of these is taken
-	// from one: a walk that ran out of its seconds saw only part of the disk, and a check
-	// with no process sample saw no processes at all. A directory the walk was told to skip
-	// is the third of them, and the wait is where that is caught, since what it has to be
-	// measured against is the files the question was asked about.
+	// A reading that is missing is not a reading that is clear, which is why the CPU half
+	// is taken from a sample that was actually read: a check with no process sample saw no
+	// processes at all. Free space is read before anything else here, and a sweep with no
+	// reading of it has already returned.
 	cleared := map[string]string{}
-	if level == 0 && !disk.cutShort && disk.report == "" && disk.truncated == "" {
-		cleared["disk"] = s.diskCleared(disk, free)
+	if level == 0 {
+		cleared["disk"] = fmt.Sprintf("Free space is back over every mark, at %s.", wording.GBUnit(free))
 	}
 	if cpu.read && cpu.report == "" {
 		cleared["cpu"] = fmt.Sprintf("Nothing is using much CPU any more, out of the %s this check looked at.",
@@ -219,14 +209,10 @@ func (s sweeper) run() error {
 		free:        free,
 		prevFree:    state.Disk.FreeKB,
 		level:       level,
-		span:        disk.span,
-		spanClamped: disk.spanClamped,
-		grewKB:      disk.grewKB,
-		sizes:       disk.sizes,
-		writers:     disk.writers,
-		sections:    joinBlocks(disk.truncated, disk.report, cpu.report, cpu.sudo),
+		span:        span,
+		spanClamped: spanClamped,
+		sections:    joinBlocks(cpu.report, cpu.sudo),
 		cleared:     cleared,
-		stalled:     disk.stalled,
 	}
 
 	s.chaseLateReports(state, now)
@@ -234,28 +220,12 @@ func (s sweeper) run() error {
 
 	// What stays flagged: whatever was flagged before and is still going, plus what
 	// this check raised, and only if the message actually left the machine.
-	keptFiles, keptProcs := disk.stillGoing, cpu.stillGoing
+	keptProcs := cpu.stillGoing
 	if raised {
-		keptFiles = append(keptFiles, disk.fresh...)
 		keptProcs = append(keptProcs, cpu.fresh...)
-	} else {
-		// A file nobody has heard about yet keeps the size it was measured against, so
-		// the growth that failed to send goes on accumulating against the same baseline.
-		// Advancing it would let a writer that slows to a gigabyte an interval slip
-		// under the threshold for good, having already taken the disk.
-		for _, path := range disk.fresh {
-			if path == disk.truncatedPath {
-				continue
-			}
-			if before, ok := state.Disk.Files[path]; ok {
-				disk.sizes[path] = before
-			} else {
-				delete(disk.sizes, path)
-			}
-		}
 	}
 
-	state.AlertedFiles, state.AlertedProcs = keptFiles, keptProcs
+	state.AlertedProcs = keptProcs
 
 	switch {
 	case level == 0:
@@ -264,9 +234,8 @@ func (s sweeper) run() error {
 		state.LowSpaceLevel = level
 	}
 
-	state.Disk = statedir.DiskSample{At: now.Unix(), Files: disk.sizes, FreeKB: free}
+	state.Disk = statedir.DiskSample{At: now.Unix(), FreeKB: free}
 	state.CPU = cpu.sample
-	state.Stalled = disk.stalled
 
 	expected := stillExpected(state)
 	s.sayDroppedOutcomes(expected)
@@ -283,7 +252,7 @@ func (s sweeper) run() error {
 	// Last, so that what shibuya is told about this Mac is what the check decided rather
 	// than what it had got to — and so that a Worker that will not answer costs the sweep
 	// its ten seconds after everything else is done.
-	s.checkIn(state, corrupt, disk, cpu, free, len(expected))
+	s.checkIn(state, corrupt, cpu, free, len(expected))
 
 	return s.store.Save(state)
 }
@@ -292,7 +261,7 @@ func (s sweeper) run() error {
 // found: the alert about a disk is hachiko's own, and all this says is that the watch is
 // still running — or that it ran and did not finish its job, which is a Mac whose monitor is
 // half blind and nothing a dead man's switch would ever notice by itself.
-func (s sweeper) checkIn(state *statedir.State, corrupt bool, disk diskFindings, cpu cpuFindings, free int64, open int) {
+func (s sweeper) checkIn(state *statedir.State, corrupt bool, cpu cpuFindings, free int64, open int) {
 	in := shibuya.Checkin{
 		FreeGB:        gbNum(free),
 		OpenIncidents: open,
@@ -300,7 +269,7 @@ func (s sweeper) checkIn(state *statedir.State, corrupt bool, disk diskFindings,
 		Display:       s.cfg.Display,
 	}
 
-	if reasons := sweepFaults(corrupt, disk, cpu); len(reasons) > 0 {
+	if reasons := sweepFaults(corrupt, cpu); len(reasons) > 0 {
 		in.Failed, in.Reason = true, strings.Join(reasons, "; ")
 	}
 
@@ -322,15 +291,12 @@ func (s sweeper) checkIn(state *statedir.State, corrupt bool, disk diskFindings,
 	}
 }
 
-// The honest set: the three ways a sweep runs and comes back knowing less than it should.
-// Not an incident, because none of them is a fault of the Mac's — they are faults of the
-// watch, and the only thing that can report them is something off the machine.
-func sweepFaults(corrupt bool, disk diskFindings, cpu cpuFindings) []string {
+// The honest set: the two ways a sweep runs and comes back knowing less than it should.
+// Not an incident, because neither is a fault of the Mac's — they are faults of the watch,
+// and the only thing that can report them is something off the machine.
+func sweepFaults(corrupt bool, cpu cpuFindings) []string {
 	var reasons []string
 
-	if disk.cutShort {
-		reasons = append(reasons, "the walk ran out of its seconds and saw only part of the disk")
-	}
 	if !cpu.read {
 		reasons = append(reasons, "there was no process sample, so nothing was watching the CPU")
 	}
@@ -340,223 +306,19 @@ func sweepFaults(corrupt bool, disk diskFindings, cpu cpuFindings) []string {
 	return reasons
 }
 
-// What the next sweep inherits: the ones still being skipped, the ones that stalled
-// again with their clock moved on, and the newly stalled. A directory that was retried
-// and did not stall is gone from the list, which is what puts it back in the walk.
-func (s sweeper) rememberStalls(was []statedir.Stall, stalled, retried []string, now time.Time) []statedir.Stall {
-	keep := make([]statedir.Stall, 0, len(was)+len(stalled))
-	seen := map[string]bool{}
-
-	for _, old := range was {
-		switch {
-		case statedir.Contains(stalled, old.Dir):
-			old.LastAt = now.Unix()
-		case statedir.Contains(retried, old.Dir):
-			continue
-		}
-		keep = append(keep, old)
-		seen[old.Dir] = true
+// The interval this check measures against the last, and whether it is one the check had
+// to invent. A span of nothing or less is not an interval, it is a clock that moved: the
+// machine slept, somebody set the time, a sample carries a timestamp in the future. A
+// second is enough to divide a loss by for a rate; it is not enough to extrapolate from,
+// so the fact that it was invented travels with it.
+func sampleSpan(state *statedir.State, now time.Time) (time.Duration, bool) {
+	if !state.HasDiskSample() {
+		return time.Second, true
 	}
-
-	for _, dir := range stalled {
-		if seen[dir] {
-			continue
-		}
-		s.say("%s did not answer a read within %s, so it is skipped until it is tried again in %s",
-			dir, s.cfg.DirTimeout, s.cfg.StallRetry)
-		keep = append(keep, statedir.Stall{Dir: dir, FirstAt: now.Unix(), LastAt: now.Unix()})
-		seen[dir] = true
+	if span := now.Sub(time.Unix(state.Disk.At, 0)); span > 0 {
+		return span, false
 	}
-
-	sort.Slice(keep, func(i, j int) bool { return keep[i].Dir < keep[j].Dir })
-	return keep
-}
-
-type diskFindings struct {
-	cutShort    bool
-	sizes       map[string]int64
-	growing     []Growing
-	stalled     []statedir.Stall
-	span        time.Duration
-	spanClamped bool
-	grewKB      int64
-	writers     []string
-
-	// Whether the free space would last past the horizon at the rate everything growing is
-	// gaining, which leaves the growth to the log rather than to an alert.
-	quiet bool
-
-	// The `Growing fast` section, one bullet per file, and the `Emptied` line: built once
-	// here and read by the first alert, by every reminder and by the prompt that hands the
-	// decision over.
-	report        string
-	truncated     string
-	truncatedPath string
-
-	// The file that fired first, which the lead names and which the short form of the
-	// first message carries on its own.
-	firstPath   string
-	firstBullet string
-
-	fired      bool
-	stillGoing []string
-	fresh      []string
-}
-
-func (s sweeper) disk(state *statedir.State, now time.Time, free int64) diskFindings {
-	had := state.HasDiskSample()
-	prevAt := now
-	if had {
-		prevAt = time.Unix(state.Disk.At, 0)
-	}
-	// A span of nothing or less is not an interval, it is a clock that moved: the machine
-	// slept, somebody set the time, a sample carries a timestamp in the future. A second is
-	// enough to divide a growth by for a rate in a message; it is not enough to extrapolate
-	// from, so the fact that it was invented travels with it.
-	span, clamped := now.Sub(prevAt), false
-	if span <= 0 {
-		span, clamped = time.Second, true
-	}
-
-	out := diskFindings{span: span, spanClamped: clamped || !had}
-
-	// What is still being skipped and what is due to be tried again. Everything not
-	// skipped is walked, so a directory being retried either stalls again or is quietly
-	// back.
-	skip, retried := statedir.DueForRetry(state.Stalled, now, s.cfg.StallRetry)
-	walk := s.deps.BigFiles(skip)
-
-	stalledNow := map[string]bool{}
-	for _, dir := range walk.Stalled {
-		stalledNow[dir] = true
-	}
-
-	// One line when a directory stops answering and one when it starts again, and
-	// nothing in between: a line every five minutes forever would bury the lines that
-	// matter.
-	for _, was := range state.Stalled {
-		if statedir.Contains(retried, was.Dir) && !stalledNow[was.Dir] {
-			s.say("%s answered again after %s, so it is back in the walk",
-				was.Dir, hmStr(now.Sub(time.Unix(was.FirstAt, 0))))
-		}
-	}
-
-	out.stalled = s.rememberStalls(state.Stalled, walk.Stalled, retried, now)
-
-	out.cutShort = walk.CutShort
-	if walk.CutShort {
-		s.say("the walk ran out of its %s, so this check saw only part of the disk", s.cfg.WalkTimeout)
-	}
-
-	sizes, growing := growth(state.Disk.Files, walk.Files, s.cfg.GrowthKB, had)
-	out.sizes, out.growing = sizes, growing
-
-	// Growth on its own is not a disk filling up: gigabytes an interval against hundreds of
-	// gigabytes free is a download, and the volume would take a day to notice it. So the
-	// projection decides whether anybody is woken, and the log carries the rest.
-	//
-	// Not when free space is already critical, where every path below behaves as it did: at
-	// that end of the volume the growth is the emergency rather than the evidence for one.
-	// Nor off a span the check had to invent, which is a clock that moved and not a rate.
-	fillIn, projected := fillTime(growing, free, span)
-	out.quiet = projected && !out.spanClamped && free >= s.cfg.CriticalKB &&
-		s.cfg.FillHorizon > 0 && fillIn >= s.cfg.FillHorizon
-
-	var bullets []string
-	for _, g := range growing {
-		// A path and an lsof command name are both chosen by whatever filled the disk,
-		// and both end up in a message Discord caps and in a prompt an agent reads.
-		writer := wording.Safe(s.deps.Writers(g.Path), wording.WriterLimit)
-		path := wording.Safe(g.Path, wording.PathLimit)
-
-		line := fmt.Sprintf("%s — %s GB, grew %s GB since the last sample (%s GB/hour), written by %s",
-			path, gbStr(g.KB), gbStr(g.GrewKB), rateStr(g.GrewKB, span), writer)
-
-		bullet := fmt.Sprintf("%s — %s, up %s in %s (%s), written by %s",
-			wording.CodeSpan(path), wording.GBUnit(g.KB), wording.GBUnit(g.GrewKB), wording.DurationPhrase(span),
-			wording.RatePhrase(g.GrewKB, span), writer)
-
-		// Everything a projection and a stale question are read from: what the files
-		// hachiko can see are gaining between two samples, and who is holding them.
-		out.grewKB += g.GrewKB
-		if !statedir.Contains(out.writers, writer) {
-			out.writers = append(out.writers, writer)
-		}
-
-		// The log says what was seen and what the arithmetic made of it, so a file that
-		// filled the disk overnight is not something the log was silent about. Left unflagged
-		// as well: a writer whose rate climbs into the horizon has to be able to fire, and a
-		// flag is the one thing that would stop it.
-		if out.quiet {
-			s.say("growing but not filling the disk: %s; the free space lasts %s at that rate", line, hmStr(fillIn))
-			continue
-		}
-
-		bullets = append(bullets, bullet)
-
-		if !s.dry && state.AlertedFile(g.Path) {
-			out.stillGoing = append(out.stillGoing, g.Path)
-			continue
-		}
-
-		s.say("growing fast: %s", line)
-		if s.dry {
-			continue
-		}
-
-		out.fired = true
-		out.fresh = append(out.fresh, g.Path)
-		if out.firstPath == "" {
-			out.firstPath, out.firstBullet = path, bullet
-		}
-	}
-	out.report = wording.Section(wording.LabelGrowing, bullets)
-
-	// The fastest grower or nothing: the biggest offender is the one worth a
-	// truncate, and a check that worked its way down the list would eventually reach
-	// a file that is somebody's.
-	if free < s.cfg.CriticalKB && len(growing) > 0 {
-		worst := growing[0].Path
-
-		switch {
-		case !truncatable(s.cfg, worst):
-			s.say("free space is under %d GB and %s is the fastest growing, but it is not a log this may truncate",
-				s.cfg.CriticalGB(), wording.Safe(worst, wording.PathLimit))
-		case s.dry:
-			s.say("would truncate %s", wording.Safe(worst, wording.PathLimit))
-		default:
-			// Never an rm and never a kill: the writer keeps its descriptor and its
-			// offset, so a log it appends to goes on working and the space comes back
-			// at once, where an unlinked file frees nothing until the writer exits and
-			// a killed worker takes a session's work with it.
-			if err := s.deps.Truncate(worst); err != nil {
-				s.say("could not truncate %s: %v", wording.Safe(worst, wording.PathLimit), err)
-			} else {
-				s.say("truncated %s to keep the disk alive; its writer was not touched", wording.Safe(worst, wording.PathLimit))
-				out.truncated = "**" + wording.LabelEmptied + ":** " + wording.CodeSpan(wording.Safe(worst, wording.PathLimit)) +
-					" — its writer was left running, so the space is back now"
-				out.truncatedPath = worst
-				// The size it is now, so the next check measures growth from the
-				// truncate rather than reporting a file that shrank.
-				out.sizes[worst] = 0
-			}
-		}
-	}
-
-	return out
-}
-
-// What the session is told when the disk half has stopped firing. A file still growing
-// under the horizon is not nothing, so it is named: a message saying nothing is growing
-// would be read beside a log line saying something is.
-func (s sweeper) diskCleared(disk diskFindings, free int64) string {
-	if disk.quiet {
-		return fmt.Sprintf("Nothing is growing fast enough to fill the disk, and free space is back over every mark at %s: at the rate the %s still growing is gaining, the free space lasts longer than %s.",
-			wording.GBUnit(free), wording.CountOf(int64(len(disk.growing)), "file", "files"),
-			wording.DurationPhrase(s.cfg.FillHorizon))
-	}
-	return fmt.Sprintf("Nothing is growing fast any more, and free space is back over every mark at %s.",
-		wording.GBUnit(free))
+	return time.Second, true
 }
 
 type cpuFindings struct {
@@ -712,21 +474,15 @@ func (a alertText) brief() string { return joinBlocks(a.lead(), a.full) }
 
 // The lead, which is the one line Tim is certain to read and also the title of the forum
 // post this opens. The disk goes first when both halves fired, because it is the half with
-// a deadline on it; critical free space and a file hachiko emptied go above a file merely
-// growing, because what the lead has to say first is how bad it already is.
-func (s sweeper) alert(disk diskFindings, cpu cpuFindings, free, level int64, lowNow, truncated bool) alertText {
+// a deadline on it; critical free space goes above merely low, because what the lead has to
+// say first is how bad it already is.
+func (s sweeper) alert(cpu cpuFindings, free, level int64, lowNow bool) alertText {
 	out := alertText{marker: wording.MarkerDisk}
 
 	switch {
-	case truncated:
-		out.marker = wording.MarkerDown
-		out.sentence = fmt.Sprintf("Disk critical: %s free, and %s was emptied",
-			wording.GBUnit(free), wording.BaseLabel(wording.Safe(disk.truncatedPath, wording.PathLimit)))
-	case free < s.cfg.CriticalKB && (disk.fired || lowNow):
+	case free < s.cfg.CriticalKB && lowNow:
 		out.marker = wording.MarkerDown
 		out.sentence = fmt.Sprintf("Disk critical: %s free", wording.GBUnit(free))
-	case disk.fired:
-		out.sentence = fmt.Sprintf("Disk filling: %s is growing fast", wording.BaseLabel(disk.firstPath))
 	case lowNow:
 		out.sentence = fmt.Sprintf("Low disk space: %s free", wording.GBUnit(free))
 	case cpu.fired:
@@ -736,17 +492,15 @@ func (s sweeper) alert(disk diskFindings, cpu cpuFindings, free, level int64, lo
 	// Free space belongs in a message the disk is part of and nowhere else: a busy daemon
 	// says nothing about how much room is left.
 	freeField := ""
-	if out.marker != wording.MarkerBusy && (out.sentence != "" || disk.report != "") {
+	if out.marker != wording.MarkerBusy && out.sentence != "" {
 		freeField = "**" + wording.LabelFreeSpace + ":** " + wording.GBUnit(free)
 		if level != 0 {
 			freeField += fmt.Sprintf(", under the %d GB mark", level)
 		}
 	}
 
-	out.short = joinBlocks(freeField, disk.truncated,
-		wording.Section(wording.LabelGrowing, nonEmpty(disk.firstBullet)),
-		wording.Section(wording.LabelBusy, nonEmpty(cpu.firstBullet)), cpu.sudo)
-	out.full = joinBlocks(freeField, disk.truncated, disk.report, cpu.report, cpu.sudo)
+	out.short = joinBlocks(freeField, wording.Section(wording.LabelBusy, nonEmpty(cpu.firstBullet)), cpu.sudo)
+	out.full = joinBlocks(freeField, cpu.report, cpu.sudo)
 
 	return out
 }

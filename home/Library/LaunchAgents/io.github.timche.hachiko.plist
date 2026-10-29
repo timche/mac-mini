@@ -28,7 +28,7 @@
        so as soon as it is back. -->
   <key>RunAtLoad</key>
   <true/>
-  <!-- Five minutes. The walk and the process sample cost about a second together,
+  <!-- Five minutes. The readings cost about a second together,
        and 90 GB an hour is 7.5 GB per interval — short enough to catch a runaway
        writer with hundreds of gigabytes still free, long enough that the sample is
        cheap, and twelve of them make the hour a hot process is judged over. -->

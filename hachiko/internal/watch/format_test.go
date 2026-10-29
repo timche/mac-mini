@@ -17,14 +17,6 @@ func TestSizesReadAsTheNumbersTheyAreNamedFor(t *testing.T) {
 	harness.Equal(t, hmStr(5*3600*time.Second+90*time.Second), "5h01m", "five hours and a bit")
 }
 
-// 90 GB an hour is what the worker that caused this managed, and the rate is what says
-// whether a file is a nuisance or an emergency.
-func TestTheRateIsGigabytesAnHourWhateverTheInterval(t *testing.T) {
-	harness.Equal(t, rateStr(7500*1024, 300*time.Second), "87.9", "7.5 GB in five minutes")
-	harness.Equal(t, rateStr(2*config.GiB, 3600*time.Second), "2.0", "2 GB in an hour")
-	harness.Equal(t, rateStr(config.GiB, 0), "3600.0", "a span that cannot be zero")
-}
-
 func TestClipKeepsACommandLineReadable(t *testing.T) {
 	short := "/usr/local/bin/node worker.js"
 	harness.Equal(t, wording.Clip(short, 200), short, "a short command")

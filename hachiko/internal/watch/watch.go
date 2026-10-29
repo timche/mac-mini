@@ -1,9 +1,10 @@
 // Package watch is hachiko's five-minute check on a Mac with no screen, looking for the
-// two failures nobody is there to notice: a process logging into a file nothing bounds,
-// and a process burning a core for an hour after whatever wanted it has gone. It runs from
-// the io.github.timche.hachiko LaunchAgent.
+// two failures nobody is there to notice: a volume running out of room, and a process
+// burning a core for an hour after whatever wanted it has gone. It runs from the
+// io.github.timche.hachiko LaunchAgent.
 //
-// Nothing here kills anything, and the one thing it changes is a truncate. An alert is a
+// Nothing here kills anything, and the only thing it writes outside its own state is the
+// cap on this machine's own logs. An alert is a
 // one-line message the moment something fires, an on-call session in herdr that
 // investigates and reports the analysis itself, and hachiko's own raw details if that
 // session never reports — the session is the better alert and the worse guarantee, so

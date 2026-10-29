@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/discord"
 	"github.com/timche/mac-mini/hachiko/internal/harness"
 	"github.com/timche/mac-mini/hachiko/internal/process"
@@ -17,7 +16,6 @@ import (
 
 func TestQuietCheckSaysNothingAndSendsNothing(t *testing.T) {
 	f := newFixture(t)
-	f.grow("tmp/worker.log", 3*mb)
 
 	harness.Equal(t, f.sweep(), "", "a quiet check's log")
 	harness.Equal(t, f.sentCount(), 0, "messages sent")
@@ -29,53 +27,44 @@ func TestQuietCheckSaysNothingAndSendsNothing(t *testing.T) {
 // report to make.
 func TestNewIncidentOpensTheSessionThenSendsOneShortMessage(t *testing.T) {
 	f := newFixture(t)
-	f.grow("tmp/worker.log", 3*mb)
-	f.at(0).sweep()
+	f.freeGB = 90
 
-	path := f.grow("tmp/worker.log", 4*mb)
-	out := f.at(300).sweep()
-
-	harness.Wants(t, out, "growing fast: "+path)
-	harness.Wants(t, out, "written by fake-worker (pid 4242)")
+	out := f.at(0).sweep()
+	harness.Wants(t, out, "only 90.0 GB free, under the 100 GB threshold")
 
 	harness.Equal(t, f.oncallCalls, 1, "sessions opened")
 	harness.Equal(t, f.oncallName, "disk", "the session's name")
 	harness.Equal(t, f.sentCount(), 1, "messages sent")
 
-	harness.Wants(t, f.lastSent(), "\U0001f4be Disk filling: worker.log is growing fast")
-	harness.Wants(t, f.lastSent(), "**Growing fast:**\n- `"+path+"`")
+	harness.Wants(t, f.lastSent(), "\U0001f4be Low disk space: 90 GB free")
+	harness.Wants(t, f.lastSent(), "**Free space:** 90 GB, under the 100 GB mark")
 	harness.Wants(t, f.lastSent(), "An agent is looking into it — attach in herdr: workspace `.mac-mini`, tab `disk-0000`. Details to follow.")
 	harness.Wants(t, f.lastSent(), "-# Incident disk-")
 	// The lead is the whole of the headline, and a headline carries no incident id.
 	harness.Lacks(t, strings.SplitN(f.lastSent(), "\n", 2)[0], "disk-0000")
 
 	harness.Wants(t, f.oncallBrief, "hachiko notify disk-")
-	harness.Wants(t, f.oncallBrief, "fake-worker")
+	harness.Wants(t, f.oncallBrief, "90 GB")
 }
 
 // The session reporting is what the incident was waiting for, so nothing of
-// hachiko's own goes out afterwards however long the file keeps growing.
+// hachiko's own goes out afterwards however long the volume stays low.
 func TestAReportInsideTheDeadlineLeavesNothingMoreToSend(t *testing.T) {
 	f := newFixture(t)
-	f.grow("tmp/worker.log", 3*mb)
+	f.freeGB = 90
 	f.at(0).sweep()
-	f.grow("tmp/worker.log", 4*mb)
-	f.at(300).sweep()
 
 	incident := f.onlyPendingID()
-	f.at(420).notify(incident)
+	f.at(120).notify(incident)
 
 	// The next sweep is what consumes the marker: it is the only thing that edits the
 	// state, so a report cannot be lost to a sweep writing at the same moment.
-	f.grow("tmp/worker.log", 4*mb)
-	harness.Wants(t, f.at(900).sweep(), "the on-call session reported on "+incident)
+	harness.Wants(t, f.at(600).sweep(), "the on-call session reported on "+incident)
 	harness.Equal(t, len(f.state().Pending), 0, "pending incidents after a report")
 	harness.Equal(t, f.sentCount(), 1, "messages sent")
 
-	// And nothing of hachiko's own goes out afterwards however long the file keeps
-	// growing.
-	f.grow("tmp/worker.log", 4*mb)
-	harness.Equal(t, f.at(1500).sweep(), "", "the log after the report was consumed")
+	// And nothing of hachiko's own goes out afterwards however long the volume stays low.
+	harness.Equal(t, f.at(1200).sweep(), "", "the log after the report was consumed")
 	harness.Equal(t, f.sentCount(), 1, "messages sent after the report was consumed")
 }
 
@@ -86,10 +75,8 @@ func TestAReportInsideTheDeadlineLeavesNothingMoreToSend(t *testing.T) {
 // details over the top of it.
 func TestAReportLandsWhileASweepHoldsTheLock(t *testing.T) {
 	f := newFixture(t)
-	f.grow("tmp/worker.log", 3*mb)
+	f.freeGB = 90
 	f.at(0).sweep()
-	f.grow("tmp/worker.log", 4*mb)
-	f.at(300).sweep()
 
 	incident := f.onlyPendingID()
 
@@ -99,10 +86,10 @@ func TestAReportLandsWhileASweepHoldsTheLock(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	f.at(420).notify(incident)
+	f.at(120).notify(incident)
 	lock.Release()
 
-	out := f.at(900).sweep()
+	out := f.at(600).sweep()
 	harness.Wants(t, out, "the on-call session reported on "+incident)
 	harness.Lacks(t, out, "has not reported")
 	harness.Equal(t, f.sentCount(), 1, "messages sent")
@@ -113,37 +100,33 @@ func TestAReportLandsWhileASweepHoldsTheLock(t *testing.T) {
 // spoke through it would be silent exactly when that chain broke.
 func TestASessionThatNeverReportsGetsTheRawDetailsAfterTheDeadline(t *testing.T) {
 	f := newFixture(t)
-	f.grow("tmp/worker.log", 3*mb)
+	f.freeGB = 90
 	f.at(0).sweep()
-	f.grow("tmp/worker.log", 4*mb)
-	f.at(300).sweep()
 
-	out := f.at(900).sweep()
+	out := f.at(600).sweep()
 	harness.Wants(t, out, "has not reported on disk-")
 
 	harness.Equal(t, f.sentCount(), 2, "messages sent")
 	harness.Wants(t, f.lastSent(), "\u26a0\ufe0f No report from the agent on the disk incident after 10 minutes")
-	harness.Wants(t, f.lastSent(), "written by fake-worker (pid 4242)")
+	harness.Wants(t, f.lastSent(), "**Free space:** 90 GB, under the 100 GB mark")
 	harness.Wants(t, f.lastSent(), "Attach in herdr: workspace `.mac-mini`, tab `disk-0000`.")
 	harness.Equal(t, len(f.state().Pending), 0, "pending incidents after the fallback")
 
-	harness.Equal(t, f.at(1200).sweep(), "", "the log after the fallback")
+	harness.Equal(t, f.at(900).sweep(), "", "the log after the fallback")
 	harness.Equal(t, f.sentCount(), 2, "messages sent after the fallback")
 }
 
 func TestASessionThatCannotBeOpenedGetsTheRawDetailsOnTheSameRun(t *testing.T) {
 	f := newFixture(t)
 	f.oncallErr = errors.New("herdr agent list failed")
+	f.freeGB = 90
 
-	f.grow("tmp/worker.log", 3*mb)
-	f.at(0).sweep()
-	f.grow("tmp/worker.log", 4*mb)
-	out := f.at(300).sweep()
+	out := f.at(0).sweep()
 
 	harness.Wants(t, out, "no on-call session was opened")
 	harness.Equal(t, f.sentCount(), 1, "messages sent")
 	harness.Wants(t, f.lastSent(), "No on-call session could be started, so nothing is being worked on it.")
-	harness.Wants(t, f.lastSent(), "written by fake-worker (pid 4242)")
+	harness.Wants(t, f.lastSent(), "**Free space:** 90 GB, under the 100 GB mark")
 	harness.Equal(t, len(f.state().Pending), 0, "pending incidents with no session")
 }
 
@@ -174,68 +157,18 @@ func TestLowSpaceAlertsOnceThenAgainUnderTheCriticalThresholdThenReportsTheRecov
 	harness.Equal(t, f.state().LowSpaceLevel, int64(0), "the recorded threshold after the recovery")
 }
 
-// A truncate and never an rm or a kill, and only the fastest grower: the log under
-// the tmp root goes, the file beside it that is not named like a log stays, and so
-// does the one outside the three roots a log may live in.
-func TestUnderTheCriticalThresholdTheFastestGrowingLogIsTruncatedAndNothingElse(t *testing.T) {
-	f := newFixture(t)
-	f.freeGB = 15
-
-	log := f.grow("tmp/worker.log", 2*mb)
-	bin := f.grow("tmp/worker.bin", 2*mb)
-	other := f.grow("elsewhere/other.log", 2*mb)
-	f.at(0).sweep()
-
-	f.grow("tmp/worker.log", 9*mb)
-	f.grow("tmp/worker.bin", 6*mb)
-	f.grow("elsewhere/other.log", 6*mb)
-
-	harness.Wants(t, f.at(300).sweep(), "truncated "+log)
-
-	harness.Equal(t, size(t, log), int64(0), "the truncated log")
-	if size(t, bin) == 0 || size(t, other) == 0 {
-		t.Error("a file that is not a log this may truncate was truncated")
-	}
-
-	harness.Wants(t, f.lastSent(), "**Emptied to keep the Mac going:** `"+log+"` — its writer was left running, so the space is back now")
-	harness.Wants(t, f.lastSent(), "Disk critical: 15 GB free, and worker.log was emptied")
-	harness.Wants(t, f.lastSent(), "An agent is looking into it")
-}
-
-func TestNothingIsTruncatedWhenTheFastestGrowingFileIsNotALog(t *testing.T) {
-	f := newFixture(t)
-	f.freeGB = 15
-
-	log := f.grow("tmp/worker.log", 2*mb)
-	data := f.grow("elsewhere/data.bin", 2*mb)
-	f.at(0).sweep()
-
-	f.grow("tmp/worker.log", 4*mb)
-	f.grow("elsewhere/data.bin", 9*mb)
-
-	harness.Wants(t, f.at(300).sweep(), "not a log this may truncate")
-	if size(t, log) == 0 || size(t, data) == 0 {
-		t.Error("something was truncated")
-	}
-	harness.Equal(t, len(f.truncated), 0, "truncations")
-}
-
 // A send that failed is an incident nobody has heard about, so it may not be recorded
 // as one: the next check has to try again.
 func TestASendThatFailsLeavesTheIncidentUnraisedForTheNextCheck(t *testing.T) {
 	f := newFixture(t)
 	f.sendErr = errSendFailed
+	f.freeGB = 90
 
-	f.grow("tmp/worker.log", 3*mb)
-	f.at(0).sweep()
-	f.grow("tmp/worker.log", 4*mb)
-
-	harness.Wants(t, f.at(300).sweep(), "did not send and is left to the next check")
-	harness.Equal(t, len(f.state().AlertedFiles), 0, "files recorded as alerted")
+	harness.Wants(t, f.at(0).sweep(), "did not send and is left to the next check")
+	harness.Equal(t, f.state().LowSpaceLevel, int64(0), "the threshold recorded as alerted")
 	harness.Equal(t, len(f.state().Pending), 0, "pending incidents")
 
-	f.grow("tmp/worker.log", 4*mb)
-	f.at(600).sweep()
+	f.at(300).sweep()
 	harness.Equal(t, f.sendAttempts, 2, "send attempts")
 	harness.Equal(t, f.oncallCalls, 2, "sessions opened")
 }
@@ -243,7 +176,6 @@ func TestASendThatFailsLeavesTheIncidentUnraisedForTheNextCheck(t *testing.T) {
 func TestADryRunReportsWhatItSeesAlertsNothingAndLeavesNoState(t *testing.T) {
 	f := newFixture(t)
 	f.freeGB = 15
-	f.grow("tmp/worker.log", 4*mb)
 
 	out := f.dryRun()
 	harness.Wants(t, out, "would report 15.0 GB free, under the 20 GB threshold")
@@ -255,21 +187,6 @@ func TestADryRunReportsWhatItSeesAlertsNothingAndLeavesNoState(t *testing.T) {
 	}
 	harness.Equal(t, f.sentCount(), 0, "messages sent")
 	harness.Equal(t, f.oncallCalls, 0, "sessions opened")
-}
-
-func TestADryRunSaysWhatItWouldTruncateAndTruncatesNothing(t *testing.T) {
-	f := newFixture(t)
-	log := f.grow("tmp/worker.log", 2*mb)
-	f.at(0).sweep()
-
-	f.freeGB = 15
-	f.grow("tmp/worker.log", 4*mb)
-
-	harness.Wants(t, f.at(300).dryRun(), "would truncate "+log)
-	if size(t, log) == 0 {
-		t.Error("a dry run truncated the file")
-	}
-	harness.Equal(t, f.state().Disk.At, base.Unix(), "the sample a dry run left behind")
 }
 
 // Twelve samples at 80% of a core, which is the hour the rule is about, then a
@@ -443,18 +360,17 @@ func TestAProcessOfThisAccountsOutsideACheckoutIsNeither(t *testing.T) {
 // on one machine would be two sets of options for Tim to reconcile.
 func TestADiskAndACPUIncidentInOneRunMakeOneMessageAndOneSession(t *testing.T) {
 	f := newFixture(t)
-	f.grow("tmp/worker.log", 2*mb)
 	f.cpuRuns(12, 240)
 	harness.Equal(t, f.sentCount(), 0, "messages sent before either fired")
 
 	f.proc(7018, 2880, firstStart, "/usr/local/bin/node worker.js")
-	f.grow("tmp/worker.log", 4*mb)
+	f.freeGB = 90
 	f.at(3600).sweep()
 
 	harness.Equal(t, f.oncallCalls, 1, "sessions opened")
 	harness.Equal(t, f.oncallName, "disk", "the session's name")
 	harness.Equal(t, f.sentCount(), 1, "messages sent")
-	harness.Wants(t, f.oncallBrief, "worker.log")
+	harness.Wants(t, f.oncallBrief, "90 GB, under the 100 GB mark")
 	harness.Wants(t, f.oncallBrief, "node (pid 7018)")
 }
 
@@ -488,99 +404,6 @@ func TestTheFirstProcessIsRecordedWhenThereIsNoPreviousSample(t *testing.T) {
 	}
 }
 
-// A directory that would not answer is named once and then remembered, so the next sweep
-// hands it straight back as something to skip rather than paying the seconds again.
-func TestADirectoryThatWouldNotAnswerIsNamedOnceAndThenSkipped(t *testing.T) {
-	f := newFixture(t)
-	hung := filepath.Join(f.cfg.Home, "Volumes", "dead-mount")
-	f.stalls = []string{hung}
-
-	harness.Wants(t, f.at(0).sweep(), hung+" did not answer a read within 3s, so it is skipped until it is tried again in 1h0m0s")
-	harness.Equal(t, len(f.state().Stalled), 1, "directories remembered as stalled")
-
-	// The second sweep is handed it to skip, and says nothing more about it.
-	out := f.at(300).sweep()
-	harness.Lacks(t, out, "did not answer a read")
-	harness.Equal(t, len(f.skipped), 1, "directories the walk was told to skip")
-	if len(f.skipped) == 1 {
-		harness.Equal(t, f.skipped[0], hung, "the directory the walk was told to skip")
-	}
-	harness.Equal(t, len(f.state().Stalled), 1, "directories remembered after the second sweep")
-}
-
-// One slow read is not a reason to stop looking at a tree for good — and a read goes slow
-// under disk pressure, which is exactly when a runaway writer is thrashing the volume and
-// /private/tmp is the thing worth watching.
-func TestADirectoryThatStalledIsTriedAgainAfterAnHour(t *testing.T) {
-	f := newFixture(t)
-	hung := filepath.Join(f.cfg.Home, "tmp")
-	f.stalls = []string{hung}
-
-	f.at(0).sweep()
-	f.at(300).sweep()
-	harness.Equal(t, len(f.skipped), 1, "directories skipped before the hour is up")
-
-	// An hour later it is walked again rather than skipped.
-	f.at(3600).sweep()
-	harness.Equal(t, len(f.skipped), 0, "directories skipped once the hour is up")
-	harness.Equal(t, len(f.state().Stalled), 1, "directories still remembered after a failed retry")
-
-	// And having stalled again, it goes quiet for another hour rather than being retried
-	// every five minutes.
-	f.at(3900).sweep()
-	harness.Equal(t, len(f.skipped), 1, "directories skipped after the retry stalled too")
-}
-
-func TestADirectoryThatAnswersAgainIsSaidOnceAndPutBackInTheWalk(t *testing.T) {
-	f := newFixture(t)
-	hung := filepath.Join(f.cfg.Home, "tmp")
-	f.stalls = []string{hung}
-
-	f.at(0).sweep()
-
-	// The mount comes back, and the retry an hour later finds it.
-	f.stalls = nil
-	out := f.at(3600).sweep()
-
-	harness.Wants(t, out, hung+" answered again after 1h00m, so it is back in the walk")
-	harness.Equal(t, len(f.state().Stalled), 0, "directories still remembered after it recovered")
-
-	// Said once, not every sweep after it.
-	harness.Lacks(t, f.at(3900).sweep(), "answered again")
-	harness.Equal(t, len(f.skipped), 0, "directories skipped once it recovered")
-}
-
-// A directory that is still stalling costs one line when it starts and nothing after,
-// however many sweeps and retries it takes.
-func TestADirectoryThatKeepsStallingIsNeverNamedTwice(t *testing.T) {
-	f := newFixture(t)
-	hung := filepath.Join(f.cfg.Home, "tmp")
-	f.stalls = []string{hung}
-
-	said := 0
-	for i := range int64(30) {
-		if strings.Contains(f.at(i*300).sweep(), "did not answer a read") {
-			said++
-		}
-	}
-
-	harness.Equal(t, said, 1, "times the stalled directory was named across two and a half hours")
-	harness.Equal(t, len(f.state().Stalled), 1, "directories remembered at the end")
-}
-
-// A monitor that reports nothing because it is still counting is the failure this exists
-// to avoid, so the CPU check and the alerts run on what the walk did manage to see.
-func TestAWalkCutShortStillLetsTheRestOfTheCheckRun(t *testing.T) {
-	f := newFixture(t)
-	f.cutShort = true
-	f.freeGB = 90
-
-	out := f.at(0).sweep()
-	harness.Wants(t, out, "the walk ran out of its 1m0s, so this check saw only part of the disk")
-	harness.Wants(t, out, "only 90.0 GB free, under the 100 GB threshold")
-	harness.Equal(t, f.sentCount(), 1, "messages sent")
-}
-
 // An escalation re-briefs the same session under a new incident id, but the id the
 // session was first handed is the one in its scrollback — so it reports under that. The
 // report is on the incident either way, and reading it any other way loses it and then
@@ -588,25 +411,23 @@ func TestAWalkCutShortStillLetsTheRestOfTheCheckRun(t *testing.T) {
 func TestAReportUnderTheIdAnEscalationSupersededStillCounts(t *testing.T) {
 	f := newFixture(t)
 
-	f.grow("tmp/worker.log", 3*mb)
+	f.freeGB = 90
 	f.at(0).sweep()
-	f.grow("tmp/worker.log", 4*mb)
-	f.at(300).sweep()
 	first := f.onlyPendingID()
 
 	// The escalation: free space crosses the critical threshold, so the same session is
 	// re-briefed under a second id and the first stops being pending.
 	f.freeGB = 15
-	f.at(600).sweep()
+	f.at(300).sweep()
 	second := f.onlyPendingID()
 	if second == first {
 		t.Fatalf("the escalation did not open a new incident: %s", second)
 	}
 
 	// The session answers with the id it was first given.
-	f.at(660).notify(first)
+	f.at(360).notify(first)
 
-	out := f.at(1500).sweep()
+	out := f.at(900).sweep()
 	harness.Wants(t, out, "the on-call session reported on "+first+", which "+second+" superseded")
 	harness.Lacks(t, out, "has not reported")
 	harness.Equal(t, len(f.state().Pending), 0, "pending incidents after the report")
@@ -633,15 +454,12 @@ func TestAMarkerWithNothingPendingIsForgotten(t *testing.T) {
 // unattended; waiting on it would have promised a report that cannot come.
 func TestAnUpdateASessionCannotBeHandedSendsTheWholeOfItAndWaitsOnNothing(t *testing.T) {
 	f := newFixture(t)
-	f.grow("tmp/worker.log", 3*mb)
+	f.oncallBlocked = true
+	f.freeGB = 90
 	f.at(0).sweep()
 
-	f.oncallBlocked = true
-	f.grow("tmp/worker.log", 4*mb)
-	f.at(300).sweep()
-
 	harness.Equal(t, f.sentCount(), 1, "messages sent")
-	harness.Wants(t, f.lastSent(), "written by fake-worker (pid 4242)")
+	harness.Wants(t, f.lastSent(), "**Free space:** 90 GB, under the 100 GB mark")
 	harness.Wants(t, f.lastSent(), "This update did not reach it.")
 	harness.Lacks(t, f.lastSent(), "No on-call session could be started")
 	harness.Lacks(t, f.lastSent(), "Details to follow")
@@ -649,154 +467,11 @@ func TestAnUpdateASessionCannotBeHandedSendsTheWholeOfItAndWaitsOnNothing(t *tes
 	// Nothing is going to report, so nothing waits ten minutes to say so.
 	harness.Equal(t, len(f.state().Pending), 0, "pending incidents")
 
-	// And the file is still one incident: the dedupe happened even though the session
+	// And the volume is still one incident: the dedupe happened even though the session
 	// never heard about it.
-	f.grow("tmp/worker.log", 4*mb)
-	harness.Equal(t, f.at(600).sweep(), "", "the log on the next check")
-	harness.Equal(t, f.at(1200).sweep(), "", "the log after the deadline would have passed")
+	harness.Equal(t, f.at(300).sweep(), "", "the log on the next check")
+	harness.Equal(t, f.at(900).sweep(), "", "the log after the deadline would have passed")
 	harness.Equal(t, f.sentCount(), 1, "messages sent after the deadline would have passed")
-}
-
-// A truncate is the one thing here that changes somebody's disk. On every run but the
-// first the file is already flagged and the threshold is already crossed, so nothing
-// else fires — and the truncate went unreported.
-func TestATruncateOnALaterRunIsStillReported(t *testing.T) {
-	f := newFixture(t)
-	f.freeGB = 15
-
-	log := f.grow("tmp/worker.log", 2*mb)
-	f.at(0).sweep()
-
-	f.grow("tmp/worker.log", 4*mb)
-	f.at(300).sweep()
-	before := f.sentCount()
-
-	// The file is in AlertedFiles now and the threshold has not moved, so the truncate is
-	// the only thing this run has to say.
-	f.grow("tmp/worker.log", 4*mb)
-	out := f.at(600).sweep()
-
-	harness.Wants(t, out, "truncated "+log)
-	harness.Equal(t, f.sentCount(), before+1, "messages sent for the second truncate")
-	harness.Wants(t, f.lastSent(), "**Emptied to keep the Mac going:** `"+log+"`")
-	harness.Equal(t, size(t, log), int64(0), "the truncated log")
-}
-
-// A send that failed is an incident nobody has heard about, and the sample it was
-// measured against is the only baseline that can still catch it: advancing it would let
-// a writer that slows to under the threshold slip through for good, having already taken
-// the disk.
-func TestAFileNobodyHasHeardAboutKeepsTheSizeItWasMeasuredAgainst(t *testing.T) {
-	f := newFixture(t)
-	f.sendErr = errSendFailed
-
-	f.grow("tmp/worker.log", 3*mb)
-	f.at(0).sweep()
-	f.grow("tmp/worker.log", 4*mb)
-	f.at(300).sweep()
-	harness.Equal(t, f.sentCount(), 0, "messages sent while Discord was down")
-
-	// Under the growth threshold for this interval alone, but far over it since the sample
-	// the failed alert was about.
-	f.sendErr = nil
-	f.grow("tmp/worker.log", 1*mb)
-
-	harness.Wants(t, f.at(600).sweep(), "growing fast")
-	harness.Equal(t, f.sentCount(), 1, "messages sent once Discord was back")
-}
-
-// A path is chosen by whatever filled the disk, and Discord caps a message at 2,000
-// characters: one path at a megabyte would be the whole of it.
-func TestALongPathIsClippedOutOfTheMessage(t *testing.T) {
-	f := newFixture(t)
-
-	long := "tmp/" + strings.Repeat("deep/", 120) + "worker.log"
-	path := f.grow(long, 3*mb)
-	f.at(0).sweep()
-
-	f.grow(long, 4*mb)
-	f.at(300).sweep()
-
-	if len(path) <= wording.PathLimit {
-		t.Fatalf("the path under test is only %d characters", len(path))
-	}
-	harness.Lacks(t, f.lastSent(), path)
-	harness.Wants(t, f.lastSent(), wording.Clip(path, wording.PathLimit))
-}
-
-// The download that paged Tim at three in the morning: 26 GB arriving at about 38 GB an
-// hour, with 782 GB free. The disk would have taken most of a day to feel it, so the log
-// says what it saw and nobody is woken.
-func TestGrowthTheVolumeIsADayFromFeelingIsLoggedAndNotAlerted(t *testing.T) {
-	f := newFixture(t)
-	f.cfg.FillHorizon = 6 * time.Hour
-	f.freeGB = 782
-
-	path := f.claim("tmp/model.safetensors", 23*config.GiB)
-	f.at(0).sweep()
-
-	f.claim("tmp/model.safetensors", 23*config.GiB+3200*1024)
-	out := f.at(300).sweep()
-
-	harness.Wants(t, out, "growing but not filling the disk: "+path)
-	harness.Wants(t, out, "the free space lasts 20h")
-	harness.Lacks(t, out, "growing fast: ")
-
-	harness.Equal(t, f.sentCount(), 0, "messages sent")
-	harness.Equal(t, f.oncallCalls, 0, "sessions opened")
-	harness.Equal(t, len(f.state().AlertedFiles), 0, "files recorded as alerted")
-}
-
-// The same shape against a volume that cannot take it: about 48 GB an hour with 100 GB
-// free is two hours from full, which is inside the horizon and somebody's night.
-func TestGrowthThatFillsTheVolumeInsideTheHorizonAlerts(t *testing.T) {
-	f := newFixture(t)
-	f.cfg.FillHorizon = 6 * time.Hour
-	f.freeGB = 100
-
-	path := f.claim("tmp/runaway.log", 10*config.GiB)
-	f.at(0).sweep()
-
-	f.claim("tmp/runaway.log", 14*config.GiB)
-	out := f.at(300).sweep()
-
-	harness.Wants(t, out, "growing fast: "+path)
-	harness.Lacks(t, out, "growing but not filling the disk")
-
-	harness.Equal(t, f.sentCount(), 1, "messages sent")
-	harness.Equal(t, f.oncallCalls, 1, "sessions opened")
-	harness.Wants(t, f.lastSent(), "Disk filling: runaway.log is growing fast")
-}
-
-// Under the critical mark the growth is the emergency rather than the evidence for one:
-// megabytes an hour against 15 GB free is weeks away by the projection, and every path
-// there behaves as it did before there was one.
-func TestUnderTheCriticalMarkGrowthAlertsHoweverFarOffTheProjectionIs(t *testing.T) {
-	f := newFixture(t)
-	f.cfg.FillHorizon = 6 * time.Hour
-
-	log := f.grow("tmp/worker.log", 2*mb)
-	f.at(0).sweep()
-
-	f.freeGB = 15
-	f.grow("tmp/worker.log", 3*mb)
-	out := f.at(300).sweep()
-
-	harness.Wants(t, out, "growing fast: "+log)
-	harness.Wants(t, out, "truncated "+log)
-	harness.Lacks(t, out, "growing but not filling the disk")
-
-	harness.Equal(t, f.sentCount(), 1, "messages sent")
-	harness.Wants(t, f.lastSent(), "Disk critical: 15 GB free, and worker.log was emptied")
-}
-
-func size(t *testing.T, path string) int64 {
-	t.Helper()
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return info.Size()
 }
 
 // Every name in an alert was chosen by whatever filled the disk: the command line a worker
@@ -805,9 +480,6 @@ func size(t *testing.T, path string) int64 {
 // and in the post's title, which is the one place the escaping that does that would show.
 func TestANameShapedLikeMarkdownArrivesAsAName(t *testing.T) {
 	f := newFixture(t)
-	// The shape lsof answers in, which is where a writer's own name is escaped: the pid and
-	// the parentheses around it are hachiko's and stay as they are.
-	f.writer = wording.PIDLabel("[Fix it](https://wherever)", "5073")
 
 	for i := range 13 {
 		f.proc(7018, float64(i)*240, firstStart, "/usr/local/bin/**node** worker.js")
@@ -833,14 +505,4 @@ func TestANameShapedLikeMarkdownArrivesAsAName(t *testing.T) {
 	// and the marker stays: it is what says at a glance which kind of alert this is.
 	harness.Equal(t, discord.ThreadName(message), "🔥 **node** is busy: 80% of a core for 1 hour",
 		"the post's name")
-
-	// A writer lsof named is the other half of it, in a bullet about the disk.
-	path := f.grow("tmp/worker.log", bigKB)
-	f.at(4200).sweep()
-	f.grow("tmp/worker.log", growKB+bigKB)
-	f.at(4500).sweep()
-
-	harness.Wants(t, f.lastSent(), `written by \[Fix it\]\(https://wherever\) (pid 5073)`)
-	harness.Lacks(t, f.lastSent(), "written by [Fix it]")
-	harness.Wants(t, f.lastSent(), wording.CodeSpan(path))
 }

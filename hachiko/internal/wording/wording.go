@@ -41,10 +41,8 @@ const (
 // The labels a group of findings goes under, so the same wording reaches a first alert,
 // a reminder three hours later and the prompt that hands the decision over.
 const (
-	LabelGrowing   = "Growing fast"
 	LabelBusy      = "Busy processes"
 	LabelFreeSpace = "Free space"
-	LabelEmptied   = "Emptied to keep the Mac going"
 	LabelNow       = "Now"
 	LabelWaiting   = "Waiting"
 	LabelWhy       = "Why"
@@ -167,21 +165,6 @@ func GBUnit(kb int64) string {
 		}
 	}
 	return strings.TrimSuffix(fmt.Sprintf("%.1f", float64(kb)/config.GiB), ".0") + " GB"
-}
-
-// What says whether a file is a nuisance or an emergency, in whole units because the
-// number is an extrapolation from one interval and "about" is the honest word for it.
-func RatePhrase(grewKB int64, span time.Duration) string {
-	seconds := span.Seconds()
-	if seconds <= 0 {
-		seconds = 1
-	}
-
-	perHour := float64(grewKB) * 3600 / seconds
-	if perHour < config.GiB {
-		return fmt.Sprintf("about %.0f MB an hour", perHour/1024)
-	}
-	return fmt.Sprintf("about %.0f GB an hour", perHour/config.GiB)
 }
 
 // Never 1h05m in anything Tim reads: a message at four in the morning is read once. Two

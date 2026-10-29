@@ -23,13 +23,6 @@ func TestSizesReadAsSomethingTimWouldSayOutLoud(t *testing.T) {
 	harness.Equal(t, GBUnit(-5), "0 MB", "a size that cannot be negative")
 }
 
-func TestRatesAreWholeUnitsAnHourAndSayAbout(t *testing.T) {
-	harness.Equal(t, RatePhrase(4508877, 300*time.Second), "about 52 GB an hour", "4.3 GB in five minutes")
-	harness.Equal(t, RatePhrase(2*config.GiB, time.Hour), "about 2 GB an hour", "2 GB in an hour")
-	harness.Equal(t, RatePhrase(300*1024, time.Hour), "about 300 MB an hour", "under a gigabyte an hour")
-	harness.Equal(t, RatePhrase(config.GiB, 0), "about 3600 GB an hour", "a span that cannot be zero")
-}
-
 // Never 1h05m in anything Tim reads: a message at four in the morning is read once.
 func TestDurationsReadAsWords(t *testing.T) {
 	harness.Equal(t, DurationPhrase(time.Hour+5*time.Minute), "1 hour 5 minutes", "an hour and a bit")
@@ -118,18 +111,18 @@ func TestALongOutputIsClippedInsideItsBlock(t *testing.T) {
 }
 
 func TestAMessageHasOneBlankLineBetweenItsPartsAndNoTrailingOne(t *testing.T) {
-	m := Lead(MarkerDisk, "Disk filling: devbackend.log is growing fast").
+	m := Lead(MarkerBusy, "node is busy: 80% of a core for 1 hour").
 		Field(LabelFreeSpace, "500 GB").
-		Bullets(LabelGrowing, []string{"`/private/tmp/devbackend.log` — 4.3 GB"}).
+		Bullets(LabelBusy, []string{"node (pid 7018) — 80% of a core for 1 hour"}).
 		Can("Attach in herdr.").
 		About("disk-1700000000", "mac-mini")
 
-	harness.Equal(t, m.String(), "💾 Disk filling: devbackend.log is growing fast\n"+
+	harness.Equal(t, m.String(), "🔥 node is busy: 80% of a core for 1 hour\n"+
 		"\n"+
 		"**Free space:** 500 GB\n"+
 		"\n"+
-		"**Growing fast:**\n"+
-		"- `/private/tmp/devbackend.log` — 4.3 GB\n"+
+		"**Busy processes:**\n"+
+		"- node (pid 7018) — 80% of a core for 1 hour\n"+
 		"\n"+
 		"Attach in herdr.\n"+
 		"\n"+

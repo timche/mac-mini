@@ -1394,9 +1394,11 @@ check "mochi requires no module from outside this checkout" \
 # Under launchd an unsigned binary is its own TCC-responsible process. A folder behind
 # Full Disk Access answers "operation not permitted" at once, but one behind a consent
 # prompt makes open() wait for a dialog on a screen this Mac does not have, so the sweep
-# never returns and never releases its lock. `launchctl submit` is the smallest way to get
-# that shape: a job in the same gui domain, the built binary, a state and cache directory
-# of its own, and the whole of it removed afterwards whatever happens.
+# never returns and never releases its lock — and the sweep reads this machine's own logs
+# under ~/Library/Logs and its state under ~/Library/Caches on every run. `launchctl
+# submit` is the smallest way to get that shape: a job in the same gui domain, the built
+# binary, a state and cache directory of its own, and the whole of it removed afterwards
+# whatever happens.
 #
 # Three things have to be true: it exits, it printed its summary, and it asked TCC for
 # nothing. The last is read from tccd's own log, which takes no sudo and names the binary
@@ -1438,7 +1440,7 @@ export -f hachiko_prompt_on_screen
 
 # Every request tccd logged about this binary has to have reached a result. The denials
 # that are fine are the ones tccd records without asking anybody — "does not allow
-# prompting; recording denied", microseconds, and the walk carries on. A request with no
+# prompting; recording denied", microseconds, and the sweep carries on. A request with no
 # result is the other kind: a prompt on a screen nobody is looking at, and the process
 # behind it waiting in open() for as long as the Mac is up. `log show` reads this without
 # sudo and names the binary that asked.
@@ -1459,7 +1461,6 @@ check "hachiko finishes a sweep under launchd, where it has no privacy grants" \
    since="$(date "+%Y-%m-%d %H:%M:%S")" &&
    hachiko_launchd "$d/cache/hachiko" "$d" "$label" &&
    grep -q "GB free," "$d/out" &&
-   ! grep -q "did not answer a read" "$d/out" &&
    [ -z "$(hachiko_prompt_on_screen)" ] &&
    /usr/bin/log show --start "$since" --predicate "process == \"tccd\"" >"$d/tcc" 2>/dev/null &&
    [ -z "$(hachiko_tcc_unanswered "$d/tcc" "$d/cache/hachiko")" ]'

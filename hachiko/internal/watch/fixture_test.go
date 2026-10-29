@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -19,17 +17,14 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/shibuya"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/update"
-	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
 
-// The thresholds come down to megabytes and minutes, so a file growing past one is a
-// few writes and an hour of CPU is a few scripted samples. Everything a sweep learns
-// or does is a function on the fixture, so nothing here reads the real disk, samples
-// the real processes, asks 1Password for anything or reaches the network.
+// The thresholds come down to megabytes and minutes, so an hour of CPU is a few scripted
+// samples. Everything a sweep learns or does is a function on the fixture, so nothing here
+// reads the real disk, samples the real processes, asks 1Password for anything or reaches
+// the network.
 const (
-	mb     = int64(1024)
-	bigKB  = 1024
-	growKB = 2048
+	mb = int64(1024)
 
 	// A megabyte, so a log a test caps is one it can write in a moment and the message about
 	// it still reads in the unit a real one is measured in.
@@ -51,47 +46,17 @@ type fixture struct {
 
 	now      time.Time
 	freeGB   int64
-	watched  []string
 	procs    []process.Process
 	procsErr error
 	pid      int
 	uid      int
-
-	// A file the incident is about that gains keepKB on every check, which is what keeps an
-	// incident open across a test that walks the clock: a file that has stopped growing is a
-	// trigger that has cleared, and that is a test of its own.
-	keepGrowing string
-	keepKB      int64
 
 	// What the forum sweep was asked for, what it answers with, and what it refuses with.
 	pruned      []time.Duration
 	prunedLines []string
 	prunedErr   error
 
-	// What the walk reports it could not look at, and what it was told to skip.
-	stalls   []string
-	cutShort bool
-	skipped  []string
-
-	// Sizes the walk reports with no bytes behind them, for a test about what a message
-	// says rather than about what the walk finds: a message that names 4.3 GB is one no
-	// test could write 4.3 GB to prove.
-	claimed []FileSize
-
-	// A claimed file that gains claimStep on every check, which is what keepGrowing does for
-	// a real one: an incident that has stopped is a trigger that has cleared, and that is
-	// news of its own.
-	keepClaiming string
-	claimStep    int64
-	claimedKB    int64
-
-	// A truncate that is recorded and not carried out, for a test whose paths are the real
-	// machine's rather than the temporary home's: emptying /private/tmp/devbackend.log to
-	// read a message back would empty the Mac's own file.
-	noTruncate bool
-
 	cwd       map[int]string
-	writer    string
 	allowlist string
 
 	// Whether this Mac has the agent that runs the worktree sweep, and when that sweep last
@@ -153,7 +118,6 @@ type fixture struct {
 	outcomes     []bool
 	sendAttempts int
 	sendErr      error
-	truncated    []string
 
 	// Whether a bot is configured, which is the only thing that makes a thread: which
 	// thread each message went into, and which incidents opened one.
@@ -181,26 +145,15 @@ func newFixture(t *testing.T) *fixture {
 	cfg := config.Config{
 		LowKB:      100 * config.GiB,
 		CriticalKB: 20 * config.GiB,
-		BigKB:      bigKB,
-		GrowthKB:   growKB,
-
-		// No fill horizon unless a test sets one: a check written in megabytes and minutes
-		// grows against a volume of hundreds of real gigabytes, which no projection would ever
-		// find close to full, and what those checks are about is the growth itself.
-		FillHorizon: 0,
 
 		CPUShare:       50,
 		CPUWindow:      time.Hour,
 		OncallDeadline: 10 * time.Minute,
 
-		DirTimeout:  3 * time.Second,
-		WalkTimeout: time.Minute,
-		StallRetry:  time.Hour,
-		LogCapKB:    logCapKB,
+		LogCapKB: logCapKB,
 
 		Home:         home,
 		MachineDir:   filepath.Join(home, ".mac-mini"),
-		TmpRoot:      filepath.Join(home, "tmp"),
 		ScratchRoot:  filepath.Join(home, "scratch"),
 		LogsRoot:     filepath.Join(home, "Library", "Logs"),
 		HerdrRoot:    filepath.Join(home, ".herdr", "worktrees"),
@@ -230,9 +183,6 @@ func newFixture(t *testing.T) *fixture {
 		// that is a test of its own.
 		uid: accountUID,
 		cwd: map[int]string{},
-		// Built the way the real lsof reader builds one, so a test reads the writer back in
-		// the shape a message carries rather than in one nothing produces.
-		writer: wording.PIDLabel("fake-worker", "4242"),
 		// Nothing is waiting on a question until a test says so, which is what every
 		// check written before the wait existed assumes.
 		status: map[string]string{},
@@ -284,19 +234,7 @@ func (f *fixture) deps() Deps {
 		Getpid: func() int { return f.pid },
 		Getuid: func() int { return f.uid },
 
-		FreeKB:   func() (int64, error) { return f.freeGB * config.GiB, nil },
-		BigFiles: f.bigFiles,
-
-		Writers: func(string) string { return f.writer },
-		Truncate: func(path string) error {
-			if !f.noTruncate {
-				if err := os.Truncate(path, 0); err != nil {
-					return err
-				}
-			}
-			f.truncated = append(f.truncated, path)
-			return nil
-		},
+		FreeKB: func() (int64, error) { return f.freeGB * config.GiB, nil },
 
 		Processes: func() ([]process.Process, error) {
 			if f.procsErr != nil {
@@ -430,98 +368,6 @@ func (f *fixture) deps() Deps {
 	}
 }
 
-// Real files with real allocated sizes, so the truncate rules and the sparse-image
-// reasoning are exercised rather than described.
-func (f *fixture) bigFiles(skip []string) WalkResult {
-	f.skipped = skip
-
-	out := WalkResult{CutShort: f.cutShort}
-
-	// A directory the walk was told to skip is never opened, so it cannot be reported as
-	// one that would not answer.
-	for _, dir := range f.stalls {
-		if !statedir.Contains(skip, dir) {
-			out.Stalled = append(out.Stalled, dir)
-		}
-	}
-
-	if f.claimed != nil {
-		out.Files = append(out.Files, f.claimed...)
-		sort.Slice(out.Files, func(i, j int) bool { return out.Files[i].Path < out.Files[j].Path })
-		return out
-	}
-
-	for _, path := range f.watched {
-		info, err := os.Lstat(path)
-		if err != nil {
-			continue
-		}
-		st, ok := info.Sys().(*syscall.Stat_t)
-		if !ok {
-			continue
-		}
-		if kb := st.Blocks / 2; kb >= f.cfg.BigKB {
-			out.Files = append(out.Files, FileSize{Path: path, KB: kb})
-		}
-	}
-	sort.Slice(out.Files, func(i, j int) bool { return out.Files[i].Path < out.Files[j].Path })
-	return out
-}
-
-// Appends kb kibibytes of real bytes, which is what makes the file's allocated size
-// the number the sweep reads.
-func (f *fixture) grow(rel string, kb int64) string {
-	f.t.Helper()
-
-	path := filepath.Join(f.cfg.Home, rel)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		f.t.Fatal(err)
-	}
-
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		f.t.Fatal(err)
-	}
-	defer file.Close()
-
-	if _, err := file.Write(bytes.Repeat([]byte("x"), int(kb*1024))); err != nil {
-		f.t.Fatal(err)
-	}
-
-	if !statedir.Contains(f.watched, path) {
-		f.watched = append(f.watched, path)
-	}
-	return path
-}
-
-// Whatever size the test wants the walk to report for a path. A relative one gets a real
-// empty file under the temporary home, so a truncate has something to open; an absolute one
-// is taken as written and nothing is created, which is for a test about what a message says
-// about /private/tmp rather than about what is on this disk.
-func (f *fixture) claim(rel string, kb int64) string {
-	f.t.Helper()
-
-	path := rel
-	if !filepath.IsAbs(rel) {
-		path = filepath.Join(f.cfg.Home, rel)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			f.t.Fatal(err)
-		}
-		if err := os.WriteFile(path, nil, 0o644); err != nil {
-			f.t.Fatal(err)
-		}
-	}
-
-	for i, file := range f.claimed {
-		if file.Path == path {
-			f.claimed[i].KB = kb
-			return path
-		}
-	}
-	f.claimed = append(f.claimed, FileSize{Path: path, KB: kb})
-	return path
-}
-
 // A stand-in for the installed /usr/local/libexec/claude-root, in the shape the real one
 // writes its allowlist in, so the parsing is read off the file rather than described.
 func (f *fixture) rootHelper(daemons ...string) {
@@ -597,13 +443,6 @@ func (f *fixture) cpuRuns(samples int, per float64) string {
 
 func (f *fixture) sweep() string {
 	f.t.Helper()
-	if f.keepGrowing != "" {
-		f.grow(f.keepGrowing, f.keepKB)
-	}
-	if f.keepClaiming != "" {
-		f.claimedKB += f.claimStep
-		f.claim(f.keepClaiming, f.claimedKB)
-	}
 	f.log.Reset()
 
 	s := sweeper{cfg: f.cfg, deps: f.deps(), store: f.store, dry: false}

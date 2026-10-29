@@ -18,6 +18,7 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/shibuya"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/update"
+	"github.com/timche/mac-mini/hachiko/internal/usage"
 )
 
 // Deps is everything a sweep learns about the machine or does to it. Each one is a
@@ -63,6 +64,13 @@ type Deps struct {
 
 	// And for mochi, whose heartbeat says its Discord gateway is up.
 	MochiLastBeat func() (time.Time, bool)
+
+	// What is left of the account's Claude usage limits, out of the file `claude-hooks
+	// statusline` writes: the one thing here that is read from outside hachiko altogether,
+	// there being no other place Claude Code says it. False where no session has drawn a
+	// status line with usage in its event since the file was last made, which is nothing to
+	// report.
+	UsageReading func() (usage.Reading, bool)
 
 	// When this Mac last started. launchd starts every agent at boot, so an agent's silence
 	// counts from here at the earliest: the first check after a Mac was switched off would
@@ -140,6 +148,7 @@ func realDeps(cfg config.Config) Deps {
 
 		ListenLastBeat: func() (time.Time, bool) { return listenLastBeat(cfg) },
 		MochiLastBeat:  func() (time.Time, bool) { return mochiLastBeat(cfg) },
+		UsageReading:   func() (usage.Reading, bool) { return usage.Read(cfg.UsageFile()) },
 		Booted:         booted,
 
 		UpdateFailing:   hand.Failing,

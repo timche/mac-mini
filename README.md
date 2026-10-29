@@ -228,7 +228,7 @@ The GitHub token goes in a file rather than the login keychain (`gh auth login -
 | `machine/launchd/` | The herdr launcher's source, which is what that agent starts |
 | `tools/hachiko/` | The watch over this Mac, its worktree sweep, its auto-sync and the nightly update — [tools/hachiko/README.md](tools/hachiko/README.md) |
 | `tools/mochi/` | Tim's Claude Tag for Discord — [tools/mochi/README.md](tools/mochi/README.md) |
-| `tools/claude-hooks/` | Every Claude Code hook as a subcommand of one binary, three of the four on every session's Bash calls: the guard, no kill by name and no foreground without the lock; the attribution stripped out of what `gh` sends GitHub; the worktree a session moved to, named in herdr's sidebar; and the project's docs printed into a session as it starts — [tools/claude-hooks/README.md](tools/claude-hooks/README.md) |
+| `tools/claude-hooks/` | Every Claude Code hook as a subcommand of one binary, three of them on every session's Bash calls: the guard, no kill by name and no foreground without the lock; the attribution stripped out of what `gh` sends GitHub; the worktree a session moved to, named in herdr's sidebar; and the project's docs printed into a session as it starts. The status line's tap is there too, the one command that is no hook: it keeps what is left of the account's usage limits where hachiko reads it — [tools/claude-hooks/README.md](tools/claude-hooks/README.md) |
 | `tools/lib/discord/` | Not a tool but a library the tools share: a Discord client, REST and gateway, as a Go module of its own |
 | `tools/shibuya/` | The one tool that does not run on this Mac: hachiko's dead man's switch, a Cloudflare Worker — [tools/shibuya/README.md](tools/shibuya/README.md) |
 

@@ -4,6 +4,10 @@
 // session left sitting in a checkout holding memory. It runs from the
 // io.github.timche.hachiko LaunchAgent.
 //
+// Beside them is the one thing it watches that is not this machine at all: how much of the
+// account's Claude usage limits every session here has left between them, which is what
+// stops work on this Mac long before the CPU or the disk does.
+//
 // Nothing here kills anything, and the only thing it writes outside its own state is the
 // cap on this machine's own logs. An alert is a
 // one-line message the moment something fires, an on-call session in herdr that

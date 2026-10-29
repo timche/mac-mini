@@ -1156,12 +1156,14 @@ check "the sync config names the docs whole and this repository's home/.claude a
 # names a fixture folder for all four, which is what turns that move off: without it a test
 # run would take the live watch's incidents, the sweep's record and sync's heartbeat over as
 # its first act, and the agents still running the last binary would write to the folders it
-# had emptied.
+# had emptied. The fifth is the usage reading, which is nothing hachiko writes — named here
+# so that a check reads no reading rather than whatever the sessions on this Mac have spent.
 hachiko_fixture_state() {
   local dir="$1"
 
   export HACHIKO_STATE_DIR="$dir/watch" HACHIKO_GC_STATE_DIR="$dir/gc" \
-    HACHIKO_UPDATE_STATE_DIR="$dir/update" HACHIKO_SYNC_STATE_DIR="$dir/sync"
+    HACHIKO_UPDATE_STATE_DIR="$dir/update" HACHIKO_SYNC_STATE_DIR="$dir/sync" \
+    HACHIKO_USAGE_STATE_DIR="$dir/usage"
 }
 export -f hachiko_fixture_state
 
@@ -1196,7 +1198,7 @@ check "hachiko update --security refuses a target that is not one of its five sh
 check "hachiko status prints one screen of this Mac and writes nothing" \
   'd="$(mktemp -d)" && hachiko_fixture_state "$d" &&
    out="$(hachiko status)" &&
-   for section in Agents Disk Incidents Sync Logs; do
+   for section in Agents Disk "Claude usage" Incidents Sync Logs; do
      printf "%s\n" "$out" | grep -qx "$section" || exit 1
    done &&
    printf "%s\n" "$out" | grep -q "the watch" &&

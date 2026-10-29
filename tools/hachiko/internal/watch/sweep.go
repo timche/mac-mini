@@ -130,6 +130,11 @@ func (s sweeper) run() error {
 		s.syncRepos(state, now)
 	}
 
+	// And beside them, for the same two reasons: what is left of the account's usage limits
+	// is about the sessions this Mac runs rather than about the Mac, and a dry run says what
+	// it would report about one the same way.
+	s.usage(state, now)
+
 	// disk when free space fired, since that is the half with a deadline on it, then the CPU,
 	// and what a session left behind last of the three: it is the one of them that is not
 	// costing the Mac anything this minute. The kind only decides which session the incident

@@ -70,6 +70,10 @@ type State struct {
 	// reporting nothing wrong.
 	SyncBehind map[string]Behind `json:"sync_behind,omitempty"`
 
+	// What it has said about each of the account's usage windows, one entry per window it has
+	// warned about and nothing for one it has not.
+	Usage map[string]UsageSaid `json:"usage,omitempty"`
+
 	// The logs this machine's own agents write that could not be capped, and so have already
 	// been complained about once. A link somebody left at one of those paths, or a copy that
 	// failed for want of room, is still there five minutes later, and the watch runs twelve
@@ -114,6 +118,29 @@ type AgentLiveness struct {
 	Stale  int64  `json:"stale,omitempty"`
 	Thread string `json:"thread,omitempty"`
 }
+
+// UsageSaid is one warning about a usage window: when it went out, how much of the window
+// had gone when it did, when that window starts again, and the thread it was said in.
+//
+// Resets is what makes the warning one per window per period rather than one per window for
+// ever: the window the warning was about is over the moment that time passes, which is also
+// the one thing that can be known about it without a fresh reading — and there is none while
+// nobody is running a session, which is exactly what the warning asked for.
+type UsageSaid struct {
+	Said   int64   `json:"said"`
+	Used   float64 `json:"used"`
+	Resets int64   `json:"resets"`
+	Thread string  `json:"thread,omitempty"`
+}
+
+func (s *State) SetUsage(key string, rec UsageSaid) {
+	if s.Usage == nil {
+		s.Usage = map[string]UsageSaid{}
+	}
+	s.Usage[key] = rec
+}
+
+func (s *State) ForgetUsage(key string) { delete(s.Usage, key) }
 
 type ClosedThread struct {
 	Thread string `json:"thread"`

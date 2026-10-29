@@ -140,6 +140,13 @@ type Config struct {
 	MochiStamp      string
 	MochiStaleAfter time.Duration
 
+	// What is left of the account's Claude usage limits, which `claude-hooks statusline`
+	// writes from the one event Claude Code says it in, and how much of a window may be gone
+	// before the watch says so. Eighty per cent, because what the message is for is holding
+	// work back while there is still some left to hold back.
+	UsageStateDir    string
+	UsageWarnPercent float64
+
 	// The channel and the one account replies are taken from, both empty unless Tim has
 	// filled them in, which is what turns the bot and `hachiko listen` on.
 	Discord DiscordConfig
@@ -207,6 +214,11 @@ func (c Config) MochiLabel() string {
 	return strings.TrimSuffix(filepath.Base(c.MochiPlist), ".plist")
 }
 
+// The reading `claude-hooks statusline` leaves behind, derived rather than configured for
+// the reason every stamp above is: the file the tap writes and the file the watch reads
+// cannot be two paths. The folder is what moves, by the one variable both tools read.
+func (c Config) UsageFile() string { return filepath.Join(c.UsageStateDir, "latest.json") }
+
 // WorkspaceLabel is the herdr workspace the on-call session goes in: the one for
 // this machine's own repository, so a session that starts there has the machine's
 // instructions loaded.
@@ -219,18 +231,21 @@ func (c Config) WorkspaceLabel() string { return filepath.Base(c.MachineDir) }
 // wrong one for the record of what has been reported.
 func Dir(home string) string { return filepath.Join(home, ".hachiko") }
 
-// The four state directories under one folder rather than beside the config, because `sync`
+// The state directories under one folder rather than beside the config, because `sync`
 // is a config file and the sweep's, the update's and sync's own folders cannot be told apart
 // from it by name.
 func stateRoot(home string) string { return filepath.Join(Dir(home), "state") }
 
 // The variables that name each of those four, for a test, a fixture or a second hachiko that
-// must not read the live one.
+// must not read the live one. The fifth folder is nothing of hachiko's: `claude-hooks
+// statusline` writes the usage reading into it, so that variable moves the file for the
+// writer as well, which is the whole point of it being one variable.
 const (
 	StateDirVar       = "HACHIKO_STATE_DIR"
 	GCStateDirVar     = "HACHIKO_GC_STATE_DIR"
 	UpdateStateDirVar = "HACHIKO_UPDATE_STATE_DIR"
 	SyncStateDirVar   = "HACHIKO_SYNC_STATE_DIR"
+	UsageStateDirVar  = "HACHIKO_USAGE_STATE_DIR"
 )
 
 func FromEnv() Config {
@@ -322,6 +337,9 @@ func FromEnv() Config {
 		// The listener's ten minutes, for the listener's reason: mochi's agent throttles a
 		// start to one every five.
 		MochiStaleAfter: time.Duration(envInt64("HACHIKO_MOCHI_STALE", 600)) * time.Second,
+
+		UsageStateDir:    envString(UsageStateDirVar, filepath.Join(state, "usage")),
+		UsageWarnPercent: float64(envInt64("HACHIKO_USAGE_WARN", 80)),
 
 		Discord: readDiscordConfig(envString("HACHIKO_DISCORD_CONFIG",
 			filepath.Join(Dir(home), "discord"))),

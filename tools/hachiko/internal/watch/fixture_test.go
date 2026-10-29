@@ -17,6 +17,7 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/shibuya"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/update"
+	"github.com/timche/mac-mini/hachiko/internal/usage"
 )
 
 // The thresholds come down to megabytes and minutes, so an hour of CPU is a few scripted
@@ -89,6 +90,12 @@ type fixture struct {
 	// And mochi's, which counts from its plist like sync's: off unless a test installs it.
 	mochiBeat      time.Time
 	mochiInstalled bool
+
+	// What the status line last said is left of the account's usage limits, and whether
+	// anything has said it at all: a Mac where no session has drawn a status line since the
+	// file was made has no reading, which is what every check written before this assumes.
+	usageReading usage.Reading
+	usageRead    bool
 
 	// When the Mac last started, which is long before any stamp unless a test pins it.
 	booted time.Time
@@ -166,6 +173,8 @@ func newFixture(t *testing.T) *fixture {
 		LogsRoot:     filepath.Join(home, "Library", "Logs"),
 		HerdrRoot:    filepath.Join(home, ".herdr", "worktrees"),
 		ProjectsRoot: filepath.Join(home, "projects"),
+
+		UsageWarnPercent: 80,
 
 		CPUAllowPath: filepath.Join(home, "cpu-allow"),
 		EnvFile:      filepath.Join(home, "hachiko.env.op"),
@@ -267,6 +276,7 @@ func (f *fixture) deps() Deps {
 
 		ListenLastBeat: func() (time.Time, bool) { return f.lastListenBeat(), f.listenBeating },
 		MochiLastBeat:  func() (time.Time, bool) { return f.lastMochiBeat(), f.mochiInstalled },
+		UsageReading:   func() (usage.Reading, bool) { return f.usageReading, f.usageRead },
 		Booted:         func() time.Time { return f.booted },
 
 		UpdateFailing: func() []update.Handed { return f.updateFailing },
@@ -438,6 +448,17 @@ func (f *fixture) systemProc(pid int, cpuSeconds float64, start, command string)
 }
 
 func (f *fixture) setProcs(procs ...process.Process) { f.procs = procs }
+
+// What the status line last said about one of the account's usage windows, as `claude-hooks
+// statusline` wrote it down: the share of it that has gone and when it starts again.
+func (f *fixture) usageAt(key string, used float64, resets time.Time) {
+	if f.usageReading.Windows == nil {
+		f.usageReading.Windows = map[string]usage.Window{}
+	}
+	f.usageReading.ReadAt = f.now
+	f.usageReading.Windows[key] = usage.Window{Used: used, Resets: resets}
+	f.usageRead = true
+}
 
 const firstStart = "Mon Sep 28 20:06:06 2026"
 

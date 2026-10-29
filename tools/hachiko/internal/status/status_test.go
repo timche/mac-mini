@@ -9,11 +9,13 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/harness"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
+	"github.com/timche/mac-mini/hachiko/internal/usage"
 )
 
-// The five sections and the one line above them, in the order somebody reads them in: what is
-// running, then how much room is left, then what the watch has open about it.
-func TestTheScreenIsFiveSectionsUnderOneLineAboutTheMac(t *testing.T) {
+// The sections and the one line above them, in the order somebody reads them in: what is
+// running, then what is left to run it on — room on the volume and the account's usage —
+// then what the watch has open about it.
+func TestTheScreenIsEverySectionUnderOneLineAboutTheMac(t *testing.T) {
 	f := newFixture(t)
 	f.repo("projects/docs", RepoState{Read: true})
 	f.log("hachiko.log", 1200)
@@ -23,7 +25,7 @@ func TestTheScreenIsFiveSectionsUnderOneLineAboutTheMac(t *testing.T) {
 	harness.Wants(t, report, "hachiko on mac-mini, Thu 8 Oct 12:40\n")
 
 	at := 0
-	for _, section := range []string{"Agents", "Disk", "Incidents", "Sync", "Logs"} {
+	for _, section := range []string{"Agents", "Disk", "Claude usage", "Incidents", "Sync", "Logs"} {
 		found := strings.Index(report, "\n"+section+"\n")
 		if found < at {
 			t.Fatalf("%s is out of order or missing in:\n%s", section, report)
@@ -119,6 +121,44 @@ func TestFreeSpaceUnderTheLowMarkIsColouredWhereAnybodyIsLooking(t *testing.T) {
 	f.colour = true
 
 	harness.Wants(t, f.section("Disk"), "\x1b[33m40 GB\x1b[0m")
+}
+
+// Every session on this Mac spends the same two limits, so what is left of them is read
+// against the same mark the watch warns at — and the reading is the status line's, as old as
+// the last draw in any session, which is why the row says when it was taken.
+func TestClaudeUsageIsBothWindowsAndWhenTheyWereRead(t *testing.T) {
+	f := newFixture(t)
+	f.usageAt(usage.FiveHour, 23.5, f.now.Add(2*time.Hour), f.now.Add(-30*time.Second))
+	f.usageAt(usage.SevenDay, 84, f.now.Add(50*time.Hour), f.now.Add(-30*time.Second))
+
+	harness.Wants(t, f.row("Claude usage", "5-hour"), "23.5% used")
+	harness.Wants(t, f.row("Claude usage", "5-hour"), "resets in 2 hours")
+	harness.Wants(t, f.row("Claude usage", "5-hour"), "read less than a minute ago")
+	harness.Wants(t, f.row("Claude usage", "7-day"), "84% used")
+	harness.Wants(t, f.section("Claude usage"), "warned above  80%")
+
+	f.colour = true
+	harness.Wants(t, f.section("Claude usage"), "\x1b[33m84% used\x1b[0m")
+}
+
+// Nothing writes that file but the status line, so a Mac where no session has drawn one says
+// so rather than reading as an account with nothing left or nothing spent.
+func TestNoUsageReadingSaysWhatWritesOne(t *testing.T) {
+	f := newFixture(t)
+
+	harness.Wants(t, f.section("Claude usage"), "the status line writes one while a session is open")
+}
+
+// A reading taken before the window it describes reset says nothing about the one running
+// now, which is the same rule the watch ignores it by.
+func TestAUsageWindowThatHasResetSinceTheReadingIsNotAPercentage(t *testing.T) {
+	f := newFixture(t)
+	f.usageAt(usage.FiveHour, 96, f.now.Add(-time.Minute), f.now.Add(-6*time.Hour))
+
+	row := f.row("Claude usage", "5-hour")
+
+	harness.Wants(t, row, "read before this window started, so nothing is known")
+	harness.Lacks(t, row, "96%")
 }
 
 // A reading it could not take is said in its own section and nothing else: this reports

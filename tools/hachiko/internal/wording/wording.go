@@ -17,6 +17,7 @@ package wording
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -165,6 +166,13 @@ func GBUnit(kb int64) string {
 		}
 	}
 	return strings.TrimSuffix(fmt.Sprintf("%.1f", float64(kb)/config.GiB), ".0") + " GB"
+}
+
+// A percentage as Tim would say it: no decimal where there is nothing after the point, since
+// Claude Code reports a usage window to a tenth and "85.0%" is a number nobody says.
+func Percent(share float64) string {
+	rounded := math.Round(share*10) / 10
+	return strings.TrimSuffix(strconv.FormatFloat(rounded, 'f', 1, 64), ".0") + "%"
 }
 
 // Never 1h05m in anything Tim reads: a message at four in the morning is read once. Two

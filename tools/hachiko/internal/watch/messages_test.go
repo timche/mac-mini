@@ -386,6 +386,33 @@ var messageKinds = []messageKind{{
 		return f.lastSent()
 	},
 }, {
+	name:   "usage-nearly-spent",
+	marker: wording.MarkerDegraded,
+	wants: []string{
+		"⚠️ 85% of the account's 5-hour Claude usage is gone",
+		"**Used:** 85% of the 5-hour window",
+		"**Why:** Every Claude Code session on this Mac spends the same account's limits",
+		"**Needs you:** hold new work back until it resets",
+	},
+	render: func(t *testing.T) string {
+		f := usageFixture(t)
+		f.at(0).sweep()
+		return f.lastSent()
+	},
+}, {
+	name:   "usage-reset",
+	marker: wording.MarkerRecovered,
+	wants: []string{
+		"🟢 The account's 5-hour Claude usage has reset",
+		"**Was at:** 85% of the 5-hour window",
+	},
+	render: func(t *testing.T) string {
+		f := usageFixture(t)
+		f.at(0).sweep()
+		f.at(7260).sweep()
+		return f.lastSent()
+	},
+}, {
 	name:   "test-alert",
 	marker: wording.MarkerInfo,
 	wants: []string{

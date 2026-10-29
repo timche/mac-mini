@@ -9,6 +9,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
+	"github.com/timche/mac-mini/hachiko/internal/usage"
 	"github.com/timche/mac-mini/hachiko/internal/watch"
 	"github.com/timche/mac-mini/hachiko/internal/wording"
 )
@@ -34,6 +35,7 @@ func (s screen) report() string {
 
 	s.section(&out, "Agents", s.agents(now))
 	s.section(&out, "Disk", s.disk())
+	s.section(&out, "Claude usage", s.usage(now))
 	s.section(&out, "Incidents", s.incidents(state, stateErr, now))
 	s.section(&out, "Sync", s.repos(now))
 	s.section(&out, "Logs", s.logs())
@@ -110,6 +112,50 @@ func (s screen) disk() *table {
 	rows.add(plain("low below"), plain(wording.GBUnit(s.cfg.LowKB)))
 	rows.add(plain("critical below"), plain(wording.GBUnit(s.cfg.CriticalKB)))
 	return rows
+}
+
+// What is left of the account's two usage limits, which every session on this Mac spends
+// together, and the mark the watch says so at. The reading is the status line's: it is as
+// old as the last draw in any session, which is why each row says when it was taken rather
+// than reading as this minute's truth.
+func (s screen) usage(now time.Time) *table {
+	rows := &table{}
+
+	reading, read := s.deps.Usage()
+	if !read {
+		rows.add(plain("nothing has been read"), plain("the status line writes one while a session is open"))
+		return rows
+	}
+
+	for _, key := range []string{usage.FiveHour, usage.SevenDay} {
+		window, known := reading.Window(key)
+		switch {
+		case !known:
+			continue
+		case !window.Live(now):
+			rows.add(plain(usageName(key)), plain("read before this window started, so nothing is known"))
+		default:
+			rows.add(plain(usageName(key)),
+				maybe(wording.Percent(window.Used)+" used", window.Used >= s.cfg.UsageWarnPercent),
+				plain("resets in "+wording.DurationPhrase(window.Resets.Sub(now))),
+				plain("read "+wording.DurationPhrase(now.Sub(reading.ReadAt))+" ago"))
+		}
+	}
+
+	if rows.empty() {
+		rows.add(plain("no window was in the reading"))
+		return rows
+	}
+
+	rows.add(plain("warned above"), plain(wording.Percent(s.cfg.UsageWarnPercent)))
+	return rows
+}
+
+func usageName(key string) string {
+	if key == usage.FiveHour {
+		return "5-hour"
+	}
+	return "7-day"
 }
 
 // What the watch has open: an incident somebody is working, and the three things it says once

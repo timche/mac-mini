@@ -24,6 +24,7 @@ import (
 	"github.com/timche/mac-mini/hachiko/internal/process"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
 	"github.com/timche/mac-mini/hachiko/internal/sync"
+	"github.com/timche/mac-mini/hachiko/internal/usage"
 	"github.com/timche/mac-mini/hachiko/internal/watch"
 )
 
@@ -91,6 +92,10 @@ type Deps struct {
 
 	FreeKB func() (int64, error)
 
+	// What is left of the account's Claude usage limits, out of the file the status line's
+	// tap writes — the same file and the same reading the watch decides by.
+	Usage func() (usage.Reading, bool)
+
 	// The watch's own state, read without its lock. A sweep holds that lock across a herdr
 	// call and an `op run`, so a screen that waited for it would be a screen that hangs for
 	// minutes; what it costs is reading an incident out of a file a sweep may be rewriting,
@@ -117,6 +122,7 @@ func realDeps(cfg config.Config) Deps {
 		Stamp: func(agent watch.Agent) (time.Time, bool) { return agent.Last() },
 
 		FreeKB: func() (int64, error) { return watch.FreeKB(cfg.Home) },
+		Usage:  func() (usage.Reading, bool) { return usage.Read(cfg.UsageFile()) },
 		State:  func() (*statedir.State, error) { return statedir.Store{Dir: cfg.StateDir}.Load() },
 
 		Repos:     func() ([]Repo, error) { return repos(cfg) },

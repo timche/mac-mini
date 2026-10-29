@@ -10,6 +10,7 @@ import (
 
 	"github.com/timche/mac-mini/hachiko/internal/config"
 	"github.com/timche/mac-mini/hachiko/internal/statedir"
+	"github.com/timche/mac-mini/hachiko/internal/usage"
 	"github.com/timche/mac-mini/hachiko/internal/watch"
 )
 
@@ -34,6 +35,11 @@ type fixture struct {
 
 	freeKB  int64
 	freeErr error
+
+	// What the status line last said is left of the account's usage limits. A fixture with
+	// none is a Mac where no session has drawn a line since the file was made.
+	usage     usage.Reading
+	usageRead bool
 
 	state    *statedir.State
 	stateErr error
@@ -69,6 +75,8 @@ func newFixture(t *testing.T) *fixture {
 			SyncPlist:   filepath.Join(agents, "io.github.timche.hachiko-sync.plist"),
 			ListenPlist: filepath.Join(agents, "io.github.timche.hachiko-listen.plist"),
 			MochiPlist:  filepath.Join(agents, "io.github.timche.mochi.plist"),
+
+			UsageWarnPercent: 80,
 
 			GCStaleAfter:     time.Hour,
 			SyncStaleAfter:   10 * time.Minute,
@@ -113,6 +121,7 @@ func (f *fixture) deps() Deps {
 		},
 
 		FreeKB: func() (int64, error) { return f.freeKB, f.freeErr },
+		Usage:  func() (usage.Reading, bool) { return f.usage, f.usageRead },
 		State:  func() (*statedir.State, error) { return f.state, f.stateErr },
 
 		Repos:     func() ([]Repo, error) { return f.repos, f.reposErr },
@@ -162,6 +171,17 @@ func (f *fixture) repo(path string, state RepoState) {
 func (f *fixture) limited(path string, state RepoState, paths ...string) {
 	f.repo(path, state)
 	f.repos[len(f.repos)-1].Paths = paths
+}
+
+// One window of the account's usage as the status line last read it, with the reading taken
+// however long ago the case is about.
+func (f *fixture) usageAt(key string, used float64, resets, read time.Time) {
+	if f.usage.Windows == nil {
+		f.usage.Windows = map[string]usage.Window{}
+	}
+	f.usage.ReadAt = read
+	f.usage.Windows[key] = usage.Window{Used: used, Resets: resets}
+	f.usageRead = true
 }
 
 func (f *fixture) log(name string, kb int64) {

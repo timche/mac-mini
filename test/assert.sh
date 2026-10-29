@@ -600,21 +600,24 @@ export -f guardallowed
 check "claude-hooks is a live symlink" \
   '[ -L "$HOME/.local/bin/claude-hooks" ] && [ -x "$HOME/.local/bin/claude-hooks" ]'
 
-# Each hook once and with no `if`, so each sees every event it is registered for: a filter
-# would be a second list of the programs a hook reads, and any program missing from it a
-# command that hook never sees. And what is registered is the built binary rather than the
-# wrapper that builds it: a shell, a find, a shasum and a mise before every Bash call in
-# every session cost several times the checks they are there for. The wrapper is what a
-# missing binary falls back to, which is the only thing that can build one — and the binary
-# hands an event back to it when the sources have moved.
-check "settings.json registers each claude-hooks hook once and as the binary" \
+# Every hook registered, and with no `if`, so each sees every event it is registered for: a
+# filter would be a second list of the programs a hook reads, and any program missing from
+# it a command that hook never sees. One hook may be registered for more than one event, so
+# what is counted is the distinct commands, which is a command per hook: a hook named in the
+# usage and registered nowhere fails here rather than being a hook that is silently off.
+# And what is registered is the built binary rather than the wrapper that builds it: a
+# shell, a find, a shasum and a mise before every Bash call in every session cost several
+# times the checks they are there for. The wrapper is what a missing binary falls back to,
+# which is the only thing that can build one — and the binary hands an event back to it when
+# the sources have moved.
+check "settings.json registers each claude-hooks hook as the binary and nothing else" \
   'names="$(claudehooks)" && [ -n "$names" ] &&
-   [ "$(registeredhooks | wc -l)" -eq "$(printf "%s\n" "$names" | wc -l)" ] &&
+   [ "$(registeredhooks | sort -u | wc -l)" -eq "$(printf "%s\n" "$names" | wc -l)" ] &&
    [ "$(jq -c "[.hooks[][].hooks[] |
         select(.command | contains(\"claude-hooks\")) | has(\"if\")] | any" \
         "$HOME/.claude/settings.json")" = false ] &&
    for name in $names; do
-     [ "$(registeredhooks | grep -cFx "b=\"\$HOME/Library/Caches/claude-hooks/claude-hooks\"; [ -x \"\$b\" ] || b=\"\$HOME/.local/bin/claude-hooks\"; exec \"\$b\" $name")" -eq 1 ] ||
+     [ "$(registeredhooks | grep -cFx "b=\"\$HOME/Library/Caches/claude-hooks/claude-hooks\"; [ -x \"\$b\" ] || b=\"\$HOME/.local/bin/claude-hooks\"; exec \"\$b\" $name")" -ge 1 ] ||
        exit 1
    done'
 
@@ -647,6 +650,24 @@ check "strip-attribution takes the attribution out of a body file a gh command n
    printf "Body\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n" >"$d/body.md" &&
    out=$(striphook "gh pr edit 1 --body-file $d/body.md") && [ -z "$out" ] &&
    grep -q Body "$d/body.md" && ! grep -q Co-Authored-By "$d/body.md"'
+
+# What herdr-worktree does to a workspace is claude-hooks/internal/herdrworktree's tests,
+# against a herdr that writes down what it was asked; here it is the wiring, since a hook
+# that follows a worktree must see the two tools that enter and leave one, the Bash calls
+# that can move the branch under it, and the end of a session still in one. Silent in a
+# terminal herdr did not start, which is every session that is not in a pane.
+check "herdr-worktree sees the worktree tools, Bash and the end of a session, and is silent outside herdr" \
+  'matcher="$(jq -r ".hooks.PostToolUse[] |
+       select(.hooks[].command | endswith(\"herdr-worktree\")) | .matcher" \
+       "$HOME/.claude/settings.json")" && [ -n "$matcher" ] &&
+   for tool in EnterWorktree ExitWorktree Bash; do
+     printf "%s" "$tool" | grep -qE "$matcher" || exit 1
+   done &&
+   jq -e "[.hooks.SessionEnd[].hooks[].command |
+          select(endswith(\"herdr-worktree\"))] | length == 1" "$HOME/.claude/settings.json" &&
+   out=$(printf "%s" "{\"session_id\":\"t\",\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"EnterWorktree\"}" |
+     env -u HERDR_ENV -u HERDR_PANE_ID "$repo/home/.local/bin/claude-hooks" herdr-worktree) &&
+   [ -z "$out" ]'
 
 # A guard on every session's shell that refused what it could not read would cost them
 # all their shell, so an event it cannot read goes through.

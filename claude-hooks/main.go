@@ -13,6 +13,10 @@
 // project-docs prints the shared docs folder and the project's own at session start, so
 // finding them is a mechanism rather than a rule a session has to remember.
 //
+// herdr-worktree watches for the worktree Claude Code makes for itself and gives it the
+// place in herdr a worktree herdr made has: a workspace in the sidebar with this session's
+// tab in it, and the tab back where it came from when Claude leaves.
+//
 // It is a compiled binary rather than a script because a hook that cannot run is a hook
 // that is silently off: a Python that a mise or a brew upgrade moved takes the hook with
 // it, and nothing in a session says so. This depends on a kernel and nothing else.
@@ -30,6 +34,7 @@ import (
 	"github.com/timche/mac-mini/claude-hooks/internal/attribution"
 	"github.com/timche/mac-mini/claude-hooks/internal/focus"
 	"github.com/timche/mac-mini/claude-hooks/internal/fresh"
+	"github.com/timche/mac-mini/claude-hooks/internal/herdrworktree"
 	"github.com/timche/mac-mini/claude-hooks/internal/hook"
 	"github.com/timche/mac-mini/claude-hooks/internal/killbypid"
 	"github.com/timche/mac-mini/claude-hooks/internal/projectdocs"
@@ -48,6 +53,12 @@ const usage = `usage: claude-hooks <hook>
   guard               read a PreToolUse hook event on stdin and print a deny decision when
                       the command it carries kills by name, pattern or port, or takes the
                       Mac's one foreground outside focus-lock; print nothing otherwise
+
+  herdr-worktree      read a PostToolUse or SessionEnd hook event on stdin and keep this
+                      session's herdr pane with the worktree Claude Code is working in: a
+                      workspace of the worktree's own while it is in one, the workspace it
+                      came from once it is not, and the branch's name on the sidebar entry;
+                      print nothing
 
   project-docs        print the shared docs folder and the one this project's docs are in,
                       each as a path and the shape of what is in it, for a SessionStart
@@ -71,6 +82,8 @@ func main() {
 	switch os.Args[1] {
 	case "guard":
 		run = guard
+	case "herdr-worktree":
+		run = herdrWorktree
 	case "project-docs":
 		run = projectDocsHook
 	case "strip-attribution":
@@ -100,6 +113,13 @@ func guard() error {
 // what it could not read is a line the listing does not have.
 func projectDocsHook() error {
 	projectdocs.Print(os.Stdout)
+	return nil
+}
+
+// An observer of a tool call that has already happened, which answers nothing and whose
+// every failure is a line on stderr, so this never fails either.
+func herdrWorktree() error {
+	herdrworktree.Observe(os.Stdin)
 	return nil
 }
 

@@ -28,6 +28,10 @@ const Reason = "This takes the Mac's one foreground (frontmost app, key window, 
 
 var denied = errors.New("taking the Mac's one foreground")
 
+// Commands are the programs this check acts on or reads through, op among them because
+// Claude Code does not see past `op run --` to the command it runs.
+func Commands() []string { return []string{"cliclick", "osascript", "op"} }
+
 // A script osascript is handed as a file is read, and a file this size is not a script.
 const maxScript = 1 << 20
 

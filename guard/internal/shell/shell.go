@@ -76,6 +76,27 @@ var prefixes = map[string]map[string]bool{
 	"stdbuf":     set(),
 }
 
+// Claude Code takes these off a command before it matches a hook's `if` rule (its
+// permissions docs, under Wrappers), so the rule for the command they run covers them. Bare
+// xargs is taken off too, but not one with flags, so xargs is not here.
+var strippedByClaudeCode = set("timeout", "time", "nice", "nohup", "stdbuf", "command", "builtin", "noglob")
+
+// Runners are the commands this package reads through to the command they run and Claude
+// Code's `if` matching does not, so each needs a rule of its own for the hook to see what
+// they run.
+func Runners() []string {
+	var names []string
+	for name := range prefixes {
+		if !strippedByClaudeCode[name] {
+			names = append(names, name)
+		}
+	}
+	for name := range Shells {
+		names = append(names, name)
+	}
+	return names
+}
+
 var keywords = set("do", "then", "else", "elif", "!", "{", "while", "until", "if")
 var openers = set("while", "until", "if", "for", "select", "case", "{")
 var closers = set("done", "fi", "esac", "}")

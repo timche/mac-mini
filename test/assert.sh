@@ -698,16 +698,15 @@ export -f guardallowed
 check "guard is a live symlink" \
   '[ -L "$HOME/.local/bin/guard" ] && [ -x "$HOME/.local/bin/guard" ]'
 
-# One handler per command whose arguments can carry a kill or the foreground, because a
-# hook with no `if` would start a process on every Bash call there is.
-for pattern in pkill killall killall5 skill kill fuser xargs sudo doas env \
-               bash sh zsh dash ksh exec osascript cliclick op; do
-  check "guard runs on a command starting with $pattern" \
-    "jq -e '.hooks.PreToolUse[] | select(.matcher == \"Bash\") | .hooks[] |
-              select(.if == \"Bash($pattern *)\") |
-              select(.command | contains(\"guard\\\" pre-tool-use\"))' \
-       \"\$HOME/.claude/settings.json\""
-done
+# One handler per `if` rule, because a hook with no `if` would start a process on every
+# Bash call there is. guard owns the rules; a program a check reads that settings.json
+# leaves out is one that check never sees, and a rule guard no longer needs starts it
+# for nothing.
+check "settings.json registers guard under exactly the if rules guard prints" \
+  'diff <("$repo/home/.local/bin/guard" filters) \
+        <(jq -r ".hooks.PreToolUse[] | select(.matcher == \"Bash\") | .hooks[] |
+                 select(.command | contains(\"guard\\\" pre-tool-use\")) | .if" \
+              "$HOME/.claude/settings.json" | sort)'
 
 check "nothing is left of the hook guard replaced" \
   '! grep -q kill-by-pid "$HOME/.claude/settings.json" &&

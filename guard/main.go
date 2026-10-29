@@ -16,21 +16,30 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/timche/mac-mini/guard/internal/filters"
 	"github.com/timche/mac-mini/guard/internal/focus"
 	"github.com/timche/mac-mini/guard/internal/hook"
 	"github.com/timche/mac-mini/guard/internal/killbypid"
 )
 
-const usage = `usage: guard pre-tool-use
+const usage = `usage: guard pre-tool-use | filters
 
   pre-tool-use     read a PreToolUse hook event on stdin and print a deny decision when
                    the command it carries kills by name, pattern or port, or takes the
                    Mac's one foreground outside focus-lock; print nothing otherwise
+  filters          print the if rules settings.json has to register pre-tool-use under,
+                   one per line
 `
 
 // 1 and never 2: 2 is how a PreToolUse hook blocks the command, so a guard that was
 // called wrong reports itself without costing the session its command.
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "filters" {
+		for _, rule := range filters.Rules() {
+			fmt.Println(rule)
+		}
+		return
+	}
 	if len(os.Args) != 2 || os.Args[1] != "pre-tool-use" {
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(1)

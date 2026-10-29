@@ -218,6 +218,15 @@ func Dir(home string) string { return filepath.Join(home, ".hachiko") }
 // from it by name.
 func stateRoot(home string) string { return filepath.Join(Dir(home), "state") }
 
+// The variables that name each of those four, for a test, a fixture or a second hachiko that
+// must not read the live one.
+const (
+	StateDirVar       = "HACHIKO_STATE_DIR"
+	GCStateDirVar     = "HACHIKO_GC_STATE_DIR"
+	UpdateStateDirVar = "HACHIKO_UPDATE_STATE_DIR"
+	SyncStateDirVar   = "HACHIKO_SYNC_STATE_DIR"
+)
+
 func FromEnv() Config {
 	home := homeDir()
 

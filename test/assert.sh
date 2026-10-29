@@ -1269,12 +1269,6 @@ check "the CPU allowlist is a live symlink and names the VMs and the indexer" \
    grep -qx "mds" "$HOME/.hachiko/cpu-allow" &&
    grep -qx "backupd" "$HOME/.hachiko/cpu-allow"'
 
-# One folder, which is the whole point of it: the four links and the ping token are in
-# hachiko's own, and nothing is left in the one they were in — a config file read from there
-# would be a Mac where an edit to this repository changes nothing.
-check "hachiko's config is in its own folder and nothing is left in ~/.config" \
-  '[ ! -e "$HOME/.config/hachiko" ]'
-
 # The build cache holds a build and nothing else: what hachiko records about itself is under
 # ~/.hachiko/state, where macOS does not treat it as a gigabyte to reclaim.
 check "the build cache holds hachiko's binary and none of its state" \

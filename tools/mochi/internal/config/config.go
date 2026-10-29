@@ -137,6 +137,10 @@ func (c Config) SessionDir(thread string) string {
 // and the state below, which MOCHI_STATE_DIR moves for a test or a second listener.
 func Dir(home string) string { return filepath.Join(home, ".mochi") }
 
+// StateDirVar names that folder, for a test or a second listener that must not read the
+// live one.
+const StateDirVar = "MOCHI_STATE_DIR"
+
 func stateDir(home string) string { return envOr(StateDirVar, Dir(home)) }
 
 // Where sessions' hooks leave their events: known without the config file, since the hook

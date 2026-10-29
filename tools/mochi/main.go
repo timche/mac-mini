@@ -86,11 +86,6 @@ var errNoSession = errors.New("this runs only inside a session mochi started, an
 const sessionEvent = "session-event"
 
 func main() {
-	hook := len(os.Args) > 1 && os.Args[1] == sessionEvent
-	if err := config.MoveState(); err != nil && !hook {
-		fmt.Fprintf(os.Stderr, "mochi: %v\n", err)
-	}
-
 	err := run(os.Args[1:])
 	var bad usageError
 	switch {

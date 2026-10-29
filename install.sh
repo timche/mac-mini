@@ -110,44 +110,6 @@ finder_prefs_before="$(finder_prefs)"
 mise trust "$repo"
 (cd "$repo" && mise bootstrap --yes --force-dotfiles)
 
-# mise never removes a link mise.toml stops listing, so one left pointing into this
-# checkout at a file it does not have is taken away here, with the folder it was the last
-# thing in.
-for link in "$HOME/.bashrc" "$HOME/.config/mochi/config.json" "$HOME/.local/bin/mochi.env.op" \
-  "$HOME/.local/bin/hachiko.env.op" "$HOME/.config/hachiko/cpu-allow" \
-  "$HOME/.config/hachiko/discord" "$HOME/.config/hachiko/shibuya" \
-  "$HOME/.config/hachiko/sync"; do
-  if [ -L "$link" ] && [ ! -e "$link" ]; then
-    case "$(readlink "$link")" in
-      "$repo"/*)
-        rm "$link" && echo "removed $link, a link to a file this checkout does not have"
-        rmdir "$(dirname "$link")" 2>/dev/null || true
-        ;;
-    esac
-  fi
-done
-
-# The one thing in the old folder that is a file rather than a link, so the sweep above
-# leaves it and the folder it is in: shibuya's ping token, generated on this Mac by
-# tools/shibuya/secrets.sh and in no repository and no vault, which is why it is moved and not
-# made again. Never over one already in hachiko's folder, that being the live token.
-old_token="$HOME/.config/hachiko/shibuya-token"
-if [ -f "$old_token" ] && [ ! -e "$HOME/.hachiko/shibuya-token" ]; then
-  mkdir -p "$HOME/.hachiko" &&
-    mv "$old_token" "$HOME/.hachiko/shibuya-token" &&
-    echo "moved $old_token into ~/.hachiko, where hachiko reads it now"
-fi
-rmdir "$HOME/.config/hachiko" 2>/dev/null || true
-
-# And the folders the three agents recorded themselves in beside the binary, which hachiko
-# empties itself on its next start: whichever of the two runs last takes them, and neither
-# minds the other having been first. Only when empty, so a state file still waiting to be
-# moved is never one this removes.
-for stale in "$HOME/Library/Caches/hachiko-gc" "$HOME/Library/Caches/hachiko-update" \
-  "$HOME/Library/Caches/hachiko-sync"; do
-  rmdir "$stale" 2>/dev/null || true
-done
-
 # After the link above, because the tool list mise installs from is that file.
 # --locked so a rebuilt Mac gets the versions mise.lock resolved rather than
 # whatever latest means on the day, which is the same promise --no-upgrade makes

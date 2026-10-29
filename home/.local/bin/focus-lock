@@ -28,7 +28,7 @@ case "${1:-}" in
 esac
 [ $# -ge 1 ] || { usage; exit 2; }
 
-dir="${FOCUS_LOCK_DIR:-$HOME/Library/Caches/focus-lock}"
+dir="${FOCUS_LOCK_DIR:-$HOME/.focus-lock}"
 mkdir -p "$dir" || exit 1
 lock="$dir/lock" info="$dir/holder"
 

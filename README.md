@@ -98,7 +98,7 @@ macOS also puts up a "requesting to bypass the system private window picker" dia
 
 A session shows its own app rather than the display, which carries every other session's windows: `window-shot <owner> <out.png> [title]` captures one window without its shadow, Electron's child views included. The owner is the process name the window list uses — `Electron` for an unpackaged Electron app, the product name for a packaged one — the frontmost of that owner's on-screen windows wins unless a title substring picks another, and no match exits 1 and names what is on screen instead.
 
-`focus-lock [-t seconds] <command>` runs a command holding the session's one foreground, so two sessions that each raise a window and type or click into it take turns instead of typing into each other's apps. It waits up to five minutes by default, naming the holder, and the lock is a `lockf` on `~/Library/Caches/focus-lock/lock`, released by the kernel however the holder ends. Input that needs no foreground takes no lock; `$PROJECT_DOCS_DIR/shared/macos-gui-automation.md` says which input that is.
+`focus-lock [-t seconds] <command>` runs a command holding the session's one foreground, so two sessions that each raise a window and type or click into it take turns instead of typing into each other's apps. It waits up to five minutes by default, naming the holder, and the lock is a `lockf` on `~/.focus-lock/lock`, released by the kernel however the holder ends. Input that needs no foreground takes no lock; `$PROJECT_DOCS_DIR/shared/macos-gui-automation.md` says which input that is.
 
 ## Tailscale
 

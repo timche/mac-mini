@@ -35,11 +35,18 @@ lock="$dir/lock" info="$dir/holder"
 # lockf exits 75 when it times out, which the command could also return, so
 # whether the lock is free is asked with `true`, which never does.
 if ! lockf -k -t 0 "$lock" true 2>/dev/null; then
-  echo "focus-lock: waiting up to ${wait_s}s for $(cat "$info" 2>/dev/null)" >&2
+  holder="$(cat "$info" 2>/dev/null)"
+  echo "focus-lock: waiting up to ${wait_s}s for ${holder:-another session}" >&2
 fi
 
+# The holder is emptied when its command ends, however it ends short of a kill -9, so the
+# file names a session only while that session holds the lock; one killed outright leaves
+# its line behind, and the next holder writes over it.
 lockf -k -t "$wait_s" "$lock" /bin/bash -c '
   info="$1"; shift
+  trap ": > \"$info\"" EXIT
+  trap "exit 130" INT
+  trap "exit 143" TERM
   printf "pid %s in %s since %s: %s\n" "$$" "$PWD" "$(date +%H:%M:%S)" "$*" > "$info"
   "$@"
 ' focus-lock "$info" "$@"

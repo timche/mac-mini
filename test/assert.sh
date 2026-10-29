@@ -804,6 +804,14 @@ check "focus-lock frees the lock when its holder is killed" \
    pkill -KILL -P $! ; kill -KILL $! ; sleep 1 &&
    focus-lock -t 2 true'
 
+# A holder line left after its command ended would have the next waiter told about a
+# session that is long gone.
+check "focus-lock names the holder only while its command runs" \
+  'export FOCUS_LOCK_DIR="$(mktemp -d)" &&
+   [ -n "$(focus-lock cat "$FOCUS_LOCK_DIR/holder")" ] &&
+   [ ! -s "$FOCUS_LOCK_DIR/holder" ] &&
+   focus-lock sh -c "exit 7"; [ $? -eq 7 ] && [ ! -s "$FOCUS_LOCK_DIR/holder" ]'
+
 # A machine with neither docker nor a daemon cannot answer this one either way,
 # and saying so is better than a check that passes because nothing happened.
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then

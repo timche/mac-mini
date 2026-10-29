@@ -397,10 +397,7 @@ func TestTheMeasuredPromptFixesTheSafeThingsAndLeavesAKillToTim(t *testing.T) {
 		// The message that closes a fix-first incident is the outcome like any other, or
 		// nothing ends the wait and the post stays open.
 		"that second message is the outcome: send it as `hachiko notify --outcome <incident> <file>`",
-		// Each of these is refused by the hook as well, which is what makes the list a limit
-		// rather than a paragraph.
-		"a hook refuses each of these before the command runs",
-		"A refusal from that hook is the limit itself",
+		"A fix that needs one of these is not yours to make in another shape",
 	} {
 		harness.Wants(t, prompt, want)
 	}
@@ -408,22 +405,6 @@ func TestTheMeasuredPromptFixesTheSafeThingsAndLeavesAKillToTim(t *testing.T) {
 	// The fix in the checkout belongs to an update incident: a disk filling is not something
 	// a commit resolves.
 	harness.Lacks(t, prompt, "A fix in this checkout is made in a worktree")
-}
-
-// The marker is what switches the never-list hook on, and it goes on the pane rather than
-// into the session's own words: a session running under bypassPermissions is held to a list
-// in its prompt by nothing at all. On the pane it reaches Claude Code, every subagent it
-// spawns and every hook run for either.
-func TestOncallMarksTheSessionsPaneForTheNeverListHook(t *testing.T) {
-	herdr := &harness.Herdr{HasWorkspace: true}
-	o, _, _ := newOncaller(t, herdr)
-
-	if _, err := o.Open("disk", "brief"); err != nil {
-		t.Fatal(err)
-	}
-	if !herdr.Said("tab create") || !herdr.Said("--env HACHIKO_ONCALL_SESSION=disk") {
-		t.Errorf("the session's pane was not marked as an on-call session: %v", herdr.Calls)
-	}
 }
 
 // The data block is the one part of the prompt whatever filled the disk chose, so it

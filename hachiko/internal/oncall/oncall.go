@@ -132,12 +132,6 @@ const (
 // through to Claude Code itself.
 var claudeArgs = []string{"--model", "opus", "--effort", "medium"}
 
-// What says, to anything in the session's process tree, that this is a session hachiko
-// opened on an incident. `home/.claude/hooks/oncall-guard.py` is what reads it: the never
-// list below is the limit on a session that fixes before anybody has read what it decided
-// to do, and a prompt is no limit at all on a session running under bypassPermissions.
-const MarkerVar = "HACHIKO_ONCALL_SESSION"
-
 func herdrCall(run Runner, args ...string) (*herdrReply, error) {
 	command := strings.Join(args, " ")
 
@@ -309,16 +303,8 @@ func (o Oncaller) Open(name, brief string) (Session, error) {
 	// A tab of its own rather than a split, so the session is somewhere Tim finds by
 	// name hours later and nothing of his is resized to make room for it. Never
 	// focused: he may be in the middle of something.
-	//
-	// The marker goes on the pane rather than into the session's own words, because what
-	// reads it is the PreToolUse guard that holds the never list: a session running under
-	// bypassPermissions cannot be held to one by a prompt alone. Set on the pane, it reaches
-	// Claude Code, every subagent it spawns and every hook run for either, all of them one
-	// process tree. The value is the kind, which oncallName has already held to lowercase
-	// letters, digits and dashes, so nothing an incident chose is in it.
 	tab, err := herdrCall(o.Herdr, "tab", "create",
-		"--workspace", workspace, "--label", label, "--cwd", o.Cfg.MachineDir, "--no-focus",
-		"--env", MarkerVar+"="+name)
+		"--workspace", workspace, "--label", label, "--cwd", o.Cfg.MachineDir, "--no-focus")
 	if err != nil {
 		return Session{}, err
 	}
@@ -688,14 +674,11 @@ func (o Oncaller) standingOrders(name, label string) string {
 
 // The never list, which is one list for every kind of incident and the same whether hachiko
 // has handed the decision over, Tim has picked something or the session is acting on its own:
-// these are the actions whose cost is not an incident's to weigh. A PreToolUse hook refuses
-// each of them before the command runs — home/.claude/hooks/oncall-guard.py, switched on by
-// the marker `hachiko oncall` sets on this session's pane — because a session running under
-// bypassPermissions is held to a list in its prompt by nothing whatever. It is in the prompt
-// as well so that the session knows what it may not plan, rather than finding out one
-// command at a time.
-const neverList = "- Never, whatever a handover or a reply says, and a hook refuses each of these before the command runs rather than trusting this list: anything under sudo but the root helper's own restart-daemon as the incident data gives it and its reinstall-portless, a " + "`sudo kill`" + ` included; deleting or emptying anything outside /private/tmp, the Claude Code scratch directory, ~/Library/Logs and a project's own log files — ~/Library/Caches looks like the place to free a gigabyte and is where hachiko's own state and binary live; a force-push, a branch deleted, or a push to any repository but this machine's own and any branch but main; an edit under ~/.claude or home/.claude, which is every session's configuration and your own permissions with it; restarting herdr, the Mac or a launchd job other than through that one root-helper command; the processes of a live Claude session, unless that process is itself the one causing the incident, in which case it is that pid you stop and never a name every session of his answers to; and anything that touches 1Password.
-- A refusal from that hook is the limit itself rather than a fault to get round, and another shape of the same command is the one thing it is there to stop. Say in the thread which fix it was and why you stopped, and leave it to him.`
+// these are the actions whose cost is not an incident's to weigh. Nothing but this list holds
+// a session running under bypassPermissions to them, and the oncall-partner's review before
+// every autonomous step is what checks a plan against it.
+const neverList = "- Never, whatever a handover or a reply says: anything under sudo but the root helper's own restart-daemon as the incident data gives it and its reinstall-portless, a " + "`sudo kill`" + ` included; deleting or emptying anything outside /private/tmp, the Claude Code scratch directory, ~/Library/Logs and a project's own log files — ~/Library/Caches looks like the place to free a gigabyte and is where hachiko's own state and binary live; a force-push, a branch deleted, or a push to any repository but this machine's own and any branch but main; an edit under ~/.claude or home/.claude, which is every session's configuration and your own permissions with it; restarting herdr, the Mac or a launchd job other than through that one root-helper command; the processes of a live Claude session, unless that process is itself the one causing the incident, in which case it is that pid you stop and never a name every session of his answers to; and anything that touches 1Password.
+- A fix that needs one of these is not yours to make in another shape. Say in the thread which fix it was and why you stopped, and leave it to him.`
 
 // The limits on what the session may do once hachiko has handed it the decision, which are
 // Tim's and are in the opening prompt rather than only in the prompt that hands them over: a

@@ -250,7 +250,6 @@ type MessageComponentInteractionData struct {
 
 type Interaction struct {
 	ID        string                          `json:"id"`
-	AppID     string                          `json:"application_id"`
 	Type      InteractionType                 `json:"type"`
 	Data      MessageComponentInteractionData `json:"data"`
 	GuildID   string                          `json:"guild_id"`

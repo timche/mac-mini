@@ -28,14 +28,17 @@ check() {
 
 # Nothing may be written for one account: the Mac's is timche and a runner's is
 # runner, and a path hardcoded for either is a script that silently does nothing
-# on the other. The dscl and launchctl reads that build a path from a variable are
-# what this has to leave alone, which is why the pattern needs a literal name.
+# on the other. Both spellings, the same as assert.sh reads home/ for, since CI is
+# the Linux half of what these scripts are read on. The dscl and launchctl reads
+# that build a path from a variable are what this has to leave alone, which is why
+# the pattern needs a literal name, and why a match has to start the path: a `}` or
+# an alphanumeric in front of it is `${repo}/home/...` rather than an account's.
 # claude-root is named rather than matched, being the one script here that is not
 # a *.sh: it is installed under a fixed system path and so carries no extension.
 check "no hardcoded home directory in the scripts" \
   '! grep -rhoE --include="*.sh" --include="*.plist" --include="mise.toml" \
        --include="claude-root" \
-       "/Users/[A-Za-z0-9_.-]+" "$root" |
+       "(^|[^A-Za-z0-9_}])/(home|Users)/[A-Za-z0-9_.-]+" "$root" |
      grep -q .'
 
 # Homebrew and its packages, which is all the machine half installs.

@@ -9,7 +9,7 @@ Two files here are named CLAUDE.md. This one is guidance for working in the repo
 - A script's header comment: why it exists, what it does and what would break if it ran elsewhere in the order. `bootstrap.sh`, `machine.sh` and `claude.sh` are the entry points and name the order.
 - `README.md`: the shape of the whole and the reasoning that spans more than one script, plus what only a person can do. Read it before changing structure.
 - `<tool>/README.md`: one tool — what it is, its commands, setup, state and logs, how it fails. Its tests are the specification; the README is not a prose copy of them.
-- `$PROJECT_DOCS_DIR/mac-mini/decisions.md`: why something is the way it is and when it changed, by topic. The other files there are procedures and status, and can go stale against this repo; correct them when you touch the same subject.
+- `$PROJECT_DOCS_DIR/timche/mac-mini/decisions.md`: why something is the way it is and when it changed, by topic. The other files there are procedures and status, and can go stale against this repo; correct them when you touch the same subject.
 
 A change updates the one place whose text it makes wrong: a tool's behaviour its README, a script's its header comment, a decision `decisions.md`. Writing the same thing into two of them, or a changelog into a README, is how a README grows past what anyone maintains. Counts, flags and wordings a test already pins stay out of the prose.
 

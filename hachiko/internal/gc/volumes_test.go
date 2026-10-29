@@ -15,7 +15,7 @@ func TestAMainCheckoutsIdleDatabaseIsNeverRemoved(t *testing.T) {
 	f := newFixture(t)
 
 	f.containers = []Container{
-		{Project: "repeek-main", WorkingDir: f.mkdir(f.home + "/projects/repeek")},
+		{Project: "repeek-main", WorkingDir: f.mkdir(f.home + "/projects/repeekgg/repeek")},
 	}
 	f.volumes = []Volume{
 		{Name: "repeek-main_postgres-data", Project: "repeek-main"},
@@ -65,7 +65,7 @@ func TestABranchCheckedOutInTheMainCheckoutKeepsItsVolumes(t *testing.T) {
 	f.at(0).sweep()
 
 	remove(t, worktree)
-	f.containers = []Container{{Project: "repeek-fix-ui", WorkingDir: f.mkdir(f.home + "/projects/repeek")}}
+	f.containers = []Container{{Project: "repeek-fix-ui", WorkingDir: f.mkdir(f.home + "/projects/repeekgg/repeek")}}
 	f.at(600).sweep()
 	harness.Equal(t, len(f.state().Projects), 0, "projects recorded once the checkout ran it")
 

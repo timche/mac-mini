@@ -413,10 +413,10 @@ fi
 # loads, and made here so the convention exists before the first clone.
 mkdir -p "$HOME/projects"
 
-# The project docs. They live outside every checkout, one folder per project,
-# and Claude reads and writes them during a session — so the clone has to be
-# here before any work starts rather than on first use. Private, because the
-# folder names alone say which projects exist.
+# The project docs. They live outside every checkout, a folder per project
+# under its owner, and Claude reads and writes them during a session — so the
+# clone has to be here before any work starts rather than on first use.
+# Private, because the folder names alone say which projects exist.
 docs="${PROJECT_DOCS_DIR:-$HOME/projects/docs}"
 if [ ! -d "$docs/.git" ]; then
   if ! gh auth status >/dev/null 2>&1; then

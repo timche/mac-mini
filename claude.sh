@@ -144,7 +144,7 @@ if [ -f "$portless_ca" ]; then
   echo "  - On the MacBook and iPhone, unless they already trust portless's CA"
   echo "    $portless_fingerprint:"
   echo "    steps 3 and 4 under Dev servers from the MacBook in"
-  echo "    \$PROJECT_DOCS_DIR/mac-mini/README.md, then open a dev server's timche.dev"
+  echo "    \$PROJECT_DOCS_DIR/timche/mac-mini/README.md, then open a dev server's timche.dev"
   echo "    URL on each."
 fi
 

@@ -20,7 +20,7 @@ If one is missing, stop and tell Tim rather than substitute a built-in agent or 
 
 A task given as an issue number or URL is read with `gh issue view`.
 
-Run `git fetch origin`, then `git pull --ff-only` if the checkout is clean and on the default branch. Investigate until you know what the change touches and what could break, and read what `$PROJECT_DOCS_DIR/<repo>` has already decided about it.
+Run `git fetch origin`, then `git pull --ff-only` if the checkout is clean and on the default branch. Investigate until you know what the change touches and what could break, and read what `$PROJECT_DOCS_DIR/<owner>/<repo>` has already decided about it.
 
 ## Plan
 

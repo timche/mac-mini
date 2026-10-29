@@ -564,7 +564,7 @@ it("finds the outage's post in the forum when it has none of its own", async () 
 it("opens a failing post tagged Open and closes it Resolved on a clean run", async () => {
   const sent = discord();
 
-  await ping({ ...checkin, reason: "the walk ran out of its seconds" }, TOKEN, "/fail");
+  await ping({ ...checkin, reason: "there was no process sample" }, TOKEN, "/fail");
   expect(sent[0]!.fields.applied_tags).toEqual([OPEN]);
   expect(sent[0]!.fields.thread_name).toMatch(/^⚠️ mac-mini: hachiko's checks are failing · /);
 
@@ -658,14 +658,14 @@ it("opens the post untagged when the forum cannot be read", async () => {
 it("opens one post for a failing streak, posts nothing for the next fail, and clears it on a clean run", async () => {
   const sent = discord();
 
-  const first = await ping({ ...checkin, reason: "the walk ran out of its 1m0s" }, TOKEN, "/fail");
+  const first = await ping({ ...checkin, reason: "there was no process sample" }, TOKEN, "/fail");
   expect(first.status).toBe(200);
   expect(sent).toHaveLength(1);
   expect(sent[0]!.opened).toBe(true);
   expect(sent[0]!.fields.thread_name).toMatch(/^⚠️ mac-mini: hachiko's checks are failing · /);
-  expect(sent[0]!.fields.content).toContain("**Why:** the walk ran out of its 1m0s");
+  expect(sent[0]!.fields.content).toContain("**Why:** there was no process sample");
 
-  await ping({ ...checkin, reason: "the walk ran out of its 1m0s" }, TOKEN, "/fail");
+  await ping({ ...checkin, reason: "there was no process sample" }, TOKEN, "/fail");
   expect(sent).toHaveLength(1);
 
   await ping(checkin);
@@ -747,7 +747,7 @@ it("retries an outage alert Discord refused, soon and then less often", async ()
 it("lets nothing it posts mention anybody", async () => {
   const sent = discord();
 
-  await ping({ ...checkin, reason: "@everyone the walk ran out of its seconds" }, TOKEN, "/fail");
+  await ping({ ...checkin, reason: "@everyone there was no process sample" }, TOKEN, "/fail");
   await ping(checkin);
 
   expect(sent).toHaveLength(2);
@@ -757,7 +757,7 @@ it("lets nothing it posts mention anybody", async () => {
   for (const request of sent) {
     expect(request.fields.allowed_mentions).toEqual({ parse: [] });
   }
-  expect(sent[0]!.fields.content).toContain("@everyone the walk ran out of its seconds");
+  expect(sent[0]!.fields.content).toContain("@everyone there was no process sample");
 });
 
 it("never writes the bot token anywhere, whatever Discord says about it", async () => {
@@ -1023,7 +1023,7 @@ it("lets nothing in a check-in style a message or fake a link", async () => {
       ...checkin,
       host: GOLDEN_HOST,
       display: "**Mac mini**",
-      reason: "the walk saw [Fix it](https://wherever) and gave up",
+      reason: "the sweep quoted [Fix it](https://wherever) out of a log",
     },
     TOKEN,
     "/fail",
@@ -1031,7 +1031,7 @@ it("lets nothing in a check-in style a message or fake a link", async () => {
 
   const content = sent[0]!.fields.content!;
   expect(content).toContain("⚠️ \\*\\*Mac mini\\*\\* is still checking in");
-  expect(content).toContain("**Why:** the walk saw \\[Fix it\\]\\(https://wherever\\) and gave up");
+  expect(content).toContain("**Why:** the sweep quoted \\[Fix it\\]\\(https://wherever\\) out of a log");
   expect(content).not.toContain("[Fix it](https://wherever)");
   expect(sent[0]!.fields.thread_name).toMatch(/^⚠️ \*\*Mac mini\*\*: hachiko's checks are failing · /);
 });
@@ -1173,7 +1173,7 @@ it("renders the six messages, in full", async () => {
   // 4. The first failing check-in, which opens a post of its own.
   sent = discord();
   await fresh({});
-  await ping({ ...reading, reason: "the walk ran out of its seconds and saw only part of the disk" }, TOKEN, "/fail");
+  await ping({ ...reading, reason: "there was no process sample, so nothing was watching the CPU" }, TOKEN, "/fail");
   expect(sent[0]!.fields.thread_name).toMatch(/^⚠️ Mac mini: hachiko's checks are failing · \w{3} \d\d:\d\d$/);
   show("hachiko's checks are failing", sent);
 
@@ -1184,7 +1184,7 @@ it("renders the six messages, in full", async () => {
     lastPing: NOW - 60_000,
     summary: READING,
     failingSince: NOW - 60 * 60_000,
-    failingReason: "the walk ran out of its seconds and saw only part of the disk",
+    failingReason: "there was no process sample, so nothing was watching the CPU",
     failingThread: "7",
   });
   await runDurableObjectAlarm(switchFor(GOLDEN_HOST));
@@ -1198,7 +1198,7 @@ it("renders the six messages, in full", async () => {
     lastPing: NOW - 5 * 60_000,
     summary: READING,
     failingSince: NOW - 65 * 60_000,
-    failingReason: "the walk ran out of its seconds and saw only part of the disk",
+    failingReason: "there was no process sample, so nothing was watching the CPU",
     failingThread: "7",
   });
   await ping(reading);

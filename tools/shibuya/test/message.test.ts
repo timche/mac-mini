@@ -107,7 +107,7 @@ it("leaves the build out of the machine line when no check-in has named one", ()
 // What hachiko sends reaches a lead line and a labelled line, where Discord renders markdown:
 // a reason or a name shaped like a link has to arrive as itself.
 it("lets nothing hachiko sent style a message or fake a link", () => {
-  expect(plain("the walk ran out of its seconds")).toBe("the walk ran out of its seconds");
+  expect(plain("there was no process sample")).toBe("there was no process sample");
   expect(plain("[Fix it](https://wherever)")).toBe("\\[Fix it\\]\\(https://wherever\\)");
   expect(plain("**Mac mini**")).toBe("\\*\\*Mac mini\\*\\*");
   expect(plain("# heading > quote ~x~ _u_ |spoiler| `code`")).toBe(

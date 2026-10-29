@@ -118,10 +118,10 @@ func TestAThreadNameIsOneLineAndFitsDiscordsLimit(t *testing.T) {
 		t.Errorf("a thread name of %d bytes: %q", len(ThreadName(lead)), ThreadName(lead))
 	}
 
-	// The escaping that keeps a file called `**x**` from styling a message body is a
+	// The escaping that keeps a process called `**x**` from styling a message body is a
 	// backslash in a title, which Discord renders as plain text — so it comes back out.
-	harness.Equal(t, ThreadName(wording.PlainWords("💾 Disk filling: **x**.log is growing fast")+"\n**Free space:** 1 GB"),
-		"💾 Disk filling: **x**.log is growing fast", "the post's name")
+	harness.Equal(t, ThreadName("🔥 "+wording.PlainWords("**x**")+" is busy: 120% of a core for an hour\n**Busy:** pid 123"),
+		"🔥 **x** is busy: 120% of a core for an hour", "the post's name")
 }
 
 // An error text that carried the token would be in the log every session reads, and a value

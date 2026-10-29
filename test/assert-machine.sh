@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Assertions against a Mac that machine.sh has just finished with — the machine
-# alone, with assert.sh covering the account on top of it and assert-claude.sh
+# alone, with assert.sh covering the account on top of it and assert-account.sh
 # the logins and the signing key. Runs on the machine itself, which is a CI
 # runner: there is no macOS container to put any of this in.
 #

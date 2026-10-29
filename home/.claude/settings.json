@@ -99,7 +99,7 @@
     "mac-mini": {
       "source": {
         "source": "directory",
-        "path": "~/.mac-mini/claude-plugins"
+        "path": "~/.mac-mini/account/claude-plugins"
       }
     }
   },

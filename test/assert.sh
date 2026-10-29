@@ -676,82 +676,54 @@ check "the on-call guard refuses a call it cannot read rather than allowing it" 
      HACHIKO_ONCALL_SESSION=update python3 "$HOME/.claude/hooks/oncall-guard.py"
    [ $? -eq 2 ]'
 
-# Every session on this Mac runs its own copy of the same dev servers, so a process
-# picked by name, pattern or port is every session's copy of it. The hook answers with
-# a deny decision in JSON and says nothing at all about a command it lets through.
-killguard() {
+# guard, the PreToolUse hook on Bash: no kill by name, pattern or port, since every
+# session runs its own copy of the same dev servers, and nothing that takes the Mac's one
+# foreground outside focus-lock. What it decides of each command is the specification in
+# guard/internal/*/*_test.go; here it is wired up, linked, and answering.
+guardhook() {
   jq -nc --arg value "$1" \
     '{session_id:"t",hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$value}}' |
-    python3 "$HOME/.claude/hooks/kill-by-pid.py"
+    "$repo/home/.local/bin/guard" pre-tool-use
 }
-export -f killguard
+export -f guardhook
 
-killdenied() {
-  killguard "$1" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null
+guarddenied() {
+  guardhook "$1" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null
 }
-export -f killdenied
+export -f guarddenied
 
-killallowed() { out=$(killguard "$1") && [ -z "$out" ]; }
-export -f killallowed
+guardallowed() { out=$(guardhook "$1") && [ -z "$out" ]; }
+export -f guardallowed
 
-check "the kill guard is wired to PreToolUse for Bash" \
-  'jq -e ".hooks.PreToolUse[] | select(.matcher == \"Bash\") | .hooks[].command | select(contains(\"kill-by-pid.py\"))" \
-     "$HOME/.claude/settings.json"'
+check "guard is a live symlink" \
+  '[ -L "$HOME/.local/bin/guard" ] && [ -x "$HOME/.local/bin/guard" ]'
 
-check "the kill guard refuses a kill by name or pattern wherever it runs" \
-  'killdenied "pkill -f \"portless/dist/cli.js\"" &&
-   killdenied "killall node" &&
-   killdenied "/usr/bin/pkill -9 vite" &&
-   killdenied "cd app && pkill -f vite" &&
-   killdenied "sudo -u root killall node" &&
-   killdenied "env FOO=1 pkill node" &&
-   killdenied "echo node | xargs pkill" &&
-   killdenied "echo \$(pkill -f x)" &&
-   killdenied "echo \`killall node\`" &&
-   killdenied "bash -c \"pkill -f vite\""'
+# One handler per command whose arguments can carry a kill or the foreground, because a
+# hook with no `if` would start a process on every Bash call there is.
+for pattern in pkill killall killall5 skill kill fuser xargs sudo doas env \
+               bash sh zsh dash ksh exec osascript cliclick op; do
+  check "guard runs on a command starting with $pattern" \
+    "jq -e '.hooks.PreToolUse[] | select(.matcher == \"Bash\") | .hooks[] |
+              select(.if == \"Bash($pattern *)\") |
+              select(.command | contains(\"guard\\\" pre-tool-use\"))' \
+       \"\$HOME/.claude/settings.json\""
+done
 
-check "the kill guard refuses a kill whose pids come from a process or port lookup" \
-  'killdenied "kill \$(pgrep -f vite)" &&
-   killdenied "kill \"\$(pgrep node)\"" &&
-   killdenied "kill \`pidof node\`" &&
-   killdenied "kill -9 \$(lsof -ti :3000)" &&
-   killdenied "pgrep -f vite | xargs kill" &&
-   killdenied "lsof -ti:3000 | xargs kill" &&
-   killdenied "ps aux | grep x | awk '"'"'{print \$2}'"'"' | xargs kill" &&
-   killdenied "pid=\$(pgrep -f vite); kill \$pid" &&
-   killdenied "for p in \$(pgrep node); do kill \$p; done" &&
-   killdenied "pgrep node | while read p; do kill \$p; done" &&
-   killdenied "xargs kill < <(pgrep x)" &&
-   killdenied "while read p; do kill \$p; done < <(pgrep x)" &&
-   killdenied "read pid <<< \"\$(pgrep x)\"; kill \$pid" &&
-   killdenied "read -r pid <<< \$(lsof -ti :3000) && kill -9 \"\$pid\"" &&
-   killdenied "kill \$(netstat -anv | grep 3000 | awk '"'"'{print \$9}'"'"')" &&
-   killdenied "kill \$(ss -ltnp | grep 3000)" &&
-   killdenied "fuser -k 3000/tcp"'
+check "nothing is left of the hook guard replaced" \
+  '! grep -q kill-by-pid "$HOME/.claude/settings.json" &&
+   [ ! -e "$repo/home/.claude/hooks/kill-by-pid.py" ]'
 
-check "the kill guard allows a kill by pid and a pkill that is only text" \
-  'killallowed "kill 4242" &&
-   killallowed "kill -TERM 4242" &&
-   killallowed "kill %1" &&
-   killallowed "kill \"\$pid\"" &&
-   killallowed "kill \$PID" &&
-   killallowed "kill \$(cat /tmp/server.pid)" &&
-   killallowed "pgrep -f vite" &&
-   killallowed "lsof -ti :3000" &&
-   killallowed "pgrep -f vite | head -1; kill \$SERVER_PID" &&
-   killallowed "docker compose kill" &&
-   killallowed "kill -0 \$pid" &&
-   killallowed "read pid < server.pid; kill \$pid" &&
-   killallowed "git commit -m \"never pkill\"" &&
-   killallowed "grep -n pkill file" &&
-   killallowed "cat <<EOF
-pkill -f vite
-EOF"'
+check "guard refuses a kill by name and allows one by pid" \
+  'guarddenied "pkill -f vite" && guardallowed "kill 123"'
 
-# A guard on every session'"'"'s shell that refused what it could not read would cost them
-# all their shell, so a command it cannot parse goes through.
-check "the kill guard lets through a command it cannot parse" \
-  'killallowed "echo \"unterminated" && printf "not json" | python3 "$HOME/.claude/hooks/kill-by-pid.py"'
+check "guard refuses the foreground and allows it under focus-lock" \
+  'guarddenied "cliclick c:1,1" && guardallowed "focus-lock cliclick c:1,1"'
+
+# A guard on every session's shell that refused what it could not read would cost them
+# all their shell, so an event it cannot read goes through.
+check "guard lets through an event it cannot read" \
+  'out=$(printf "not json" | "$repo/home/.local/bin/guard" pre-tool-use) &&
+   [ -z "$out" ]'
 
 # Worktree isolation. A fixture repository with a linked worktree, built per
 # check rather than once, because the checks below are independent of each other.

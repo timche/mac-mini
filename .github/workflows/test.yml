@@ -16,6 +16,7 @@ on:
       - hachiko/**
       - discord/**
       - mochi/**
+      - guard/**
       - shibuya/**
       - claude/**
       - launchd/**
@@ -145,14 +146,24 @@ jobs:
           "$mise" exec -C "$repo" -- go test -C "$repo/mochi" ./...
           test -z "$("$mise" exec -C "$repo" -- gofmt -l "$repo/mochi")"
 
-      # Known vulnerabilities in what each Go module builds with: the standard library of the
-      # go mise installed, and any module a tool may one day pin. Run at a pinned version
-      # rather than required, since it is a tool of CI's and no dependency of theirs.
-      - name: govulncheck in hachiko/, discord/ and mochi/
+      # guard the same way. Its cases are what every session on the Mac may run, and the
+      # wrapper that installs it runs these same tests as its gate.
+      - name: go vet and go test in guard/
         run: |
           mise="$HOME/.local/bin/mise"
           repo="$GITHUB_WORKSPACE"
-          for module in hachiko discord mochi; do
+          "$mise" exec -C "$repo" -- go vet -C "$repo/guard" ./...
+          "$mise" exec -C "$repo" -- go test -C "$repo/guard" ./...
+          test -z "$("$mise" exec -C "$repo" -- gofmt -l "$repo/guard")"
+
+      # Known vulnerabilities in what each Go module builds with: the standard library of the
+      # go mise installed, and any module a tool may one day pin. Run at a pinned version
+      # rather than required, since it is a tool of CI's and no dependency of theirs.
+      - name: govulncheck in hachiko/, discord/, mochi/ and guard/
+        run: |
+          mise="$HOME/.local/bin/mise"
+          repo="$GITHUB_WORKSPACE"
+          for module in hachiko discord mochi guard; do
             "$mise" exec -C "$repo" -- go run -C "$repo/$module" golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
           done
 

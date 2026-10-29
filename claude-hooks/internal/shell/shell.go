@@ -74,6 +74,18 @@ var prefixes = map[string]map[string]bool{
 	"timeout":    set("-s", "-k", "--signal", "--kill-after"),
 	"caffeinate": set("-t", "-w"),
 	"stdbuf":     set(),
+	// A package's own executable, named by the first word that is not one of their flags,
+	// so `npx cliclick` runs cliclick.
+	"npx":  set("-p", "--package", "-c", "--call"),
+	"bunx": set("-p", "--package"),
+	"uvx":  set("--from", "--with", "--with-requirements", "-p", "--python", "--index", "--index-url"),
+}
+
+// Commands whose subcommand runs whatever follows `--`: `mise exec node@22 -- pkill x`, `op
+// run --env-file .env.op -- cliclick`. Without a `--` the runner itself is the command.
+var dashRunners = map[string]map[string]bool{
+	"mise": set("exec", "x"),
+	"op":   set("run"),
 }
 
 var keywords = set("do", "then", "else", "elif", "!", "{", "while", "until", "if")
@@ -189,6 +201,17 @@ func CommandOf(words []*Word) int {
 			continue
 		}
 		name := Base(word)
+		if subs, ok := dashRunners[name]; ok && i+1 < len(words) && subs[words[i+1].Text] {
+			j := i + 2
+			for j < len(words) && words[j].Text != "--" {
+				j++
+			}
+			if j >= len(words) {
+				return i
+			}
+			i = j + 1
+			continue
+		}
 		valueFlags, isPrefix := prefixes[name]
 		if !isPrefix {
 			return i

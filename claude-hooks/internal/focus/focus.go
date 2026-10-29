@@ -65,14 +65,6 @@ func checkSegment(words []*shell.Word, depth int) error {
 	if name == "focus-lock" {
 		return nil
 	}
-	// `op run --env-file x -- <command>` runs that command with the secrets resolved, so
-	// what it runs is what matters and `op run` itself is nothing.
-	if name == "op" {
-		if tail, ok := opRunTail(args); ok {
-			return checkSegment(tail, depth)
-		}
-		return checkSubs(words, depth)
-	}
 
 	if err := checkSubs(words, depth); err != nil {
 		return err
@@ -117,19 +109,6 @@ func onlyAsks(args []*shell.Word) bool {
 		}
 	}
 	return false
-}
-
-func opRunTail(args []*shell.Word) ([]*shell.Word, bool) {
-	run := false
-	for i, arg := range args {
-		switch {
-		case arg.Text == "run":
-			run = true
-		case run && arg.Text == "--":
-			return args[i+1:], true
-		}
-	}
-	return nil, false
 }
 
 // The script osascript runs: its -e statements as one script, or the contents of the

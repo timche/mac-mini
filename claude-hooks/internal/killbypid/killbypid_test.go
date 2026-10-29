@@ -28,6 +28,11 @@ func TestAKillByNameOrPatternIsRefusedWhereverItRuns(t *testing.T) {
 		`bash -lc "pkill -f vite"`,
 		"PORT=3000 pkill -f vite",
 		"if true; then pkill node; fi",
+		"mise exec -- pkill -f vite",
+		"mise x node@22 -- killall node",
+		"op run --env-file .env.op -- pkill -f vite",
+		"npx pkill -f vite",
+		"uvx --from x pkill node",
 	} {
 		if !Denies(command) {
 			t.Errorf("%s was allowed; it kills by name", command)
@@ -83,6 +88,11 @@ func TestAKillByPidAndAPkillThatIsOnlyTextAreAllowed(t *testing.T) {
 		"pgrep -f vite | head -1; kill $SERVER_PID",
 		"docker compose kill",
 		"kill -0 $pid",
+		"mise exec -- kill 4242",
+		"mise install",
+		"mise x node@22 -- node server.js",
+		"op run --env-file .env.op -- echo pkill",
+		"op run --env-file .env.op",
 		"read pid < server.pid; kill $pid",
 		`git commit -m "never pkill"`,
 		"grep -n pkill file",

@@ -51,7 +51,15 @@ src="$repo/hachiko"
 HACHIKO_ENV_FILE="${HACHIKO_ENV_FILE:-$bindir/hachiko.env.op}"
 export HACHIKO_ENV_FILE
 
-cache="${HACHIKO_CACHE_DIR:-$HOME/Library/Caches/hachiko}"
+# The LaunchAgents run the default cache's binary, so one built from a worktree would have
+# them running that worktree's unmerged sources until the checkout's next change. A linked
+# worktree, whose .git is a file, builds into a cache of its own. The state directory is
+# worked out apart from this and stays the one the agents use.
+if [ -f "$repo/.git" ]; then
+  cache="${HACHIKO_CACHE_DIR:-$HOME/Library/Caches/hachiko/worktrees/$(basename "$repo")}"
+else
+  cache="${HACHIKO_CACHE_DIR:-$HOME/Library/Caches/hachiko}"
+fi
 bin="$cache/hachiko"
 stamp="$cache/source.sha256"
 

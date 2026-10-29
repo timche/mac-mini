@@ -46,8 +46,17 @@ export MOCHI_ENV_FILE
 MOCHI_BRIEFING="${MOCHI_BRIEFING:-$repo/claude-plugins/mochi/briefing.md}"
 export MOCHI_BRIEFING
 
+override="${MOCHI_CACHE_DIR-}"
 cache="${MOCHI_CACHE_DIR:-$HOME/Library/Caches/mochi}"
 export MOCHI_CACHE_DIR="$cache"
+
+# The listener runs the default cache's binary, so one built from a worktree would have it
+# running that worktree's unmerged sources until the checkout's next change. A linked
+# worktree, whose .git is a file, builds into a folder of its own, while MOCHI_CACHE_DIR,
+# which is also where mochi keeps its state, stays the listener's.
+if [ -z "$override" ] && [ -f "$repo/.git" ]; then
+  cache="$cache/worktrees/$(basename "$repo")"
+fi
 bin="$cache/mochi"
 stamp="$cache/source.sha256"
 

@@ -386,7 +386,7 @@ func TestTheScratchFolderIsNamedAsClaudeCodeNamesIt(t *testing.T) {
 	if got := scratch("/Users/timche", "/Users/timche/.mac-mini"); got != want {
 		t.Errorf("%q, want %q", got, want)
 	}
-	if got := scratch("/Users/x", "/Users/x/projects/repeek"); !strings.HasSuffix(got, "/-Users-x-projects-repeek") {
+	if got := scratch("/Users/x", "/Users/x/projects/repeekgg/repeek"); !strings.HasSuffix(got, "/-Users-x-projects-repeekgg-repeek") {
 		t.Errorf("%q", got)
 	}
 }

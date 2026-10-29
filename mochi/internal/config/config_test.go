@@ -35,7 +35,7 @@ func TestTheShippedConfigMapsRepeek(t *testing.T) {
 		t.Errorf("user = %q", cfg.User)
 	}
 	s, ok := cfg.Server("1220378778665095291")
-	if !ok || s.Workspace != "repeek" || s.Repo != "/home/x/projects/repeek" {
+	if !ok || s.Workspace != "repeek" || s.Repo != "/home/x/projects/repeekgg/repeek" {
 		t.Errorf("repeek = %+v, %v", s, ok)
 	}
 	if _, ok := cfg.Server("1"); ok {

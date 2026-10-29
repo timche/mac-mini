@@ -130,7 +130,7 @@ func TestAPostWithALinkOrAPathIsRefused(t *testing.T) {
 		"details on www.example.com",
 		"join discord.gg/abcdef",
 		"or discord.com/invite/abcdef",
-		"the log is in /Users/timche/projects/repeek/log.txt",
+		"the log is in /Users/timche/projects/repeekgg/repeek/log.txt",
 		"see ~/Library/Caches/mochi/sessions/1/brief.md",
 		"(/private/tmp/shot.png)",
 	} {

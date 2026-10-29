@@ -41,6 +41,8 @@ Everything it does, it does through the pane the session is already in. `herdr w
 
 The move takes the focus with it only when the pane was the one the eye was on, which is the pane's own focus and its workspace's together: a focused pane in a workspace nobody is looking at would otherwise pull the sidebar over to a worktree every time a session entered one.
 
+The same rule would close the checkout's workspace whenever the session was its only tab, and herdr shows a worktree's workspace under its checkout's only while that one is open. So a pane that is its workspace's last tab leaves a shell tab behind, in the checkout and unfocused, to hold it open, and the move home closes that tab once the pane is back in.
+
 Home at the end of the session as well as the end of the worktree, because whether Claude is keeping or removing the worktree is the answer to a prompt no hook sees, and the tab belongs where it came from either way. If that workspace has closed in the meantime the pane stays where it is: a workspace of its own would strand the tab somewhere belonging to no checkout, where leaving it in the worktree's is leaving it in one herdr closes when the pane finally goes.
 
 The label follows the branch, since a session that renames or switches the branch under itself would otherwise leave the sidebar naming the one it entered on. That is what the `Bash` event is for, and it costs a session a state file and one `git` where there is a worktree and nothing at all where there is not.

@@ -52,10 +52,12 @@ var canned = map[string]string{
 		`"root_pane":{"pane_id":"wB:p1"},"tab":{"tab_id":"wB:t1"},` +
 		`"workspace":{"workspace_id":"wB"}}}`,
 	"tab close": `{"id":"cli:tab:close","result":{"type":"ok"}}`,
+	"tab create": `{"id":"cli:tab:create","result":{"root_pane":{"pane_id":"w9:p3"},` +
+		`"tab":{"tab_id":"w9:t3","workspace_id":"w9"}}}`,
 	"pane get": `{"id":"cli:pane:get","result":{"type":"pane_info","pane":{"pane_id":"w9:p1",` +
 		`"tab_id":"w9:t1","workspace_id":"w9","focused":true}}}`,
 	"workspace list": `{"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":[` +
-		`{"workspace_id":"w9","label":"widget","focused":true,"worktree":{"checkout_path":"MAIN"}},` +
+		`{"workspace_id":"w9","label":"widget","focused":true,"tab_count":2,"worktree":{"checkout_path":"MAIN"}},` +
 		`{"workspace_id":"wB","label":"worktree-feature","focused":false,"worktree":{"checkout_path":"WT"}}]}}`,
 	"pane move": `{"id":"cli:pane:move","result":{"move_result":{"pane":{"pane_id":"wB:p2"},` +
 		`"previous_workspace_id":"w9"}}}`,
@@ -79,6 +81,49 @@ var cases = []testCase{
 			"tab close wB:t1",
 		},
 		after: &state{Pane: "w9:p1", Source: "w9", Workspace: "wB", Label: "worktree-feature"},
+	},
+	{
+		// herdr closes a workspace whose last tab left, and the worktree's workspace
+		// shows under the checkout's only while that one is open.
+		about:    "a pane that is its workspace's only tab leaves a shell tab holding it open",
+		tool:     "EnterWorktree",
+		response: `{"worktreePath":"WT"}`,
+		replies: map[string]string{
+			"workspace list": `{"id":"cli:workspace:list","result":{"workspaces":[` +
+				`{"workspace_id":"w9","focused":true,"tab_count":1}]}}`,
+		},
+		want: []string{
+			"worktree open --cwd MAIN --path WT --label worktree-feature --no-focus",
+			"pane get w9:p1",
+			"workspace list",
+			"tab create --workspace w9 --cwd MAIN --no-focus",
+			"pane move w9:p1 --workspace wB --new-tab --focus",
+			"tab close wB:t1",
+		},
+		after: &state{Pane: "w9:p1", Source: "w9", Keeper: "w9:t3", Workspace: "wB", Label: "worktree-feature"},
+	},
+	{
+		// The workspace it is leaving is the last worktree's, and home is held open
+		// already.
+		about:    "a second worktree keeps the tab holding home open and opens no other",
+		tool:     "EnterWorktree",
+		response: `{"worktreePath":"WT"}`,
+		before:   &state{Pane: "w9:p1", Source: "w9", Keeper: "w9:t3", Workspace: "wB", Label: "worktree-old"},
+		replies: map[string]string{
+			"worktree open": `{"id":"cli:worktree:open","result":{"already_open":false,` +
+				`"tab":{"tab_id":"wC:t1"},"workspace":{"workspace_id":"wC"}}}`,
+			"pane get": inWorktree,
+			"workspace list": `{"id":"cli:workspace:list","result":{"workspaces":[` +
+				`{"workspace_id":"w9","focused":false,"tab_count":1},{"workspace_id":"wB","focused":true,"tab_count":1}]}}`,
+		},
+		want: []string{
+			"worktree open --cwd MAIN --path WT --label worktree-feature --no-focus",
+			"pane get w9:p1",
+			"workspace list",
+			"pane move w9:p1 --workspace wC --new-tab --focus",
+			"tab close wC:t1",
+		},
+		after: &state{Pane: "w9:p1", Source: "w9", Keeper: "w9:t3", Workspace: "wC", Label: "worktree-feature"},
 	},
 	{
 		about:    "a pane nobody is typing in is moved without being focused",
@@ -221,6 +266,31 @@ var cases = []testCase{
 			"pane get w9:p1",
 			"pane move w9:p1 --workspace w9 --new-tab --no-focus",
 		},
+	},
+	{
+		about:   "leaving the worktree closes the tab that held home open once the pane is in",
+		tool:    "ExitWorktree",
+		before:  &state{Pane: "w9:p1", Source: "w9", Keeper: "w9:t3", Workspace: "wB", Label: "worktree-feature"},
+		replies: map[string]string{"pane get": inWorktree},
+		want: []string{
+			"workspace list",
+			"pane get w9:p1",
+			"pane move w9:p1 --workspace w9 --new-tab --no-focus",
+			"tab close w9:t3",
+		},
+	},
+	{
+		about:   "a failed move home keeps the tab holding home open",
+		tool:    "ExitWorktree",
+		before:  &state{Pane: "w9:p1", Source: "w9", Keeper: "w9:t3", Workspace: "wB", Label: "worktree-feature"},
+		replies: map[string]string{"pane get": inWorktree},
+		omit:    []string{"pane move"},
+		want: []string{
+			"workspace list",
+			"pane get w9:p1",
+			"pane move w9:p1 --workspace w9 --new-tab --no-focus",
+		},
+		after: &state{Pane: "w9:p1", Source: "w9", Keeper: "w9:t3", Workspace: "wB", Label: "worktree-feature"},
 	},
 	{
 		// Whether Claude is keeping or removing the worktree is an answer to a prompt

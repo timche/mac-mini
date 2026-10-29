@@ -14,7 +14,10 @@
 // so the terminal and this very process, into the new workspace; the pane id the session
 // was started with keeps resolving to the pane afterwards, which is the only id a process
 // inside it has. A workspace whose last tab leaves is closed by herdr, so leaving a
-// worktree is a move home and no removal: the sidebar entry goes by itself.
+// worktree is a move home and no removal: the sidebar entry goes by itself. The same rule
+// would close the checkout's workspace when the session was its only tab, and herdr shows a
+// worktree's workspace under its checkout's, so a shell tab holds that one open until the
+// pane is back.
 //
 // Nothing here is worth a session's tool call, so every way this can fail — outside herdr,
 // in a subagent, a herdr that will not answer, a payload that is not the shape it was — is
@@ -125,7 +128,7 @@ func (o *observer) enter(ev event) {
 	if workspace == "" {
 		return
 	}
-	from, focused, err := o.focus()
+	from, focused, open, err := o.focus()
 	if err != nil {
 		warn("%v", err)
 		return
@@ -138,9 +141,16 @@ func (o *observer) enter(ev event) {
 
 	// The workspace to go home to is the one the session started in, not the one it is
 	// in: a second EnterWorktree moves the pane on, and home is still home.
-	source := from
+	source, keeper := from, ""
 	if previous, ok := load(o.session); ok && previous.Source != "" {
-		source = previous.Source
+		source, keeper = previous.Source, previous.Keeper
+	}
+	if from == source && keeper == "" && open[from].tabs == 1 {
+		kept, err := o.herdr("tab", "create", "--workspace", from, "--cwd", checkout, "--no-focus")
+		if err != nil {
+			warn("%v", err)
+		}
+		keeper = kept.text("tab", "tab_id")
 	}
 
 	if _, err := o.herdr("pane", "move", o.pane,
@@ -160,6 +170,7 @@ func (o *observer) enter(ev event) {
 	save(o.session, state{
 		Pane:      o.pane,
 		Source:    source,
+		Keeper:    keeper,
 		Workspace: workspace,
 		Worktree:  worktree,
 		Label:     label,
@@ -199,16 +210,18 @@ func (o *observer) leave() {
 		warn("%v", err)
 		return
 	}
-	if workspace == st.Source {
-		forget(o.session)
-		return
+	if workspace != st.Source {
+		if _, err := o.herdr("pane", "move", o.pane,
+			"--workspace", st.Source, "--new-tab", focusFlag(focused && open[workspace].focused)); err != nil {
+			// Kept, so the SessionEnd that follows a failed ExitWorktree tries again.
+			warn("%v", err)
+			return
+		}
 	}
-
-	if _, err := o.herdr("pane", "move", o.pane,
-		"--workspace", st.Source, "--new-tab", focusFlag(focused && open[workspace])); err != nil {
-		// Kept, so the SessionEnd that follows a failed ExitWorktree tries again.
-		warn("%v", err)
-		return
+	if st.Keeper != "" {
+		if _, err := o.herdr("tab", "close", st.Keeper); err != nil {
+			warn("%v", err)
+		}
 	}
 	forget(o.session)
 }
@@ -288,16 +301,16 @@ func (o *observer) labelFor(worktree string) string {
 // Where the pane is and whether it is the pane the eye is on, which is its own focus and
 // its workspace's together: a focused pane in a workspace nobody is looking at must not
 // pull the sidebar over to the worktree.
-func (o *observer) focus() (workspace string, focused bool, err error) {
+func (o *observer) focus() (workspace string, focused bool, open map[string]shown, err error) {
 	workspace, own, err := o.place()
 	if err != nil {
-		return "", false, err
+		return "", false, nil, err
 	}
-	open, err := o.workspaces()
+	open, err = o.workspaces()
 	if err != nil {
-		return "", false, err
+		return "", false, nil, err
 	}
-	return workspace, own && open[workspace], nil
+	return workspace, own && open[workspace].focused, open, nil
 }
 
 func (o *observer) place() (workspace string, focused bool, err error) {
@@ -312,8 +325,13 @@ func (o *observer) place() (workspace string, focused bool, err error) {
 	return workspace, got.flag("pane", "focused"), nil
 }
 
-// Every workspace herdr has, and which of them is the focused one.
-func (o *observer) workspaces() (map[string]bool, error) {
+type shown struct {
+	focused bool
+	tabs    int
+}
+
+// Every workspace herdr has, which of them is the focused one, and how many tabs each has.
+func (o *observer) workspaces() (map[string]shown, error) {
 	listed, err := o.herdr("workspace", "list")
 	if err != nil {
 		return nil, err
@@ -321,13 +339,14 @@ func (o *observer) workspaces() (map[string]bool, error) {
 	var rows []struct {
 		ID      string `json:"workspace_id"`
 		Focused bool   `json:"focused"`
+		Tabs    int    `json:"tab_count"`
 	}
 	if json.Unmarshal(listed["workspaces"], &rows) != nil {
 		return nil, fmt.Errorf("herdr workspace list is not a list of workspaces")
 	}
-	open := make(map[string]bool, len(rows))
+	open := make(map[string]shown, len(rows))
 	for _, row := range rows {
-		open[row.ID] = row.Focused
+		open[row.ID] = shown{focused: row.Focused, tabs: row.Tabs}
 	}
 	return open, nil
 }
@@ -423,10 +442,11 @@ func (r reply) flag(keys ...string) bool {
 }
 
 // What the pane was carrying when it moved, which nothing in a later event says: the
-// workspace to go home to, and what the sidebar entry is called.
+// workspace to go home to, the tab holding it open, and what the sidebar entry is called.
 type state struct {
 	Pane      string `json:"pane"`
 	Source    string `json:"source_workspace"`
+	Keeper    string `json:"keeper_tab,omitempty"`
 	Workspace string `json:"workspace"`
 	Worktree  string `json:"worktree"`
 	Label     string `json:"label"`

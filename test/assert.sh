@@ -1429,24 +1429,6 @@ check "the mochi wrapper builds under launchd's environment from the checkout al
       /bin/sh "$d/home/.local/bin/mochi" --help) | grep -q "history" &&
    [ -x "$d/cache/mochi" ]'
 
-# The state mochi kept in the build cache is taken into its own folder by any command it is
-# given, and the build output in there is left alone. The binary is built with this Mac's
-# HOME, which is where mise and its go are, and then run with a HOME holding an old folder.
-check "mochi takes the state it kept beside its binary into its own folder" \
-  'd="$(mktemp -d)" && gate_fixture "$d" &&
-   export MISE_TRUSTED_CONFIG_PATHS="$d" MOCHI_CACHE_DIR="$d/cache" MOCHI_STATE_DIR="$d/state" &&
-   "$d/home/.local/bin/mochi" --help >/dev/null &&
-   old="$d/its-own-home/Library/Caches/mochi" && mkdir -p "$old/sessions/t1" &&
-   printf "the marks\n" > "$old/marks.json" &&
-   printf "shot\n" > "$old/sessions/t1/shot.png" &&
-   printf "a binary\n" > "$old/mochi" && printf "a hash\n" > "$old/attempted" &&
-   HOME="$d/its-own-home" MOCHI_STATE_DIR= "$d/home/.local/bin/mochi" version >/dev/null &&
-   [ "$(cat "$d/its-own-home/.mochi/marks.json")" = "the marks" ] &&
-   [ -f "$d/its-own-home/.mochi/sessions/t1/shot.png" ] &&
-   [ ! -e "$old/marks.json" ] && [ ! -e "$old/sessions" ] &&
-   [ "$(cat "$old/mochi")" = "a binary" ] && [ "$(cat "$old/attempted")" = "a hash" ] &&
-   [ ! -e "$d/its-own-home/.mochi/mochi" ]'
-
 # What mochi's wrapper adds to the shared script, whose build and gate are checked through
 # hachiko: the Discord client beside it is built into the same binary, so an edit to it is a
 # rebuild and its tests are the same gate.

@@ -115,41 +115,29 @@ jobs:
       # -C names the checkout rather than trusting the working directory, because mise
       # decides which tools are active from the directory it is asked about and a go that
       # is not active reads as a go that is not installed.
-      - name: go vet and go test in tools/hachiko/
+      # One pass per module, like the govulncheck below it: what a tool decides is its own
+      # tests, and lib/discord is a module of its own with tests of its own. Two modules want
+      # more than `./...`, each for the reason its wrapper in home/.local/bin/ wants it — the
+      # client is where the goroutines are, and mochi is built against it through a replace,
+      # so mochi's gate runs those packages as mochi resolves them.
+      - name: go vet and go test in every Go module under tools/
         run: |
           mise="$HOME/.local/bin/mise"
           repo="$GITHUB_WORKSPACE"
-          "$mise" exec -C "$repo" -- go vet -C "$repo/tools/hachiko" ./...
-          "$mise" exec -C "$repo" -- go test -C "$repo/tools/hachiko" ./...
-          test -z "$("$mise" exec -C "$repo" -- gofmt -l "$repo/tools/hachiko")"
-
-      # The Discord client the tools share, a library with tests of its own.
-      - name: go vet and go test in tools/lib/discord/
-        run: |
-          mise="$HOME/.local/bin/mise"
-          repo="$GITHUB_WORKSPACE"
-          "$mise" exec -C "$repo" -- go vet -C "$repo/tools/lib/discord" ./...
-          "$mise" exec -C "$repo" -- go test -C "$repo/tools/lib/discord" -race ./...
-          test -z "$("$mise" exec -C "$repo" -- gofmt -l "$repo/tools/lib/discord")"
-
-      # mochi the same way, built against the Discord client beside it.
-      - name: go vet and go test in tools/mochi/
-        run: |
-          mise="$HOME/.local/bin/mise"
-          repo="$GITHUB_WORKSPACE"
-          "$mise" exec -C "$repo" -- go vet -C "$repo/tools/mochi" ./...
-          "$mise" exec -C "$repo" -- go test -C "$repo/tools/mochi" ./...
-          test -z "$("$mise" exec -C "$repo" -- gofmt -l "$repo/tools/mochi")"
-
-      # claude-hooks the same way. Its cases are what every session on the Mac may run, and
-      # the wrapper that installs it runs these same tests as its gate.
-      - name: go vet and go test in tools/claude-hooks/
-        run: |
-          mise="$HOME/.local/bin/mise"
-          repo="$GITHUB_WORKSPACE"
-          "$mise" exec -C "$repo" -- go vet -C "$repo/tools/claude-hooks" ./...
-          "$mise" exec -C "$repo" -- go test -C "$repo/tools/claude-hooks" ./...
-          test -z "$("$mise" exec -C "$repo" -- gofmt -l "$repo/tools/claude-hooks")"
+          gotest() {
+            m="$1"
+            shift
+            "$mise" exec -C "$repo" -- go test -C "$repo/tools/$m" "$@"
+          }
+          for module in hachiko lib/discord mochi claude-hooks; do
+            "$mise" exec -C "$repo" -- go vet -C "$repo/tools/$module" ./...
+            case "$module" in
+              lib/discord) gotest "$module" -race ./... ;;
+              mochi) gotest "$module" ./... github.com/timche/mac-mini/discord/... ;;
+              *) gotest "$module" ./... ;;
+            esac
+            test -z "$("$mise" exec -C "$repo" -- gofmt -l "$repo/tools/$module")"
+          done
 
       # Known vulnerabilities in what each Go module builds with: the standard library of the
       # go mise installed, and any module a tool may one day pin. Run at a pinned version

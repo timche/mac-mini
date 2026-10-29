@@ -57,6 +57,27 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "b=\"$HOME/Library/Caches/claude-hooks/claude-hooks\"; [ -x \"$b\" ] || b=\"$HOME/.local/bin/claude-hooks\"; exec \"$b\" herdr-tab",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "b=\"$HOME/Library/Caches/claude-hooks/claude-hooks\"; [ -x \"$b\" ] || b=\"$HOME/.local/bin/claude-hooks\"; exec \"$b\" herdr-tab",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -66,6 +87,27 @@
           {
             "type": "command",
             "command": "b=\"$HOME/Library/Caches/claude-hooks/claude-hooks\"; [ -x \"$b\" ] || b=\"$HOME/.local/bin/claude-hooks\"; exec \"$b\" herdr-worktree",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "b=\"$HOME/Library/Caches/claude-hooks/claude-hooks\"; [ -x \"$b\" ] || b=\"$HOME/.local/bin/claude-hooks\"; exec \"$b\" herdr-tab",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "b=\"$HOME/Library/Caches/claude-hooks/claude-hooks\"; [ -x \"$b\" ] || b=\"$HOME/.local/bin/claude-hooks\"; exec \"$b\" herdr-tab",
             "timeout": 10
           }
         ]

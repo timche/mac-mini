@@ -17,6 +17,10 @@
 // place in herdr a worktree herdr made has: a workspace in the sidebar with this session's
 // tab in it, and the tab back where it came from when Claude leaves.
 //
+// herdr-tab names this session's herdr tab after the title Claude Code gives the session
+// and follows that title as it moves, so a sidebar of tabs says what each session is on
+// without a session having to name its own tab.
+//
 // It is a compiled binary rather than a script because a hook that cannot run is a hook
 // that is silently off: a Python that a mise or a brew upgrade moved takes the hook with
 // it, and nothing in a session says so. This depends on a kernel and nothing else.
@@ -34,6 +38,7 @@ import (
 	"github.com/timche/mac-mini/claude-hooks/internal/attribution"
 	"github.com/timche/mac-mini/claude-hooks/internal/focus"
 	"github.com/timche/mac-mini/claude-hooks/internal/fresh"
+	"github.com/timche/mac-mini/claude-hooks/internal/herdrtab"
 	"github.com/timche/mac-mini/claude-hooks/internal/herdrworktree"
 	"github.com/timche/mac-mini/claude-hooks/internal/hook"
 	"github.com/timche/mac-mini/claude-hooks/internal/killbypid"
@@ -53,6 +58,12 @@ const usage = `usage: claude-hooks <hook>
   guard               read a PreToolUse hook event on stdin and print a deny decision when
                       the command it carries kills by name, pattern or port, or takes the
                       Mac's one foreground outside focus-lock; print nothing otherwise
+
+  herdr-tab           read a UserPromptSubmit, PostToolUse, Stop or SessionStart hook event
+                      on stdin and name this session's herdr tab after the title Claude
+                      Code gave the session, as long as the tab carries no name somebody
+                      else gave it, and put the tab's number back when the session is
+                      cleared; print nothing
 
   herdr-worktree      read a PostToolUse or SessionEnd hook event on stdin and keep this
                       session's herdr pane with the worktree Claude Code is working in: a
@@ -82,6 +93,8 @@ func main() {
 	switch os.Args[1] {
 	case "guard":
 		run = guard
+	case "herdr-tab":
+		run = herdrTab
 	case "herdr-worktree":
 		run = herdrWorktree
 	case "project-docs":
@@ -120,6 +133,13 @@ func projectDocsHook() error {
 // every failure is a line on stderr, so this never fails either.
 func herdrWorktree() error {
 	herdrworktree.Observe(os.Stdin)
+	return nil
+}
+
+// Another observer, of the title the session is being given, and silent for the same
+// reasons: a UserPromptSubmit or SessionStart hook's stdout is session context.
+func herdrTab() error {
+	herdrtab.Observe(os.Stdin)
 	return nil
 }
 

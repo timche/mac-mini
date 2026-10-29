@@ -660,6 +660,24 @@ check "herdr-worktree sees the worktree tools, Bash and the end of a session, an
      env -u HERDR_ENV -u HERDR_PANE_ID "$repo/home/.local/bin/claude-hooks" herdr-worktree) &&
    [ -z "$out" ]'
 
+# What herdr-tab makes of a title is tools/claude-hooks/internal/herdrtab's tests; here it is
+# the wiring, since a tab whose name follows the session's title has to see every event the
+# title can have moved by — a prompt, a tool call, a stop — and the SessionStart of a clear,
+# which is where it gives the name up. Silent in a terminal herdr did not start, which is
+# every session that is not in a tab.
+check "herdr-tab sees every event a title moves on and the clear, and is silent outside herdr" \
+  'for event in UserPromptSubmit Stop; do
+     jq -e "[.hooks.$event[].hooks[].command | select(endswith(\"herdr-tab\"))] | length == 1" \
+       "$HOME/.claude/settings.json" || exit 1
+   done &&
+   jq -e "[.hooks.PostToolUse[] | select(.hooks[].command | endswith(\"herdr-tab\")) |
+          .matcher] == [\"*\"]" "$HOME/.claude/settings.json" &&
+   jq -e "[.hooks.SessionStart[] | select(.hooks[].command | endswith(\"herdr-tab\")) |
+          .matcher] == [\"clear\"]" "$HOME/.claude/settings.json" &&
+   out=$(printf "%s" "{\"hook_event_name\":\"Stop\"}" |
+     env -u HERDR_ENV -u HERDR_TAB_ID "$repo/home/.local/bin/claude-hooks" herdr-tab) &&
+   [ -z "$out" ]'
+
 # A guard on every session's shell that refused what it could not read would cost them
 # all their shell, so an event it cannot read goes through.
 check "guard lets through an event it cannot read" \

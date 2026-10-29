@@ -87,7 +87,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$HOME/.claude/hooks/project-docs.sh\"",
+            "command": "b=\"$HOME/Library/Caches/claude-hooks/claude-hooks\"; [ -x \"$b\" ] || b=\"$HOME/.local/bin/claude-hooks\"; exec \"$b\" project-docs",
             "timeout": 10
           }
         ]

@@ -1,41 +1,32 @@
 #!/bin/sh
 # Builds claude-hooks, the binary every Claude Code hook on this Mac is a subcommand of,
-# and execs the subcommand it was asked for.
+# and execs the subcommand it was asked for. Why the Go tools here are built on the way
+# past at all is in the shared script this ends by sourcing.
 #
-# hachiko's wrapper with claude-hooks' names, for hachiko's reasons: there is nowhere to
-# release to, so this builds from the checkout's working tree; a tree that does not build,
-# or whose tests do not pass, leaves the last binary that did in place and logs one line;
-# and the binary it execs depends on nothing — not mise, not Homebrew, not a runtime —
-# which is why a hook here is a binary at all. The guard hook replaced a Python one, and a
-# Python that a mise or a Homebrew upgrade moved is a hook that is off with nothing in a
-# session saying so.
+# What is claude-hooks' own is where it runs: inside a hook, on every Bash call Claude Code
+# matches, with the session waiting. That is why settings.json runs the built binary and
+# reaches this only when there is none — this shell, the find, the shasum and the mise cost
+# several times the check itself — and why the binary is told at build time where its
+# sources and this script are: it compares their times itself and execs this with the event
+# still unread when they have moved, so an edit is live on the very next command.
+# CLAUDE_HOOKS_FRESH says that handoff has happened, and stops a second one.
 #
-# What claude-hooks has that hachiko does not is where it runs: inside a hook, on every
-# Bash call Claude Code matches, with the session waiting. That is why settings.json runs
-# the built binary and reaches this only when there is none: this shell, the find, the
-# shasum and the mise cost several times the check itself. Which is also why the binary is
-# told at build time where its sources and this script are — it compares their times itself
-# and execs this with the event still unread when they have moved, so an edit is still live
-# on the very next command. CLAUDE_HOOKS_FRESH says that handoff has happened, and stops a
-# second one.
-#
-# A build attempt is recorded whether it worked or not, since otherwise a tree that does
-# not compile would be built again, and its ten seconds waited out, before every command
-# the session went on to run.
-#
-# Each step gets ten seconds, five times the longest cold run measured and the two together
-# well inside the thirty seconds settings.json allows the hook.
-#
-# Exiting 1 and never 2, in every way this can fail: 2 is how a PreToolUse hook blocks the
-# command, so a hook that has no binary would otherwise refuse every command it was
-# matched against. 1 is a hook error, which Claude Code reports and acts on nothing.
+# Ten seconds a step, five times the longest cold run measured and the two together well
+# inside the thirty seconds settings.json allows the hook.
 
 set -u
 
-say() {
-  printf '%s claude-hooks: %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$1" >&2
-}
+tool=claude-hooks
+cache=${CLAUDE_HOOKS_CACHE_DIR:-}
+no_binary="there is no claude-hooks binary and none could be built, so nothing is checking this command"
+build_timeout=10
+test_timeout=10
+drain_stdin=1
+wrapped_var=CLAUDE_HOOKS_FRESH
 
+# The repository is found through this script's own resolved path rather than named, so the
+# same wrapper works as the symlink in ~/.local/bin, as a file in a checkout, and in a
+# worktree.
 self=$0
 while [ -L "$self" ]; do
   link=$(readlink "$self")
@@ -45,147 +36,12 @@ while [ -L "$self" ]; do
   esac
 done
 self=$(cd "$(dirname "$self")" && pwd)/$(basename "$self")
+repo=$(cd "$(dirname "$self")/../../.." && pwd)
 
-bindir=$(dirname "$self")
-repo=$(cd "$bindir/../../.." && pwd)
 src="$repo/claude-hooks"
 
-# The hook runs whatever binary is in the default cache, and that binary checks the sources
-# it was built from, so one built from a worktree would make every session follow that
-# worktree and, once it was removed, stop rebuilding at all. A linked worktree, whose .git
-# is a file, therefore builds into a cache of its own.
-if [ -f "$repo/.git" ]; then
-  cache="${CLAUDE_HOOKS_CACHE_DIR:-$HOME/Library/Caches/claude-hooks/worktrees/$(basename "$repo")}"
-else
-  cache="${CLAUDE_HOOKS_CACHE_DIR:-$HOME/Library/Caches/claude-hooks}"
-fi
-bin="$cache/claude-hooks"
-# The fingerprint of the last build attempt, and in its time when that attempt was: what
-# keeps a tree that does not build from being built again on every call, and what the
-# binary compares its sources against.
-attempted="$cache/attempted"
+# Written into the binary so that it can compare its sources' times without being told
+# anything at run time, since the hook hands it nothing but the event.
+ldflags="-X 'main.source=$src' -X 'main.wrapper=$self'"
 
-build_timeout=10
-test_timeout=10
-
-run_binary() {
-  if [ ! -x "$bin" ]; then
-    # The event is read and dropped, so Claude Code's write to a hook that is not going to
-    # answer completes rather than breaking its pipe.
-    cat >/dev/null 2>&1 || :
-    say "there is no claude-hooks binary and none could be built, so nothing is checking this command"
-    exit 1
-  fi
-  CLAUDE_HOOKS_FRESH=1
-  export CLAUDE_HOOKS_FRESH
-  exec "$bin" "$@"
-}
-
-# A checkout with no claude-hooks/ in it is a pull that moved or removed the sources, not
-# a source tree to build: say so and keep checking with the binary that is already here.
-if [ ! -d "$src" ]; then
-  say "$src is not there, so claude-hooks was not rebuilt"
-  run_binary "$@"
-fi
-
-# The sources' contents and their names, so a rename or a deletion counts as a change too.
-hash=$(
-  find "$src" -type f \( -name '*.go' -o -name go.mod -o -name go.sum \) 2>/dev/null |
-    sort | xargs shasum -a 256 2>/dev/null | shasum -a 256 | cut -d' ' -f1
-)
-
-# One step of the rebuild, with a deadline and its output in a file. The sleeper is the
-# watchdog; killing it once the step has finished is what keeps this from waiting for it.
-bounded() {
-  limit=$1
-  log=$2
-  shift 2
-
-  "$@" >"$log" 2>&1 &
-  step_pid=$!
-
-  # The watchdog waits on its own sleep rather than being the sleep, so that killing it
-  # once the step is done takes the sleep with it: a signal to the subshell does not reach
-  # a child it is only waiting on, and every rebuild would leave one behind.
-  (
-    sleeper=
-    trap '[ -n "${sleeper:-}" ] && kill "$sleeper" 2>/dev/null; exit 0' TERM
-    sleep "$limit" &
-    sleeper=$!
-    wait "$sleeper" && kill -TERM "$step_pid" 2>/dev/null
-  ) &
-  watchdog_pid=$!
-
-  wait "$step_pid"
-  status=$?
-
-  kill -TERM "$watchdog_pid" 2>/dev/null
-  wait "$watchdog_pid" 2>/dev/null
-
-  return "$status"
-}
-
-# A cache with no binary in it is built from whatever the last attempt recorded, since a
-# cache with no binary in it is the one case where the hook comes here at all: it runs the
-# binary itself and falls back to this script when there is none.
-if [ -n "$hash" ] &&
-  { [ ! -x "$bin" ] || [ "$hash" != "$(cat "$attempted" 2>/dev/null)" ]; }; then
-  mise=$(command -v mise 2>/dev/null) || mise="$HOME/.local/bin/mise"
-
-  # A hook is the wrong place to download a toolchain, mise's or Go's own: a go that is
-  # missing or too old is install.sh's to put there.
-  MISE_EXEC_AUTO_INSTALL=0
-  MISE_NOT_FOUND_AUTO_INSTALL=0
-  GOTOOLCHAIN=local
-  export MISE_EXEC_AUTO_INSTALL MISE_NOT_FOUND_AUTO_INSTALL GOTOOLCHAIN
-
-  CGO_ENABLED=0
-  export CGO_ENABLED
-
-  out="$cache/build.log"
-
-  # Its own complaint silenced, so what a session sees from a hook is the one line below.
-  # First, because everything the attempt leaves behind is written there.
-  if ! mkdir -p "$cache" 2>/dev/null; then
-    say "$cache could not be made, so claude-hooks could not be rebuilt from $src"
-  else
-    if [ ! -x "$mise" ]; then
-      say "mise is missing, so claude-hooks could not be rebuilt from $src"
-    # -C, because a hook runs in whatever directory the session is in and mise decides
-    # what is active from the directory it is asked about.
-    elif ! "$mise" which -C "$repo" go >/dev/null 2>&1; then
-      say "the go this repo's mise.toml asks for is not installed, so claude-hooks could not be rebuilt — run install.sh"
-    # The sources and this script are written into the binary so that it can compare their
-    # times without being told anything at run time, since the hook hands it nothing but
-    # the event.
-    elif ! bounded "$build_timeout" "$out" \
-      "$mise" exec -C "$repo" -- go build -C "$src" \
-      -ldflags "-X 'main.source=$src' -X 'main.wrapper=$self'" -o "$cache/claude-hooks.$$" .; then
-      rm -f "$cache/claude-hooks.$$"
-      say "the sources in $src do not build, so this is the last binary that did: $(head -1 "$out" 2>/dev/null)"
-    # Between the build and the move, so a binary that compiles but does not work never
-    # reaches a session. What it decides is which commands every session on this Mac may
-    # run, and the cases in these tests are the whole of that decision.
-    elif ! bounded "$test_timeout" "$out" \
-      "$mise" exec -C "$repo" -- go test -C "$src" ./...; then
-      rm -f "$cache/claude-hooks.$$"
-      say "the tests in $src do not pass, so this is the last binary whose did: $(grep -m 1 -E '^(---|FAIL|panic)' "$out" 2>/dev/null)"
-    else
-      # Into place in one step, so a call that starts mid-build execs a whole binary.
-      mv -f "$cache/claude-hooks.$$" "$bin"
-      rm -f "$out"
-    fi
-
-    # Recorded whether it worked or not, and last, so its time is after everything the
-    # build read: a tree that does not compile is a tree every call after this one would
-    # otherwise build again, waiting out the same ten seconds before each command.
-    printf '%s\n' "$hash" >"$attempted" 2>/dev/null || :
-  fi
-elif [ -n "$hash" ]; then
-  # Sources whose times moved and whose contents did not, a touch or a checkout that came
-  # back to the same tree: nothing to build, but the binary compares times, and until the
-  # marker is newer than them it would hand every command in every session to this script.
-  touch "$attempted" 2>/dev/null || :
-fi
-
-run_binary "$@"
+. "$repo/home/.local/libexec/go-tool"

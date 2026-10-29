@@ -21,7 +21,7 @@ var (
 	}
 
 	// The wrapper's, in the same folder, which the move has no business touching.
-	buildOutput = []string{"mochi", "source.sha256", "build.log", filepath.Join("worktrees", "agent-1", "mochi")}
+	buildOutput = []string{"mochi", "attempted", "build.log", filepath.Join("worktrees", "agent-1", "mochi")}
 )
 
 // A state file nobody seeded is one the move was never tried on.

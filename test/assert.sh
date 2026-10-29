@@ -581,10 +581,11 @@ export -f guardcommand
 claude_hooks_fixture() {
   local d="$1"
 
-  mkdir -p "$d/home/.local/bin" &&
+  mkdir -p "$d/home/.local/bin" "$d/home/.local/libexec" &&
     cp -R "$repo/claude-hooks" "$d/claude-hooks" &&
     cp "$repo/mise.toml" "$d/mise.toml" &&
     cp "$repo/home/.local/bin/claude-hooks" "$d/home/.local/bin/claude-hooks" &&
+    cp "$repo/home/.local/libexec/go-tool" "$d/home/.local/libexec/go-tool" &&
     cp -R "$repo/home/.config" "$d/home/.config"
 }
 export -f claude_hooks_fixture
@@ -715,6 +716,20 @@ check "the wrapper catches the marker up when the sources were touched but not c
    guardevent "pkill -f vite" | "$d/cache/claude-hooks" guard | grep -q deny &&
    [ "$(stat -f %m "$d/cache/claude-hooks")" = "$built" ] &&
    [ ! "$d/claude-hooks/main.go" -nt "$d/cache/attempted" ]'
+
+# The third thing that keeps the handoff from happening twice, after a binary newer than
+# its sources and a marker newer still: the wrapper says it is the one that started this
+# process. A stub binary and no module to build, so what is proved is the wrapper's end of
+# it and nothing else.
+check "the wrapper tells the binary that it was handed the event" \
+  'cd / && d="$(mktemp -d)" &&
+   mkdir -p "$d/home/.local/bin" "$d/home/.local/libexec" "$d/cache" &&
+   cp "$repo/home/.local/bin/claude-hooks" "$d/home/.local/bin/claude-hooks" &&
+   cp "$repo/home/.local/libexec/go-tool" "$d/home/.local/libexec/go-tool" &&
+   printf "#!/bin/sh\nprintf %%s \"\$CLAUDE_HOOKS_FRESH\"\n" >"$d/cache/claude-hooks" &&
+   chmod +x "$d/cache/claude-hooks" &&
+   [ "$(CLAUDE_HOOKS_CACHE_DIR="$d/cache" \
+        "$d/home/.local/bin/claude-hooks" guard 2>/dev/null)" = 1 ]'
 
 # The registered command itself, with the two paths it names pointed at the fixture: a Mac
 # that has never built claude-hooks, and a cache something emptied, both have to come back
@@ -1263,7 +1278,7 @@ check "hachiko's config is in its own folder and nothing is left in ~/.config" \
 # ~/.hachiko/state, where macOS does not treat it as a gigabyte to reclaim.
 check "the build cache holds hachiko's binary and none of its state" \
   'c="$HOME/Library/Caches/hachiko" &&
-   [ -x "$c/hachiko" ] && [ -f "$c/source.sha256" ] &&
+   [ -x "$c/hachiko" ] && [ -f "$c/attempted" ] &&
    for left in state.json host update-raised.json reported approvals listen; do
      [ ! -e "$c/$left" ] || exit 1
    done &&
@@ -1317,7 +1332,8 @@ check "this repo declares the go its compiled tools are built with" \
 check "the hachiko module is standard library only and builds without cgo" \
   '[ ! -f "$repo/hachiko/go.sum" ] &&
    ! grep -q "^require" "$repo/hachiko/go.mod" &&
-   grep -q "CGO_ENABLED=0" "$repo/home/.local/bin/hachiko"'
+   grep -q "CGO_ENABLED=0" "$repo/home/.local/libexec/go-tool" &&
+   grep -q "GOTOOLCHAIN=local" "$repo/home/.local/libexec/go-tool"'
 
 # The agent is the whole of the wiring, so an unrendered or invalid plist is a job
 # launchd rejects at load with nothing in it to say why.
@@ -1429,30 +1445,26 @@ check "mochi takes the state it kept beside its binary into its own folder" \
    old="$d/its-own-home/Library/Caches/mochi" && mkdir -p "$old/sessions/t1" &&
    printf "the marks\n" > "$old/marks.json" &&
    printf "shot\n" > "$old/sessions/t1/shot.png" &&
-   printf "a binary\n" > "$old/mochi" && printf "a hash\n" > "$old/source.sha256" &&
+   printf "a binary\n" > "$old/mochi" && printf "a hash\n" > "$old/attempted" &&
    HOME="$d/its-own-home" MOCHI_STATE_DIR= "$d/home/.local/bin/mochi" version >/dev/null &&
    [ "$(cat "$d/its-own-home/.mochi/marks.json")" = "the marks" ] &&
    [ -f "$d/its-own-home/.mochi/sessions/t1/shot.png" ] &&
    [ ! -e "$old/marks.json" ] && [ ! -e "$old/sessions" ] &&
-   [ "$(cat "$old/mochi")" = "a binary" ] && [ "$(cat "$old/source.sha256")" = "a hash" ] &&
+   [ "$(cat "$old/mochi")" = "a binary" ] && [ "$(cat "$old/attempted")" = "a hash" ] &&
    [ ! -e "$d/its-own-home/.mochi/mochi" ]'
 
-check "a mochi build whose tests fail leaves the binary that was already there" \
+# What mochi's wrapper adds to the shared script, whose build and gate are checked through
+# hachiko: the Discord client beside it is built into the same binary, so an edit to it is a
+# rebuild and its tests are the same gate.
+check "mochi hashes the Discord client beside it and holds it to the same gate" \
   'd="$(mktemp -d)" && gate_fixture "$d" &&
    export MISE_TRUSTED_CONFIG_PATHS="$d" MOCHI_CACHE_DIR="$d/cache" MOCHI_STATE_DIR="$d/state" &&
    "$d/home/.local/bin/mochi" --help >/dev/null &&
-   was="$(shasum -a 256 "$d/cache/mochi" | cut -d" " -f1)" &&
-   printf "package fence\n\nimport \"testing\"\n\nfunc TestTheGateMustCatchThis(t *testing.T) { t.Fatal(\"on purpose\") }\n" \
-     > "$d/mochi/internal/fence/zz_gate_test.go" &&
-   out="$("$d/home/.local/bin/mochi" --help 2>&1 >/dev/null)" &&
-   printf "%s" "$out" | grep -q "do not pass" &&
-   [ "$was" = "$(shasum -a 256 "$d/cache/mochi" | cut -d" " -f1)" ]'
-
-# The Discord client beside it is built into the same binary, so its tests are the same gate.
-check "a mochi build whose Discord client fails its tests leaves the binary that was already there" \
-  'd="$(mktemp -d)" && gate_fixture "$d" &&
-   export MISE_TRUSTED_CONFIG_PATHS="$d" MOCHI_CACHE_DIR="$d/cache" MOCHI_STATE_DIR="$d/state" &&
-   "$d/home/.local/bin/mochi" --help >/dev/null &&
+   built="$(cat "$d/cache/attempted")" &&
+   printf "\n// an edit to the client and not to mochi\n" >> "$d/discord/rest/rest.go" &&
+   "$d/home/.local/bin/mochi" --help >/dev/null 2>"$d/err" &&
+   [ ! -s "$d/err" ] &&
+   [ "$(cat "$d/cache/attempted")" != "$built" ] &&
    was="$(shasum -a 256 "$d/cache/mochi" | cut -d" " -f1)" &&
    printf "package rest\n\nimport \"testing\"\n\nfunc TestTheGateMustCatchThis(t *testing.T) { t.Fatal(\"on purpose\") }\n" \
      > "$d/discord/rest/zz_gate_test.go" &&
@@ -1554,54 +1566,65 @@ check "hachiko finishes a sweep under launchd, where it has no privacy grants" \
 # it is asked about, so a question asked without one is answered for `/` — where nothing
 # this repo declares is active. The check that catches it is the next one.
 #
+# What they are checking is the shared script every wrapper here sources, through hachiko
+# alone rather than once per tool. The rest of it is checked where it costs least: the
+# attempt-once rule and a cache with no binary in it through claude-hooks, which is the
+# tool they matter most for, and what each entry adds of its own beside that tool.
+
+# A copy of the module, its wrapper, the shared script and a cache of its own, because the
+# checks below break the sources on purpose and the binary the agents are running must not
+# be the one that breaks. The wrapper finds the repository through its own resolved path,
+# so a copy with the wrapper in it is a whole second machine as far as it is concerned.
+# MISE_TRUSTED_CONFIG_PATHS rather than `mise trust`, which would leave a temp folder in
+# the machine's trust store on every run.
+hachiko_wrapper_fixture() {
+  local d="$1"
+
+  mkdir -p "$d/home/.local/bin" "$d/home/.local/libexec" "$d/bin" &&
+    cp -R "$repo/hachiko" "$d/hachiko" &&
+    cp "$repo/mise.toml" "$d/mise.toml" &&
+    cp "$repo/home/.local/bin/hachiko" "$d/home/.local/bin/hachiko" &&
+    cp "$repo/home/.local/libexec/go-tool" "$d/home/.local/libexec/go-tool" &&
+    cp -R "$repo/home/.hachiko" "$d/home/.hachiko" &&
+    export MISE_TRUSTED_CONFIG_PATHS="$d" HACHIKO_CACHE_DIR="$d/cache" &&
+    hachiko_fixture_state "$d/state"
+}
+export -f hachiko_wrapper_fixture
+
 # The promise the whole build-in-place arrangement rests on: the wrapper builds from the
 # working tree, so a half-written edit is on the Mac as soon as it is written, and the
-# agent has to keep watching with the last binary that compiled. Against a copy of the
-# module, because the check deliberately breaks it.
+# agent has to keep watching with the last binary that compiled.
 check "the wrapper rebuilds from the directory launchd starts the agent in" \
-  'cd / && d="$(mktemp -d)" && mkdir -p "$d/home/.local/bin" &&
-   cp -R "$repo/hachiko" "$d/hachiko" &&
-   cp "$repo/mise.toml" "$d/mise.toml" &&
-   cp "$repo/home/.local/bin/hachiko" "$d/home/.local/bin/hachiko" &&
-   cp -R "$repo/home/.hachiko" "$d/home/.hachiko" &&
-   export MISE_TRUSTED_CONFIG_PATHS="$d" &&
-   export HACHIKO_CACHE_DIR="$d/cache" && hachiko_fixture_state "$d/state" &&
+  'cd / && d="$(mktemp -d)" && hachiko_wrapper_fixture "$d" &&
    "$d/home/.local/bin/hachiko" --help >/dev/null 2>"$d/first" &&
    [ ! -s "$d/first" ] &&
-   built="$(cat "$d/cache/source.sha256")" &&
+   built="$(cat "$d/cache/attempted")" &&
    printf "\n// an edit that landed while the agent was running\n" >>"$d/hachiko/main.go" &&
    "$d/home/.local/bin/hachiko" --help 2>"$d/err" | grep -q "dry-run" &&
    [ ! -s "$d/err" ] &&
-   [ "$(cat "$d/cache/source.sha256")" != "$built" ]'
+   [ "$(cat "$d/cache/attempted")" != "$built" ]'
 
+# The attempt is recorded even though it failed, which is what keeps the next run from
+# waiting out the same build and the same failure.
 check "the wrapper keeps the last good binary when the sources do not compile" \
-  'cd / && d="$(mktemp -d)" && mkdir -p "$d/home/.local/bin" &&
-   cp -R "$repo/hachiko" "$d/hachiko" &&
-   cp "$repo/mise.toml" "$d/mise.toml" &&
-   cp "$repo/home/.local/bin/hachiko" "$d/home/.local/bin/hachiko" &&
-   cp -R "$repo/home/.hachiko" "$d/home/.hachiko" &&
-   export MISE_TRUSTED_CONFIG_PATHS="$d" &&
-   export HACHIKO_CACHE_DIR="$d/cache" && hachiko_fixture_state "$d/state" &&
+  'cd / && d="$(mktemp -d)" && hachiko_wrapper_fixture "$d" &&
    "$d/home/.local/bin/hachiko" --help >/dev/null &&
    [ -x "$d/cache/hachiko" ] &&
-   built="$(cat "$d/cache/source.sha256")" &&
+   was="$(shasum -a 256 "$d/cache/hachiko" | cut -d" " -f1)" &&
+   built="$(cat "$d/cache/attempted")" &&
    printf "func broken( {\n" >>"$d/hachiko/main.go" &&
    "$d/home/.local/bin/hachiko" --help 2>"$d/err" | grep -q "dry-run" &&
    grep -q "do not build, so this is the last binary that did" "$d/err" &&
-   [ "$(cat "$d/cache/source.sha256")" = "$built" ]'
+   [ "$was" = "$(shasum -a 256 "$d/cache/hachiko" | cut -d" " -f1)" ] &&
+   ! ls "$d/cache"/hachiko.* >/dev/null 2>&1 &&
+   [ "$(cat "$d/cache/attempted")" != "$built" ]'
 
 # A pull that moved the sources away is not a source tree that fails to compile, and a
 # go that is not installed is install.sh's to fix: both say which, and neither stops the
 # watch. A LaunchAgent is also the wrong place to fetch a toolchain from, so the build
 # never reaches the network on its own.
 check "the wrapper says why it could not rebuild and keeps watching" \
-  'cd / && d="$(mktemp -d)" && mkdir -p "$d/home/.local/bin" "$d/bin" &&
-   cp -R "$repo/hachiko" "$d/hachiko" &&
-   cp "$repo/mise.toml" "$d/mise.toml" &&
-   cp "$repo/home/.local/bin/hachiko" "$d/home/.local/bin/hachiko" &&
-   cp -R "$repo/home/.hachiko" "$d/home/.hachiko" &&
-   export MISE_TRUSTED_CONFIG_PATHS="$d" &&
-   export HACHIKO_CACHE_DIR="$d/cache" && hachiko_fixture_state "$d/state" &&
+  'cd / && d="$(mktemp -d)" && hachiko_wrapper_fixture "$d" &&
    "$d/home/.local/bin/hachiko" --help >/dev/null &&
    mv "$d/hachiko" "$d/hachiko.moved" &&
    "$d/home/.local/bin/hachiko" --help 2>"$d/gone" | grep -q "dry-run" &&
@@ -1616,18 +1639,56 @@ check "the wrapper says why it could not rebuild and keeps watching" \
 # A run with nothing to build may not reach for mise at all: this runs every five
 # minutes forever, and the binary it execs depends on nothing.
 check "the wrapper runs the cached binary without a go of any kind when nothing changed" \
-  'cd / && d="$(mktemp -d)" && mkdir -p "$d/home/.local/bin" "$d/bin" &&
-   cp -R "$repo/hachiko" "$d/hachiko" &&
-   cp "$repo/mise.toml" "$d/mise.toml" &&
-   cp "$repo/home/.local/bin/hachiko" "$d/home/.local/bin/hachiko" &&
-   cp -R "$repo/home/.hachiko" "$d/home/.hachiko" &&
-   export MISE_TRUSTED_CONFIG_PATHS="$d" &&
-   export HACHIKO_CACHE_DIR="$d/cache" && hachiko_fixture_state "$d/state" &&
+  'cd / && d="$(mktemp -d)" && hachiko_wrapper_fixture "$d" &&
    "$d/home/.local/bin/hachiko" --help >/dev/null &&
    printf "#!/bin/sh\nexit 97\n" >"$d/bin/mise" && chmod +x "$d/bin/mise" &&
    PATH="$d/bin:$stock_path" HOME="$d" "$d/home/.local/bin/hachiko" --help \
      2>"$d/err" | grep -q "dry-run" &&
    [ ! -s "$d/err" ]'
+
+# What a timer or a hook runs is the default cache's binary, so a wrapper run from a linked
+# worktree — its tests, say — must not replace it with that worktree's unmerged sources. A
+# HOME of its own and no mise to reach is all this needs: the cache is made before anything
+# else the attempt leaves behind, so the folder is the proof, and what comes back is the one
+# status a wrapper here ever fails with. Never 2, which is how a PreToolUse hook blocks the
+# command it was asked about.
+check "a wrapper run from a linked worktree builds into a cache of its own and fails with 1" \
+  'cd / && d="$(mktemp -d)" && hachiko_wrapper_fixture "$d" &&
+   printf "gitdir: %s\n" "$d/.git/worktrees/$(basename "$d")" >"$d/.git" &&
+   h="$d/elsewhere" && mkdir -p "$h" && status=0 &&
+   { env -u HACHIKO_CACHE_DIR HOME="$h" PATH="$stock_path" \
+       "$d/home/.local/bin/hachiko" --help 2>"$d/err" || status=$?; } &&
+   [ "$status" = 1 ] &&
+   [ -d "$h/Library/Caches/hachiko/worktrees/$(basename "$d")" ] &&
+   [ ! -e "$h/Library/Caches/hachiko/hachiko" ] &&
+   grep -q "mise is missing" "$d/err" &&
+   grep -q "nothing is watching this Mac" "$d/err"'
+
+# Each entry in home/.local/bin is one tool's own settings and the shared script it ends by
+# sourcing, which is what keeps a fix to the arrangement above from being three fixes. The
+# shared script is in the checkout and linked nowhere: a tool is reached by its own name,
+# and nothing but those three entries reads it.
+go_tools_share_one_script() {
+  local tool missing=0
+
+  for tool in hachiko mochi claude-hooks; do
+    grep -qF '. "$repo/home/.local/libexec/go-tool"' "$repo/home/.local/bin/$tool" ||
+      { printf '%s does not source the shared script\n' "$tool"; missing=1; }
+    [ "$(wc -l <"$repo/home/.local/bin/$tool")" -le 60 ] ||
+      { printf '%s holds more than its own settings\n' "$tool"; missing=1; }
+  done
+
+  if [ -e "$HOME/.local/libexec/go-tool" ]; then
+    printf 'the shared script is linked into HOME\n'
+    missing=1
+  fi
+
+  return "$missing"
+}
+export -f go_tools_share_one_script
+
+check "every Go tool's wrapper is its own settings and the one shared script" \
+  'go_tools_share_one_script'
 
 # The wrapper execs the next op on PATH after itself, so a stub placed behind it
 # stands in for Homebrew's: it prints the token it was handed, its arguments,

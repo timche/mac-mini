@@ -1,26 +1,24 @@
 #!/bin/sh
-# Runs mochi, Tim's Claude Tag for Discord, and builds it first if its sources have
-# changed since the binary in the cache was made.
+# Runs mochi, Tim's Claude Tag for Discord, and builds it first if its sources have changed
+# since the binary in the cache was made. Why the Go tools here are built on the way past
+# at all is in the shared script this ends by sourcing.
 #
-# hachiko's wrapper with mochi's names, for hachiko's reasons: there is nowhere to
-# release to, so this builds from the checkout's working tree; a tree that does not
-# build, or whose tests do not pass, leaves the last binary that did in place and logs
-# one line; and the binary it execs depends on nothing, so the listener keeps running
-# while mise or Homebrew is what broke.
-#
-# What mochi has that hachiko does not is the Discord client in discord/ beside it, a
-# module of this checkout that mochi's go.mod replaces with that folder. Its sources are
-# hashed with mochi's, so an edit to either is a rebuild, and its tests are part of the
-# gate. Nothing is fetched: there is no module from anywhere else, and no toolchain either,
-# since GOTOOLCHAIN=local makes a go.mod asking for a newer go a failed build and one line
-# rather than a download from inside a LaunchAgent.
+# What is mochi's own: the Discord client in discord/ beside it, a module of this checkout
+# that mochi's go.mod replaces with that folder. Its sources are hashed with mochi's, so an
+# edit to either is a rebuild, and its tests are part of the gate — named by module, which
+# is how a go command in mochi reaches the folder its go.mod replaces the module with.
+# Beside that, the token's reference and the standing orders every session it starts opens
+# on, both of which come from the checkout this wrapper runs from.
 
 set -u
 
-say() {
-  printf '%s mochi: %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$1" >&2
-}
+tool=mochi
+cache=${MOCHI_CACHE_DIR:-}
+no_binary="there is no mochi binary and none could be built, so nothing is listening to Discord"
 
+# The repository is found through this script's own resolved path rather than named, so the
+# same wrapper works as the symlink in ~/.local/bin, as a file in a checkout, and in a
+# worktree.
 self=$0
 while [ -L "$self" ]; do
   link=$(readlink "$self")
@@ -30,11 +28,10 @@ while [ -L "$self" ]; do
   esac
 done
 self=$(cd "$(dirname "$self")" && pwd)/$(basename "$self")
+repo=$(cd "$(dirname "$self")/../../.." && pwd)
 
-bindir=$(dirname "$self")
-repo=$(cd "$bindir/../../.." && pwd)
-src="$repo/mochi"
-lib="$repo/discord"
+hashed="$repo/mochi $repo/discord"
+test_packages="./... github.com/timche/mac-mini/discord/..."
 
 # In mochi's own folder, which is where mise links it, so the token has a reference to
 # resolve without the binary in the cache knowing where the checkout is.
@@ -46,119 +43,4 @@ export MOCHI_ENV_FILE
 MOCHI_BRIEFING="${MOCHI_BRIEFING:-$repo/claude-plugins/mochi/briefing.md}"
 export MOCHI_BRIEFING
 
-# The build output alone, and the wrapper's business rather than the binary's: what mochi
-# records about itself is in ~/.mochi, which the binary works out for itself.
-override="${MOCHI_CACHE_DIR-}"
-cache="${MOCHI_CACHE_DIR:-$HOME/Library/Caches/mochi}"
-
-# The listener runs the default cache's binary, so one built from a worktree would have it
-# running that worktree's unmerged sources until the checkout's next change. A linked
-# worktree, whose .git is a file, builds into a folder of its own.
-if [ -z "$override" ] && [ -f "$repo/.git" ]; then
-  cache="$cache/worktrees/$(basename "$repo")"
-fi
-bin="$cache/mochi"
-stamp="$cache/source.sha256"
-
-# Each step gets two minutes of its own, as hachiko's does: a hung build is a listener that
-# never comes back, and one budget shared would leave the tests seconds after a slow build.
-build_timeout=120
-test_timeout=120
-
-run_binary() {
-  if [ ! -x "$bin" ]; then
-    say "there is no mochi binary and none could be built, so nothing is listening to Discord"
-    exit 1
-  fi
-  exec "$bin" "$@"
-}
-
-# A checkout with no mochi/ in it is a pull that moved or removed the sources: say so and
-# keep listening with the binary that is already here.
-if [ ! -d "$src" ]; then
-  say "$src is not there, so mochi was not rebuilt"
-  run_binary "$@"
-fi
-
-# The sources' contents and their names, mochi's and the Discord client's, go.mod among
-# them, so a rename or a deletion in either counts as a change.
-hash=$(
-  find "$src" "$lib" -type f \( -name '*.go' -o -name go.mod -o -name go.sum \) 2>/dev/null |
-    sort | xargs shasum -a 256 2>/dev/null | shasum -a 256 | cut -d' ' -f1
-)
-
-# One step of the rebuild, with a deadline and its output in a file. The sleeper is the
-# watchdog; killing it once the step has finished is what keeps this from waiting for it.
-bounded() {
-  limit=$1
-  log=$2
-  shift 2
-
-  "$@" >"$log" 2>&1 &
-  step_pid=$!
-
-  # The watchdog waits on its own sleep rather than being the sleep, so that killing it
-  # once the step is done takes the sleep with it: a signal to the subshell does not
-  # reach a child it is only waiting on, and every rebuild would leave one behind for
-  # two minutes.
-  (
-    sleeper=
-    trap '[ -n "${sleeper:-}" ] && kill "$sleeper" 2>/dev/null; exit 0' TERM
-    sleep "$limit" &
-    sleeper=$!
-    wait "$sleeper" && kill -TERM "$step_pid" 2>/dev/null
-  ) &
-  watchdog_pid=$!
-
-  wait "$step_pid"
-  status=$?
-
-  kill -TERM "$watchdog_pid" 2>/dev/null
-  wait "$watchdog_pid" 2>/dev/null
-
-  return "$status"
-}
-
-if [ -n "$hash" ] && [ "$hash" != "$(cat "$stamp" 2>/dev/null)" ]; then
-  mise=$(command -v mise 2>/dev/null) || mise="$HOME/.local/bin/mise"
-
-  # A LaunchAgent is the wrong place to download a toolchain, mise's or Go's own: a go
-  # that is missing or too old is install.sh's to put there.
-  MISE_EXEC_AUTO_INSTALL=0
-  MISE_NOT_FOUND_AUTO_INSTALL=0
-  GOTOOLCHAIN=local
-  export MISE_EXEC_AUTO_INSTALL MISE_NOT_FOUND_AUTO_INSTALL GOTOOLCHAIN
-
-  CGO_ENABLED=0
-  export CGO_ENABLED
-
-  out="$cache/build.log"
-
-  if [ ! -x "$mise" ]; then
-    say "mise is missing, so mochi could not be rebuilt from $src"
-  elif ! mkdir -p "$cache"; then
-    say "$cache could not be made, so mochi could not be rebuilt from $src"
-  # -C, because launchd starts this agent in / and mise decides what is active from the
-  # directory it is asked about.
-  elif ! "$mise" which -C "$repo" go >/dev/null 2>&1; then
-    say "the go this repo's mise.toml asks for is not installed, so mochi could not be rebuilt — run install.sh"
-  elif ! bounded "$build_timeout" "$out" \
-    "$mise" exec -C "$repo" -- go build -C "$src" -o "$cache/mochi.$$" .; then
-    rm -f "$cache/mochi.$$"
-    # The hash is deliberately not recorded, so the next run tries the build again.
-    say "the sources in $src do not build, so this is the last binary that did: $(head -1 "$out" 2>/dev/null)"
-  # Between the build and the move, so a binary that compiles but does not work never
-  # reaches the listener. The client's packages are named by module, which is how a go
-  # command in mochi reaches the folder its go.mod replaces the module with.
-  elif ! bounded "$test_timeout" "$out" \
-    "$mise" exec -C "$repo" -- go test -C "$src" ./... github.com/timche/mac-mini/discord/...; then
-    rm -f "$cache/mochi.$$"
-    say "the tests in $src do not pass, so this is the last binary whose did: $(grep -m 1 -E '^(---|FAIL|panic)' "$out" 2>/dev/null)"
-  else
-    # Into place in one step, so a run that starts mid-build execs a whole binary.
-    mv -f "$cache/mochi.$$" "$bin" && printf '%s\n' "$hash" >"$stamp"
-    rm -f "$out"
-  fi
-fi
-
-run_binary "$@"
+. "$repo/home/.local/libexec/go-tool"

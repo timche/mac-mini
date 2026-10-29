@@ -192,7 +192,8 @@ The GitHub token goes in a file rather than the login keychain (`gh auth login -
 | `home/.hachiko/` | Linked into hachiko's own folder in `HOME`: where it alerts, whose replies it takes, where it checks in, the repositories sync publishes, and its secrets' `op://` references |
 | `home/.mochi/` | Linked into mochi's own folder in `HOME`: who mochi takes instructions from, which Discord server maps to which herdr workspace, and its bot token's `op://` reference |
 | `home/Library/LaunchAgents/` | The agents launchd runs |
-| `home/.local/bin/` | The machine's own scripts: the wrappers for hachiko's, mochi's and claude-hooks' binaries, the `op` wrapper, the window screenshot, the foreground lock |
+| `home/.local/bin/` | The machine's own scripts: an entry per Go tool — hachiko's, mochi's and claude-hooks' — the `op` wrapper, the window screenshot, the foreground lock |
+| `home/.local/libexec/go-tool` | The build-in-place arrangement those three entries share, sourced out of the checkout and linked nowhere |
 | `launchd/` | The herdr launcher's source, which is what that agent starts |
 | `hachiko/` | The watch over this Mac, its worktree sweep, its auto-sync and the nightly update — [hachiko/README.md](hachiko/README.md) |
 | `mochi/` | Tim's Claude Tag for Discord — [mochi/README.md](mochi/README.md) |
@@ -202,7 +203,7 @@ The GitHub token goes in a file rather than the login keychain (`gh auth login -
 
 `.claude` sits under `home/` rather than at the repo root because a `.claude` directory at a repo root is *project* configuration to Claude Code — this repo would load its own global settings and skills a second time whenever it was the working directory.
 
-Everything else here is a shell script, and the tools at the root are the exception. A compiled tool is Go on the standard library alone, run from this Mac; a Worker is TypeScript with a deploy script of its own, and the only one there is runs nowhere near this Mac on purpose. There is no release pipeline and nothing to publish, because there is nowhere to publish to: the wrapper in `home/.local/bin/<tool>` builds the tool from this checkout's working tree and runs its tests as the gate, so an edit is a running binary minutes later and a tree that does not compile or does not pass leaves the last one that did. `CLAUDE.md` has the rules a change to one of them obeys, and each wrapper's own comment has how it builds.
+Everything else here is a shell script, and the tools at the root are the exception. A compiled tool is Go on the standard library alone, run from this Mac; a Worker is TypeScript with a deploy script of its own, and the only one there is runs nowhere near this Mac on purpose. There is no release pipeline and nothing to publish, because there is nowhere to publish to: the entry in `home/.local/bin/<tool>` builds the tool from this checkout's working tree and runs its tests as the gate, so an edit is a running binary minutes later and a tree that does not compile or does not pass leaves the last one that did. All of that is one script, `home/.local/libexec/go-tool`, which each entry sources after setting what is its tool's own; `CLAUDE.md` has the rules a change to one of the tools obeys, that script's comment has how the building works, and each entry's own what that tool adds to it.
 
 `launchd/herdr-launcher.c` is the one compiled thing that is neither a tool nor a folder at the root, and the one that is C. It is built once by `install.sh` rather than by a wrapper, for the reason [The herdr server](#the-herdr-server) gives: its bytes are an identity macOS pins privacy grants to, and a rebuild costs them.
 

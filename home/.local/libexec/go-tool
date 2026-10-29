@@ -1,0 +1,206 @@
+#!/bin/sh
+# The build-in-place arrangement every Go tool here runs under, and all of it that is not
+# one tool's own. Sourced by the wrapper in home/.local/bin/<tool>, which sets:
+#
+#   tool           its name, which is the binary's, the cache folder's and the one in
+#                  every line logged here
+#   repo, self     the checkout and the wrapper's own resolved path
+#   no_binary      the line for a cache with no binary in it and no way to build one
+#   cache          the tool's own cache override, empty for the default worked out here
+#   src            the module to build and test, $repo/$tool unless the wrapper says
+#   hashed         the folders fingerprinted, $src unless the wrapper says, split on
+#                  whitespace so that a tool can name more than one
+#   test_packages  what the gate runs, ./... unless the wrapper says, split the same way
+#   build_timeout, test_timeout, ldflags, drain_stdin, wrapped_var
+#                  each defaulted below
+#
+# There is no install step and no release pipeline because there is nowhere to release to:
+# a tool here runs from the checkout and is built from its working tree, so a change to it
+# is live on the next run as soon as it is written. What that costs is a build on the Mac,
+# and what it buys is that a half-written edit cannot take an agent down: a source tree
+# that does not compile leaves the last binary that did in place and logs one line about it.
+#
+# Only the rebuild depends on mise. The binary it execs is a static Go binary that depends
+# on nothing — not mise, not Homebrew, not a runtime — which is the point on a machine
+# where a LaunchAgent has to keep watching, and a hook to keep checking, while the tooling
+# is what broke. Every way the build can fail ends the same way: one line, and the last
+# binary that worked.
+#
+# A build that compiles is not the same as one that works, and what these binaries do is
+# commit and push the project docs, decide which commands every session may run, and watch
+# the Mac. So the module's tests run between the build and the move into place, and a
+# failing test keeps the last binary exactly as a failing build does. Nothing here is a
+# review step — it is the one gate there is, since what lands in this repository is main
+# with no review behind it.
+#
+# One build attempt per fingerprint, recorded whether it worked or not: a tree that does
+# not compile would otherwise be built again, and its timeout waited out, before every run
+# that follows — five minutes apart for an agent, but every command in a session for a
+# hook, and a session whose edit broke the guard runs commands by the dozen while it fixes
+# it.
+#
+# Exit 1 in every way this can fail, and never 2: one of these wrappers is a PreToolUse
+# hook, where 2 is how a hook blocks the command it was asked about, so a wrapper with no
+# binary would otherwise refuse every command it was matched against.
+
+: "${src:=$repo/$tool}"
+: "${hashed:=$src}"
+: "${test_packages:=./...}"
+# A build or a test run that hangs is an agent that never comes back, so each is given a
+# deadline and then killed. Each its own, rather than one budget shared between them: a slow
+# build would otherwise leave the tests a few seconds and make a suite that ran fine look
+# hung. Two minutes is twenty times the worst measured run of the largest suite here.
+: "${build_timeout:=120}"
+: "${test_timeout:=120}"
+: "${ldflags:=}"
+: "${drain_stdin:=}"
+: "${wrapped_var:=}"
+
+say() {
+  printf '%s %s: %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$tool" "$1" >&2
+}
+
+# The build output alone, and the wrapper's business rather than the binary's: what a tool
+# records about itself is in a folder of its own that it works out for itself, where macOS
+# does not treat it as space to reclaim.
+#
+# What runs on a timer or as a hook runs the default cache's binary, so one built from a
+# worktree would have it running that worktree's unmerged sources until the checkout's next
+# change. A linked worktree, whose .git is a file, therefore builds into a cache of its own.
+if [ -z "$cache" ]; then
+  cache="$HOME/Library/Caches/$tool"
+  if [ -f "$repo/.git" ]; then
+    cache="$cache/worktrees/$(basename "$repo")"
+  fi
+fi
+bin="$cache/$tool"
+# The fingerprint of the last build attempt, and in its time when that attempt was: what
+# keeps a tree that does not build from being built again on every run, and what a binary
+# that checks its own sources compares them against.
+attempted="$cache/attempted"
+
+run_binary() {
+  if [ ! -x "$bin" ]; then
+    # The event is read and dropped, so a caller's write to a hook that is not going to
+    # answer completes rather than breaking its pipe.
+    if [ -n "$drain_stdin" ]; then
+      cat >/dev/null 2>&1 || :
+    fi
+    say "$no_binary"
+    exit 1
+  fi
+  if [ -n "$wrapped_var" ]; then
+    export "$wrapped_var=1"
+  fi
+  exec "$bin" "$@"
+}
+
+# A checkout with no module in it is a pull that moved or removed the sources, not a source
+# tree to build: say so and keep running the binary that is already here.
+if [ ! -d "$src" ]; then
+  say "$src is not there, so $tool was not rebuilt"
+  run_binary "$@"
+fi
+
+# The sources' contents and their names, so a rename or a deletion counts as a change too.
+# A few milliseconds, which is what keeps a run that has nothing to build from reaching for
+# mise at all.
+hash=$(
+  find $hashed -type f \( -name '*.go' -o -name go.mod -o -name go.sum \) 2>/dev/null |
+    sort | xargs shasum -a 256 2>/dev/null | shasum -a 256 | cut -d' ' -f1
+)
+
+# One step of the rebuild, with a deadline and its output in a file. The sleeper is the
+# watchdog; killing it once the step has finished is what keeps this from waiting for it.
+bounded() {
+  limit=$1
+  log=$2
+  shift 2
+
+  "$@" >"$log" 2>&1 &
+  step_pid=$!
+
+  # The watchdog waits on its own sleep rather than being the sleep, so that killing it
+  # once the step is done takes the sleep with it: a signal to the subshell does not
+  # reach a child it is only waiting on, and every rebuild would leave one behind for
+  # the whole of the deadline.
+  (
+    sleeper=
+    trap '[ -n "${sleeper:-}" ] && kill "$sleeper" 2>/dev/null; exit 0' TERM
+    sleep "$limit" &
+    sleeper=$!
+    wait "$sleeper" && kill -TERM "$step_pid" 2>/dev/null
+  ) &
+  watchdog_pid=$!
+
+  wait "$step_pid"
+  status=$?
+
+  kill -TERM "$watchdog_pid" 2>/dev/null
+  wait "$watchdog_pid" 2>/dev/null
+
+  return "$status"
+}
+
+# A cache with no binary in it is built whatever the last attempt recorded: it is the one
+# case where nothing can run at all, and for a hook it is the only case that reaches this
+# script, since the hook runs the binary itself and falls back here when there is none.
+if [ -n "$hash" ] &&
+  { [ ! -x "$bin" ] || [ "$hash" != "$(cat "$attempted" 2>/dev/null)" ]; }; then
+  mise=$(command -v mise 2>/dev/null) || mise="$HOME/.local/bin/mise"
+
+  # An agent on a timer and a hook in a session are both the wrong place to download a
+  # toolchain, mise's or Go's own: a go that is missing or too old is install.sh's to put
+  # there, and a mise that went to the network here would turn a five-minute check into
+  # however long the download takes.
+  MISE_EXEC_AUTO_INSTALL=0
+  MISE_NOT_FOUND_AUTO_INSTALL=0
+  GOTOOLCHAIN=local
+  export MISE_EXEC_AUTO_INSTALL MISE_NOT_FOUND_AUTO_INSTALL GOTOOLCHAIN
+
+  CGO_ENABLED=0
+  export CGO_ENABLED
+
+  out="$cache/build.log"
+
+  # Its own complaint silenced, so what a session sees from a hook is the one line below.
+  # First, because everything the attempt leaves behind is written there.
+  if ! mkdir -p "$cache" 2>/dev/null; then
+    say "$cache could not be made, so $tool could not be rebuilt from $src"
+  else
+    if [ ! -x "$mise" ]; then
+      say "mise is missing, so $tool could not be rebuilt from $src"
+    # -C, because launchd starts an agent in / and a hook runs in whatever directory the
+    # session is in, and mise decides what is active from the directory it is asked about:
+    # without it, a Mac with go installed reports it missing on every run and never
+    # rebuilds again.
+    elif ! "$mise" which -C "$repo" go >/dev/null 2>&1; then
+      say "the go this repo's mise.toml asks for is not installed, so $tool could not be rebuilt — run install.sh"
+    elif ! bounded "$build_timeout" "$out" \
+      "$mise" exec -C "$repo" -- go build -C "$src" -ldflags "$ldflags" -o "$cache/$tool.$$" .; then
+      rm -f "$cache/$tool.$$"
+      say "the sources in $src do not build, so this is the last binary that did: $(head -1 "$out" 2>/dev/null)"
+    # Between the build and the move, so a binary that compiles but does not work never
+    # reaches an agent or a session. The whole module, because the commands share their
+    # packages: a change to the wording reaches every message there is.
+    elif ! bounded "$test_timeout" "$out" \
+      "$mise" exec -C "$repo" -- go test -C "$src" $test_packages; then
+      rm -f "$cache/$tool.$$"
+      say "the tests in $src do not pass, so this is the last binary whose did: $(grep -m 1 -E '^(---|FAIL|panic)' "$out" 2>/dev/null)"
+    else
+      # Into place in one step, so a run that starts mid-build execs a whole binary.
+      mv -f "$cache/$tool.$$" "$bin"
+      rm -f "$out"
+    fi
+
+    # Last, so its time is after everything the build read.
+    printf '%s\n' "$hash" >"$attempted" 2>/dev/null || :
+  fi
+elif [ -n "$hash" ]; then
+  # Sources whose times moved and whose contents did not, a touch or a checkout that came
+  # back to the same tree: nothing to build, but a binary that compares times would hand
+  # every call to this script until the marker is newer than they are.
+  touch "$attempted" 2>/dev/null || :
+fi
+
+run_binary "$@"

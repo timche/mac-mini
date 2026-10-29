@@ -22,7 +22,7 @@ var (
 
 	// The wrapper's, in the watch's old folder, which the move has no business touching.
 	buildOutput = []string{
-		"hachiko", "source.sha256", "build.log",
+		"hachiko", "attempted", "build.log",
 		filepath.Join("worktrees", "agent-1", "hachiko"),
 	}
 )

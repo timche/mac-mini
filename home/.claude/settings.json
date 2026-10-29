@@ -31,7 +31,7 @@
           },
           {
             "type": "command",
-            "command": "\"$HOME/.local/bin/guard\" pre-tool-use",
+            "command": "b=\"$HOME/Library/Caches/guard/guard\"; [ -x \"$b\" ] || b=\"$HOME/.local/bin/guard\"; exec \"$b\" pre-tool-use",
             "timeout": 30
           }
         ]

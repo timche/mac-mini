@@ -15,10 +15,21 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"syscall"
 
 	"github.com/timche/mac-mini/guard/internal/focus"
+	"github.com/timche/mac-mini/guard/internal/fresh"
 	"github.com/timche/mac-mini/guard/internal/hook"
 	"github.com/timche/mac-mini/guard/internal/killbypid"
+)
+
+// The folder this was built from and the wrapper that built it, written in by the wrapper
+// at build time. Both are empty in anyone else's build, which turns the handoff below off
+// rather than letting it guess where a checkout is.
+var (
+	source  string
+	wrapper string
 )
 
 const usage = `usage: guard pre-tool-use
@@ -36,6 +47,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	handoff()
+
 	checks := []hook.Check{
 		{Denies: killbypid.Denies, Reason: killbypid.Reason},
 		{Denies: focus.Denies, Reason: focus.Reason},
@@ -44,4 +57,42 @@ func main() {
 		fmt.Fprintf(os.Stderr, "guard: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// Keeping an edit live, from the side of the arrangement that cannot build: settings.json
+// runs this binary rather than the wrapper, whose shell, find, shasum and mise cost
+// several times what the check does, before every Bash call in every session. So when the
+// sources have moved the wrapper is handed this process — argv, environment and an
+// untouched stdin, so the event arrives there unread and the session waits on one hook
+// either way.
+//
+// Every way this can fail is a return, and then the command is checked by this binary,
+// sources older than it or not. A hook that exits 2 blocks the command it was asked
+// about, and nothing but a check refusing may do that.
+func handoff() {
+	defer func() { recover() }()
+
+	if wrapper == "" {
+		return
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return
+	}
+	stale := fresh.Stale(fresh.Params{
+		Source:  source,
+		Binary:  self,
+		Marker:  filepath.Join(filepath.Dir(self), "attempted"),
+		Wrapped: os.Getenv(fresh.LoopGuard) != "",
+	})
+	if !stale {
+		return
+	}
+
+	// argv[0] is the wrapper's path and not this binary's, because resolving $0 is how
+	// the wrapper finds the checkout it builds from. The loop guard is set here as well
+	// as in the wrapper, since an exec that came back would be an exec before every
+	// command in every session.
+	argv := append([]string{wrapper}, os.Args[1:]...)
+	syscall.Exec(wrapper, argv, append(os.Environ(), fresh.LoopGuard+"=1"))
 }

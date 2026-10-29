@@ -679,13 +679,37 @@ check "the on-call guard refuses a call it cannot read rather than allowing it" 
 # guard, the PreToolUse hook on Bash: no kill by name, pattern or port, since every
 # session runs its own copy of the same dev servers, and nothing that takes the Mac's one
 # foreground outside focus-lock. What it decides of each command is the specification in
-# guard/internal/*/*_test.go; here it is wired up, linked, and answering.
-guardhook() {
+# guard/internal/*/*_test.go; here it is wired up, linked, answering, and reached by an
+# edit to its sources.
+guardevent() {
   jq -nc --arg value "$1" \
-    '{session_id:"t",hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$value}}' |
-    "$repo/home/.local/bin/guard" pre-tool-use
+    '{session_id:"t",hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$value}}'
 }
+export -f guardevent
+
+guardhook() { guardevent "$1" | "$repo/home/.local/bin/guard" pre-tool-use; }
 export -f guardhook
+
+# The one command settings.json registers for Bash, as it is registered there.
+guardcommand() {
+  jq -r '.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[].command |
+         select(contains("pre-tool-use"))' "$HOME/.claude/settings.json"
+}
+export -f guardcommand
+
+# A copy of the module with a cache of its own, because the checks below break the sources
+# on purpose and the binary every other session on this Mac is running must not be the one
+# that breaks.
+guard_fixture() {
+  local d="$1"
+
+  mkdir -p "$d/home/.local/bin" &&
+    cp -R "$repo/guard" "$d/guard" &&
+    cp "$repo/mise.toml" "$d/mise.toml" &&
+    cp "$repo/home/.local/bin/guard" "$d/home/.local/bin/guard" &&
+    cp -R "$repo/home/.config" "$d/home/.config"
+}
+export -f guard_fixture
 
 guarddenied() {
   guardhook "$1" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null
@@ -702,8 +726,15 @@ check "guard is a live symlink" \
 # programs guard reads, and any program missing from it a command guard never sees.
 check "settings.json runs guard on every Bash command, once" \
   '[ "$(jq "[.hooks.PreToolUse[] | select(.matcher == \"Bash\") | .hooks[] |
-            select(.command | contains(\"guard\\\" pre-tool-use\"))] |
+            select(.command | contains(\"pre-tool-use\"))] |
             [length, (map(has(\"if\")) | any)]" -c "$HOME/.claude/settings.json")" = "[1,false]" ]'
+
+# The built binary and not the wrapper that builds it: a shell, a find, a shasum and a mise
+# before every Bash call in every session cost several times the check they are there for.
+# The wrapper is what a missing binary falls back to, which is the only thing that can
+# build one — and the binary hands an event back to it when the sources have moved.
+check "the Bash hook runs the guard binary, falling back to the wrapper" \
+  '[ "$(guardcommand)" = "b=\"\$HOME/Library/Caches/guard/guard\"; [ -x \"\$b\" ] || b=\"\$HOME/.local/bin/guard\"; exec \"\$b\" pre-tool-use" ]'
 
 check "nothing is left of the hook guard replaced" \
   '! grep -q kill-by-pid "$HOME/.claude/settings.json" &&
@@ -720,6 +751,63 @@ check "guard refuses the foreground and allows it under focus-lock" \
 check "guard lets through an event it cannot read" \
   'out=$(printf "not json" | "$repo/home/.local/bin/guard" pre-tool-use) &&
    [ -z "$out" ]'
+
+# The build-in-place promise, kept from the side that cannot build: the binary the hook
+# runs compares the sources it was built from against itself, and hands the event to the
+# wrapper, stdin unread, when they have moved. So what answers below is a build of the
+# edit, not the binary that was there when the command was typed.
+check "the binary hands an event to the wrapper when its sources have moved" \
+  'cd / && d="$(mktemp -d)" && guard_fixture "$d" &&
+   export MISE_TRUSTED_CONFIG_PATHS="$d" && export GUARD_CACHE_DIR="$d/cache" &&
+   guardevent "pkill -f vite" | "$d/home/.local/bin/guard" pre-tool-use >/dev/null &&
+   [ -x "$d/cache/guard" ] && attempted="$(cat "$d/cache/attempted")" &&
+   sed -i.bak "s/const Reason = \"Killing/const Reason = \"REBUILT. Killing/" \
+     "$d/guard/internal/killbypid/killbypid.go" &&
+   rm -f "$d/guard/internal/killbypid/killbypid.go.bak" &&
+   guardevent "pkill -f vite" | "$d/cache/guard" pre-tool-use 2>"$d/err" | grep -q REBUILT &&
+   [ ! -s "$d/err" ] &&
+   [ "$(cat "$d/cache/attempted")" != "$attempted" ]'
+
+# A tree that does not compile is tried once and then left alone: every command afterwards
+# would otherwise wait out the same build and the same failure, and a session whose edit
+# broke the guard runs commands by the dozen while it fixes it.
+check "the wrapper builds a tree that does not compile once, not before every command" \
+  'cd / && d="$(mktemp -d)" && guard_fixture "$d" &&
+   export MISE_TRUSTED_CONFIG_PATHS="$d" && export GUARD_CACHE_DIR="$d/cache" &&
+   guardevent "pkill -f vite" | "$d/home/.local/bin/guard" pre-tool-use >/dev/null &&
+   printf "func broken( {\n" >>"$d/guard/main.go" &&
+   guardevent "pkill -f vite" | "$d/cache/guard" pre-tool-use 2>"$d/first" | grep -q deny &&
+   grep -q "do not build, so this is the last binary that did" "$d/first" &&
+   guardevent "pkill -f vite" | "$d/cache/guard" pre-tool-use 2>"$d/second" | grep -q deny &&
+   [ ! -s "$d/second" ]'
+
+# A touch or a checkout back to the same tree moves the sources' times and not their
+# contents: nothing is rebuilt, but the marker has to catch up, or the binary would hand
+# every command in every session to the wrapper from then on.
+check "the wrapper catches the marker up when the sources were touched but not changed" \
+  'cd / && d="$(mktemp -d)" && guard_fixture "$d" &&
+   export MISE_TRUSTED_CONFIG_PATHS="$d" && export GUARD_CACHE_DIR="$d/cache" &&
+   guardevent "pkill -f vite" | "$d/home/.local/bin/guard" pre-tool-use >/dev/null &&
+   built="$(stat -f %m "$d/cache/guard")" && sleep 1 && touch "$d/guard/main.go" &&
+   guardevent "pkill -f vite" | "$d/cache/guard" pre-tool-use | grep -q deny &&
+   [ "$(stat -f %m "$d/cache/guard")" = "$built" ] &&
+   [ ! "$d/guard/main.go" -nt "$d/cache/attempted" ]'
+
+# The registered command itself, with the two paths it names pointed at the fixture: a Mac
+# that has never built guard, and a cache something emptied, both have to come back with a
+# binary rather than with no hook at all. The paths are substituted rather than reached by
+# moving HOME, which would take mise's own configuration and toolchain with it.
+check "the registered command builds the binary when the cache has none" \
+  'cd / && d="$(mktemp -d)" && guard_fixture "$d" &&
+   export MISE_TRUSTED_CONFIG_PATHS="$d" && export GUARD_CACHE_DIR="$d/cache" &&
+   command="$(guardcommand | sed -e "s|.HOME/Library/Caches/guard|$d/cache|" \
+     -e "s|.HOME/.local/bin/guard|$d/home/.local/bin/guard|")" &&
+   case "$command" in *"$d/cache/guard"*"$d/home/.local/bin/guard"*) ;; *) exit 1 ;; esac &&
+   guardevent "pkill -f vite" | sh -c "$command" | grep -q deny &&
+   [ -x "$d/cache/guard" ] &&
+   rm -f "$d/cache/guard" &&
+   guardevent "pkill -f vite" | sh -c "$command" | grep -q deny &&
+   [ -x "$d/cache/guard" ]'
 
 # Worktree isolation. A fixture repository with a linked worktree, built per
 # check rather than once, because the checks below are independent of each other.

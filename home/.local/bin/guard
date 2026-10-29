@@ -1,6 +1,5 @@
 #!/bin/sh
-# Runs guard, the PreToolUse hook every session's Bash calls go through, and builds it
-# first if its sources have changed since the binary in the cache was made.
+# Builds guard, the PreToolUse hook every session's Bash calls go through, and execs it.
 #
 # hachiko's wrapper with guard's names, for hachiko's reasons: there is nowhere to release
 # to, so this builds from the checkout's working tree; a tree that does not build, or whose
@@ -10,11 +9,19 @@
 # or a Homebrew upgrade moved is a guard that is off with nothing in a session saying so.
 #
 # What guard has that hachiko does not is where it runs: inside a hook, on every Bash call
-# Claude Code matches, with the session waiting. So the numbers are the hook's. Each step
-# gets ten seconds, five times the longest cold run measured and the two together well
-# inside the thirty seconds settings.json allows the hook, and the sources are hashed with
-# find and shasum before mise is reached for at all, which is what keeps a call with
-# nothing to build in the milliseconds.
+# Claude Code matches, with the session waiting. That is why settings.json runs the built
+# binary and reaches this only when there is none: this shell, the find, the shasum and the
+# mise cost several times the check itself. Which is also why the binary is told at build
+# time where its sources and this script are — it compares their times itself and execs
+# this with the event still unread when they have moved, so an edit is still live on the
+# very next command. GUARD_FRESH says that handoff has happened, and stops a second one.
+#
+# A build attempt is recorded whether it worked or not, since otherwise a tree that does
+# not compile would be built again, and its ten seconds waited out, before every command
+# the session went on to run.
+#
+# Each step gets ten seconds, five times the longest cold run measured and the two together
+# well inside the thirty seconds settings.json allows the hook.
 #
 # Exiting 1 and never 2, in every way this can fail: 2 is how a PreToolUse hook blocks the
 # command, so a guard that has no binary would otherwise refuse every command it was
@@ -40,9 +47,20 @@ bindir=$(dirname "$self")
 repo=$(cd "$bindir/../../.." && pwd)
 src="$repo/guard"
 
-cache="${GUARD_CACHE_DIR:-$HOME/Library/Caches/guard}"
+# The hook runs whatever binary is in the default cache, and that binary checks the sources
+# it was built from, so one built from a worktree would make every session follow that
+# worktree and, once it was removed, stop rebuilding at all. A linked worktree, whose .git
+# is a file, therefore builds into a cache of its own.
+if [ -f "$repo/.git" ]; then
+  cache="${GUARD_CACHE_DIR:-$HOME/Library/Caches/guard/worktrees/$(basename "$repo")}"
+else
+  cache="${GUARD_CACHE_DIR:-$HOME/Library/Caches/guard}"
+fi
 bin="$cache/guard"
-stamp="$cache/source.sha256"
+# The fingerprint of the last build attempt, and in its time when that attempt was: what
+# keeps a tree that does not build from being built again on every call, and what the
+# binary compares its sources against.
+attempted="$cache/attempted"
 
 build_timeout=10
 test_timeout=10
@@ -55,6 +73,8 @@ run_binary() {
     say "there is no guard binary and none could be built, so nothing is checking this command"
     exit 1
   fi
+  GUARD_FRESH=1
+  export GUARD_FRESH
   exec "$bin" "$@"
 }
 
@@ -102,7 +122,11 @@ bounded() {
   return "$status"
 }
 
-if [ -n "$hash" ] && [ "$hash" != "$(cat "$stamp" 2>/dev/null)" ]; then
+# A cache with no binary in it is built from whatever the last attempt recorded, since a
+# cache with no binary in it is the one case where the hook comes here at all: it runs the
+# binary itself and falls back to this script when there is none.
+if [ -n "$hash" ] &&
+  { [ ! -x "$bin" ] || [ "$hash" != "$(cat "$attempted" 2>/dev/null)" ]; }; then
   mise=$(command -v mise 2>/dev/null) || mise="$HOME/.local/bin/mise"
 
   # A hook is the wrong place to download a toolchain, mise's or Go's own: a go that is
@@ -117,33 +141,48 @@ if [ -n "$hash" ] && [ "$hash" != "$(cat "$stamp" 2>/dev/null)" ]; then
 
   out="$cache/build.log"
 
-  if [ ! -x "$mise" ]; then
-    say "mise is missing, so guard could not be rebuilt from $src"
   # Its own complaint silenced, so what a session sees from a hook is the one line below.
-  elif ! mkdir -p "$cache" 2>/dev/null; then
+  # First, because everything the attempt leaves behind is written there.
+  if ! mkdir -p "$cache" 2>/dev/null; then
     say "$cache could not be made, so guard could not be rebuilt from $src"
-  # -C, because a hook runs in whatever directory the session is in and mise decides what
-  # is active from the directory it is asked about.
-  elif ! "$mise" which -C "$repo" go >/dev/null 2>&1; then
-    say "the go this repo's mise.toml asks for is not installed, so guard could not be rebuilt — run install.sh"
-  elif ! bounded "$build_timeout" "$out" \
-    "$mise" exec -C "$repo" -- go build -C "$src" -o "$cache/guard.$$" .; then
-    rm -f "$cache/guard.$$"
-    # The hash is deliberately not recorded, so the next call tries the build again.
-    say "the sources in $src do not build, so this is the last binary that did: $(head -1 "$out" 2>/dev/null)"
-  # Between the build and the move, so a binary that compiles but does not work never
-  # reaches a session. What it decides is which commands every session on this Mac may
-  # run, and the cases in these tests are the whole of that decision.
-  elif ! bounded "$test_timeout" "$out" \
-    "$mise" exec -C "$repo" -- go test -C "$src" ./...; then
-    rm -f "$cache/guard.$$"
-    # The hash is not recorded here either, for the same reason.
-    say "the tests in $src do not pass, so this is the last binary whose did: $(grep -m 1 -E '^(---|FAIL|panic)' "$out" 2>/dev/null)"
   else
-    # Into place in one step, so a call that starts mid-build execs a whole binary.
-    mv -f "$cache/guard.$$" "$bin" && printf '%s\n' "$hash" >"$stamp"
-    rm -f "$out"
+    if [ ! -x "$mise" ]; then
+      say "mise is missing, so guard could not be rebuilt from $src"
+    # -C, because a hook runs in whatever directory the session is in and mise decides
+    # what is active from the directory it is asked about.
+    elif ! "$mise" which -C "$repo" go >/dev/null 2>&1; then
+      say "the go this repo's mise.toml asks for is not installed, so guard could not be rebuilt — run install.sh"
+    # The sources and this script are written into the binary so that it can compare their
+    # times without being told anything at run time, since the hook hands it nothing but
+    # the event.
+    elif ! bounded "$build_timeout" "$out" \
+      "$mise" exec -C "$repo" -- go build -C "$src" \
+      -ldflags "-X 'main.source=$src' -X 'main.wrapper=$self'" -o "$cache/guard.$$" .; then
+      rm -f "$cache/guard.$$"
+      say "the sources in $src do not build, so this is the last binary that did: $(head -1 "$out" 2>/dev/null)"
+    # Between the build and the move, so a binary that compiles but does not work never
+    # reaches a session. What it decides is which commands every session on this Mac may
+    # run, and the cases in these tests are the whole of that decision.
+    elif ! bounded "$test_timeout" "$out" \
+      "$mise" exec -C "$repo" -- go test -C "$src" ./...; then
+      rm -f "$cache/guard.$$"
+      say "the tests in $src do not pass, so this is the last binary whose did: $(grep -m 1 -E '^(---|FAIL|panic)' "$out" 2>/dev/null)"
+    else
+      # Into place in one step, so a call that starts mid-build execs a whole binary.
+      mv -f "$cache/guard.$$" "$bin"
+      rm -f "$out"
+    fi
+
+    # Recorded whether it worked or not, and last, so its time is after everything the
+    # build read: a tree that does not compile is a tree every call after this one would
+    # otherwise build again, waiting out the same ten seconds before each command.
+    printf '%s\n' "$hash" >"$attempted" 2>/dev/null || :
   fi
+elif [ -n "$hash" ]; then
+  # Sources whose times moved and whose contents did not, a touch or a checkout that came
+  # back to the same tree: nothing to build, but the binary compares times, and until the
+  # marker is newer than them it would hand every command in every session to this script.
+  touch "$attempted" 2>/dev/null || :
 fi
 
 run_binary "$@"

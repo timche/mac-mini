@@ -65,9 +65,14 @@ func cpuHot(prev statedir.CPUSample, procs []process.Process, now time.Time, sha
 	return sample, hot
 }
 
+// The docs clone, which is the one checkout directly under the projects root rather than
+// under a GitHub owner's folder: it is one repository for every project, so it is cloned
+// where $PROJECT_DOCS_DIR points and no owner would name it.
+const docsCheckout = "docs"
+
 // The repository a directory belongs to, which is what says whether a process left
 // running is somebody's work or nobody's. The two worktree roots this machine makes
-// are named differently, and a plain checkout sits directly under ~/projects.
+// are named differently, and a plain checkout sits at ~/projects/<owner>/<repo>.
 func repoOf(cfg config.Config, dir string) string {
 	if rest, ok := under(cfg.HerdrRoot, dir); ok {
 		parts := strings.Split(rest, "/")
@@ -84,9 +89,12 @@ func repoOf(cfg config.Config, dir string) string {
 	}
 
 	if rest, ok := under(cfg.ProjectsRoot, dir); ok {
-		repo, _, _ := strings.Cut(rest, "/")
-		if repo != "" {
-			return fmt.Sprintf("the %s checkout", repo)
+		owner, deeper, _ := strings.Cut(rest, "/")
+		if owner == docsCheckout {
+			return fmt.Sprintf("the %s checkout", docsCheckout)
+		}
+		if repo, _, _ := strings.Cut(deeper, "/"); owner != "" && repo != "" {
+			return fmt.Sprintf("the %s/%s checkout", owner, repo)
 		}
 	}
 

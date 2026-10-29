@@ -2,22 +2,25 @@ package gc
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/timche/mac-mini/hachiko/internal/harness"
 )
 
-// A projects root of its own, and a .git directory rather than a .git file, which is what a
-// worktree itself has.
+// A projects root of its own, holding a checkout at <owner>/<repo>, the docs clone
+// directly under the root, and a folder of notes that is neither. A .git directory rather
+// than a .git file, which is what a worktree itself has.
 func pruneFixture(t *testing.T) (*fixture, string) {
 	t.Helper()
 
 	f := newFixture(t)
-	repo := filepath.Join(f.cfg.GCProjectsRoot, "app")
+	repo := filepath.Join(f.cfg.GCProjectsRoot, "acme", "app")
 
 	f.mkdir(filepath.Join(repo, ".git"))
+	f.mkdir(filepath.Join(f.cfg.GCProjectsRoot, "docs", ".git"))
 	f.mkdir(filepath.Join(f.cfg.GCProjectsRoot, "notes"))
-	f.write(filepath.Join(f.cfg.GCProjectsRoot, "app", ".claude", "worktrees", "live", ".git"), "gitdir: x")
+	f.write(filepath.Join(repo, ".claude", "worktrees", "live", ".git"), "gitdir: x")
 
 	f.pruneOut[repo] = "Removing worktrees/gone: gitdir file points to non-existent location\n"
 
@@ -31,9 +34,18 @@ func TestPruneReportsTheEntryAndTheReasonGitGave(t *testing.T) {
 	harness.Wants(t, out, "pruning "+repo+"'s worktree entry worktrees/gone, whose folder is gone"+
 		" (gitdir file points to non-existent location)")
 
-	// Only a directory with a .git directory under the projects root; a folder of notes is
-	// not a repository.
-	harness.Equal(t, len(f.pruned), 1, "repositories pruned")
+	// The checkout one level in and the docs clone directly under the root; neither the
+	// owner's folder nor a folder of notes is a repository.
+	harness.Equal(t, len(f.pruned), 2, "repositories pruned")
+}
+
+func TestPruneReachesACheckoutUnderItsOwnerAndOneUnderTheRoot(t *testing.T) {
+	f, repo := pruneFixture(t)
+
+	f.sweep()
+	pruned := strings.Join(f.pruned, " ")
+	harness.Wants(t, pruned, repo)
+	harness.Wants(t, pruned, filepath.Join(f.cfg.GCProjectsRoot, "docs"))
 }
 
 func TestPruneSaysWhatItWouldDoOnADryRun(t *testing.T) {

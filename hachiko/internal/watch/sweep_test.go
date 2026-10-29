@@ -249,7 +249,7 @@ func TestAReusedPidStartsItsHourAgain(t *testing.T) {
 // reparented to launchd and still spending a core on work nobody wants.
 func TestAHotProcessLeftBehindInsideACheckoutIsNamedAsOne(t *testing.T) {
 	f := newFixture(t)
-	checkout := filepath.Join(f.cfg.ProjectsRoot, "repeek")
+	checkout := filepath.Join(f.cfg.ProjectsRoot, "repeekgg", "repeek")
 	if err := os.MkdirAll(checkout, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func TestAHotProcessLeftBehindInsideACheckoutIsNamedAsOne(t *testing.T) {
 
 	out := f.cpuRuns(13, 240)
 	harness.Wants(t, out, "ppid 1")
-	harness.Wants(t, out, "in the repeek checkout")
+	harness.Wants(t, out, "in the repeekgg/repeek checkout")
 	harness.Wants(t, out, "left behind by the session that started it, which is gone")
 	harness.Lacks(t, out, "system process")
 }

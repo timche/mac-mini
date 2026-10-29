@@ -22,11 +22,14 @@ func TestRepoOfNamesTheCheckoutOrWorktreeADirectoryBelongsTo(t *testing.T) {
 	}{
 		{"/Users/x/.herdr/worktrees/meru/fix-ui", "the meru worktree fix-ui"},
 		{"/Users/x/.herdr/worktrees/meru/fix-ui/packages/app", "the meru worktree fix-ui"},
-		{"/Users/x/projects/repeek/.claude/worktrees/agent-7", "a worktree of repeek, agent-7"},
-		{"/Users/x/projects/repeek", "the repeek checkout"},
-		{"/Users/x/projects/repeek/apps/web", "the repeek checkout"},
+		{"/Users/x/projects/repeekgg/repeek/.claude/worktrees/agent-7", "a worktree of repeek, agent-7"},
+		{"/Users/x/projects/repeekgg/repeek", "the repeekgg/repeek checkout"},
+		{"/Users/x/projects/repeekgg/repeek/apps/web", "the repeekgg/repeek checkout"},
+		{"/Users/x/projects/docs", "the docs checkout"},
+		{"/Users/x/projects/docs/shared", "the docs checkout"},
 		{"/Users/x/Downloads", ""},
 		{"/Users/x/projects", ""},
+		{"/Users/x/projects/repeekgg", ""},
 	}
 
 	for _, c := range cases {

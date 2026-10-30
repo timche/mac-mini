@@ -33,4 +33,4 @@ repo=$(cd "$(dirname "$self")/../../.." && pwd)
 HACHIKO_ENV_FILE="${HACHIKO_ENV_FILE:-$HOME/.hachiko/hachiko.env.op}"
 export HACHIKO_ENV_FILE
 
-. "$repo/home/.local/libexec/go-tool"
+. "$repo/home/.local/libexec/build-tool"

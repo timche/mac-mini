@@ -44,4 +44,4 @@ src="$repo/tools/claude-hooks"
 # anything at run time, since the hook hands it nothing but the event.
 ldflags="-X 'main.source=$src' -X 'main.wrapper=$self'"
 
-. "$repo/home/.local/libexec/go-tool"
+. "$repo/home/.local/libexec/build-tool"

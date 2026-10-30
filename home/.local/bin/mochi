@@ -43,4 +43,4 @@ export MOCHI_ENV_FILE
 MOCHI_BRIEFING="${MOCHI_BRIEFING:-$repo/account/claude-plugins/mochi/briefing.md}"
 export MOCHI_BRIEFING
 
-. "$repo/home/.local/libexec/go-tool"
+. "$repo/home/.local/libexec/build-tool"

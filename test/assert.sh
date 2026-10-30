@@ -599,7 +599,7 @@ claude_hooks_fixture() {
     cp -R "$repo/tools/claude-hooks" "$d/tools/claude-hooks" &&
     cp "$repo/mise.toml" "$d/mise.toml" &&
     cp "$repo/home/.local/bin/claude-hooks" "$d/home/.local/bin/claude-hooks" &&
-    cp "$repo/home/.local/libexec/go-tool" "$d/home/.local/libexec/go-tool" &&
+    cp "$repo/home/.local/libexec/build-tool" "$d/home/.local/libexec/build-tool" &&
     cp -R "$repo/home/.config" "$d/home/.config"
 }
 export -f claude_hooks_fixture
@@ -752,7 +752,7 @@ check "the wrapper tells the binary that it was handed the event" \
   'cd / && d="$(mktemp -d)" &&
    mkdir -p "$d/home/.local/bin" "$d/home/.local/libexec" "$d/cache" &&
    cp "$repo/home/.local/bin/claude-hooks" "$d/home/.local/bin/claude-hooks" &&
-   cp "$repo/home/.local/libexec/go-tool" "$d/home/.local/libexec/go-tool" &&
+   cp "$repo/home/.local/libexec/build-tool" "$d/home/.local/libexec/build-tool" &&
    printf "#!/bin/sh\nprintf %%s \"\$CLAUDE_HOOKS_FRESH\"\n" >"$d/cache/claude-hooks" &&
    chmod +x "$d/cache/claude-hooks" &&
    [ "$(CLAUDE_HOOKS_CACHE_DIR="$d/cache" \
@@ -1379,8 +1379,8 @@ check "this repo declares the go its compiled tools are built with" \
 check "the hachiko module is standard library only and builds without cgo" \
   '[ ! -f "$repo/tools/hachiko/go.sum" ] &&
    ! grep -q "^require" "$repo/tools/hachiko/go.mod" &&
-   grep -q "CGO_ENABLED=0" "$repo/home/.local/libexec/go-tool" &&
-   grep -q "GOTOOLCHAIN=local" "$repo/home/.local/libexec/go-tool"'
+   grep -q "CGO_ENABLED=0" "$repo/home/.local/libexec/build-tool" &&
+   grep -q "GOTOOLCHAIN=local" "$repo/home/.local/libexec/build-tool"'
 
 # The agent is the whole of the wiring, so an unrendered or invalid plist is a job
 # launchd rejects at load with nothing in it to say why.
@@ -1613,7 +1613,7 @@ hachiko_wrapper_fixture() {
     cp -R "$repo/tools/hachiko" "$d/tools/hachiko" &&
     cp "$repo/mise.toml" "$d/mise.toml" &&
     cp "$repo/home/.local/bin/hachiko" "$d/home/.local/bin/hachiko" &&
-    cp "$repo/home/.local/libexec/go-tool" "$d/home/.local/libexec/go-tool" &&
+    cp "$repo/home/.local/libexec/build-tool" "$d/home/.local/libexec/build-tool" &&
     cp -R "$repo/home/.hachiko" "$d/home/.hachiko" &&
     export MISE_TRUSTED_CONFIG_PATHS="$d" HACHIKO_CACHE_DIR="$d/cache" &&
     hachiko_fixture_state "$d/state"
@@ -1701,13 +1701,13 @@ go_tools_share_one_script() {
   local tool missing=0
 
   for tool in hachiko mochi claude-hooks; do
-    grep -qF '. "$repo/home/.local/libexec/go-tool"' "$repo/home/.local/bin/$tool" ||
+    grep -qF '. "$repo/home/.local/libexec/build-tool"' "$repo/home/.local/bin/$tool" ||
       { printf '%s does not source the shared script\n' "$tool"; missing=1; }
     [ "$(wc -l <"$repo/home/.local/bin/$tool")" -le 60 ] ||
       { printf '%s holds more than its own settings\n' "$tool"; missing=1; }
   done
 
-  if [ -e "$HOME/.local/libexec/go-tool" ]; then
+  if [ -e "$HOME/.local/libexec/build-tool" ]; then
     printf 'the shared script is linked into HOME\n'
     missing=1
   fi

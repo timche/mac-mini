@@ -803,15 +803,14 @@ export -f gc_compose_fixture
 
 check "window-shot is a live symlink and prints its usage" \
   '[ -L "$HOME/.local/bin/window-shot" ] && [ -x "$HOME/.local/bin/window-shot" ] &&
-   window-shot --help 2>&1 | grep -q "usage: window-shot <pid|owner> <out.png>"'
+   window-shot --help 2>&1 | grep -q "usage: window-shot <pid> <out.png> \[--window <id>\]"'
 check "window-shot refuses a missing output path" \
-  'window-shot Finder; [ $? -eq 2 ]'
-check "window-shot exits 1 and says so when the owner has no window, writing nothing" \
-  'out="$(mktemp -d)/shot.png" &&
-   ! err="$(window-shot "no-such-owner-$$" "$out" 2>&1)" &&
-   printf "%s" "$err" | grep -q "no on-screen window owned by no-such-owner-$$" &&
-   [ ! -e "$out" ]'
-check "window-shot reads a numeric first argument as a pid" \
+  'window-shot "$$"; [ $? -eq 2 ]'
+check "window-shot refuses a process name, which another session's copy of the app shares" \
+  'window-shot Finder "$(mktemp -d)/shot.png"; [ $? -eq 2 ]'
+check "window-shot refuses a window id that is not a number" \
+  'window-shot "$$" "$(mktemp -d)/shot.png" --window front; [ $? -eq 2 ]'
+check "window-shot exits 1 and says so when the pid has no window, writing nothing" \
   'out="$(mktemp -d)/shot.png" &&
    ! err="$(window-shot "$$" "$out" 2>&1)" &&
    printf "%s" "$err" | grep -q "no on-screen window owned by pid $$" &&

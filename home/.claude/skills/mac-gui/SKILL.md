@@ -29,7 +29,7 @@ System Events `keystroke` and `key code`, `cliclick`, raising a window, a native
 
 ## Seeing it
 
-- `window-shot <pid> <out.png> [--window <id>]` captures one window of that process even when others cover it. Never capture the display, which shows every other session's windows.
+- `window-shot <pid> <out.png> [--window <id>]` captures one window of that process even when others cover it. `window-record <pid> <out.mp4> [--window <id>]` records it the same way, without the foreground, until you send SIGINT; start it in the background and wait for its `recording` line on stderr before driving the app. Never capture or record the display, which shows every other session's windows.
 - Address a window only by values nothing else shares: the pid of the app's main process, kept from its launch, and the window id when the process has several windows, which the refusal lists with their titles. UTM is one process owning every session's VM windows, so a VM is its window id. A process name or a title can belong to another session's app or VM, and the shot of it looks right.
 - Cover a window rather than minimise it; a minimised window cannot be captured.
 - Look at every shot before saying what it shows.
@@ -46,5 +46,5 @@ Close every window and tab you opened. Quit your app by its pid, `kill -TERM <pi
 - "Keyboard through System Events, and always by pid": what osascript may do here, and the Automation prompt that blocks on the Mac's screen
 - "Typing a secret": a password into a form without it reaching an argument, a file or your output
 - "Signing in to a Google account": no debugging port during sign-in, one app per signed-in profile
-- "Capturing one app's window": picking the window by pid and window id for `window-shot`
+- "Capturing one app's window": picking the window by pid and window id for `window-shot`, and recording it with `window-record`
 - "Testing notifications": signed builds, banners, Notification Center, action buttons

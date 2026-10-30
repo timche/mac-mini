@@ -139,6 +139,11 @@ jobs:
             test -z "$("$mise" exec -C "$repo" -- gofmt -l "$repo/tools/$module")"
           done
 
+      # The Swift tool's own tests, on the Xcode machine/xcode.sh selected above, which is
+      # the toolchain build-tool builds it with on the Mac.
+      - name: swift test in tools/window/
+        run: swift test --package-path "$GITHUB_WORKSPACE/tools/window"
+
       # Known vulnerabilities in what each Go module builds with: the standard library of the
       # go mise installed, and any module a tool may one day pin. Run at a pinned version
       # rather than required, since it is a tool of CI's and no dependency of theirs.

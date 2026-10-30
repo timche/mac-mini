@@ -818,6 +818,22 @@ check "window refuses a -- with no command after it" \
   'window record "$$" "$(mktemp -d)/rec.mp4" --; [ $? -eq 2 ]'
 check "window refuses a command for anything but record" \
   'window shot "$$" "$(mktemp -d)/shot.png" -- true; [ $? -eq 2 ]'
+# The Swift half of build-tool, from a copy of the package so the real cache is never at
+# stake: built once, then a test broken, and the binary that was there has to be the one
+# that still answers.
+check "a window build whose tests fail leaves the binary that was already there" \
+  'd="$(mktemp -d)" && mkdir -p "$d/home/.local/bin" "$d/home/.local/libexec" "$d/tools" &&
+   cp "$repo/home/.local/bin/window" "$d/home/.local/bin/" &&
+   cp "$repo/home/.local/libexec/build-tool" "$d/home/.local/libexec/" &&
+   rsync -a --exclude .build "$repo/tools/window" "$d/tools/" &&
+   export WINDOW_CACHE_DIR="$d/cache" &&
+   "$d/home/.local/bin/window" --help >/dev/null 2>&1 && [ -x "$d/cache/window" ] &&
+   before="$(shasum "$d/cache/window")" &&
+   printf "@Test func broken() { #expect(Bool(false)) }\n" >"$d/tools/window/Tests/WindowCoreTests/Broken.swift" &&
+   printf "// moved\n" >>"$d/tools/window/Sources/window/main.swift" &&
+   err="$("$d/home/.local/bin/window" --help 2>&1 >/dev/null)" &&
+   printf "%s" "$err" | grep -q "do not pass, so this is the last binary" &&
+   [ "$(shasum "$d/cache/window")" = "$before" ]'
 check "window list exits 1 and says so when the pid has no window" \
   '! err="$(window list "$$" 2>&1)" &&
    printf "%s" "$err" | grep -q "no on-screen window owned by pid $$"'
@@ -1697,10 +1713,10 @@ check "a wrapper run from a linked worktree builds into a cache of its own and f
 # sourcing, which is what keeps a fix to the arrangement above from being three fixes. The
 # shared script is in the checkout and linked nowhere: a tool is reached by its own name,
 # and nothing but those three entries reads it.
-go_tools_share_one_script() {
+compiled_tools_share_one_script() {
   local tool missing=0
 
-  for tool in hachiko mochi claude-hooks; do
+  for tool in hachiko mochi claude-hooks window; do
     grep -qF '. "$repo/home/.local/libexec/build-tool"' "$repo/home/.local/bin/$tool" ||
       { printf '%s does not source the shared script\n' "$tool"; missing=1; }
     [ "$(wc -l <"$repo/home/.local/bin/$tool")" -le 60 ] ||
@@ -1714,10 +1730,10 @@ go_tools_share_one_script() {
 
   return "$missing"
 }
-export -f go_tools_share_one_script
+export -f compiled_tools_share_one_script
 
-check "every Go tool's wrapper is its own settings and the one shared script" \
-  'go_tools_share_one_script'
+check "every compiled tool's wrapper is its own settings and the one shared script" \
+  'compiled_tools_share_one_script'
 
 # The wrapper execs the next op on PATH after itself, so a stub placed behind it
 # stands in for Homebrew's: it prints the token it was handed, its arguments,

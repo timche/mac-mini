@@ -1,0 +1,208 @@
+#!/bin/bash
+# Lists, captures and records one app window, where `screencapture` alone
+# would take the whole display with every other session's windows on it, or a
+# rectangle of it that holds the window only while it is raised and uncovered.
+#
+# The window is named only by values nothing else shares: the pid of the app's
+# main process, and the window id when that process has more than one window.
+# Every session's development build of one app owns its windows under the same
+# process name, often with the same title, and UTM's one process owns every
+# session's VM windows, so a name or a title can pick another session's window
+# and the capture of it looks right. A pid with several windows is refused with
+# their ids and titles, which `list` also prints.
+#
+# `shot` hands the window id to `screencapture -l`, which nothing on macOS
+# prints an id for. `record` uses ScreenCaptureKit's desktop-independent window
+# filter, which records the window's own pixels while others cover it and raises
+# nothing; while it runs, macOS draws its sharing indicator over the window's
+# traffic lights, and a minimised window delivers no frames. The video is H.264
+# at most 1280 wide so it attaches to a pull request as it is.
+#
+# Swift runs through the Command Line Tools' `swift` as a script rather than as
+# a compiled binary, which would be a build step and a second file to keep
+# current. `exec` makes the script this process, since `swift -` interprets it
+# in its own process, so a signal sent to `window record` reaches the handler
+# that finishes the file. Titles and capture need the Screen Recording grant and
+# nothing more.
+
+exec swift - "$@" <<'SWIFT'
+import CoreGraphics
+import Foundation
+import ScreenCaptureKit
+
+let usage = """
+usage: window list <pid>
+       window shot <pid> <out.png> [--window <id>]
+       window record <pid> <out.mp4|out.mov> [--window <id>] [--max <seconds>] [--no-cursor] [--full]
+  pid is the app's main process; --window picks one of its windows by the id list prints.
+  record stops on SIGINT or SIGTERM, or after --max seconds (default 300).
+
+"""
+let err = FileHandle.standardError
+func say(_ message: String) { err.write("window: \(message)\n".data(using: .utf8)!) }
+func fail(_ message: String) -> Never { say(message); exit(1) }
+func refuse() -> Never { err.write(usage.data(using: .utf8)!); exit(2) }
+
+let args = Array(CommandLine.arguments.dropFirst())
+if args.first == "-h" || args.first == "--help" {
+  print(usage, terminator: "")
+  exit(0)
+}
+guard args.count >= 2, ["list", "shot", "record"].contains(args[0]), let pid = Int(args[1]), pid > 0 else { refuse() }
+let mode = args[0]
+var positional: [String] = []
+var wanted: Int?
+var maxSeconds = 300.0
+var showCursor = true
+var full = false
+var i = 2
+while i < args.count {
+  let arg = args[i]
+  func value() -> String {
+    i += 1
+    guard i < args.count else { refuse() }
+    return args[i]
+  }
+  switch arg {
+  case "--window" where mode != "list":
+    guard let id = Int(value()), id > 0 else { refuse() }
+    wanted = id
+  case "--max" where mode == "record":
+    guard let seconds = Double(value()), seconds > 0 else { refuse() }
+    maxSeconds = seconds
+  case "--no-cursor" where mode == "record": showCursor = false
+  case "--full" where mode == "record": full = true
+  default:
+    if arg.hasPrefix("-") { refuse() }
+    positional.append(arg)
+  }
+  i += 1
+}
+guard positional.count == (mode == "list" ? 0 : 1) else { refuse() }
+let out = positional.first.map { URL(fileURLWithPath: $0) }
+if mode == "record", !["mp4", "mov"].contains(out!.pathExtension) {
+  say("a recording is .mp4 or .mov, not \(out!.path)")
+  exit(2)
+}
+
+let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+let normal = windows.filter { ($0[kCGWindowLayer as String] as? Int) == 0 }
+func number(_ w: [String: Any]) -> Int { (w[kCGWindowNumber as String] as? Int) ?? -1 }
+func ownerPID(_ w: [String: Any]) -> Int { (w[kCGWindowOwnerPID as String] as? Int) ?? -1 }
+func title(_ w: [String: Any]) -> String { (w[kCGWindowName as String] as? String) ?? "" }
+func listing(_ ws: [[String: Any]]) -> String { ws.map { "\(number($0)) \"\(title($0))\"" }.joined(separator: ", ") }
+let owned = normal.filter { ownerPID($0) == pid }
+if owned.isEmpty {
+  let owners = Set(normal.map { "\(($0[kCGWindowOwnerName as String] as? String) ?? "") (pid \(ownerPID($0)))" }).sorted()
+  fail("no on-screen window owned by pid \(pid); " + (owners.isEmpty ? "no app has a window on screen" : "on screen: \(owners.joined(separator: ", "))"))
+}
+
+if mode == "list" {
+  for w in owned {
+    let b = (w[kCGWindowBounds as String] as? [String: Any]) ?? [:]
+    print("\(number(w)) \(b["Width"] ?? 0)x\(b["Height"] ?? 0) \"\(title(w))\"")
+  }
+  exit(0)
+}
+
+let match = wanted.map { id in owned.filter { number($0) == id } } ?? owned
+if match.count != 1 {
+  if let id = wanted { fail("pid \(pid) has no on-screen window \(id); its windows: \(listing(owned))") }
+  fail("pid \(pid) has \(owned.count) on-screen windows; pick one with --window <id>: \(listing(owned))")
+}
+let windowID = CGWindowID(number(match[0]))
+
+if mode == "shot" {
+  let capture = Process()
+  capture.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+  capture.arguments = ["-x", "-o", "-l", String(windowID), out!.path]
+  do { try capture.run() } catch { fail("screencapture: \(error.localizedDescription)") }
+  capture.waitUntilExit()
+  if capture.terminationStatus != 0 { exit(1) }
+  print(out!.path)
+  exit(0)
+}
+
+// SCStream aborts in a process that has never opened its window-server connection.
+_ = CGMainDisplayID()
+
+final class Recorder: NSObject, SCRecordingOutputDelegate, SCStreamDelegate {
+  var stream: SCStream?
+  var stopping = false
+
+  func recordingOutputDidStartRecording(_ output: SCRecordingOutput) {
+    say("recording window \(windowID) to \(out!.path)")
+  }
+  func recordingOutput(_ output: SCRecordingOutput, didFailWithError error: Error) {
+    fail("the recording failed, as it does for a minimised window: \(error.localizedDescription)")
+  }
+  func recordingOutputDidFinishRecording(_ output: SCRecordingOutput) {
+    print(out!.path)
+    exit(0)
+  }
+  func stream(_ stream: SCStream, didStopWithError error: Error) {
+    fail("the window's stream stopped, as it does when the window closes: \(error.localizedDescription)")
+  }
+
+  func stop() {
+    guard !stopping, let stream else { return }
+    stopping = true
+    stream.stopCapture { error in
+      if let error { fail("stopping: \(error.localizedDescription)") }
+    }
+  }
+}
+let recorder = Recorder()
+
+let signals = [SIGINT, SIGTERM].map { sig in
+  signal(sig, SIG_IGN)
+  let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+  source.setEventHandler { recorder.stop() }
+  source.resume()
+  return source
+}
+
+SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { content, error in
+  DispatchQueue.main.async {
+    guard let window = content?.windows.first(where: { $0.windowID == windowID }) else {
+      fail("ScreenCaptureKit does not offer window \(windowID)" + (error.map { ": \($0.localizedDescription)" } ?? ""))
+    }
+    let filter = SCContentFilter(desktopIndependentWindow: window)
+    let config = SCStreamConfiguration()
+    let scale = Double(filter.pointPixelScale)
+    var width = filter.contentRect.width * scale
+    var height = filter.contentRect.height * scale
+    if !full && width > 1280 {
+      height = height * 1280 / width
+      width = 1280
+    }
+    config.width = Int(width) / 2 * 2
+    config.height = Int(height) / 2 * 2
+    config.minimumFrameInterval = CMTime(value: 1, timescale: 30)
+    config.showsCursor = showCursor
+    config.showMouseClicks = showCursor
+    config.ignoreShadowsSingleWindow = true
+
+    try? FileManager.default.removeItem(at: out!)
+    let outputConfig = SCRecordingOutputConfiguration()
+    outputConfig.outputURL = out!
+    outputConfig.outputFileType = out!.pathExtension == "mp4" ? .mp4 : .mov
+    outputConfig.videoCodecType = .h264
+    let output = SCRecordingOutput(configuration: outputConfig, delegate: recorder)
+    let stream = SCStream(filter: filter, configuration: config, delegate: recorder)
+    recorder.stream = stream
+    do {
+      try stream.addRecordingOutput(output)
+    } catch {
+      fail("adding the recording output: \(error.localizedDescription)")
+    }
+    stream.startCapture { error in
+      if let error { fail("starting the capture: \(error.localizedDescription)") }
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + maxSeconds) { recorder.stop() }
+  }
+}
+// Not dispatchMain(), which drains the main queue off the main thread: ScreenCaptureKit
+// builds its menu bar recording indicator there, and AppKit aborts off the main thread.
+RunLoop.main.run()
+SWIFT

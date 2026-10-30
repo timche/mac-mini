@@ -814,6 +814,10 @@ check "window refuses a recording that is neither .mp4 nor .mov" \
   'window record "$$" "$(mktemp -d)/rec.gif"; [ $? -eq 2 ]'
 check "window refuses a zero --max" \
   'window record "$$" "$(mktemp -d)/rec.mp4" --max 0; [ $? -eq 2 ]'
+check "window refuses a -- with no command after it" \
+  'window record "$$" "$(mktemp -d)/rec.mp4" --; [ $? -eq 2 ]'
+check "window refuses a command for anything but record" \
+  'window shot "$$" "$(mktemp -d)/shot.png" -- true; [ $? -eq 2 ]'
 check "window list exits 1 and says so when the pid has no window" \
   '! err="$(window list "$$" 2>&1)" &&
    printf "%s" "$err" | grep -q "no on-screen window owned by pid $$"'

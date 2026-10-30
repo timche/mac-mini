@@ -54,6 +54,9 @@ brew "bash"
 
 brew "fd"
 brew "ffmpeg"
+# Keg-only beside ffmpeg, whose bottle has no libfreetype: drawtext, which labels
+# a `window record` clip, is only here.
+brew "ffmpeg-full"
 brew "glow"
 brew "ripgrep"
 brew "shellcheck"

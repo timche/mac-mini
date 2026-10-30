@@ -1,6 +1,7 @@
 #!/bin/sh
-# The build-in-place arrangement every Go tool here runs under, and all of it that is not
-# one tool's own. Sourced by the wrapper in home/.local/bin/<tool>, which sets:
+# The build-in-place arrangement every compiled tool here runs under, and all of it that is
+# not one tool's own. A tool is Go, or Swift where it lives on macOS frameworks only Swift
+# reaches; a Package.swift in its source folder is what says which. Sourced by the wrapper in home/.local/bin/<tool>, which sets:
 #
 #   tool           its name, which is the binary's, the cache folder's and the one in
 #                  every line logged here
@@ -10,7 +11,7 @@
 #   src            the module to build and test, $repo/tools/$tool unless the wrapper says
 #   hashed         the folders fingerprinted, $src unless the wrapper says, split on
 #                  whitespace so that a tool can name more than one
-#   test_packages  what the gate runs, ./... unless the wrapper says, split the same way
+#   test_packages  what a Go tool's gate runs, ./... unless the wrapper says, split the same way
 #   build_timeout, test_timeout, ldflags, drain_stdin, wrapped_var
 #                  each defaulted below
 #
@@ -20,10 +21,10 @@
 # and what it buys is that a half-written edit cannot take an agent down: a source tree
 # that does not compile leaves the last binary that did in place and logs one line about it.
 #
-# Only the rebuild depends on mise. The binary it execs is a static Go binary that depends
-# on nothing — not mise, not Homebrew, not a runtime — which is the point on a machine
-# where a LaunchAgent has to keep watching, and a hook to keep checking, while the tooling
-# is what broke. Every way the build can fail ends the same way: one line, and the last
+# Only the rebuild depends on a toolchain, mise's Go or Xcode's Swift. The binary it execs
+# depends on nothing that can break — a static Go binary, or a Swift one linking only what
+# macOS ships — which is the point on a machine where a LaunchAgent has to keep watching,
+# and a hook to keep checking, while the tooling is what broke. Every way the build can fail ends the same way: one line, and the last
 # binary that worked.
 #
 # A build that compiles is not the same as one that works, and what these binaries do is
@@ -55,6 +56,10 @@
 : "${ldflags:=}"
 : "${drain_stdin:=}"
 : "${wrapped_var:=}"
+lang=go
+if [ -f "$src/Package.swift" ]; then
+  lang=swift
+fi
 
 say() {
   printf '%s %s: %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$tool" "$1" >&2
@@ -105,10 +110,14 @@ fi
 # The sources' contents and their names, so a rename or a deletion counts as a change too.
 # A few milliseconds, which is what keeps a run that has nothing to build from reaching for
 # mise at all.
-hash=$(
-  find $hashed -type f \( -name '*.go' -o -name go.mod -o -name go.sum \) 2>/dev/null |
-    sort | xargs shasum -a 256 2>/dev/null | shasum -a 256 | cut -d' ' -f1
-)
+if [ "$lang" = swift ]; then
+  # .build is pruned because a `swift build` run by hand in the source folder puts sources
+  # of its own there.
+  sources=$(find $hashed -name .build -prune -o -type f \( -name '*.swift' -o -name Package.resolved \) -print 2>/dev/null)
+else
+  sources=$(find $hashed -type f \( -name '*.go' -o -name go.mod -o -name go.sum \) 2>/dev/null)
+fi
+hash=$(printf '%s\n' "$sources" | sort | xargs shasum -a 256 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
 
 # One step of the rebuild, with a deadline and its output in a file. The sleeper is the
 # watchdog; killing it once the step has finished is what keeps this from waiting for it.
@@ -147,19 +156,21 @@ bounded() {
 # script, since the hook runs the binary itself and falls back here when there is none.
 if [ -n "$hash" ] &&
   { [ ! -x "$bin" ] || [ "$hash" != "$(cat "$attempted" 2>/dev/null)" ]; }; then
-  mise=$(command -v mise 2>/dev/null) || mise="$HOME/.local/bin/mise"
+  if [ "$lang" = go ]; then
+    mise=$(command -v mise 2>/dev/null) || mise="$HOME/.local/bin/mise"
 
-  # An agent on a timer and a hook in a session are both the wrong place to download a
-  # toolchain, mise's or Go's own: a go that is missing or too old is install.sh's to put
-  # there, and a mise that went to the network here would turn a five-minute check into
-  # however long the download takes.
-  MISE_EXEC_AUTO_INSTALL=0
-  MISE_NOT_FOUND_AUTO_INSTALL=0
-  GOTOOLCHAIN=local
-  export MISE_EXEC_AUTO_INSTALL MISE_NOT_FOUND_AUTO_INSTALL GOTOOLCHAIN
+    # An agent on a timer and a hook in a session are both the wrong place to download a
+    # toolchain, mise's or Go's own: a go that is missing or too old is install.sh's to put
+    # there, and a mise that went to the network here would turn a five-minute check into
+    # however long the download takes.
+    MISE_EXEC_AUTO_INSTALL=0
+    MISE_NOT_FOUND_AUTO_INSTALL=0
+    GOTOOLCHAIN=local
+    export MISE_EXEC_AUTO_INSTALL MISE_NOT_FOUND_AUTO_INSTALL GOTOOLCHAIN
 
-  CGO_ENABLED=0
-  export CGO_ENABLED
+    CGO_ENABLED=0
+    export CGO_ENABLED
+  fi
 
   out="$cache/build.log"
 
@@ -168,7 +179,27 @@ if [ -n "$hash" ] &&
   if ! mkdir -p "$cache" 2>/dev/null; then
     say "$cache could not be made, so $tool could not be rebuilt from $src"
   else
-    if [ ! -x "$mise" ]; then
+    if [ "$lang" = swift ]; then
+      # Xcode's toolchain, which machine/xcode.sh installs and only `xcodes install` moves,
+      # so nothing here reaches for the network either. Its own scratch folder in the cache
+      # keeps a rebuild incremental, a second or two where a clean one takes several.
+      if ! xcrun --find swift >/dev/null 2>&1; then
+        say "there is no Swift toolchain, so $tool could not be rebuilt from $src — run machine/xcode.sh"
+      elif ! bounded "$build_timeout" "$out" \
+        xcrun swift build -c release --package-path "$src" --scratch-path "$cache/build" ||
+        ! built="$(xcrun swift build -c release --package-path "$src" --scratch-path "$cache/build" --show-bin-path 2>/dev/null)/$tool" ||
+        ! cp "$built" "$cache/$tool.$$" 2>/dev/null; then
+        rm -f "$cache/$tool.$$"
+        say "the sources in $src do not build, so this is the last binary that did: $(tr -d '\033' <"$out" 2>/dev/null | sed 's/\[[0-9;]*m//g' | grep -m 1 -E '\.swift:[0-9]+:[0-9]+: error:')"
+      elif ! bounded "$test_timeout" "$out" \
+        xcrun swift test --package-path "$src" --scratch-path "$cache/build"; then
+        rm -f "$cache/$tool.$$"
+        say "the tests in $src do not pass, so this is the last binary whose did: $(grep -m 1 -E '✘|error:' "$out" 2>/dev/null)"
+      else
+        mv -f "$cache/$tool.$$" "$bin"
+        rm -f "$out"
+      fi
+    elif [ ! -x "$mise" ]; then
       say "mise is missing, so $tool could not be rebuilt from $src"
     # -C, because launchd starts an agent in / and a hook runs in whatever directory the
     # session is in, and mise decides what is active from the directory it is asked about:

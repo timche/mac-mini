@@ -96,6 +96,7 @@ go = "1.27"
 
 # `screencapture -l` of one app's window, by owner name rather than window id.
 "~/.local/bin/window-shot" = { source = "home/.local/bin/window-shot", mode = "symlink" }
+"~/.local/bin/window-record" = { source = "home/.local/bin/window-record", mode = "symlink" }
 
 # Serialises what needs the one frontmost app: raising a window, System Events
 # keystrokes, cliclick.

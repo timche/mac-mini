@@ -816,6 +816,21 @@ check "window-shot exits 1 and says so when the pid has no window, writing nothi
    printf "%s" "$err" | grep -q "no on-screen window owned by pid $$" &&
    [ ! -e "$out" ]'
 
+check "window-record is a live symlink and prints its usage" \
+  '[ -L "$HOME/.local/bin/window-record" ] && [ -x "$HOME/.local/bin/window-record" ] &&
+   window-record --help 2>&1 | grep -q "usage: window-record <pid> <out.mp4|out.mov> \[--window <id>\]"'
+check "window-record refuses a process name, which another session's copy of the app shares" \
+  'window-record Finder "$(mktemp -d)/rec.mp4"; [ $? -eq 2 ]'
+check "window-record refuses an output that is neither .mp4 nor .mov" \
+  'window-record "$$" "$(mktemp -d)/rec.gif"; [ $? -eq 2 ]'
+check "window-record refuses a zero --max" \
+  'window-record "$$" "$(mktemp -d)/rec.mp4" --max 0; [ $? -eq 2 ]'
+check "window-record exits 1 and says so when the pid has no window, writing nothing" \
+  'out="$(mktemp -d)/rec.mp4" &&
+   ! err="$(window-record "$$" "$out" 2>&1)" &&
+   printf "%s" "$err" | grep -q "no on-screen window owned by pid $$" &&
+   [ ! -e "$out" ]'
+
 check "focus-lock is a live symlink and prints its usage" \
   '[ -L "$HOME/.local/bin/focus-lock" ] && [ -x "$HOME/.local/bin/focus-lock" ] &&
    focus-lock --help 2>&1 | grep -q "usage: focus-lock \[-t seconds\] <command>"'

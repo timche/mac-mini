@@ -110,8 +110,8 @@ checksum = "sha256:dcc60d59a0746999f99064a01c020445d54d84228c691cdbf25b49ac3b591
 url = "https://nodejs.org/dist/v26.13.0/node-v26.13.0-win-x64.zip"
 
 [[tools."npm:ccstatusline"]]
-version = "2.2.32"
-aube = { path = "locks/npm-ccstatusline/2.2.32", digest = "sha256:010a493976df18356b7b0e27473be97d13dae46fc1fe627bb24cf4711aa7e107" }
+version = "2.2.33"
+aube = { path = "locks/npm-ccstatusline/2.2.33", digest = "sha256:1efb37a71516c1dea1cbb449b00339f004617906f76a93185b8d2992f30d6e4c" }
 backend = "npm:ccstatusline"
 specifiers = ["latest"]
 

@@ -49,9 +49,9 @@ func (h *Handler) watch(ev event.Event, watches map[string]state.Watch) {
 }
 
 // WatchPRs runs every two minutes and asks GitHub nothing while no pull request is watched. A
-// merged one is the session done, either end is said in its thread when the watch saw it open
-// first, and a push whose checks
-// fail is relayed to the session once, as mochi's own prompt, with nothing of it in Discord.
+// merged one is the session done, with nothing said in its thread, since the session posts its
+// own word on the merge; a push whose checks fail is relayed to the session once, as mochi's
+// own prompt, with nothing of it in Discord.
 //
 // What it watches is read under the handler's lock and what came of it applied under it, but
 // GitHub and herdr are asked with the lock free, so a mention is never held behind them.
@@ -150,14 +150,8 @@ func (h *Handler) apply(looks map[string]look) {
 			delete(watches, url)
 		case l.merged:
 			h.Marks.Settled(w.Thread, mark.Finished)
-			if w.Open {
-				h.say(w.Thread, fmt.Sprintf("Merged #%d.", w.Number))
-			}
 			w.Done = true
 		case l.closed:
-			if w.Open {
-				h.say(w.Thread, fmt.Sprintf("Closed #%d without merging.", w.Number))
-			}
 			w.Done = true
 		case !l.open || (w.Open && l.told == ""):
 			continue

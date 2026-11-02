@@ -81,19 +81,8 @@ func (f *fixture) postPR(thread, url string) {
 	f.h.ConsumeEvents()
 }
 
-func count(posts []string, want string) int {
-	n := 0
-	for _, p := range posts {
-		if p == want {
-			n++
-		}
-	}
-	return n
-}
-
 // The session posting its pull request again, before and after the merge, as a review and
-// then as done, starts no second watch and no second notice; GitHub is asked nothing once it
-// is merged.
+// then as done, starts no second watch; GitHub is asked nothing once it is merged.
 func TestAPullRequestPostedAgainIsWatchedOnce(t *testing.T) {
 	f, thread, g := watched(t)
 	f.h.WatchPRs()
@@ -108,9 +97,6 @@ func TestAPullRequestPostedAgainIsWatchedOnce(t *testing.T) {
 	asked := len(g.calls)
 	f.h.WatchPRs()
 	f.h.WatchPRs()
-	if n := count(f.sentTo(thread), "Merged #42."); n != 1 {
-		t.Errorf("merged posts %d: %q", n, f.sentTo(thread))
-	}
 	if f.watching() != 0 || f.watches() != 1 || len(g.calls) != asked {
 		t.Errorf("watching %d of %d, GitHub asked %d more times", f.watching(), f.watches(), len(g.calls)-asked)
 	}
@@ -143,44 +129,19 @@ func TestNoWatchedPullRequestAsksGitHubNothing(t *testing.T) {
 	}
 }
 
-// Merged: the session is done, its thread says so once, naming the pull request, and it is
-// watched no more; its tab is left as it is.
+// Merged: the session is done and watched no more, with nothing said in its thread, since the
+// session posts its own word on the merge; its tab is left as it is.
 func TestAMergedPullRequestIsTheSessionDone(t *testing.T) {
 	f, thread, g := watched(t)
 	if f.watching() != 1 {
 		t.Fatal("the posted pull request is not watched")
 	}
 	f.h.WatchPRs()
-	if f.watching() != 1 || f.sentTo(thread)[len(f.sentTo(thread))-1] == "Merged #42." {
+	if f.watching() != 1 || func() bool { got, _ := f.h.Marks.Session(thread); return got == mark.Finished }() {
 		t.Fatal("an open pull request was taken for merged")
 	}
-
-	g.state, g.merged = "closed", true
-	f.h.WatchPRs()
-	f.h.WatchPRs()
-	f.inState(thread, mark.Finished)
-	if f.api.Channels[thread].Name != "✅ research" {
-		t.Errorf("thread = %q", f.api.Channels[thread].Name)
-	}
-	merged := 0
-	for _, p := range f.sentTo(thread) {
-		if p == "Merged #42." {
-			merged++
-		}
-	}
-	if merged != 1 || f.watching() != 0 {
-		t.Errorf("merged posts %d, still watching %d", merged, f.watching())
-	}
-	if len(f.herdr.called("tab close")) != 0 {
-		t.Error("a merge closed the tab")
-	}
-}
-
-// A pull request already merged at the first look is the session done all the same, but its
-// thread is told nothing: the session posted it after the merge and has said so itself.
-func TestAPullRequestMergedAtTheFirstLookIsNotSaid(t *testing.T) {
-	f, thread, g := watched(t)
 	posted := len(f.sentTo(thread))
+
 	g.state, g.merged = "closed", true
 	f.h.WatchPRs()
 	f.h.WatchPRs()
@@ -191,36 +152,19 @@ func TestAPullRequestMergedAtTheFirstLookIsNotSaid(t *testing.T) {
 	if posts := f.sentTo(thread); len(posts) != posted || f.watching() != 0 {
 		t.Errorf("posts %q, watching %d", posts[posted:], f.watching())
 	}
+	if len(f.herdr.called("tab close")) != 0 {
+		t.Error("a merge closed the tab")
+	}
 }
 
-// Closed without merging: said once, naming the pull request, watched no more, the state left
-// alone.
-func TestAClosedPullRequestIsSaid(t *testing.T) {
+// Closed without merging: watched no more, with nothing said and the state left alone.
+func TestAClosedPullRequestIsNotSaid(t *testing.T) {
 	f, thread, g := watched(t)
 	f.h.Marks.Settled(thread, mark.Asking)
 	f.h.WatchPRs()
-	g.state = "closed"
-	f.h.WatchPRs()
-	f.h.WatchPRs()
-	closed := 0
-	for _, p := range f.sentTo(thread) {
-		if p == "Closed #42 without merging." {
-			closed++
-		}
-	}
-	if closed != 1 || f.watching() != 0 {
-		t.Errorf("closed posts %d, watching %d", closed, f.watching())
-	}
-	f.inState(thread, mark.Asking)
-}
-
-// A pull request already closed at the first look is watched no more, with nothing said and
-// the state left alone.
-func TestAPullRequestClosedAtTheFirstLookIsNotSaid(t *testing.T) {
-	f, thread, g := watched(t)
-	f.h.Marks.Settled(thread, mark.Asking)
 	posted := len(f.sentTo(thread))
 	g.state = "closed"
+	f.h.WatchPRs()
 	f.h.WatchPRs()
 	if posts := f.sentTo(thread); len(posts) != posted || f.watching() != 0 {
 		t.Errorf("posts %q, watching %d", posts[posted:], f.watching())

@@ -2,6 +2,8 @@ package process
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -48,6 +50,31 @@ func TestParseProcessesReadsTheFieldsPsPrints(t *testing.T) {
 	if procs[1].StartedAt.IsZero() {
 		t.Error("the start date was not parsed")
 	}
+}
+
+// The crashpad handler of Chrome for Testing, whose bundle name has spaces in it: cut at
+// the first space, its path ended in `Google` and missed the `.app/` that marks a helper
+// an app ships.
+func TestAnExecutablePathWithASpaceInItIsReadWhole(t *testing.T) {
+	dir := t.TempDir()
+	helper := filepath.Join(dir, "Google Chrome for Testing.app", "Contents", "Helpers", "chrome_crashpad_handler")
+	if err := os.MkdirAll(filepath.Dir(helper), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(helper, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	p := Process{Command: helper + " --monitor-self --database=" + dir}
+	harness.Equal(t, p.Path(), helper, "path")
+	harness.Equal(t, p.Name(), "chrome_crashpad_handler", "name")
+
+	// A directory on the way is not the executable, however much of the line it matches.
+	harness.Equal(t, Process{Command: dir + " x"}.Path(), dir, "nothing longer is a file")
+
+	gone := filepath.Join(dir, "Old App.app", "Contents", "MacOS", "old") + " --flag"
+	harness.Equal(t, Process{Command: gone}.Path(), filepath.Join(dir, "Old"), "a binary that is gone")
+	harness.Equal(t, Process{Command: "claude --resume"}.Path(), "claude", "a process title")
 }
 
 // `launchctl list` in the shape it prints: a header, a `-` where a job is loaded and not

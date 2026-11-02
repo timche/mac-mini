@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -44,10 +45,24 @@ type Process struct {
 
 func (p Process) Key() string { return strconv.Itoa(p.PID) + ":" + p.Start }
 
-// The executable, which is the first token of the command line.
+// The executable. ps prints argv joined by spaces, so a path with a space in it — every
+// helper inside `Google Chrome for Testing.app` — is the shortest prefix of the command
+// line, cut at a space, that is a file on disk. The first token is what is left when none
+// is, which is any command not started by an absolute path and one whose binary is gone.
 func (p Process) Path() string {
-	path, _, _ := strings.Cut(p.Command, " ")
-	return path
+	first, _, _ := strings.Cut(p.Command, " ")
+	if !strings.HasPrefix(first, "/") {
+		return first
+	}
+	for i := len(first); i <= len(p.Command); i++ {
+		if i < len(p.Command) && p.Command[i] != ' ' {
+			continue
+		}
+		if info, err := os.Stat(p.Command[:i]); err == nil && info.Mode().IsRegular() {
+			return p.Command[:i]
+		}
+	}
+	return first
 }
 
 func (p Process) Name() string { return filepath.Base(p.Path()) }

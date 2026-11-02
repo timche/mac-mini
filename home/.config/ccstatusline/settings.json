@@ -27,18 +27,6 @@
     ],
     [
       {
-        "id": "0a14a704-a05c-413b-aca4-dea932fecbf0",
-        "type": "session-usage"
-      },
-      {
-        "id": "42ebefe2-a8c1-4a43-9de2-ac09f6761506",
-        "type": "reset-timer"
-      },
-      {
-        "id": "e4c77bb1-32f9-4166-8b6d-2be50deee006",
-        "type": "separator"
-      },
-      {
         "id": "2e680c73-ce37-45c3-8480-4112f29f7065",
         "type": "weekly-usage",
         "metadata": {
@@ -96,6 +84,8 @@
   "inheritSeparatorColors": false,
   "globalBold": false,
   "gitCacheTtlSeconds": 5,
+  "terminalWidthCacheTtlSeconds": 5,
+  "customCommandCacheTtlSeconds": 0,
   "minimalistMode": false,
   "powerline": {
     "enabled": false,

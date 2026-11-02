@@ -36,7 +36,7 @@ func TestTheFirstPostQuotesWhatTheSessionIsAbout(t *testing.T) {
 	f.h.Handle(m)
 
 	msg := firstPost(t, f, m.ID)
-	want := startedPost(m.ID) + "\n" +
+	want := startedPost(m.ID) + "\n\n" +
 		"> **Maker-sama:** hey, some QOL things:\n> a) average elo\n> b) map stats (2 images)\n\n" +
 		"> **tim:** take a look\n> at both (1 file)"
 	if msg.Content != want {
@@ -191,7 +191,7 @@ func TestEveryLineOfAQuoteIsQuoted(t *testing.T) {
 	f.h.Handle(m)
 
 	text := firstPost(t, f, m.ID).Content
-	want := startedPost(m.ID) + "\n" +
+	want := startedPost(m.ID) + "\n\n" +
 		"> **Odd Name \\*\\*bold\\*\\*:** one\n> two\n> three\n> four\n> five\n> six\n\n" +
 		"> **tim:** look\n> here"
 	if text != want {

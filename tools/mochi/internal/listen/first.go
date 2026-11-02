@@ -37,26 +37,26 @@ func (h *Handler) announcement(o opener) *discord.MessageSend {
 	if link := chat.Link(m.GuildID, m.ChannelID, m.ID); link != "" {
 		head = "Session started for <@" + h.Cfg.User + ">'s message: " + link
 	}
-	// Each message is a quote block of its own, and the summary a paragraph, a blank line
-	// between them so Discord shows them apart. Over the limit the replied-to message gives
-	// way first, then the summary; Tim's words and the link never do.
+	// The first line, each quoted message and the summary are blocks apart, a blank line
+	// between them so Discord shows them apart. Over the limit the replied-to message gives way
+	// first, then the summary; Tim's words and the link never do.
 	tail := quote(chat.Name(m), o.instruction, m.Attachments)
 	// The summary is the classifier's words in mochi's voice, so it is held to what a session's
 	// own post is: no link or path, not even a bare domain plain() cannot defuse.
 	if o.summary != "" && posts.CheckText(o.summary, nil) == nil {
 		line := "**Summary:** " + plain(o.summary)
-		if room := maxFirstPost - units(head+"\n"+tail) - 2; units(line) > room && room > units("**Summary:** …")+10 {
+		if room := maxFirstPost - units(head+"\n\n"+tail) - 2; units(line) > room && room > units("**Summary:** …")+10 {
 			line = within(line, room-1) + "…"
 		}
-		if units(head+"\n"+tail)+2+units(line) <= maxFirstPost {
+		if units(head+"\n\n"+tail)+2+units(line) <= maxFirstPost {
 			tail += "\n\n" + line
 		}
 	}
-	text := head + "\n" + tail
+	text := head + "\n\n" + tail
 	if r := o.replied; r != nil {
 		budget := maxFirstPost - units(text) - 2
 		if q := quoteWithin(chat.Name(r), r.Content, r.Attachments, budget); q != "" {
-			text = head + "\n" + q + "\n\n" + tail
+			text = head + "\n\n" + q + "\n\n" + tail
 		}
 	}
 	if units(text) > maxFirstPost {

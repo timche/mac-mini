@@ -113,7 +113,7 @@ type fixture struct {
 	oncallErr     error
 	oncallBlocked bool
 
-	// What herdr would say the on-call agent of each kind is doing, and what hachiko did
+	// What hc would say the on-call agent of each kind is doing, and what hachiko did
 	// to it: one entry per cancelled question and the prompt that replaced it.
 	status       map[string]string
 	statusErr    error
@@ -306,18 +306,18 @@ func (f *fixture) deps() Deps {
 				// The agent is on a question whose cancelling did not work, so nothing of
 				// the update reached it.
 				return oncall.Session{
-					Tab: name + "-0000",
-					Say: fmt.Sprintf("The agent is already waiting for you in herdr — attach: workspace `.mac-mini`, tab `%s-0000`. This update did not reach it.", name),
+					Tab: "oncall-" + name,
+					Say: fmt.Sprintf("The agent is already waiting for you — attach: `hc attach oncall-%s`, or the `.mac-mini` space in Herdr. This update did not reach it.", name),
 				}, nil
 			}
 
 			session := oncall.Session{
-				Tab:       name + "-0000",
+				Tab:       "oncall-" + name,
 				Delivered: true,
-				Say:       fmt.Sprintf("An agent is looking into it — attach in herdr: workspace `.mac-mini`, tab `%s-0000`. Details to follow.", name),
+				Say:       fmt.Sprintf("An agent is looking into it — attach: `hc attach oncall-%s`, or the `.mac-mini` space in Herdr. Details to follow.", name),
 			}
 
-			// What the real oncaller does with an agent herdr would refuse a prompt to: the
+			// What the real oncaller does with an agent hc would refuse a send to: the
 			// question goes and the brief takes its place, which leaves it working.
 			if f.status[name] == oncall.StatusBlocked {
 				f.interrupts = append(f.interrupts, "The situation changed\n"+brief)
@@ -339,7 +339,7 @@ func (f *fixture) deps() Deps {
 		Interrupt: func(kind, lead, data string) (bool, error) {
 			if f.interruptErr != nil {
 				// An esc that landed without its prompt leaves the agent off its question and
-				// with nothing to do, which from herdr is indistinguishable from Tim having
+				// with nothing to do, which from hc is indistinguishable from Tim having
 				// answered it.
 				if f.interruptEsc {
 					f.status[kind] = "idle"
@@ -347,7 +347,7 @@ func (f *fixture) deps() Deps {
 				return f.interruptEsc, f.interruptErr
 			}
 			f.interrupts = append(f.interrupts, lead+"\n"+data)
-			// The agent herdr refuses a prompt to is the one still on its question, so a
+			// The agent hc refuses a send to is the one still on its question, so a
 			// cancelled question leaves it working on what it was handed instead.
 			f.status[kind] = oncall.StatusWorking
 			return true, nil

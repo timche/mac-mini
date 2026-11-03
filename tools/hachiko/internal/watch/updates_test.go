@@ -89,7 +89,7 @@ func TestAStepThatKeepsFailingIsNotRaisedAgain(t *testing.T) {
 	harness.Equal(t, f.oncallCalls, 1, "sessions opened")
 }
 
-// The guarantee behind the session holds here too: it needs herdr, a Claude login and usage
+// The guarantee behind the session holds here too: it needs hc, a Claude login and usage
 // left, and the raw details are what Tim gets when that chain breaks.
 func TestAnUpdateSessionThatNeverReportsSendsTheRawDetails(t *testing.T) {
 	f := failingUpdate(t)

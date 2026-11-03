@@ -38,7 +38,7 @@ func TestNewIncidentOpensTheSessionThenSendsOneShortMessage(t *testing.T) {
 
 	harness.Wants(t, f.lastSent(), "\U0001f4be Low disk space: 90 GB free")
 	harness.Wants(t, f.lastSent(), "**Free space:** 90 GB, under the 100 GB mark")
-	harness.Wants(t, f.lastSent(), "An agent is looking into it — attach in herdr: workspace `.mac-mini`, tab `disk-0000`. Details to follow.")
+	harness.Wants(t, f.lastSent(), "An agent is looking into it — attach: `hc attach oncall-disk`, or the `.mac-mini` space in Herdr. Details to follow.")
 	harness.Wants(t, f.lastSent(), "-# Incident disk-")
 	// The lead is the whole of the headline, and a headline carries no incident id.
 	harness.Lacks(t, strings.SplitN(f.lastSent(), "\n", 2)[0], "disk-0000")
@@ -68,7 +68,7 @@ func TestAReportInsideTheDeadlineLeavesNothingMoreToSend(t *testing.T) {
 	harness.Equal(t, f.sentCount(), 1, "messages sent after the report was consumed")
 }
 
-// The deadline and the report race: a sweep holds its lock across a herdr call and an
+// The deadline and the report race: a sweep holds its lock across an hc call and an
 // `op run`, which together can outlast the five minutes an on-call session is told to
 // report within — so the report may not depend on taking that lock, and a sweep that
 // held it for the whole window must still see the report rather than sending the raw
@@ -96,7 +96,7 @@ func TestAReportLandsWhileASweepHoldsTheLock(t *testing.T) {
 	harness.Equal(t, len(f.state().Pending), 0, "pending incidents after the report")
 }
 
-// The session needs herdr, a Claude login and usage left; a watch that only ever
+// The session needs hc, a Claude login and usage left; a watch that only ever
 // spoke through it would be silent exactly when that chain broke.
 func TestASessionThatNeverReportsGetsTheRawDetailsAfterTheDeadline(t *testing.T) {
 	f := newFixture(t)
@@ -109,7 +109,7 @@ func TestASessionThatNeverReportsGetsTheRawDetailsAfterTheDeadline(t *testing.T)
 	harness.Equal(t, f.sentCount(), 2, "messages sent")
 	harness.Wants(t, f.lastSent(), "\u26a0\ufe0f No report from the agent on the disk incident after 10 minutes")
 	harness.Wants(t, f.lastSent(), "**Free space:** 90 GB, under the 100 GB mark")
-	harness.Wants(t, f.lastSent(), "Attach in herdr: workspace `.mac-mini`, tab `disk-0000`.")
+	harness.Wants(t, f.lastSent(), "Attach: `hc attach oncall-disk`, or the `.mac-mini` space in Herdr.")
 	harness.Equal(t, len(f.state().Pending), 0, "pending incidents after the fallback")
 
 	harness.Equal(t, f.at(900).sweep(), "", "the log after the fallback")
@@ -118,7 +118,7 @@ func TestASessionThatNeverReportsGetsTheRawDetailsAfterTheDeadline(t *testing.T)
 
 func TestASessionThatCannotBeOpenedGetsTheRawDetailsOnTheSameRun(t *testing.T) {
 	f := newFixture(t)
-	f.oncallErr = errors.New("herdr agent list failed")
+	f.oncallErr = errors.New("hc get oncall-disk failed")
 	f.freeGB = 90
 
 	out := f.at(0).sweep()
@@ -448,7 +448,7 @@ func TestAMarkerWithNothingPendingIsForgotten(t *testing.T) {
 	harness.Equal(t, f.sentCount(), 0, "messages sent")
 }
 
-// The standing orders leave an on-call session waiting on a question, and herdr refuses
+// The standing orders leave an on-call session waiting on a question, and hc refuses
 // a prompt to an agent in that state — so the commonest second alert of an incident
 // reaches nobody. Reading that as "no session" would have claimed the Mac was
 // unattended; waiting on it would have promised a report that cannot come.

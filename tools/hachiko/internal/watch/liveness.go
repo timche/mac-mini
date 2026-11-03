@@ -180,7 +180,7 @@ func (s sweeper) agents() []liveness {
 		statedir.AgentListen: {
 			meanwhile: "so a reply in an incident thread is reaching nobody",
 			why: "A reply in an incident thread is not reaching the on-call session, so " +
-				"answering from Discord does nothing and attaching to herdr is the only way to " +
+				"answering from Discord does nothing and attaching to the session is the only way to " +
 				"answer at all.",
 			gone:     "Answering from Discord is switched off, so nothing further is said about the listener",
 			saidGone: "answering from Discord is switched off, so nothing further is said about the listener",

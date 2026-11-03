@@ -72,7 +72,7 @@ func TestAReminderGoesOutAtAnHourAndOnlyOnce(t *testing.T) {
 	harness.Equal(t, f.sentCount(), 2, "messages sent once the reminder is due")
 
 	harness.Wants(t, f.lastSent(), "\u26a0\ufe0f Still no answer on the disk incident after 12 minutes")
-	harness.Wants(t, f.lastSent(), "Answer in herdr: workspace `.mac-mini`, tab `disk-0000`.")
+	harness.Wants(t, f.lastSent(), "Answer: `hc attach oncall-disk`, or the `.mac-mini` space in Herdr.")
 	// Re-measured this run rather than quoted from the question.
 	harness.Wants(t, f.lastSent(), "**Now:** 90 GB free, under the 100 GB mark")
 
@@ -105,7 +105,7 @@ func TestTheWarningQuotesTheOptionTheSessionWouldFallBackOn(t *testing.T) {
 	harness.Equal(t, f.sentCount(), 3, "messages sent after the warning")
 }
 
-// The handover itself: the question goes first, because herdr refuses a prompt to an
+// The handover itself: the question goes first, because hc refuses a send to an
 // agent still on one, and then the session is told to decide. Nothing of hachiko's own
 // reaches the channel — the session's own message is what says what it did.
 func TestTheDecisionIsHandedOverAtTheDeadlineAndOnlyOnce(t *testing.T) {
@@ -145,7 +145,7 @@ func TestTheDecisionIsHandedOverAtTheDeadlineAndOnlyOnce(t *testing.T) {
 func TestAnAnswerPausesTheClockAndTheOutcomeEndsTheWait(t *testing.T) {
 	f := waiting(t)
 
-	// He picks an option, so herdr shows the agent working rather than blocked.
+	// He picks an option, so hc shows the agent working rather than blocked.
 	f.status["disk"] = oncall.StatusWorking
 	harness.Equal(t, f.at(600+remindAt).sweep(), "", "the log while the agent works on his answer")
 	harness.Equal(t, len(f.state().Waiting), 1, "waits still being counted")
@@ -218,11 +218,11 @@ func TestAWorseningDiskHandsOverEvenWhileTheAgentIsWorking(t *testing.T) {
 
 // A question that is gone with nothing in flight and nothing said about it is the weakest
 // evidence there is: Tim answering, hachiko's own esc and a session that gave up on its turn
-// are the same reading from herdr. So the timeline runs on rather than the wait ending on it.
+// are the same reading from hc. So the timeline runs on rather than the wait ending on it.
 func TestASilentUnblockKeepsTheTimeline(t *testing.T) {
 	f := waiting(t)
 
-	// It may be him answering in herdr with the agent between turns, so he gets the minutes a
+	// It may be him answering in the session with the agent between turns, so he gets the minutes a
 	// session is given to report in before anything is said over the top of it.
 	f.status["disk"] = "idle"
 	out := f.at(600 + remindAt).sweep()
@@ -282,7 +282,7 @@ func TestTheGraceForAnOutcomeStartsAfterTheHandoverAndNotBeforeIt(t *testing.T) 
 	f.at(600 + warnAt).sweep()
 	harness.Equal(t, f.state().Waiting["disk"].Settled, base.Unix()+600+remindAt, "when it went quiet")
 
-	// The handover goes as a prompt, and herdr still calls it idle rather than working.
+	// The handover goes as a prompt, and hc still calls it idle rather than working.
 	out := f.at(600 + handoverAt).sweep()
 	harness.Wants(t, out, "handed the decision on disk-")
 	harness.Equal(t, f.state().Waiting["disk"].Settled, int64(0), "when it went quiet, after the handover")
@@ -422,7 +422,7 @@ func TestAMarkerKeepsTheOptionAnEarlierReportNamed(t *testing.T) {
 	harness.Equal(t, store.ReportedAttempt("disk-1700000300"), true, "whether the attempt survives a later report")
 }
 
-// The session depends on herdr and on Tim not having closed the tab, and a wait that
+// The session depends on hc and on Tim not having closed the terminal, and a wait that
 // handed a decision to nobody would be an incident reported as resolved and not touched.
 func TestASessionClosedBeforeTheDeadlineGetsAMessageSayingNothingWasDone(t *testing.T) {
 	f := waiting(t)
@@ -1060,7 +1060,7 @@ func TestAStepThatCouldNotSendIsTriedAgainOnTheNextCheck(t *testing.T) {
 	harness.Lacks(t, f.at(600+remindAt+600).sweep(), "reminded about")
 }
 
-// The same for the handover, which is a prompt rather than a message: a herdr that could
+// The same for the handover, which is a prompt rather than a message: an hc that could
 // not be reached leaves the decision to the next check rather than recording it as made.
 func TestAHandoverThatCouldNotBeDeliveredIsTriedAgainOnTheNextCheck(t *testing.T) {
 	f := waiting(t)
@@ -1070,7 +1070,7 @@ func TestAHandoverThatCouldNotBeDeliveredIsTriedAgainOnTheNextCheck(t *testing.T
 	f.interruptErr = errors.New("the agent is still on its question after the esc")
 	harness.Wants(t, f.at(600+handoverAt).sweep(), "could not be handed to the disk on-call agent")
 	harness.Equal(t, statedir.Contains(f.state().Waiting["disk"].Steps, stepHandover), false,
-		"whether the handover is recorded while herdr refused")
+		"whether the handover is recorded while hc refused")
 
 	f.interruptErr = nil
 	harness.Wants(t, f.at(600+handoverAt+300).sweep(), "handed the decision on disk-")
@@ -1085,7 +1085,7 @@ func TestAnEscThatLandedWithoutItsPromptIsRetriedAsThePromptAlone(t *testing.T) 
 	f.at(600 + remindAt).sweep()
 	f.at(600 + warnAt).sweep()
 
-	// The handover: the esc goes, herdr goes on calling the agent blocked for the whole
+	// The handover: the esc goes, hc goes on calling the agent blocked for the whole
 	// window, and so nothing is prompted.
 	f.interruptErr = errors.New("the agent is still on its question after the esc, so nothing was prompted")
 	f.interruptEsc = true
@@ -1131,7 +1131,7 @@ func TestAnOwedPromptThatCannotBeSentEitherIsLeftToTheNextCheck(t *testing.T) {
 	f.at(600 + handoverAt).sweep()
 
 	f.interruptErr, f.interruptEsc = nil, false
-	f.promptErr = errors.New("herdr would not take the prompt")
+	f.promptErr = errors.New("hc would not take the prompt")
 	out := f.at(600 + handoverAt + 300).sweep()
 
 	harness.Wants(t, out, "did not reach it either, so the next check tries again")
@@ -1140,7 +1140,7 @@ func TestAnOwedPromptThatCannotBeSentEitherIsLeftToTheNextCheck(t *testing.T) {
 
 	f.promptErr = nil
 	harness.Wants(t, f.at(600+handoverAt+600).sweep(), "the prompt owed to the disk on-call agent")
-	harness.Equal(t, len(f.prompts), 1, "prompts sent on their own once herdr took it")
+	harness.Equal(t, len(f.prompts), 1, "prompts sent on their own once hc took it")
 	harness.Equal(t, len(f.interrupts), 0, "cancel-and-prompts that went through whole")
 }
 
@@ -1303,7 +1303,7 @@ func TestAWaitOnASessionThatNeverAsksAnythingIsDroppedAfterAnHour(t *testing.T) 
 }
 
 // An esc that keeps failing is a question taken away every five minutes with nothing put in
-// its place. herdr refuses a prompt to an agent on a question, so there is nothing else to
+// its place. hc refuses a send to an agent on a question, so there is nothing else to
 // send it meanwhile — and a fourth attempt in the same state is churn rather than a retry.
 func TestARepeatedlyFailingEscIsCappedUntilTheAgentMoves(t *testing.T) {
 	f := waiting(t)
@@ -1335,7 +1335,7 @@ func TestARepeatedlyFailingEscIsCappedUntilTheAgentMoves(t *testing.T) {
 	harness.Equal(t, f.state().Waiting["disk"].Escs, escAttempts, "attempts recorded while the cap held")
 	harness.Equal(t, len(f.state().Waiting), 1, "waits still being counted")
 
-	// Tim was told once, and the wait is still there to act on when herdr comes back.
+	// Tim was told once, and the wait is still there to act on when hc comes back.
 	harness.Equal(t, f.sentCount(), 4, "messages Tim had")
 	harness.Wants(t, f.lastSent(), "\U0001f534 The decision on the disk incident reached no agent")
 
@@ -1370,31 +1370,31 @@ func TestTheEscCapIsSaidOnceInTheLog(t *testing.T) {
 	harness.Equal(t, said, 1, "times the cap was said")
 }
 
-// herdr not answering at all is not an answer from Tim, so the wait is left exactly as
+// hc not answering at all is not an answer from Tim, so the wait is left exactly as
 // it was rather than being read as either. One check is a server being restarted or a
 // configuration being reloaded, and not something to wake anybody about.
-func TestHerdrNotAnsweringLeavesTheWaitAsItWas(t *testing.T) {
+func TestHCNotAnsweringLeavesTheWaitAsItWas(t *testing.T) {
 	f := waiting(t)
 	f.statusErr = errors.New("no server is listening")
 
-	harness.Wants(t, f.at(600+handoverAt).sweep(), "herdr did not say what the disk on-call agent is doing")
+	harness.Wants(t, f.at(600+handoverAt).sweep(), "hc did not say what the disk on-call agent is doing")
 	harness.Equal(t, len(f.state().Waiting), 1, "waits still being counted")
 	harness.Equal(t, len(f.interrupts), 0, "questions cancelled")
 	harness.Equal(t, f.sentCount(), 1, "messages sent")
-	harness.Equal(t, f.state().Waiting["disk"].Unreachable, base.Unix()+600+handoverAt, "when herdr first did not answer")
+	harness.Equal(t, f.state().Waiting["disk"].Unreachable, base.Unix()+600+handoverAt, "when hc first did not answer")
 
 	// And any answer at all ends the run, so the next outage is measured from itself rather
 	// than from one that came back.
 	f.statusErr = nil
 	f.blocks("disk")
 	f.at(600 + handoverAt + 300).sweep()
-	harness.Equal(t, f.state().Waiting["disk"].Unreachable, int64(0), "when herdr first did not answer, after it answered")
+	harness.Equal(t, f.state().Waiting["disk"].Unreachable, int64(0), "when hc first did not answer, after it answered")
 }
 
 // An unbroken run of them is the other thing entirely: there is no session to remind, nothing
 // to hand a decision to and no way to tell whether anybody answered. A wait counted on in
 // silence is how an incident gets left to nobody, so it says so once and stops.
-func TestHerdrNotAnsweringForLongEnoughSaysNothingIsBeingWorked(t *testing.T) {
+func TestHCNotAnsweringForLongEnoughSaysNothingIsBeingWorked(t *testing.T) {
 	f := waiting(t)
 	incident := f.state().Waiting["disk"].Incident
 	f.statusErr = errors.New("no server is listening")
@@ -1403,18 +1403,18 @@ func TestHerdrNotAnsweringForLongEnoughSaysNothingIsBeingWorked(t *testing.T) {
 	for at := int64(900); at < 900+600; at += 300 {
 		harness.Wants(t, f.at(at).sweep(), "is left as it was")
 		harness.Equal(t, len(f.state().Waiting), 1, "waits still being counted")
-		harness.Equal(t, f.sentCount(), 1, "messages sent while herdr was down")
+		harness.Equal(t, f.sentCount(), 1, "messages sent while hc was down")
 	}
 
 	out := f.at(1500).sweep()
-	harness.Wants(t, out, "herdr has not answered about the disk on-call agent for")
+	harness.Wants(t, out, "hc has not answered about the disk on-call agent for")
 	harness.Wants(t, out, "the wait on it ends here")
 	harness.Equal(t, len(f.state().Waiting), 0, "waits still being counted")
 
-	harness.Equal(t, f.sentCount(), 2, "messages sent once herdr had been down long enough")
+	harness.Equal(t, f.sentCount(), 2, "messages sent once hc had been down long enough")
 	harness.Wants(t, f.lastSent(), "\U0001f534 Cannot reach the on-call session on the disk incident")
 	harness.Wants(t, f.lastSent(), "-# Incident "+incident)
-	harness.Wants(t, f.lastSent(), "**Why:** herdr has not answered for 10 minutes")
+	harness.Wants(t, f.lastSent(), "**Why:** hc has not answered for 10 minutes")
 	harness.Wants(t, f.lastSent(), "Nothing is being worked and nothing can be handed to it.")
 	harness.Wants(t, f.lastSent(), "**Now:** 90 GB free, under the 100 GB mark")
 
@@ -1432,7 +1432,7 @@ func TestAnAnswerInBetweenStartsTheOutageAgain(t *testing.T) {
 	f.at(900).sweep()
 	f.at(1200).sweep()
 
-	// herdr comes back for one check, on which the hour's reminder is also due.
+	// hc comes back for one check, on which the hour's reminder is also due.
 	f.statusErr = nil
 	f.blocks("disk")
 	harness.Wants(t, f.at(1500).sweep(), "reminded about disk-")
@@ -1469,7 +1469,7 @@ func TestAWaitOnAnUnreachableHerdrSurvivesASendThatFailed(t *testing.T) {
 }
 
 // The night of cpu-1791071900, walked through end to end. At the handover hachiko sent the
-// esc, read the status once, found herdr still saying `blocked`, logged that the next check
+// esc, read the status once, found hc still saying `blocked`, logged that the next check
 // would try again and sent no prompt. Five minutes later the agent was no longer blocked
 // with nothing recorded against the wait, so the sweep logged "was answered after 3h05m" and
 // dropped it: nothing acted, and Tim's last message was the warning at 03:49.
@@ -1482,7 +1482,7 @@ func TestTheNightOfTheHandoverThatWentNowhereNowHandsOver(t *testing.T) {
 	harness.Wants(t, f.at(600+warnAt).sweep(), "from the handover")
 	harness.Equal(t, f.sentCount(), 3, "messages Tim had before the handover")
 
-	// 04:04: the esc lands and herdr goes on calling the agent blocked, so nothing is
+	// 04:04: the esc lands and hc goes on calling the agent blocked, so nothing is
 	// prompted. The difference is that hachiko now knows it took the question away.
 	f.interruptErr = errors.New("the agent is still on its question after the esc, so nothing was prompted")
 	f.interruptEsc = true
@@ -1563,7 +1563,7 @@ The worker is logging this, thousands of times a second:
 
 If no answer: stop pid 4242
 
-Attach: herdr workspace .mac-mini, tab disk-1200`
+Attach: hc attach oncall-disk`
 
 	harness.Equal(t, session.FallbackOption(report), "stop pid 4242", "the option read out of a report full of logs")
 

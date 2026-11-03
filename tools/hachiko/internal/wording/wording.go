@@ -340,18 +340,20 @@ func IncidentWords(kind string) string {
 	}
 }
 
-// Where the session is, in the two words herdr names things by.
-func HerdrWhere(cfg config.Config, tab string) string {
-	return fmt.Sprintf("workspace %s, tab %s",
-		CodeSpan(Safe(cfg.WorkspaceLabel(), PathLimit)), CodeSpan(Safe(tab, PathLimit)))
+// The two ways there are of reaching the session: the command that puts a terminal on it,
+// which is what a phone with an SSH client has, and the space in the Herdr app, which is
+// where it is already open.
+func SessionWhere(cfg config.Config, terminal string) string {
+	return fmt.Sprintf("%s, or the %s space in Herdr",
+		CodeSpan("hc attach "+Safe(terminal, PathLimit)), CodeSpan(Safe(cfg.SpaceName(), PathLimit)))
 }
 
-func AttachAction(cfg config.Config, tab string) string {
-	return "Attach in herdr: " + HerdrWhere(cfg, tab) + "."
+func AttachAction(cfg config.Config, terminal string) string {
+	return "Attach: " + SessionWhere(cfg, terminal) + "."
 }
 
-func AnswerAction(cfg config.Config, tab string) string {
-	return "Answer in herdr: " + HerdrWhere(cfg, tab) + "."
+func AnswerAction(cfg config.Config, terminal string) string {
+	return "Answer: " + SessionWhere(cfg, terminal) + "."
 }
 
 // The daemons /usr/local/libexec/claude-root restarts with no password, read out of the

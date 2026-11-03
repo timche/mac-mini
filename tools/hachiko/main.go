@@ -5,7 +5,7 @@
 // The watch is the one a bare `hachiko` runs: every five minutes it checks free space,
 // what is burning CPU, what a finished session left running and how much of the account's
 // Claude usage limits is left, and alerts when it matters. Most of the rest are what grew out of
-// that alert — the on-call session hachiko opens in herdr to work an incident, the two
+// that alert — the on-call session hachiko opens in an hc terminal to work an incident, the two
 // commands that session runs for itself, and the listener that takes Tim's reply to it out
 // of Discord. `hachiko gc` is the other thing a Mac with nobody at it needs: every ten
 // minutes it sweeps what a removed worktree and a finished session left behind, and once an
@@ -86,8 +86,8 @@ const usage = `usage: hachiko [--dry-run | --test-alert]
                      --outcome marks the one that says the incident is resolved,
                      and --attempt the one it sends before its single fix, which
                      is what records that the attempt happened
-  oncall             open a Claude Code session in herdr to work an incident, and
-                     print the label of the tab it is waiting in
+  oncall             open a Claude Code session in an hc terminal to work an incident,
+                     and print the name of the terminal it is waiting in
   approval-request   register the one action an on-call session is asking Tim to
                      approve with a code, so a code alone approves nothing else
   listen             watch the incident threads in Discord for a reply from Tim and

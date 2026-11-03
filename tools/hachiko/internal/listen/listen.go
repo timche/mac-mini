@@ -1,9 +1,9 @@
 // Package listen is `hachiko listen`, which watches the incident threads in Discord for a
 // reply from Tim and hands it to the on-call session. What it is for: he wakes up, reads
-// one message on his phone, and answers it there. Attaching to herdr from a phone is three
+// one message on his phone, and answers it there. Attaching to the session from a phone is three
 // minutes of work and reading a message is none, so the question the on-call session is
 // waiting on is answerable from the thread the alert is in — and answering it stops the
-// three-hour clock the same way picking an option in herdr does, because the answer reaches
+// three-hour clock the same way picking an option in the session does, because the answer reaches
 // the agent and takes it off its question.
 //
 // It runs as its own LaunchAgent rather than inside the five-minute sweep: a reply is worth
@@ -112,7 +112,7 @@ func WithToken(cfg config.Config) error {
 		cfg:    cfg,
 		store:  store,
 		bot:    discord.NewBot(token),
-		herdr:  oncall.HerdrCLI,
+		hc:     oncall.HCCLI,
 		now:    now,
 		log:    log,
 		secret: strings.TrimSpace(os.Getenv("HACHIKO_APPROVAL_TOTP")),
@@ -241,7 +241,7 @@ type listener struct {
 	cfg   config.Config
 	store statedir.Store
 	bot   discord.Bot
-	herdr oncall.Runner
+	hc    oncall.Runner
 	now   func() time.Time
 	log   interface{ Say(string, ...any) }
 	sleep func(d time.Duration)
@@ -310,7 +310,7 @@ func (l *listener) answered(incident, thread string) {
 
 // One pass over the threads the open incidents have, and whether Discord answered it. The
 // threads come from the state the sweep writes, read without the lock: a sweep holds that lock
-// across a herdr call and an `op run`, and a loop that waited for it would be a loop that
+// across an hc call and an `op run`, and a loop that waited for it would be a loop that
 // misses replies for minutes.
 func (l *listener) once() bool {
 	state, err := l.store.Load()
@@ -509,14 +509,14 @@ func (l listener) recordAttempt(incident, action string) int {
 
 func (l listener) clearAttempts(incident string) { os.Remove(l.attemptsPath(incident)) }
 
-// Straight to the agent, through the same cancel-then-prompt the sweep uses: herdr refuses
-// a prompt to an agent on a question, and this is the answer to that question. Nothing
+// Straight to the agent, through the same cancel-then-prompt the sweep uses: hc refuses a
+// send to an agent on a question, and this is the answer to that question. Nothing
 // records this esc against the wait, and nothing needs to: no sweep reads an agent leaving
 // `blocked` as an answer any more, whoever took the question away.
 func (l *listener) handTo(incident, lead, data string) error {
 	kind := statedir.KindOf(incident)
 
-	o := oncall.Oncaller{Cfg: l.cfg, Herdr: l.herdr, Now: l.now, Log: l.log}
+	o := oncall.Oncaller{Cfg: l.cfg, HC: l.hc, Now: l.now, Log: l.log}
 
 	status, err := o.Status(kind)
 	if err != nil {

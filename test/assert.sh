@@ -1542,9 +1542,9 @@ check "the hachiko agent checks at load" \
 check "the hachiko agent checks every five minutes" \
   '[ "$(plutil -extract StartInterval raw -o - "$hachiko_plist")" = 300 ]'
 # ~/.local/bin first, for the wrapper itself, for the op there that signs 1Password
-# in, for the herdr the server runs from and for the mise that rebuilds the binary;
-# Homebrew's op behind it.
-check "the hachiko agent's PATH reaches the op wrapper, herdr, mise and Homebrew" \
+# in, for the hc the on-call session is opened with and for the mise that rebuilds the
+# binary; Homebrew's op behind it.
+check "the hachiko agent's PATH reaches the op wrapper, hc, mise and Homebrew" \
   'plutil -extract ProgramArguments.2 raw -o - "$hachiko_plist" |
      grep -qF "export PATH=\"\$HOME/.local/bin:/opt/homebrew/bin"'
 
@@ -1656,7 +1656,7 @@ check "mochi requires no module from outside this checkout" \
    [ ! -e "$repo/tools/lib/discord/go.sum" ] && ! grep -q "^require" "$repo/tools/lib/discord/go.mod"'
 
 # The one check that is the agent rather than a description of it. Everything else here
-# runs hachiko as this session, which holds the privacy grants herdr was given — and that
+# runs hachiko as this session, which holds the privacy grants the core's launcher was given — and that
 # is exactly the difference that hid a sweep hanging forever on its first real run.
 #
 # Under launchd an unsigned binary is its own TCC-responsible process. A folder behind

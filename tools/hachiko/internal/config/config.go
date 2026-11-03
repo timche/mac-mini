@@ -54,6 +54,11 @@ type Config struct {
 	CPUAllowPath string
 	EnvFile      string
 
+	// The space the Herdr app on Tim's MacBook shows this Mac's sessions in, which is what
+	// the on-call terminal's `herdr.space` label has to carry: the app shows a terminal only
+	// when it carries one, and the id is the app's rather than anything this Mac can derive.
+	HerdrSpace string
+
 	// The installed root helper, read for the one list it holds: the daemons it will
 	// restart without a password. A message about a busy daemon on that list can name the
 	// command Tim runs instead of the sudo kill he has to think about.
@@ -210,7 +215,7 @@ func (c Config) SyncLabel() string {
 
 // And the same two for the listener, whose heartbeat goes in the directory it already keeps
 // what it has seen and said in — beside state.json rather than inside it, since a
-// five-second loop may not take the lock the sweep holds across a herdr call and an
+// five-second loop may not take the lock the sweep holds across an hc call and an
 // `op run`.
 func (c Config) ListenStamp() string { return filepath.Join(c.StateDir, "listen", "heartbeat") }
 func (c Config) ListenLabel() string {
@@ -226,10 +231,10 @@ func (c Config) MochiLabel() string {
 // cannot be two paths. The folder is what moves, by the one variable both tools read.
 func (c Config) UsageFile() string { return filepath.Join(c.UsageStateDir, "latest.json") }
 
-// WorkspaceLabel is the herdr workspace the on-call session goes in: the one for
-// this machine's own repository, so a session that starts there has the machine's
-// instructions loaded.
-func (c Config) WorkspaceLabel() string { return filepath.Base(c.MachineDir) }
+// SpaceName is what a message calls the space the on-call session shows up in, which is
+// this machine's own repository: the checkout the session starts in, so it has the machine's
+// instructions loaded. The id the app keys that space by is HerdrSpace.
+func (c Config) SpaceName() string { return filepath.Base(c.MachineDir) }
 
 // Dir is hachiko's folder in HOME: the four config files mise links into it, the ping token
 // tools/shibuya/secrets.sh generates beside them, the references its secrets are resolved from,
@@ -298,6 +303,8 @@ func FromEnv() Config {
 		LogsRoot:     filepath.Join(home, "Library", "Logs"),
 		HerdrRoot:    filepath.Join(home, ".herdr", "worktrees"),
 		ProjectsRoot: projects,
+
+		HerdrSpace:   envString("HACHIKO_HERDR_SPACE", "sp-mac-mini"),
 
 		CPUAllowPath: envString("HACHIKO_CPU_ALLOW", filepath.Join(Dir(home), "cpu-allow")),
 		EnvFile:      envFile,

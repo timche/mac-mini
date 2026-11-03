@@ -151,7 +151,7 @@ func TestALongMessageIsCappedAndSaysWhereTheRestIs(t *testing.T) {
 	if len(got) >= Limit {
 		t.Errorf("the message is %d characters, which Discord refuses", len(got))
 	}
-	harness.Wants(t, got, "[truncated — the rest is in the on-call tab in herdr]")
+	harness.Wants(t, got, "[truncated — the rest is in the on-call session]")
 
 	short := "one line"
 	harness.Equal(t, capMessage(short), short, "a short message")
@@ -172,7 +172,7 @@ func TestTheCapCutsWholeLinesAndLeavesNoCodeSpanOpen(t *testing.T) {
 			wording.CodeSpan(fmt.Sprintf("/usr/local/bin/node worker-%02d.js", i)))
 	}
 	long := m.Bullets(wording.LabelBusy, bullets).
-		Can("Attach in herdr: workspace `.mac-mini`, tab `disk-1200`.").
+		Can("Attach: `hc attach oncall-disk`, or the `.mac-mini` space in Herdr.").
 		About("disk-1700000000", "mac-mini").
 		String()
 
@@ -210,7 +210,7 @@ func TestTheCapDropsTheSubtextFirst(t *testing.T) {
 		return wording.Lead(wording.MarkerBusy, "node is busy: 80% of a core for 1 hour").
 			Bullets(wording.LabelBusy, []string{
 				wording.CodeSpan("/usr/local/bin/node worker.js") + " — " + strings.Repeat("x", pad)}).
-			Can("Attach in herdr.")
+			Can("Attach in the Herdr app.")
 	}
 
 	// Sized so that everything but the subtext fits inside what the cap keeps, and the

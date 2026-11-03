@@ -37,7 +37,7 @@ const (
 
 // How many esc-and-prompt attempts in a row may fail before nothing of the agent's is
 // cancelled again until it is seen off its question. Three, because the failure this answers
-// is herdr taking the keys and the agent not acting on them, which the poll in
+// is hc taking the key and the agent not acting on it, which the poll in
 // oncall.Oncaller.InterruptWith already waits out — a fourth try in the same state is a
 // question taken away for nothing.
 //
@@ -127,7 +127,7 @@ func (r nowReading) numbersOn(kind string) string {
 	return r.numbers()
 }
 
-// One `herdr agent get` per kind and no more, because there is one on-call agent per
+// One `hc get` per kind and no more, because there is one on-call agent per
 // kind: what it is doing is the whole of how hachiko knows whether anybody answered.
 func (s sweeper) chaseAnswers(state *statedir.State, now time.Time, reading nowReading) {
 	for _, kind := range statedir.SortedKeys(state.Waiting) {
@@ -228,7 +228,7 @@ func (s sweeper) chaseAnswers(state *statedir.State, now time.Time, reading nowR
 // Not blocked, not working, and nothing has reported anything: the question is gone and the
 // agent has nothing in flight. That is what Tim answering looks like from here — and it is
 // equally what hachiko's own esc looks like, and what a session that gave up on its turn
-// looks like. herdr cannot tell them apart and neither can this, so ending the wait here was
+// looks like. hc cannot tell them apart and neither can this, so ending the wait here was
 // ending it on the weakest evidence there is, which is how a whole night's incident went by
 // with nothing acting and nothing said.
 //
@@ -244,7 +244,7 @@ func (s sweeper) settled(state *statedir.State, now time.Time, kind string, w st
 		w.Settled = now.Unix()
 	}
 
-	// An unblock hachiko did not cause may well be Tim answering in herdr, with the agent
+	// An unblock hachiko did not cause may well be Tim answering in the session, with the agent
 	// between turns for a moment. He gets the minutes a session is given to report in before
 	// the timeline resumes over the top of it — and no more than that, because an answer that
 	// was really an answer ends in an outcome, and this one has not. Nothing of the kind is
@@ -329,7 +329,7 @@ func (s sweeper) escalate(state *statedir.State, now time.Time, kind string, w s
 
 	// An esc that keeps failing is an esc every five minutes, each one taking away whatever
 	// the session has asked since. After a few in a row that did not land, nothing of the
-	// agent's is cancelled again until its state has moved — herdr refuses a prompt to an
+	// agent's is cancelled again until its state has moved — hc refuses a send to an
 	// agent on a question, so there is nothing else to send it meanwhile. Messages to Tim are
 	// not esc and go on either way.
 	escSpent := blocked && w.Escs >= escAttempts
@@ -488,8 +488,8 @@ func (s sweeper) sayNoOutcome(state *statedir.State, kind string, w statedir.Wai
 	message := wording.Lead(wording.MarkerDegraded, fmt.Sprintf("No outcome reported on %s", wording.IncidentWords(kind))).
 		Field(wording.LabelWhy, why).
 		Block(reading.numbersOn(kind)).
-		Can("hachiko has stopped waiting and does not know whether anything was done. Check herdr: "+
-			wording.HerdrWhere(s.cfg, w.Tab)+", or "+orElse(kind)+".").
+		Can("hachiko has stopped waiting and does not know whether anything was done. Check the session: "+
+			wording.SessionWhere(s.cfg, w.Tab)+", or "+orElse(kind)+".").
 		About(w.Incident, s.cfg.Host).
 		String()
 
@@ -695,9 +695,9 @@ func once(changed change) []string {
 	return []string{changed.once}
 }
 
-// herdr not answering is neither an answer nor a closed session, so one check that cannot
-// reach it leaves the wait exactly as it was: a server being restarted or a configuration
-// being reloaded is not something to wake anybody about, and the next check asks again.
+// hc not answering is neither an answer nor a closed session, so one check that cannot
+// reach it leaves the wait exactly as it was: a core being restarted or an update swapping
+// the binary is not something to wake anybody about, and the next check asks again.
 //
 // An unbroken run of them is the other thing entirely. There is no session to remind, nothing
 // to hand a decision to and no way to tell whether anybody answered, so the wait is not a
@@ -711,7 +711,7 @@ func (s sweeper) unreachable(state *statedir.State, now time.Time, kind string, 
 
 	down := now.Sub(time.Unix(w.Unreachable, 0))
 	if down < s.cfg.OncallDeadline {
-		s.say("herdr did not say what the %s on-call agent is doing, so the wait on %s is left as it was: %v",
+		s.say("hc did not say what the %s on-call agent is doing, so the wait on %s is left as it was: %v",
 			kind, w.Incident, err)
 		return w, true
 	}
@@ -720,25 +720,25 @@ func (s sweeper) unreachable(state *statedir.State, now time.Time, kind string, 
 	// session that said nothing, and a second one here would be about a question that was
 	// never asked. The same rule noAgent follows.
 	if w.Since == 0 {
-		s.say("herdr has not answered about the %s on-call agent for %s and it was never seen on a question, so the wait on %s is dropped",
+		s.say("hc has not answered about the %s on-call agent for %s and it was never seen on a question, so the wait on %s is dropped",
 			kind, hmStr(down), w.Incident)
 		return w, false
 	}
 
 	message := wording.Lead(wording.MarkerDown, fmt.Sprintf("Cannot reach the on-call session on %s", wording.IncidentWords(kind))).
-		Field(wording.LabelWhy, fmt.Sprintf("herdr has not answered for %s", wording.DurationPhrase(down))).
+		Field(wording.LabelWhy, fmt.Sprintf("hc has not answered for %s", wording.DurationPhrase(down))).
 		Block(reading.numbersOn(kind)).
 		Can("Nothing is being worked and nothing can be handed to it. Open a session on it yourself, or "+orElse(kind)+".").
 		About(w.Incident, s.cfg.Host).
 		String()
 
 	if err := s.send(state, w.Incident, message); err != nil {
-		s.say("herdr has not answered about %s for %s and the message saying so did not send either: %v",
+		s.say("hc has not answered about %s for %s and the message saying so did not send either: %v",
 			w.Incident, hmStr(down), err)
 		return w, true
 	}
 
-	s.say("herdr has not answered about the %s on-call agent for %s, so nothing is being worked on %s and the wait on it ends here",
+	s.say("hc has not answered about the %s on-call agent for %s, so nothing is being worked on %s and the wait on it ends here",
 		kind, hmStr(down), w.Incident)
 	return w, false
 }

@@ -114,7 +114,7 @@ func TestAMessageHasOneBlankLineBetweenItsPartsAndNoTrailingOne(t *testing.T) {
 	m := Lead(MarkerBusy, "node is busy: 80% of a core for 1 hour").
 		Field(LabelFreeSpace, "500 GB").
 		Bullets(LabelBusy, []string{"node (pid 7018) — 80% of a core for 1 hour"}).
-		Can("Attach in herdr.").
+		Can("Attach in the Herdr app.").
 		About("disk-1700000000", "mac-mini")
 
 	harness.Equal(t, m.String(), "🔥 node is busy: 80% of a core for 1 hour\n"+
@@ -124,7 +124,7 @@ func TestAMessageHasOneBlankLineBetweenItsPartsAndNoTrailingOne(t *testing.T) {
 		"**Busy processes:**\n"+
 		"- node (pid 7018) — 80% of a core for 1 hour\n"+
 		"\n"+
-		"Attach in herdr.\n"+
+		"Attach in the Herdr app.\n"+
 		"\n"+
 		"-# Incident disk-1700000000 · mac-mini", "a whole message")
 

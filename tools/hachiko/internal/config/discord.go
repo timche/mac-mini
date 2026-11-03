@@ -8,7 +8,7 @@ import (
 
 // Where hachiko posts and whose reply it takes. The channel is what every message goes
 // to, so a Mac with none configured has nowhere to send an alert; the account is what
-// makes answering the on-call agent from Discord possible, where attaching to herdr is
+// makes answering the on-call agent from Discord possible, where attaching to the session is
 // three minutes of work and reading a message is none.
 type DiscordConfig struct {
 	ChannelID string

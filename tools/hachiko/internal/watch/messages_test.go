@@ -114,7 +114,7 @@ var messageKinds = []messageKind{{
 	wants: []string{
 		"💾 Low disk space: 46 GB free",
 		"**Free space:** 46 GB, under the 100 GB mark",
-		"An agent is looking into it — attach in herdr: workspace `.mac-mini`, tab `disk-0000`. Details to follow.",
+		"An agent is looking into it — attach: `hc attach oncall-disk`, or the `.mac-mini` space in Herdr. Details to follow.",
 	},
 	render: func(t *testing.T) string {
 		f := newFixture(t)
@@ -196,7 +196,7 @@ var messageKinds = []messageKind{{
 		"**Left behind:**",
 		"- node (pid 7018) — left behind for 1 hour, 1 GB memory, started yesterday at ",
 		"(the meru worktree fix-ui)",
-		"An agent is looking into it — attach in herdr: workspace `.mac-mini`, tab `stray-0000`. Details to follow.",
+		"An agent is looking into it — attach: `hc attach oncall-stray`, or the `.mac-mini` space in Herdr. Details to follow.",
 	},
 	render: func(t *testing.T) string {
 		f := newFixture(t)
@@ -216,7 +216,7 @@ var messageKinds = []messageKind{{
 		"**Step:** `mise up`",
 		"**Failing since:** less than a minute",
 		"**Needs you:** nothing here tries it again before tomorrow night.",
-		"An agent is looking into it — attach in herdr: workspace `.mac-mini`, tab `update-0000`. Details to follow.",
+		"An agent is looking into it — attach: `hc attach oncall-update`, or the `.mac-mini` space in Herdr. Details to follow.",
 	},
 	render: func(t *testing.T) string {
 		f := failingUpdate(t)
@@ -249,7 +249,7 @@ var messageKinds = []messageKind{{
 		"**Why:** Nothing here moves a version on its own",
 		"**Waiting:** 33 minutes",
 		"**If no answer:** leave it to tomorrow night's run",
-		"Answer in herdr: workspace `.mac-mini`, tab `update-0000`.",
+		"Answer: `hc attach oncall-update`, or the `.mac-mini` space in Herdr.",
 	},
 	render: func(t *testing.T) string {
 		f := failingUpdate(t)
@@ -267,7 +267,7 @@ var messageKinds = []messageKind{{
 	wants: []string{
 		"⚠️ No report from the agent on the disk incident after 10 minutes",
 		"**Free space:** 46 GB, under the 100 GB mark",
-		"Attach in herdr: workspace `.mac-mini`, tab `disk-0000`.",
+		"Attach: `hc attach oncall-disk`, or the `.mac-mini` space in Herdr.",
 	},
 	render: func(t *testing.T) string {
 		f := newFixture(t)
@@ -282,7 +282,7 @@ var messageKinds = []messageKind{{
 	wants: []string{
 		"⚠️ Still no answer on the disk incident after 12 minutes",
 		"**Now:** 46 GB free, under the 100 GB mark",
-		"Answer in herdr: workspace `.mac-mini`, tab `disk-0000`.",
+		"Answer: `hc attach oncall-disk`, or the `.mac-mini` space in Herdr.",
 	},
 	render: func(t *testing.T) string {
 		f := waitingOnAQuestion(t)
@@ -371,11 +371,11 @@ var messageKinds = []messageKind{{
 		return f.lastSent()
 	},
 }, {
-	name:   "herdr-unreachable",
+	name:   "hc-unreachable",
 	marker: wording.MarkerDown,
 	wants: []string{
 		"🔴 Cannot reach the on-call session on the disk incident",
-		"**Why:** herdr has not answered for 10 minutes",
+		"**Why:** hc has not answered for 10 minutes",
 		"Nothing is being worked and nothing can be handed to it.",
 	},
 	render: func(t *testing.T) string {

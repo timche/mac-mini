@@ -14,7 +14,7 @@ func TestTheFallbackOptionSurvivesTheWarningsOwnFormat(t *testing.T) {
 		Field(wording.LabelWaiting, "2 hours 45 minutes").
 		Field(wording.LabelFallback, "stop pid 4242 and empty the log").
 		Block("**Now:** 1 GB free").
-		Can("Answer in herdr: workspace `.mac-mini`, tab `disk-1200`.").
+		Can("Answer: `hc attach oncall-disk`, or the `.mac-mini` space in Herdr.").
 		About("disk-1700000000", "mac-mini").
 		String()
 

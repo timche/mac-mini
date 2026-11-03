@@ -324,7 +324,7 @@ func ThreadName(message string) string {
 // Set here rather than at each call site, so nothing that posts can forget it.
 func noMentions() map[string]any { return map[string]any{"parse": []string{}} }
 
-const truncatedTail = "[truncated — the rest is in the on-call tab in herdr]"
+const truncatedTail = "[truncated — the rest is in the on-call session]"
 
 // Discord takes 2,000 characters, and a message here is built of whole lines — so the cut
 // falls on a line boundary. A cut in the middle of a line leaves its inline code span open,

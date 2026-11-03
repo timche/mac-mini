@@ -693,7 +693,7 @@ Nothing else you can run reaches that channel. He has already had one line sayin
 }
 
 // Which pending incident each marker is a report on. `hachiko notify` leaves a marker
-// rather than editing the state, because a sweep holds the lock across a herdr call and
+// rather than editing the state, because a sweep holds the lock across an hc call and
 // an `op run` and the session has no minutes to spend waiting for it.
 //
 // A session re-briefed by an escalation keeps the incident id it was first handed in its
@@ -799,7 +799,7 @@ func (s sweeper) rememberAttempt(state *statedir.State, incident string, attempt
 	}
 }
 
-// The guarantee behind the session: it needs herdr, a Claude login and usage left,
+// The guarantee behind the session: it needs hc, a Claude login and usage left,
 // and a watch that only ever spoke through it would be silent exactly when that
 // chain broke.
 func (s sweeper) chaseLateReports(state *statedir.State, now time.Time) {

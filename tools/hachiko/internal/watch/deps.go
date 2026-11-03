@@ -89,14 +89,14 @@ type Deps struct {
 	// reached it, which is what the message about to go out has to say.
 	Oncall func(name, brief string) (oncall.Session, error)
 
-	// What herdr says the on-call agent of a kind is doing — blocked, working, idle,
-	// done, or gone when there is no such agent any more. Blocked is the whole of how
+	// What hc says the on-call agent of a kind is doing — blocked, working, idle,
+	// done, or gone when there is no session left to ask. Blocked is the whole of how
 	// hachiko knows Tim has not answered yet.
 	AgentStatus func(kind string) (string, error)
 
 	// Cancels the question the agent is waiting on and hands it a prompt in its place.
-	// It fails rather than prompting if the question is still up, since herdr refuses a
-	// prompt to a blocked agent and a step recorded as done would never be tried again.
+	// It fails rather than prompting if the question is still up, since hc refuses a send
+	// to a blocked agent and a step recorded as done would never be tried again.
 	//
 	// The first value says whether the esc went, which is the difference between a question
 	// still in front of Tim and one hachiko took away and then failed to replace.
@@ -156,16 +156,16 @@ func realDeps(cfg config.Config) Deps {
 		SetUpdateRaised: hand.SetRaised,
 
 		Oncall: func(name, brief string) (oncall.Session, error) {
-			return oncall.Oncaller{Cfg: cfg, Herdr: oncall.HerdrCLI, Now: now, Log: log}.Open(name, brief)
+			return oncall.Oncaller{Cfg: cfg, HC: oncall.HCCLI, Now: now, Log: log}.Open(name, brief)
 		},
 		AgentStatus: func(kind string) (string, error) {
-			return oncall.Oncaller{Cfg: cfg, Herdr: oncall.HerdrCLI, Now: now, Log: log}.Status(kind)
+			return oncall.Oncaller{Cfg: cfg, HC: oncall.HCCLI, Now: now, Log: log}.Status(kind)
 		},
 		Interrupt: func(kind, lead, data string) (bool, error) {
-			return oncall.Oncaller{Cfg: cfg, Herdr: oncall.HerdrCLI, Now: now, Log: log}.Interrupt(kind, lead, data)
+			return oncall.Oncaller{Cfg: cfg, HC: oncall.HCCLI, Now: now, Log: log}.Interrupt(kind, lead, data)
 		},
 		Prompt: func(kind, lead, data string) error {
-			return oncall.Oncaller{Cfg: cfg, Herdr: oncall.HerdrCLI, Now: now, Log: log}.PromptWith(kind, lead, "INCIDENT DATA", data)
+			return oncall.Oncaller{Cfg: cfg, HC: oncall.HCCLI, Now: now, Log: log}.PromptWith(kind, lead, "INCIDENT DATA", data)
 		},
 		Send: func(out discord.Outgoing) (string, error) { return discord.SendThroughOP(cfg, out) },
 		PrunePosts: func(keep time.Duration) ([]string, error) {

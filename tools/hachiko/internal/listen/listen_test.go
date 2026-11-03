@@ -26,12 +26,12 @@ import (
 
 var base = time.Unix(1700000000, 0)
 
-// The listener against the shapes Discord and herdr both answer in: a thread with messages
+// The listener against the shapes Discord and hc both answer in: a thread with messages
 // in it, and an on-call agent on its question. Nothing here reaches either.
 type listenFixture struct {
 	t     *testing.T
 	l     *listener
-	herdr *harness.Herdr
+	hc    *harness.HC
 	log   *bytes.Buffer
 	now   time.Time
 
@@ -72,7 +72,7 @@ func newListener(t *testing.T) *listenFixture {
 
 	f := &listenFixture{
 		t:     t,
-		herdr: &harness.Herdr{HasAgent: true, HasWorkspace: true, BlockedPrompt: true},
+		hc:    &harness.HC{HasSession: true, BlockedSend: true},
 		log:   &bytes.Buffer{},
 		now:   time.Unix(1111111111, 0),
 	}
@@ -113,7 +113,7 @@ func newListener(t *testing.T) *listenFixture {
 		cfg:    cfg,
 		store:  statedir.Store{Dir: cfg.StateDir},
 		bot:    bot,
-		herdr:  f.herdr.Run,
+		hc:     f.hc.Run,
 		now:    now,
 		log:    logs.Logger{Out: f.log, Now: now},
 		secret: approvalSecret,
@@ -147,7 +147,7 @@ func (f *listenFixture) once() string {
 	f.t.Helper()
 	f.log.Reset()
 	f.messages = nil
-	f.herdr.Calls = nil
+	f.hc.Calls = nil
 	return f.pass()
 }
 
@@ -163,8 +163,8 @@ func (f *listenFixture) pass() string {
 }
 
 // A reply is the answer to the question the agent is on, so it reaches the agent the way
-// every other prompt does: the question goes first, because herdr refuses a prompt to an
-// agent still on one.
+// every other prompt does: the question goes first, because hc refuses a send to an agent
+// still on one.
 func TestAReplyFromTimCancelsTheQuestionAndReachesTheAgent(t *testing.T) {
 	f := newListener(t)
 	f.says("300000000000000001", "stop the worker, leave the log")
@@ -172,9 +172,9 @@ func TestAReplyFromTimCancelsTheQuestionAndReachesTheAgent(t *testing.T) {
 	out := f.pass()
 	harness.Wants(t, out, "Tim's reply on "+diskIncident+" was handed to the on-call session")
 
-	harness.AssertOrder(t, f.herdr, "agent send-keys oncall-disk esc", "agent get oncall-disk", "agent prompt oncall-disk ")
+	harness.AssertOrder(t, f.hc, "interrupt oncall-disk", "get oncall-disk", "send oncall-disk ")
 
-	prompt := f.herdr.Prompt()
+	prompt := f.hc.Prompt()
 	harness.Wants(t, prompt, "Tim has replied in Discord")
 	harness.Wants(t, prompt, "it is an instruction from him")
 	harness.Wants(t, prompt, "stop the worker, leave the log")
@@ -207,7 +207,7 @@ func TestAReplyTellsASessionThatHasFixedSomethingThatItsAttemptIsSpent(t *testin
 	f.says("300000000000000001", "empty the other log too")
 	f.pass()
 
-	prompt := f.herdr.Prompt()
+	prompt := f.hc.Prompt()
 	harness.Wants(t, prompt, "Your one attempt at fixing this incident is spent")
 	harness.Wants(t, prompt, "what you carry out now is what he has picked")
 	harness.Wants(t, prompt, "it is an instruction from him")
@@ -219,7 +219,7 @@ func TestAReplySaysNothingAboutAnAttemptThatWasNeverMade(t *testing.T) {
 	f.says("300000000000000001", "stop the worker")
 	f.pass()
 
-	harness.Lacks(t, f.herdr.Prompt(), "attempt at fixing this incident is spent")
+	harness.Lacks(t, f.hc.Prompt(), "attempt at fixing this incident is spent")
 }
 
 // Answering from a phone is typing one character, so a bare number is the option he picked.
@@ -228,7 +228,7 @@ func TestABareNumberIsReadAsTheOptionHePicked(t *testing.T) {
 	f.says("300000000000000001", "2")
 
 	f.pass()
-	prompt := f.herdr.Prompt()
+	prompt := f.hc.Prompt()
 	harness.Wants(t, prompt, "His reply is the single number 2, which is option 2 of the question you asked.")
 	harness.Wants(t, prompt, "----- BEGIN REPLY FROM TIM ")
 }
@@ -247,7 +247,7 @@ func TestOnlyTimsOwnMessagesAreActedOn(t *testing.T) {
 
 	out := f.pass()
 	harness.Lacks(t, out, "was handed to the on-call session")
-	harness.Equal(t, f.herdr.Said("agent prompt"), false, "whether anything was prompted")
+	harness.Equal(t, f.hc.Ran("send"), false, "whether anything was prompted")
 	harness.Equal(t, len(f.reacted), 0, "reactions added")
 
 	// Every one of them is still marked as seen, or it would be read again for ever.
@@ -262,10 +262,10 @@ func TestEveryMessageIsHandledOnce(t *testing.T) {
 	f.pass()
 	harness.Equal(t, f.l.lastSeen(threadID), "300000000000000001", "the last message read")
 
-	f.herdr.Calls = nil
+	f.hc.Calls = nil
 	f.messages = nil
 	f.pass()
-	harness.Equal(t, f.herdr.Said("agent prompt"), false, "whether the same reply was handed over twice")
+	harness.Equal(t, f.hc.Ran("send"), false, "whether the same reply was handed over twice")
 }
 
 // A thread nothing is open on any more, so the state directory does not grow a file per
@@ -286,17 +286,17 @@ func TestAThreadNothingIsOpenOnIsForgotten(t *testing.T) {
 // whatever it is doing rather than being refused.
 func TestAReplyToAnAgentThatIsWorkingIsQueuedRatherThanInterrupting(t *testing.T) {
 	f := newListener(t)
-	f.herdr.BlockedPrompt = false
+	f.hc.BlockedSend = false
 	f.says("300000000000000001", "stop the worker")
 
 	harness.Wants(t, f.pass(), "was handed to the on-call session")
-	harness.Equal(t, f.herdr.Said("agent send-keys"), false, "whether a question was cancelled")
-	harness.Wants(t, f.herdr.Prompt(), "Tim has replied in Discord")
+	harness.Equal(t, f.hc.Ran("interrupt"), false, "whether a question was cancelled")
+	harness.Wants(t, f.hc.Prompt(), "Tim has replied in Discord")
 }
 
 func TestAReplyWithNoSessionLeftSaysSoInTheThread(t *testing.T) {
 	f := newListener(t)
-	f.herdr.AgentGone = true
+	f.hc.SessionGone = true
 	f.says("300000000000000001", "stop the worker")
 
 	harness.Wants(t, f.pass(), "did not reach the on-call session")
@@ -316,7 +316,7 @@ func TestAnApprovalCodeApprovesTheActionTheAgentRegistered(t *testing.T) {
 	f.says("300000000000000001", "approve "+currentCode(t, f))
 	harness.Wants(t, f.pass(), "an approved action on "+diskIncident+" was handed to the on-call session")
 
-	prompt := f.herdr.Prompt()
+	prompt := f.hc.Prompt()
 	harness.Wants(t, prompt, "approved one action on "+diskIncident+" with a code from his authenticator")
 	harness.Wants(t, prompt, "approved: delete the orphaned postgres volume")
 	harness.Wants(t, prompt, "You may now carry out that action and nothing else")
@@ -344,7 +344,7 @@ func TestAnApprovalCodeIsAcceptedOnce(t *testing.T) {
 
 	harness.Equal(t, len(f.posted), 1, "messages posted back")
 	harness.Wants(t, f.posted[0], "Code not accepted.")
-	harness.Wants(t, f.herdr.Prompt(), "")
+	harness.Wants(t, f.hc.Prompt(), "")
 	harness.Equal(t, f.l.store.OpenApproval(diskIncident), "second action", "the request left open after a replay")
 }
 
@@ -358,7 +358,7 @@ func TestACodeWithNoRequestAndAWrongCodeAreBothRefusedWithoutAHint(t *testing.T)
 	harness.Wants(t, f.pass(), "")
 	harness.Equal(t, len(f.posted), 1, "messages posted back with no request open")
 	harness.Equal(t, f.posted[0], "Code not accepted.", "what a code with no request is answered with")
-	harness.Equal(t, f.herdr.Said("agent prompt"), false, "whether anything was prompted")
+	harness.Equal(t, f.hc.Ran("send"), false, "whether anything was prompted")
 
 	if err := f.l.store.RequestApproval(diskIncident, "delete the volume"); err != nil {
 		t.Fatal(err)
@@ -368,7 +368,7 @@ func TestACodeWithNoRequestAndAWrongCodeAreBothRefusedWithoutAHint(t *testing.T)
 	f.pass()
 
 	harness.Equal(t, f.posted[len(f.posted)-1], "Code not accepted.", "what a wrong code is answered with")
-	harness.Equal(t, f.herdr.Said("agent prompt"), false, "whether a wrong code prompted anything")
+	harness.Equal(t, f.hc.Ran("send"), false, "whether a wrong code prompted anything")
 	harness.Equal(t, f.l.store.OpenApproval(diskIncident), "delete the volume", "the request left open")
 }
 
@@ -383,7 +383,7 @@ func TestAnApprovalWithNoSecretConfiguredIsRefused(t *testing.T) {
 	f.says("300000000000000001", "approve "+currentCode(t, f))
 	harness.Wants(t, f.pass(), "there is nothing to check it against")
 	harness.Equal(t, f.posted[len(f.posted)-1], "Code not accepted.", "what a code with no secret is answered with")
-	harness.Equal(t, f.herdr.Said("agent prompt"), false, "whether anything was prompted")
+	harness.Equal(t, f.hc.Ran("send"), false, "whether anything was prompted")
 }
 
 // A bot without permission to react still has to say the reply landed.
@@ -456,7 +456,7 @@ func TestThreeWrongCodesCancelTheRequest(t *testing.T) {
 	f.once()
 	f.says("300000000000000200", "approve "+currentCode(t, f))
 	f.pass()
-	harness.Equal(t, f.herdr.Said("agent prompt"), false, "whether a code approved anything after the request went")
+	harness.Equal(t, f.hc.Ran("send"), false, "whether a code approved anything after the request went")
 }
 
 // The count is there to stop somebody guessing at one approval, not to lock the session out

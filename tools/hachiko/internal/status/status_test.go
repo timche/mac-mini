@@ -228,14 +228,14 @@ func TestTheAlertsTheWatchHasOpenAreOnTheScreen(t *testing.T) {
 		"late " + f.cfg.Home + "/projects/docs": {Since: f.ago(2 * time.Hour), Said: true},
 		"dirty " + f.cfg.Home + "/elsewhere":    {Since: f.ago(time.Hour)},
 	}
-	f.state.CapTrouble = []string{f.cfg.Home + "/Library/Logs/herdr.log"}
+	f.state.CapTrouble = []string{f.cfg.Home + "/Library/Logs/herdr-core.log"}
 
 	section := f.section("Incidents")
 
 	harness.Wants(t, section, "reported as not running 1 hour 10 minutes ago")
 	harness.Wants(t, section, "~/projects/docs")
 	harness.Wants(t, section, "reported as late 2 hours ago")
-	harness.Wants(t, section, "~/Library/Logs/herdr.log")
+	harness.Wants(t, section, "~/Library/Logs/herdr-core.log")
 	harness.Wants(t, section, "reported as a log that could not be capped")
 
 	// One nobody was ever told about is not an open alert: the watch's own rule is that a
@@ -308,15 +308,15 @@ func TestARepositoryGitWouldNotAnswerAboutIsNotCalledClean(t *testing.T) {
 func TestALogIsItsSizeAgainstTheCapTheWatchKeepsItUnder(t *testing.T) {
 	f := newFixture(t)
 	f.log("hachiko.log", 1200)
-	f.log("herdr.log", 11*1024)
+	f.log("herdr-core.log", 11*1024)
 	f.logs = append(f.logs, Log{Path: f.cfg.Home + "/Library/Logs/hachiko-listen.log"})
 
 	harness.Wants(t, f.row("Logs", "~/Library/Logs/hachiko.log"), "1 MB of 10 MB")
-	harness.Wants(t, f.row("Logs", "~/Library/Logs/herdr.log"), "11 MB of 10 MB")
+	harness.Wants(t, f.row("Logs", "~/Library/Logs/herdr-core.log"), "11 MB of 10 MB")
 	harness.Wants(t, f.row("Logs", "~/Library/Logs/hachiko-listen.log"), "nothing has been written to it")
 
 	f.colour = true
-	harness.Wants(t, f.row("Logs", "~/Library/Logs/herdr.log"), "\x1b[33m11 MB of 10 MB\x1b[0m")
+	harness.Wants(t, f.row("Logs", "~/Library/Logs/herdr-core.log"), "\x1b[33m11 MB of 10 MB\x1b[0m")
 	harness.Lacks(t, f.row("Logs", "~/Library/Logs/hachiko.log"), "\x1b[33m")
 }
 

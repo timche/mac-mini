@@ -18,8 +18,8 @@ import (
 // and the free-space thresholds are what catch one of those.
 //
 // Every one of them is held open by the shell in its plist, which opened it with `>>` and
-// keeps it for the length of a run: the two servers and the two hachiko agents that never
-// finish one, and the two sweeps for as long as each takes. So each is copied and then
+// keeps it for the length of a run: the core and the two hachiko agents that never finish
+// one, and the two sweeps for as long as each takes. So each is copied and then
 // emptied in place rather than renamed out from under its writer, which is what newsyslog
 // does and which against a held descriptor is worse than doing nothing — the writer goes on
 // appending to the archive and the empty file left at the path never grows enough to be
@@ -28,7 +28,6 @@ func cappedLogs(cfg config.Config) []string {
 	under := func(name string) string { return filepath.Join(cfg.LogsRoot, name) }
 
 	return []string{
-		under("herdr.log"),
 		under("herdr-core.log"),
 		under("hachiko-sync.log"),
 		under("hachiko-listen.log"),
@@ -47,7 +46,7 @@ func CappedLogPaths(cfg config.Config) []string {
 
 // One stat per file, which is the whole cost on a Mac with nothing to cap — every sweep but
 // a handful. No Discord either way: a log this bounds is hygiene rather than news, and a
-// message every time herdr's log filled would be a message nobody can act on.
+// message every time herdr-core's log filled would be a message nobody can act on.
 func (s sweeper) capLogs(state *statedir.State) {
 	for _, path := range cappedLogs(s.cfg) {
 		s.capLog(state, path)
@@ -152,7 +151,7 @@ func (s sweeper) capFine(state *statedir.State, path string) {
 //
 // Between the last byte copied and the truncate the writer may append a line, and the
 // truncate throws it away. Accepted: the window is microseconds, these are logs read only
-// when something is wrong, and the alternative is stopping the writer — which for herdr is
+// when something is wrong, and the alternative is stopping the writer — which for the core is
 // every session on this Mac and for sync is the thing that publishes the work. The writer
 // opened with `>>`, so its next write lands at nothing rather than leaving a sparse hole the
 // size of what was emptied.

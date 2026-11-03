@@ -45,7 +45,7 @@ func sizeOf(t *testing.T, path string) int64 {
 
 func TestALogUnderTheThresholdIsLeftAlone(t *testing.T) {
 	f := newFixture(t)
-	path := logFile(t, f, "herdr.log", logCapKB/2)
+	path := logFile(t, f, "herdr-core.log", logCapKB/2)
 
 	harness.Equal(t, f.sweep(), "", "the log of a check with nothing to cap")
 	harness.Equal(t, sizeOf(t, path), int64(logCapKB/2*1024), "the size of a log under the threshold")
@@ -59,7 +59,7 @@ func TestALogUnderTheThresholdIsLeftAlone(t *testing.T) {
 // then emptied under it rather than renamed out from under it.
 func TestAHeldOpenLogIsCopiedAndThenEmptiedUnderItsWriter(t *testing.T) {
 	f := newFixture(t)
-	path := logFile(t, f, "herdr.log", 2*logCapKB)
+	path := logFile(t, f, "mochi.log", 2*logCapKB)
 	writer := appendingTo(t, path)
 
 	out := f.sweep()
@@ -155,7 +155,7 @@ func TestASecondCapReplacesTheOlderGeneration(t *testing.T) {
 func TestALogThatIsASymlinkIsRefusedAndSaidSo(t *testing.T) {
 	f := newFixture(t)
 	elsewhere := logFile(t, f, "somebodys-file", 2*logCapKB)
-	path := filepath.Join(f.cfg.LogsRoot, "herdr.log")
+	path := filepath.Join(f.cfg.LogsRoot, "herdr-core.log")
 
 	if err := os.Symlink(elsewhere, path); err != nil {
 		t.Fatal(err)
@@ -237,7 +237,7 @@ func TestACopyThatCannotFinishLeavesTheGenerationBeforeItAlone(t *testing.T) {
 // is hachiko's own and nothing else writes it, so it is this sweep's to take back.
 func TestACopyLeftBehindByAKilledSweepIsTakenBack(t *testing.T) {
 	f := newFixture(t)
-	path := logFile(t, f, "herdr.log", 2*logCapKB)
+	path := logFile(t, f, "herdr-core.log", 2*logCapKB)
 	harness.WriteFile(t, path+".0.tmp", "half of a copy from a sweep that died")
 
 	harness.Wants(t, f.sweep(), "capped "+path)

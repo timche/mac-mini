@@ -96,7 +96,7 @@ type Deps struct {
 	// tap writes — the same file and the same reading the watch decides by.
 	Usage func() (usage.Reading, bool)
 
-	// The watch's own state, read without its lock. A sweep holds that lock across a herdr
+	// The watch's own state, read without its lock. A sweep holds that lock across an hc
 	// call and an `op run`, so a screen that waited for it would be a screen that hangs for
 	// minutes; what it costs is reading an incident out of a file a sweep may be rewriting,
 	// which is one line of a report being a few seconds old.

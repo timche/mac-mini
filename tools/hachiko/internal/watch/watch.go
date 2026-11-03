@@ -10,7 +10,7 @@
 //
 // Nothing here kills anything, and the only thing it writes outside its own state is the
 // cap on this machine's own logs. An alert is a
-// one-line message the moment something fires, an on-call session in herdr that
+// one-line message the moment something fires, an on-call session in an hc terminal that
 // investigates and reports the analysis itself, and hachiko's own raw details if that
 // session never reports — the session is the better alert and the worse guarantee, so
 // hachiko never depends on it for the first word.

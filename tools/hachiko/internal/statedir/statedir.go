@@ -202,7 +202,7 @@ func (s *State) migrate() {
 
 	// And a state file written while there was a check for published vulnerabilities can
 	// carry an incident of a kind nothing raises any more. Nothing would measure it, no
-	// orders exist for a session on it and `herdr agent get oncall-vuln` answers for an
+	// orders exist for a session on it and `hc get oncall-vuln` answers for an
 	// agent nobody is going to open, so the wait on it would be chased for ever. Dropped
 	// here and in silence: a session still in that tab can close the post with `hachiko
 	// notify --outcome`, which is the one thing about it that still works.
@@ -259,7 +259,7 @@ type Pending struct {
 //
 // Nudged is when hachiko itself cancelled the question, kept as the record of it: the
 // agent leaving `blocked` is what Tim answering and what hachiko's own esc both look like
-// from herdr, so neither of them ends a wait — only an outcome, a fresh question, a closed
+// from hc, so neither of them ends a wait — only an outcome, a fresh question, a closed
 // session or the deadline followed by silence does.
 type Waiting struct {
 	Incident string   `json:"incident"`
@@ -298,7 +298,7 @@ type Waiting struct {
 	// a row nothing of the agent's is cancelled again until its state has moved.
 	Escs int `json:"escs,omitempty"`
 
-	// When herdr first failed to say what the agent is doing, cleared by any answer at all.
+	// When hc first failed to say what the agent is doing, cleared by any answer at all.
 	// One check that cannot reach it is a restart or a reload and nothing to report; an
 	// unbroken run of them is a wait on a session nothing can reach.
 	Unreachable int64 `json:"unreachable,omitempty"`
@@ -556,7 +556,7 @@ func (st Store) reportedDir() string { return filepath.Join(st.Dir, "reported") 
 
 // How `hachiko notify` tells the next sweep that the session has spoken, without
 // touching state.json and so without waiting for a lock a sweep can hold for as long
-// as herdr and `op run` take. One file per incident, created and never read back by
+// as hc and `op run` take. One file per incident, created and never read back by
 // the writer: the sweep is the only thing that edits state, and this is the one fact
 // it needs from outside.
 //

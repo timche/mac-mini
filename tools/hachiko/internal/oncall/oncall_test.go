@@ -95,7 +95,7 @@ func TestOncallTellsTheSessionAlreadyOnTheIncidentThatTheSituationChanged(t *tes
 	}
 }
 
-// herdr refuses a prompt to an agent that is already waiting on a question, and the
+// hc refuses a send to an agent that is already waiting on a question, and the
 // standing orders are what put it there — so the commonest second alert of an incident
 // used to reach nobody. The question is about the incident as it stood when it was
 // asked, and this is newer, so it goes and the session is asked again.
@@ -119,9 +119,9 @@ func TestAnUpdateToASessionWaitingOnAQuestionCancelsTheQuestionAndAsksAgain(t *t
 	harness.AssertOrder(t, hc, "interrupt oncall-disk", "get oncall-disk", "send oncall-disk ")
 }
 
-// herdr's status is not the pane's: send-keys answers for the keys arriving there and the
-// agent's own status follows once Claude Code has acted on the cancel. The real herdr was
-// measured answering `blocked` on the first read after the esc and `done` 152 to 160 ms
+// What hc reports is the program's own word: `interrupt` answers for the key arriving and
+// the agent's own status follows once Claude Code has acted on the cancel. It was measured
+// answering `blocked` on the first read after the esc and `done` 152 to 160 ms
 // later, three times out of three — so a single read concludes the question is still up,
 // sends no prompt, and leaves the incident to nobody, which is what happened at 04:04.
 func TestTheEscIsReadBackUntilTheAgentHasLeftItsQuestion(t *testing.T) {
@@ -147,7 +147,7 @@ func TestTheEscIsReadBackUntilTheAgentHasLeftItsQuestion(t *testing.T) {
 }
 
 // send-keys answers for the keys reaching the pane and not for what the agent did with
-// them. A question still up is a prompt herdr would refuse, so the update goes to Tim
+// them. A question still up is a send hc would refuse, so the update goes to Tim
 // whole instead and the session is left where he will find it.
 func TestAnUpdateIsNotDeliveredWhenTheQuestionSurvivesTheEsc(t *testing.T) {
 	for _, tc := range []struct {

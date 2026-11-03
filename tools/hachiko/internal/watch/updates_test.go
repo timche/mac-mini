@@ -132,8 +132,8 @@ func TestAStepThatFailsOnALaterNightIsItsOwnIncident(t *testing.T) {
 	f.at(0).sweep()
 	first := f.onlyPendingID()
 
-	f.updateFailing = append(f.updateFailing, handed("herdr update", "update herdr",
-		"herdr: the release could not be downloaded", "", f.now))
+	f.updateFailing = append(f.updateFailing, handed("hc update", "update herdr-core",
+		"hc: the release could not be downloaded", "", f.now))
 	f.at(300).sweep()
 
 	second := f.onlyPendingID()
@@ -141,9 +141,9 @@ func TestAStepThatFailsOnALaterNightIsItsOwnIncident(t *testing.T) {
 		t.Fatalf("the second night reused %s", first)
 	}
 	harness.Equal(t, f.sentCount(), 2, "messages sent")
-	harness.Wants(t, f.lastSent(), "⚠️ The nightly update could not update herdr")
+	harness.Wants(t, f.lastSent(), "⚠️ The nightly update could not update herdr-core")
 	harness.Equal(t, f.updateRaised["mise up"].Incident, first, "the first step's incident")
-	harness.Equal(t, f.updateRaised["herdr update"].Incident, second, "the second step's incident")
+	harness.Equal(t, f.updateRaised["hc update"].Incident, second, "the second step's incident")
 }
 
 // A send that failed leaves the incident unraised, so the next check tries again rather than

@@ -245,7 +245,7 @@ func OwnTree(procs []Process, pid int) map[int]bool {
 
 // Every subprocess here is one a stale mount or a dead socket could stop for good, and a
 // caller that never returns is a sweep holding the lock that keeps the next twelve from
-// running. ps, lsof and launchctl get seconds, being local reads; op and herdr get longer in the
+// running. ps, lsof and launchctl get seconds, being local reads; op and hc get longer in the
 // packages that call them, since one resolves a reference over the network and the other
 // starts a session.
 const (

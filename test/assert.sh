@@ -104,12 +104,21 @@ check "mise resolves to its own installer's copy in every zsh mode" \
      [ "$(PATH=$stock_path zsh $mode -c "whence -p mise")" = \
        "$HOME/.local/bin/mise" ] || exit 1
    done'
-check "herdr resolves to its own installer's copy in every zsh mode" \
+# herdr-core comes from its own installer for the same reason, and `hc` is the name
+# every caller here uses — the link the installer leaves beside the binary, which a
+# window manager's own `hc` earlier on PATH would quietly take over.
+check "herdr-core resolves to its own installer's copy in every zsh mode" \
   'for mode in "" -i -l; do
-     [ "$(PATH=$stock_path zsh $mode -c "whence -p herdr")" = \
-       "$HOME/.local/bin/herdr" ] || exit 1
+     [ "$(PATH=$stock_path zsh $mode -c "whence -p herdr-core")" = \
+       "$HOME/.local/bin/herdr-core" ] || exit 1
    done'
-check "herdr runs"          '"$HOME/.local/bin/herdr" --version'
+check "hc resolves to herdr-core in every zsh mode" \
+  'for mode in "" -i -l; do
+     [ "$(PATH=$stock_path zsh $mode -c "whence -p hc")" = \
+       "$HOME/.local/bin/hc" ] || exit 1
+   done'
+check "herdr-core runs"     '"$HOME/.local/bin/herdr-core" --version'
+check "hc runs"             '"$HOME/.local/bin/hc" --version'
 check "interactive zsh has zoxide's z" \
   'PATH=$stock_path zsh -ic "whence -w z" | grep -q "z: function"'
 check "starship runs"       'starship --version'

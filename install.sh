@@ -72,11 +72,13 @@ if [ ! -x "$HOME/.local/bin/claude" ]; then
   curl -fsSL https://claude.ai/install.sh | bash
 fi
 
-# herdr's own installer, for the reason Claude Code's is: `herdr update` replaces
-# the binary it runs from, which under Homebrew is a Cellar path brew then
-# disowns. Guarded like it, and `herdr update` is the upgrade from then on.
-if [ ! -x "$HOME/.local/bin/herdr" ]; then
-  curl -fsSL https://herdr.dev/install.sh | sh
+# herdr-core's own installer, for the reason Claude Code's is: `hc update` replaces
+# the binary it runs from. It installs into HC_INSTALL_DIR, whose default is the
+# ~/.local/bin this repo wants it in, and links `hc` beside it. Guarded on the
+# binary rather than left to run every install, because the installer updates one
+# it finds and a re-run here moves no version; `hachiko update` is what does.
+if [ ! -x "$HOME/.local/bin/herdr-core" ]; then
+  curl -fsSL https://releases.herdr.dev/core/install.sh | sh
 fi
 
 # The machine

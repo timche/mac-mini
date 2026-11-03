@@ -1452,7 +1452,7 @@ func TestAnAnswerInBetweenStartsTheOutageAgain(t *testing.T) {
 
 // A send that did not leave the machine leaves the wait where it is, like every other message
 // here: the next check says it again rather than dropping the wait in silence.
-func TestAWaitOnAnUnreachableHerdrSurvivesASendThatFailed(t *testing.T) {
+func TestAWaitOnAnUnreachableCoreSurvivesASendThatFailed(t *testing.T) {
 	f := waiting(t)
 	f.statusErr = errors.New("no server is listening")
 	f.sendErr = errSendFailed

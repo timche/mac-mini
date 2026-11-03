@@ -86,7 +86,7 @@ const launchctlSample = `PID	Status	Label
 45864	0	com.apple.cloudphotod
 712	0	com.apple.1password.op-daemon
 57465	0	application.dev.kdrag0n.MacVirt.610321.610336
-15192	0	io.github.timche.herdr
+15192	0	io.github.timche.herdr-core
 1	0	com.apple.launchd
 `
 

@@ -26,7 +26,7 @@ func TestAnOversizedContextLosesItsOldestMessagesFirst(t *testing.T) {
 
 	f.h.Handle(m)
 
-	prompt := onlyPrompt(t, f.herdr, "mochi-"+m.ID)
+	prompt := onlyPrompt(t, f.hc, "mochi-"+m.ID)
 	if len(prompt) > maxPrompt {
 		t.Errorf("the prompt is %d bytes", len(prompt))
 	}
@@ -55,7 +55,7 @@ func TestAnOversizedRelayIsTrimmedToo(t *testing.T) {
 	}
 	f.h.Handle(f.mention(first.ID, 41, tim, "follow up", nil))
 
-	relay := f.herdr.prompts["mochi-"+first.ID][1]
+	relay := f.hc.prompts["mochi-"+first.ID][1]
 	if len(relay) > maxPrompt || !strings.Contains(relay, "trimmed to keep this prompt under 10 KB") {
 		t.Errorf("the relay is %d bytes", len(relay))
 	}

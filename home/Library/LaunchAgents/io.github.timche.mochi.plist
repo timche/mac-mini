@@ -9,7 +9,7 @@
   <key>Label</key>
   <string>io.github.timche.mochi</string>
   <!-- The wrapper, the op that signs 1Password in with the service-account token, the
-       herdr a session is started through, and the mise that rebuilds the binary. -->
+       hc a session is started through, and the mise that rebuilds the binary. -->
   <key>ProgramArguments</key>
   <array>
     <string>/bin/sh</string>

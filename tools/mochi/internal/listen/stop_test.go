@@ -28,16 +28,16 @@ func TestStopInterruptsAWorkingSession(t *testing.T) {
 	first := f.mention(channel, 1, tim, "research", nil)
 	f.h.Handle(first)
 	agent := "mochi-" + first.ID
-	f.herdr.agents[agent] = "working"
+	f.hc.say(agent, "working")
 
 	stop := f.mention(first.ID, 2, tim, "Stop.", nil)
 	f.h.Handle(stop)
 
-	if got := f.herdr.called("agent send-keys " + agent + " esc"); len(got) != 1 {
+	if got := f.hc.called("interrupt " + agent); len(got) != 1 {
 		t.Errorf("escs = %v", got)
 	}
-	if len(f.herdr.prompts[agent]) != 1 {
-		t.Errorf("the stop was prompted: %d prompts", len(f.herdr.prompts[agent]))
+	if len(f.hc.prompts[agent]) != 1 {
+		t.Errorf("the stop was prompted: %d prompts", len(f.hc.prompts[agent]))
 	}
 	if classified != 1 {
 		t.Errorf("the classifier ran %d times, want only for the session", classified)
@@ -61,7 +61,7 @@ func TestStopInterruptsAWorkingSession(t *testing.T) {
 	}
 
 	f.h.Handle(f.mention(first.ID, 3, tim, "go on with b) only", nil))
-	if len(f.herdr.prompts[agent]) != 2 {
+	if len(f.hc.prompts[agent]) != 2 {
 		t.Error("the follow-up after a stop was not relayed")
 	}
 	f.inState(first.ID, mark.Running)
@@ -76,7 +76,7 @@ func TestStopOnAnIdleOrAskingSession(t *testing.T) {
 	first := f.mention(channel, 1, tim, "research", nil)
 	f.h.Handle(first)
 	f.h.Handle(f.mention(first.ID, 2, tim, "cancel", nil))
-	if got := f.herdr.called("agent send-keys"); len(got) != 0 {
+	if got := f.hc.called("interrupt"); len(got) != 0 {
 		t.Errorf("an esc to an idle session: %v", got)
 	}
 	f.inState(first.ID, mark.Stopped)
@@ -84,9 +84,9 @@ func TestStopOnAnIdleOrAskingSession(t *testing.T) {
 	g := newFixture(t)
 	other := g.mention(channel, 1, tim, "research", nil)
 	g.h.Handle(other)
-	g.herdr.agents["mochi-"+other.ID] = "blocked"
+	g.hc.say("mochi-"+other.ID, "blocked")
 	g.h.Handle(g.mention(other.ID, 2, tim, "STOP!", nil))
-	if got := g.herdr.called("agent send-keys"); len(got) != 1 {
+	if got := g.hc.called("interrupt"); len(got) != 1 {
 		t.Errorf("escs = %v", got)
 	}
 }
@@ -98,7 +98,7 @@ func TestStopInsideAnInstructionIsAnInstruction(t *testing.T) {
 		first := f.mention(channel, 1, tim, "research", nil)
 		f.h.Handle(first)
 		f.h.Handle(f.mention(first.ID, 2, tim, words, nil))
-		if prompts := f.herdr.prompts["mochi-"+first.ID]; len(prompts) != 2 || !strings.Contains(prompts[1], words) {
+		if prompts := f.hc.prompts["mochi-"+first.ID]; len(prompts) != 2 || !strings.Contains(prompts[1], words) {
 			t.Errorf("%q was not relayed", words)
 		}
 		f.inState(first.ID, mark.Running)
@@ -117,8 +117,8 @@ func TestStopWithNoSessionStartsNothing(t *testing.T) {
 	f.h.Split = counting(&classified)
 	m := f.mention(channel, 1, tim, "stop", nil)
 	f.h.Handle(m)
-	if classified != 0 || len(f.herdr.called("agent start")) != 0 || len(f.api.Threads) != 0 {
-		t.Errorf("a stop started something: classified %d, starts %v", classified, f.herdr.called("agent start"))
+	if classified != 0 || len(f.hc.called("run")) != 0 || len(f.api.Threads) != 0 {
+		t.Errorf("a stop started something: classified %d, starts %v", classified, f.hc.called("run"))
 	}
 	if replies := f.sentTo(channel); len(replies) != 1 || replies[0] != "❌ There is no session here to stop." {
 		t.Errorf("replies = %q", replies)

@@ -1,5 +1,5 @@
 // mochi is Tim's own Claude Tag for Discord: he mentions the bot in a server it is in, and a
-// Claude Code session starts in that server's herdr workspace with his instruction and the
+// Claude Code session starts in that server's Herdr space with his instruction and the
 // conversation around it. `mochi listen` is the gateway listener the LaunchAgent runs;
 // `mochi post` and `mochi history` are for the sessions it starts.
 //
@@ -47,7 +47,7 @@ const usage = `usage: mochi [listen]
        mochi edit [--drop-files] [--pr <url>] <message link> [<text>]
        mochi delete <message link>
 
-  listen    connect to Discord and start a Claude Code session in herdr whenever Tim
+  listen    connect to Discord and start a Claude Code session whenever Tim
             mentions mochi; what the LaunchAgent runs, and what no command means
   post      post into this session's Discord thread, with no pings; --file attaches
             a screenshot, a recording or any other file, and may be given up to
@@ -148,7 +148,7 @@ func run(args []string) error {
 		return err
 	}
 	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	thread := os.Getenv(listen.ThreadVar)
+	thread := os.Getenv(event.ThreadVar)
 
 	switch command {
 	case "listen":

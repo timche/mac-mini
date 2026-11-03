@@ -110,7 +110,7 @@ func TestAFinishedWatchGoesWithItsSession(t *testing.T) {
 	if f.watches() != 1 {
 		t.Fatal("the finished watch was not kept")
 	}
-	delete(f.herdr.agents, "mochi-"+thread)
+	f.hc.gone("mochi-" + thread)
 	f.at(f.h.Now().Add(8 * 24 * time.Hour))
 	f.h.Prune(keepGone)
 	if f.watches() != 0 {
@@ -152,7 +152,7 @@ func TestAMergedPullRequestIsTheSessionDone(t *testing.T) {
 	if posts := f.sentTo(thread); len(posts) != posted || f.watching() != 0 {
 		t.Errorf("posts %q, watching %d", posts[posted:], f.watching())
 	}
-	if len(f.herdr.called("tab close")) != 0 {
+	if len(f.hc.called("rm")) != 0 {
 		t.Error("a merge closed the tab")
 	}
 }
@@ -188,7 +188,7 @@ func TestFailedChecksAreRelayedOncePerPush(t *testing.T) {
 
 	f.h.WatchPRs()
 	f.h.WatchPRs()
-	prompts := f.herdr.prompts[agent]
+	prompts := f.hc.prompts[agent]
 	want := "CI failed on #42: build, test. Fix it and push."
 	if len(prompts) != 2 || prompts[1] != want || !event.FromMochi(prompts[1]) {
 		t.Fatalf("prompts = %q", prompts)
@@ -203,7 +203,7 @@ func TestFailedChecksAreRelayedOncePerPush(t *testing.T) {
 
 	g.head = "sha2"
 	f.h.WatchPRs()
-	if len(f.herdr.prompts[agent]) != 3 {
+	if len(f.hc.prompts[agent]) != 3 {
 		t.Error("a new push that failed was not told")
 	}
 }
@@ -214,19 +214,19 @@ func TestPassingChecksOrAQuestionTellNothing(t *testing.T) {
 	agent := "mochi-" + thread
 	g.checks = []map[string]string{{"name": "test", "status": "completed", "conclusion": "success"}}
 	f.h.WatchPRs()
-	if len(f.herdr.prompts[agent]) != 1 {
+	if len(f.hc.prompts[agent]) != 1 {
 		t.Error("passing checks were relayed")
 	}
 
 	g.checks = []map[string]string{{"name": "test", "status": "completed", "conclusion": "failure"}}
-	f.herdr.agents[agent] = "blocked"
+	f.hc.say(agent, "blocked")
 	f.h.WatchPRs()
-	if len(f.herdr.prompts[agent]) != 1 {
+	if len(f.hc.prompts[agent]) != 1 {
 		t.Error("a failure was pushed over a question")
 	}
-	f.herdr.agents[agent] = "idle"
+	f.hc.say(agent, "idle")
 	f.h.WatchPRs()
-	if len(f.herdr.prompts[agent]) != 2 {
+	if len(f.hc.prompts[agent]) != 2 {
 		t.Error("the failure was not told once the question was answered")
 	}
 }
@@ -235,7 +235,7 @@ func TestPassingChecksOrAQuestionTellNothing(t *testing.T) {
 func TestWatchesOutliveARestartAndGoWithTheirSession(t *testing.T) {
 	f, _, g := watched(t)
 	restarted := &Handler{
-		Cfg: f.h.Cfg, API: f.api, Herdr: f.herdr.run, Store: f.h.Store, Waits: f.h.Waits, Marks: f.h.Marks,
+		Cfg: f.h.Cfg, API: f.api, HC: f.hc.run, Store: f.h.Store, Waits: f.h.Waits, Marks: f.h.Marks,
 		Watches: f.h.Watches, GH: g.run, Now: f.h.Now, Log: f.h.Log,
 	}
 	g.state, g.merged = "closed", true
@@ -245,7 +245,7 @@ func TestWatchesOutliveARestartAndGoWithTheirSession(t *testing.T) {
 	}
 
 	h, other, _ := watched(t)
-	delete(h.herdr.agents, "mochi-"+other)
+	h.hc.gone("mochi-" + other)
 	h.at(h.h.Now().Add(8 * 24 * time.Hour))
 	h.h.Prune(keepGone)
 	if h.watching() != 0 {
@@ -260,12 +260,12 @@ func TestAStoppedSessionIsNotToldItsChecksFailed(t *testing.T) {
 	g.checks = []map[string]string{{"name": "test", "status": "completed", "conclusion": "failure"}}
 	f.h.Handle(f.mention(thread, 5, tim, "stop", nil))
 	f.h.WatchPRs()
-	if len(f.herdr.prompts[agent]) != 1 {
+	if len(f.hc.prompts[agent]) != 1 {
 		t.Fatal("a stopped session was told")
 	}
 	f.h.Handle(f.mention(thread, 6, tim, "go on", nil))
 	f.h.WatchPRs()
-	if prompts := f.herdr.prompts[agent]; len(prompts) != 3 || !strings.HasPrefix(prompts[2], "CI failed on #42") {
+	if prompts := f.hc.prompts[agent]; len(prompts) != 3 || !strings.HasPrefix(prompts[2], "CI failed on #42") {
 		t.Errorf("prompts = %q", prompts)
 	}
 }
@@ -284,7 +284,7 @@ func TestAPullRequestOfAnotherRepositoryIsNotWatched(t *testing.T) {
 	}
 }
 
-// GitHub and herdr are asked with the handler's lock free: a mention can be handled while a
+// GitHub and the core are asked with the handler's lock free: a mention can be handled while a
 // look is out, and a watch added meanwhile is kept.
 func TestALookAtPullRequestsHoldsNoMentionBack(t *testing.T) {
 	f, thread, g := watched(t)

@@ -1570,7 +1570,7 @@ check "the listener agent is loaded" \
   'launchctl print "gui/$(id -u)/io.github.timche.hachiko-listen" >/dev/null'
 
 # mochi, the second compiled tool. Its behaviour is `go test ./...` in tools/mochi/ against a fake
-# Discord and a fake herdr; what is left here is the wiring a Go test cannot see.
+# Discord and a fake hc; what is left here is the wiring a Go test cannot see.
 check "mochi is a live symlink and runs through its wrapper" \
   '[ -L "$HOME/.local/bin/mochi" ] && [ -x "$HOME/.local/bin/mochi" ] &&
    [ "$HOME/.local/bin/mochi" -ef "$repo/home/.local/bin/mochi" ] &&

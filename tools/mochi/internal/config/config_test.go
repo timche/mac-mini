@@ -68,6 +68,7 @@ func TestAConfigThatWouldMisdirectIsRefused(t *testing.T) {
 			`{"guild": "1220378778665095291", "workspace": "w", "repo": "/r"},` +
 			`{"guild": "1220378778665095291", "workspace": "v", "repo": "/s"}]}`,
 		"no repo":                            `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w"}]}`,
+		"neither a workspace nor a space":    `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "repo": "/r"}]}`,
 		"a bad user":                         `{"user": "tim"}`,
 		"a forum, which is the repository's": `{"user": "94004892942741504", "server": [{"guild": "1220378778665095291", "workspace": "w", "repo": "/r", "forum": "1562152175927558292"}]}`,
 		"a field kept for code":              `{"user": "94004892942741504", "Home": "/elsewhere"}`,

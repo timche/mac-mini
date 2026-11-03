@@ -15,8 +15,9 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/project"
 )
 
-// herdr takes a prompt as one argument, and an argument list is capped at a megabyte on
-// macOS: a gathered context of long messages could pass it.
+// hc takes a prompt as one argument, the opening to `run` and everything after to `send`,
+// and an argument list is capped at a megabyte on macOS: a gathered context of long messages
+// could pass it.
 var maxPrompt = 200 << 10
 
 // Over the cap, the oldest context goes first, one message at a time; the message Tim

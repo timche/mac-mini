@@ -17,7 +17,7 @@ import (
 
 // The names of what runs the work. Moderators read every word mochi posts, and none of these
 // means anything to them.
-var tools = regexp.MustCompile(`(?i)\b(herdr|claude|claude code|anthropic|lead|tabs?|workspaces?|worktrees?|1password|op|terminal)\b`)
+var tools = regexp.MustCompile(`(?i)\b(herdr|hc|claude|claude code|anthropic|lead|tabs?|spaces?|workspaces?|worktrees?|1password|op|terminal)\b`)
 
 // Everything a fixture's Discord was shown: posts, button and menu labels, edits, answers to
 // presses, thread names.
@@ -110,11 +110,11 @@ func TestNothingPostedNamesTheToolsBehindIt(t *testing.T) {
 			f.h.Handle(f.mention(channel, 1, tim, "research", nil))
 		},
 		"it does not start": func(f *fixture) {
-			f.herdr.startFails = true
+			f.hc.startFails = true
 			f.h.Handle(f.mention(channel, 1, tim, "research", nil))
 		},
 		"its instructions do not land": func(f *fixture) {
-			f.herdr.promptFails = true
+			f.hc.promptFails = true
 			f.h.Handle(f.mention(channel, 1, tim, "research", nil))
 		},
 		"no thread can be opened": func(f *fixture) {
@@ -123,7 +123,7 @@ func TestNothingPostedNamesTheToolsBehindIt(t *testing.T) {
 		},
 		"a split, one failing": func(f *fixture) {
 			f.h.Split = splitsInto(abc, nil, nil)
-			f.herdr.failFrom = 3
+			f.hc.failFrom = 3
 			f.h.Handle(f.mention(channel, 1, tim, "research a, b and c separately", nil))
 		},
 		"too many": func(f *fixture) {
@@ -167,7 +167,7 @@ func TestNothingPostedNamesTheToolsBehindIt(t *testing.T) {
 		"a follow-up to a session waiting on a question": func(f *fixture) {
 			first := f.mention(channel, 1, tim, "start", nil)
 			f.h.Handle(first)
-			f.herdr.agents["mochi-"+first.ID] = "blocked"
+			f.hc.say("mochi-"+first.ID, "blocked")
 			f.h.Handle(f.mention(first.ID, 2, tim, "also b)", nil))
 		},
 		"a session that waits on Tim": func(f *fixture) {
@@ -190,7 +190,7 @@ func TestNothingPostedNamesTheToolsBehindIt(t *testing.T) {
 		"a follow-up to a session that ended": func(f *fixture) {
 			first := f.mention(channel, 1, tim, "start", nil)
 			f.h.Handle(first)
-			delete(f.herdr.agents, "mochi-"+first.ID)
+			f.hc.gone("mochi-" + first.ID)
 			f.h.Handle(f.mention(first.ID, 2, tim, "again", nil))
 		},
 	}

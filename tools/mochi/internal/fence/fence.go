@@ -61,7 +61,7 @@ func Data(data, nonce string) string {
 	return strings.TrimRight(data, "\n")
 }
 
-// herdr hands a prompt to Claude Code as a bracketed paste, so an escape sequence in it can
+// hc hands a prompt to Claude Code as a bracketed paste, so an escape sequence in it can
 // end the paste and type whatever follows: every control character goes but the newline and
 // the tab, and so do the two Unicode line separators a terminal may treat as one.
 func Clean(s string) string {

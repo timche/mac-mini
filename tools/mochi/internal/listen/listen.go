@@ -18,7 +18,7 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/config"
 	"github.com/timche/mac-mini/mochi/internal/event"
 	"github.com/timche/mac-mini/mochi/internal/gh"
-	"github.com/timche/mac-mini/mochi/internal/herdr"
+	"github.com/timche/mac-mini/mochi/internal/hc"
 	"github.com/timche/mac-mini/mochi/internal/mark"
 	"github.com/timche/mac-mini/mochi/internal/op"
 	"github.com/timche/mac-mini/mochi/internal/self"
@@ -74,7 +74,7 @@ func Serve(cfg config.Config, log *slog.Logger) error {
 	h := &Handler{
 		Cfg:     cfg,
 		API:     live,
-		Herdr:   herdr.CLI,
+		HC:      hc.CLI,
 		Store:   state.Store{Path: cfg.StatePath()},
 		Pending: state.PendingStore{Path: cfg.PendingPath()},
 		Waits:   state.WaitStore{Path: cfg.WaitsPath()},

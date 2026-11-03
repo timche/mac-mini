@@ -117,7 +117,7 @@ func TestAMentionShowsEyesThenAReceipt(t *testing.T) {
 			return m
 		},
 		"a failure": func(f *fixture) *discord.Message {
-			f.herdr.startFails = true
+			f.hc.startFails = true
 			m := f.mention(channel, 1, tim, "research", nil)
 			f.h.Handle(m)
 			if f.api.Channels[m.ID].Name != "❌ research" {
@@ -130,7 +130,7 @@ func TestAMentionShowsEyesThenAReceipt(t *testing.T) {
 		},
 		"a split that fails in part": func(f *fixture) *discord.Message {
 			f.h.Split = answers(split.Answer{Decision: split.Many, Tasks: abc}, nil, nil)
-			f.herdr.failFrom = 3
+			f.hc.failFrom = 3
 			m := f.mention(channel, 1, tim, "research a, b and c separately", nil)
 			f.h.Handle(m)
 			return m

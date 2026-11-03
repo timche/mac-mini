@@ -165,7 +165,7 @@ func TestTheBriefCarriesTheOrdersAndRepeatsNone(t *testing.T) {
 	f.h.Handle(m)
 	f.h.Handle(f.mention(m.ID, 2, tim, "also the scoreboard", nil))
 
-	prompts := f.herdr.prompts["mochi-"+m.ID]
+	prompts := f.hc.prompts["mochi-"+m.ID]
 	brief, relay := prompts[0], prompts[1]
 	if !strings.HasPrefix(brief, "Invoke the lead skill and the mochi skill before anything else.\n\nmochi's standing orders for every session it starts follow between the two markers below. Follow them for everything in this session.\n----- BEGIN MOCHI'S STANDING ORDERS ") {
 		t.Errorf("the brief does not open on the skill and then the orders:\n%.400s", brief)
@@ -200,15 +200,15 @@ func TestTheBriefCarriesTheOrdersAndRepeatsNone(t *testing.T) {
 	}
 }
 
-// Without its orders a session is not started: nothing is opened in Discord or herdr, and Tim is
+// Without its orders a session is not started: nothing is opened in Discord or the core, and Tim is
 // told why with a ❌.
 func TestNoSessionStartsWithoutItsOrders(t *testing.T) {
 	f := newFixture(t)
 	f.h.Cfg.Briefing = filepath.Join(t.TempDir(), "briefing.md")
 	m := f.mention(channel, 1, tim, "fix the overlay", nil)
 	f.h.Handle(m)
-	if len(f.herdr.called("agent start")) != 0 || len(f.api.Threads) != 0 {
-		t.Errorf("a session started without its orders: %v", f.herdr.called("agent start"))
+	if len(f.hc.called("run")) != 0 || len(f.api.Threads) != 0 {
+		t.Errorf("a session started without its orders: %v", f.hc.called("run"))
 	}
 	if replies := f.sentTo(channel); len(replies) != 1 || replies[0] != "❌ The standing orders for mochi's sessions could not be read." {
 		t.Errorf("replies = %q", replies)
@@ -221,11 +221,11 @@ func TestNoSessionRestartsWithoutItsOrders(t *testing.T) {
 	first := f.mention(channel, 1, tim, "research a)", nil)
 	f.h.Handle(first)
 	thread := first.ID
-	delete(f.herdr.agents, "mochi-"+thread)
+	f.hc.gone("mochi-" + thread)
 
 	f.h.Cfg.Briefing = filepath.Join(t.TempDir(), "briefing.md")
 	f.h.Handle(f.mention(thread, 2, tim, "also check b)", nil))
-	if got := f.herdr.called("tab create"); len(got) != 1 {
+	if got := f.hc.called("run"); len(got) != 1 {
 		t.Errorf("tabs = %v", got)
 	}
 	if posts := f.sentTo(thread); len(posts) != 2 || posts[1] != "❌ The standing orders for mochi's sessions could not be read." {

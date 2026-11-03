@@ -262,7 +262,7 @@ func TestAPingOutlivesARestart(t *testing.T) {
 	f.consume()
 
 	restarted := &Handler{
-		Cfg: f.h.Cfg, API: f.api, Herdr: f.herdr.run,
+		Cfg: f.h.Cfg, API: f.api, HC: f.hc.run,
 		Store: f.h.Store, Pending: f.h.Pending, Waits: f.h.Waits, Marks: f.h.Marks,
 		Now: f.h.Now, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}

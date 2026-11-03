@@ -19,7 +19,7 @@ const WithToken = "--with-token"
 const TokenVar = "MOCHI_DISCORD_BOT_TOKEN"
 
 // The environment for any child of a process that holds the token: without it, and without
-// anything of 1Password's, so no herdr call or build ever inherits a secret.
+// anything of 1Password's, so no hc call or build ever inherits a secret.
 func Scrub(env []string) []string {
 	out := make([]string, 0, len(env))
 	for _, kv := range env {

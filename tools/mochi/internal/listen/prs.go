@@ -8,7 +8,7 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/event"
 	"github.com/timche/mac-mini/mochi/internal/gh"
-	"github.com/timche/mac-mini/mochi/internal/herdr"
+	"github.com/timche/mac-mini/mochi/internal/hc"
 	"github.com/timche/mac-mini/mochi/internal/mark"
 	"github.com/timche/mac-mini/mochi/internal/origin"
 	posts "github.com/timche/mac-mini/mochi/internal/post"
@@ -54,7 +54,7 @@ func (h *Handler) watch(ev event.Event, watches map[string]state.Watch) {
 // own prompt, with nothing of it in Discord.
 //
 // What it watches is read under the handler's lock and what came of it applied under it, but
-// GitHub and herdr are asked with the lock free, so a mention is never held behind them.
+// GitHub and the core are asked with the lock free, so a mention is never held behind them.
 func (h *Handler) WatchPRs() {
 	h.mu.Lock()
 	watches, sessions, ok := h.watched()
@@ -191,20 +191,20 @@ func (h *Handler) failedChecks(rec state.Session, w state.Watch, head string) (d
 	if len(failed) == 0 {
 		return false, false
 	}
-	status, err := herdr.Status(h.Herdr, rec.Agent)
+	status, err := hc.Status(h.HC, rec.Agent)
 	switch {
 	case err != nil:
 		h.Log.Warn("checks failed on a pull request whose session cannot be reached", "repo", w.Repo, "number", w.Number, "error", h.redact(err))
 		return true, false
-	case status == herdr.Blocked:
+	case status == hc.Blocked:
 		return false, false
 	}
 	text := fmt.Sprintf("%s%d: %s. Fix it and push.", event.CIPrefix, w.Number, checkNames(failed))
-	if err := herdr.Prompt(h.Herdr, rec.Agent, text); err != nil {
+	if err := hc.Prompt(h.HC, rec.Agent, text); err != nil {
 		h.Log.Warn("checks failed on a pull request and the session could not be told", "repo", w.Repo, "number", w.Number, "error", h.redact(err))
 		return false, false
 	}
-	h.Log.Info("told a session its pull request's checks failed", "workspace", rec.Workspace, "tab", rec.Tab, "number", w.Number)
+	h.Log.Info("told a session its pull request's checks failed", "space", rec.Space, "tab", rec.Tab, "number", w.Number)
 	return true, true
 }
 

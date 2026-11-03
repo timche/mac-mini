@@ -15,8 +15,8 @@ func TestARoleMentionOfMochiStartsNothing(t *testing.T) {
 
 	f.h.Handle(f.api.Post(channel, 1, tim, "<@&"+botRole+"> have a look at this"))
 
-	if len(f.herdr.calls) != 0 || len(f.api.Reactions) != 0 || len(f.api.Sent) != 0 {
-		t.Errorf("herdr %v, reactions %v, sent %v", f.herdr.calls, f.api.Reactions, f.api.Sent)
+	if len(f.hc.calls) != 0 || len(f.api.Reactions) != 0 || len(f.api.Sent) != 0 {
+		t.Errorf("hc %v, reactions %v, sent %v", f.hc.calls, f.api.Reactions, f.api.Sent)
 	}
 }
 
@@ -26,7 +26,7 @@ func TestARoleMentionBesideMochisIsLeftInTheInstruction(t *testing.T) {
 
 	f.h.Handle(m)
 
-	got := strings.TrimSpace(between(t, onlyPrompt(t, f.herdr, "mochi-"+m.ID), "INSTRUCTION FROM TIM"))
+	got := strings.TrimSpace(between(t, onlyPrompt(t, f.hc, "mochi-"+m.ID), "INSTRUCTION FROM TIM"))
 	if got != "look at <@&"+botRole+"> please" {
 		t.Errorf("instruction = %q", got)
 	}

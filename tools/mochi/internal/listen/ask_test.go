@@ -63,7 +63,7 @@ func (f *fixture) pending() map[string]state.Pending {
 func TestAnUnclearMentionIsAQuestionWithAButtonPerAnswer(t *testing.T) {
 	f, m, _ := askFixture(t, abc)
 
-	if len(f.herdr.calls) != 0 || len(f.api.Threads) != 0 {
+	if len(f.hc.calls) != 0 || len(f.api.Threads) != 0 {
 		t.Error("something started before Tim answered")
 	}
 	q := f.api.Sent[0].Msg
@@ -103,10 +103,10 @@ func TestTimPressingSeparateStartsOneSessionPerItem(t *testing.T) {
 			t.Error("a button is still live")
 		}
 	}
-	if len(f.api.Standalone) != 3 || len(f.herdr.called("tab create")) != 3 {
+	if len(f.api.Standalone) != 3 || len(f.hc.called("run")) != 3 {
 		t.Errorf("threads %v", f.api.Standalone)
 	}
-	if len(f.herdr.called("agent start")) == 0 || len(f.pending()) != 0 {
+	if len(f.hc.called("run")) == 0 || len(f.pending()) != 0 {
 		t.Error("the answer was not finished")
 	}
 }
@@ -120,11 +120,11 @@ func TestTimPressingOneStartsOneSessionNamedForTheWhole(t *testing.T) {
 	if len(f.api.Threads) != 1 || f.api.Threads[0] != m.ID+" ⏳ QOL suggestions" || len(f.api.Standalone) != 0 {
 		t.Errorf("threads %v, standalone %v", f.api.Threads, f.api.Standalone)
 	}
-	prompt := onlyPrompt(t, f.herdr, "mochi-"+m.ID)
+	prompt := onlyPrompt(t, f.hc, "mochi-"+m.ID)
 	if got := strings.TrimSpace(between(t, prompt, "INSTRUCTION FROM TIM")); got != "take a look at the three suggestions" {
 		t.Errorf("instruction = %q", got)
 	}
-	if *f.api.Edits[0].Content != question+" 1 session." || len(f.herdr.called("agent start")) == 0 {
+	if *f.api.Edits[0].Content != question+" 1 session." || len(f.hc.called("run")) == 0 {
 		t.Error("the answer was not shown or finished")
 	}
 }
@@ -142,12 +142,12 @@ func TestOnlyTimCanChoose(t *testing.T) {
 	if r.Type != discord.InteractionResponseChannelMessageWithSource || r.Data.Content != "Only the person who asked can choose." || r.Data.Flags != discord.MessageFlagsEphemeral {
 		t.Errorf("response = %+v", r.Data)
 	}
-	if len(f.herdr.calls) != 0 || len(f.api.Edits) != 0 || len(f.pending()) != 1 {
+	if len(f.hc.calls) != 0 || len(f.api.Edits) != 0 || len(f.pending()) != 1 {
 		t.Error("somebody else's press did something")
 	}
 
 	press(f, tim, b[1].CustomID)
-	if len(f.herdr.called("tab create")) != 1 {
+	if len(f.hc.called("run")) != 1 {
 		t.Error("Tim could not choose after somebody else tried")
 	}
 }
@@ -160,8 +160,8 @@ func TestTimCanAnswerInWords(t *testing.T) {
 
 		f.h.Handle(answer)
 
-		if len(f.api.Standalone) != threads || len(f.herdr.called("tab create")) != max(threads, 1) {
-			t.Errorf("%q: %d threads, %d tabs", text, len(f.api.Standalone), len(f.herdr.called("tab create")))
+		if len(f.api.Standalone) != threads || len(f.hc.called("run")) != max(threads, 1) {
+			t.Errorf("%q: %d threads, %d tabs", text, len(f.api.Standalone), len(f.hc.called("run")))
 		}
 		if len(f.pending()) != 0 {
 			t.Errorf("%q: the question is still open", text)
@@ -172,7 +172,7 @@ func TestTimCanAnswerInWords(t *testing.T) {
 	chat := f.api.Post(channel, 3, tim, "hmm, not sure yet")
 	chat.MessageReference = &discord.MessageReference{MessageID: q.ID, ChannelID: channel}
 	f.h.Handle(chat)
-	if len(f.herdr.calls) != 0 || len(f.pending()) != 1 {
+	if len(f.hc.calls) != 0 || len(f.pending()) != 1 {
 		t.Error("a reply that is no answer was taken as one")
 	}
 }
@@ -204,7 +204,7 @@ func TestAnUnansweredQuestionExpiresAfterADay(t *testing.T) {
 	}
 
 	press(f, tim, b[0].CustomID)
-	if len(f.herdr.calls) != 0 {
+	if len(f.hc.calls) != 0 {
 		t.Error("an expired button started a session")
 	}
 }
@@ -217,7 +217,7 @@ func TestALatePressIsExpiredRatherThanStarted(t *testing.T) {
 
 	press(f, tim, b[0].CustomID)
 
-	if len(f.herdr.calls) != 0 || len(f.api.Edits) != 1 || !strings.Contains(*f.api.Edits[0].Content, "This question expired") {
+	if len(f.hc.calls) != 0 || len(f.api.Edits) != 1 || !strings.Contains(*f.api.Edits[0].Content, "This question expired") {
 		t.Errorf("edits = %+v", f.api.Edits)
 	}
 }
@@ -228,7 +228,7 @@ func TestAnAnswerIsTakenAfterARestart(t *testing.T) {
 	b := buttonsOf(t, f.api.Sent[0].Msg.Components)
 
 	restarted := &Handler{
-		Cfg: f.h.Cfg, API: f.api, Herdr: f.herdr.run,
+		Cfg: f.h.Cfg, API: f.api, HC: f.hc.run,
 		Store: f.h.Store, Pending: f.h.Pending,
 		Now: f.h.Now, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
@@ -238,7 +238,7 @@ func TestAnAnswerIsTakenAfterARestart(t *testing.T) {
 
 	press(f, tim, b[0].CustomID)
 
-	if len(f.api.Standalone) != 3 || len(f.herdr.called("agent start")) == 0 {
+	if len(f.api.Standalone) != 3 || len(f.hc.called("run")) == 0 {
 		t.Errorf("after a restart: %v", f.api.Standalone)
 	}
 }
@@ -265,7 +265,7 @@ func TestMoreThanFiveItemsAreOfferedOnlyAsOne(t *testing.T) {
 			t.Errorf("%q got %q", text, last.Msg.Content)
 		}
 	}
-	if len(f.api.Standalone) != 0 || len(f.herdr.calls) != 0 || len(f.pending()) != 1 {
+	if len(f.api.Standalone) != 0 || len(f.hc.calls) != 0 || len(f.pending()) != 1 {
 		t.Error("an answer the question did not offer started something or closed it")
 	}
 	f.quiet()

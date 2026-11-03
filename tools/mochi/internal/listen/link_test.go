@@ -25,7 +25,7 @@ func TestASessionStartedFromAnAnswerLinksWithItsGuild(t *testing.T) {
 	}
 	for i := range abc {
 		thread := chanID(i)
-		texts = append(texts, f.herdr.raw["mochi-"+thread]...)
+		texts = append(texts, f.hc.raw["mochi-"+thread]...)
 		if rec := f.record(thread); rec.Guild != guild {
 			t.Errorf("session %d was recorded without its guild: %q", i+1, rec.Guild)
 		}

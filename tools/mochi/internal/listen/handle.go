@@ -1,11 +1,10 @@
 // Package listen is `mochi listen`: the gateway connection, and what a mention from Tim
-// does — a new Claude Code session in herdr, or his follow-up relayed to one already
+// does — a new Claude Code session in herdr-core, or his follow-up relayed to one already
 // running.
 package listen
 
 import (
 	"errors"
-	"fmt"
 	"log/slog"
 	"os"
 	"regexp"
@@ -20,21 +19,17 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/config"
 	"github.com/timche/mac-mini/mochi/internal/gather"
 	"github.com/timche/mac-mini/mochi/internal/gh"
-	"github.com/timche/mac-mini/mochi/internal/herdr"
+	"github.com/timche/mac-mini/mochi/internal/hc"
 	"github.com/timche/mac-mini/mochi/internal/mark"
 	"github.com/timche/mac-mini/mochi/internal/project"
 	"github.com/timche/mac-mini/mochi/internal/split"
 	"github.com/timche/mac-mini/mochi/internal/state"
 )
 
-// What the session's tab carries, so `mochi post` and `mochi history` know which session
-// they are in without being told.
-const ThreadVar = "MOCHI_THREAD"
-
 type Handler struct {
 	Cfg   config.Config
 	API   chat.API
-	Herdr herdr.Runner
+	HC    hc.Runner
 	Store state.Store
 	Now   func() time.Time
 	Log   *slog.Logger
@@ -65,8 +60,8 @@ type Handler struct {
 	// reads the checkout.
 	Origin func(dir string) (string, error)
 
-	// One mention at a time: each is a handful of Discord calls and a herdr start, and two
-	// at once would race on the state file and on the agent name.
+	// One mention at a time: each is a handful of Discord calls and a session start, and two
+	// at once would race on the state file and on the terminal's name.
 	mu      sync.Mutex
 	bot     string
 	mention *regexp.Regexp
@@ -150,20 +145,20 @@ func stopping(instruction string) bool {
 // Tim stopped the session: an esc ends what it is doing, nothing is prompted, and it shows ⏸
 // until his next word. One already idle is only marked.
 func (h *Handler) stop(rec state.Session, m *discord.Message) {
-	status, err := herdr.Status(h.Herdr, rec.Agent)
+	status, err := hc.Status(h.HC, rec.Agent)
 	switch {
-	case errors.Is(err, herdr.ErrGone):
+	case errors.Is(err, hc.ErrGone):
 		h.fail(m, rec.Thread, "the session has already ended", nil)
 		return
 	case err != nil:
 		h.fail(m, rec.Thread, "the session could not be reached", err)
 		return
-	case status == herdr.Working || status == herdr.Blocked:
-		if err := herdr.Interrupt(h.Herdr, rec.Agent); err != nil {
+	case status == hc.Working || status == hc.Blocked:
+		if err := hc.Interrupt(h.HC, rec.Agent); err != nil {
 			h.fail(m, rec.Thread, "the session could not be stopped", err)
 			return
 		}
-		h.Log.Info("stopped a session at Tim's word", "workspace", rec.Workspace, "tab", rec.Tab)
+		h.Log.Info("stopped a session at Tim's word", "space", rec.Space, "tab", rec.Tab)
 	}
 
 	rec.LastMention, rec.Updated = m.ID, h.Now().Unix()
@@ -272,7 +267,7 @@ func (h *Handler) begin(server config.Server, ch *discord.Channel, m *discord.Me
 
 	session := state.Session{Thread: thread, Source: ch.ID, Guild: m.GuildID, LastMention: m.ID}
 	text := opening(ch, m, thread, orders, instruction, h.project(server.Repo), set, h.files(thread, set), "", "")
-	if err := h.start(server, &session, name, text); err != nil {
+	if err := h.start(server, &session, text); err != nil {
 		h.Marks.Failed(thread)
 		h.fail(m, thread, err.Error(), nil)
 		return
@@ -315,7 +310,7 @@ func (h *Handler) openPost(server config.Server, forum string, ch *discord.Chann
 
 	session := state.Session{Thread: thread, Source: ch.ID, Guild: m.GuildID, LastMention: m.ID}
 	text := opening(ch, m, thread, orders, instruction, h.project(server.Repo), set, h.files(thread, set), "", "")
-	err = h.start(server, &session, name, text)
+	err = h.start(server, &session, text)
 	h.created(m, name, thread)
 	if err != nil {
 		h.Marks.Failed(thread)
@@ -331,8 +326,8 @@ func (h *Handler) openPost(server config.Server, forum string, ch *discord.Chann
 // last mention, and nothing of theirs reaches it otherwise. A session waiting on a question
 // has it cancelled and takes his message as the answer, since he answers wherever he is.
 func (h *Handler) relay(server config.Server, ch *discord.Channel, rec state.Session, m *discord.Message, instruction string) {
-	status, err := herdr.Status(h.Herdr, rec.Agent)
-	if errors.Is(err, herdr.ErrGone) {
+	status, err := hc.Status(h.HC, rec.Agent)
+	if errors.Is(err, hc.ErrGone) {
 		h.restart(server, ch, rec, m, instruction)
 		return
 	} else if err != nil {
@@ -352,19 +347,19 @@ func (h *Handler) relay(server config.Server, ch *discord.Channel, rec state.Ses
 		// of it, and a follow-up has no slash command that a placeholder would hide.
 		text := followUp(m, instruction, others, files, answering)
 		if answering {
-			h.Log.Info("a follow-up answers the question a session was waiting on", "workspace", rec.Workspace, "tab", rec.Tab)
-			return herdr.Answer(h.Herdr, rec.Agent, text, h.nap)
+			h.Log.Info("a follow-up answers the question a session was waiting on", "space", rec.Space, "tab", rec.Tab)
+			return hc.Answer(h.HC, rec.Agent, text, h.nap)
 		}
-		return herdr.Prompt(h.Herdr, rec.Agent, text)
+		return hc.Prompt(h.HC, rec.Agent, text)
 	}
-	answering := status == herdr.Blocked
+	answering := status == hc.Blocked
 	err = deliver(answering)
 	// It asked between the status read and the prompt.
-	if errors.Is(err, herdr.ErrBlocked) && !answering {
+	if errors.Is(err, hc.ErrBlocked) && !answering {
 		err = deliver(true)
 	}
 	switch {
-	case errors.Is(err, herdr.ErrStillBlocked):
+	case errors.Is(err, hc.ErrStillBlocked):
 		h.fail(m, rec.Thread, "the session is waiting on a question and would not take this as the answer", err)
 		return
 	case err != nil:
@@ -401,7 +396,7 @@ func (h *Handler) restart(server config.Server, ch *discord.Channel, rec state.S
 	rec.LastMention = m.ID
 	note := "The session that was working on this thread has gone, so this is a new one: the thread so far is the context."
 	text := opening(ch, m, rec.Thread, orders, instruction, h.project(server.Repo), set, h.files(rec.Thread, set), note, "")
-	if err := h.start(server, &rec, mark.Title(ch.Name), text); err != nil {
+	if err := h.start(server, &rec, text); err != nil {
 		h.Marks.Failed(rec.Thread)
 		h.fail(m, rec.Thread, err.Error(), nil)
 		return
@@ -413,37 +408,27 @@ func (h *Handler) restart(server config.Server, ch *discord.Channel, rec state.S
 	h.delivered(m)
 }
 
-// The record is written as soon as the agent exists, so a follow-up finds it even when the
-// first prompt did not land.
-func (h *Handler) start(server config.Server, rec *state.Session, name, text string) error {
-	rec.Agent = "mochi-" + rec.Thread
-	rec.Workspace = server.Workspace
+func (h *Handler) start(server config.Server, rec *state.Session, text string) error {
+	rec.Agent = hc.Name(rec.Thread)
+	rec.Space = server.SpaceID()
+	rec.Tab = hc.TabLabel(rec.Thread)
 	rec.Updated = h.Now().Unix()
 
-	workspace, err := herdr.Workspace(h.Herdr, server.Workspace, server.Repo)
+	// The whole opening is the session's first argument: Claude Code shows a long one as a
+	// placeholder but hands the model all of it, and a slash command inside it never runs, so
+	// the skills the session needs are named in its first line for the model to load.
+	target := hc.Target{Name: rec.Agent, Space: rec.Space, Tab: rec.Tab, Thread: rec.Thread, Cwd: server.Repo}
+	err := hc.Start(h.HC, target, text)
+	if err != nil && !errors.Is(err, hc.ErrNotBriefed) {
+		return h.startFailed("Claude Code did not start in "+rec.Space+": "+rec.Tab, notStarted, err)
+	}
+	// Written as soon as the terminal exists, so a follow-up finds it even when the opening
+	// did not land.
+	if putErr := h.Store.Put(*rec); putErr != nil {
+		h.Log.Error("the session started but was not recorded, so a follow-up will start another", "thread", rec.Thread, "error", h.redact(putErr))
+	}
 	if err != nil {
-		return h.startFailed("the herdr workspace could not be found or made", notStarted, err)
-	}
-	taken, err := herdr.Tabs(h.Herdr, workspace)
-	if err != nil {
-		h.Log.Warn("the workspace's tabs could not be listed, so the label may repeat one", "error", h.redact(err))
-	}
-	rec.Tab = tabLabel(name, taken)
-	pane, err := herdr.Tab(h.Herdr, workspace, rec.Tab, server.Repo, ThreadVar+"="+rec.Thread)
-	if err != nil {
-		return h.startFailed("a herdr tab could not be opened", notStarted, err)
-	}
-	if err := herdr.Start(h.Herdr, rec.Agent, pane); err != nil {
-		return h.startFailed("Claude Code did not start in "+rec.Workspace+": "+rec.Tab, notStarted, err)
-	}
-	if err := h.Store.Put(*rec); err != nil {
-		h.Log.Error("the session started but was not recorded, so a follow-up will start another", "thread", rec.Thread, "error", h.redact(err))
-	}
-	// Pasted whole: Claude Code shows a long paste as a placeholder but hands the model all of
-	// it. A slash command inside a paste never runs, so the skills the session needs are named in
-	// its first line for the model to load.
-	if err := herdr.Prompt(h.Herdr, rec.Agent, text); err != nil {
-		return h.startFailed("Claude Code started in "+rec.Workspace+": "+rec.Tab+" but the prompt did not reach it", notBriefed, err)
+		return h.startFailed("Claude Code started in "+rec.Space+": "+rec.Tab+" but the opening did not reach it", notBriefed, err)
 	}
 	return nil
 }
@@ -521,7 +506,7 @@ func (h *Handler) unreact(channel, message, emoji string) {
 	}
 }
 
-// The receipt: 👍 on Tim's message once herdr has taken what it asked, and kept.
+// The receipt: 👍 on Tim's message once the session has taken what it asked, and kept.
 func (h *Handler) delivered(m *discord.Message) {
 	h.react(m.ChannelID, m.ID, chat.Delivered)
 }
@@ -543,7 +528,7 @@ func (h *Handler) Prune(keep time.Duration) {
 		if h.Now().Sub(time.Unix(rec.Updated, 0)) < keep {
 			continue
 		}
-		if _, err := herdr.Status(h.Herdr, rec.Agent); !errors.Is(err, herdr.ErrGone) {
+		if _, err := hc.Status(h.HC, rec.Agent); !errors.Is(err, hc.ErrGone) {
 			continue
 		}
 		if err := h.Store.Remove(thread); err != nil {
@@ -556,33 +541,4 @@ func (h *Handler) Prune(keep time.Duration) {
 		h.Log.Info("forgot a finished session and its attachments", "thread", thread, "agent", rec.Agent)
 	}
 	h.Marks.Prune(func(thread string) bool { _, ok := all[thread]; return ok })
-}
-
-var unslug = regexp.MustCompile(`[^a-z0-9]+`)
-
-// The session's title as a herdr label, kebab-case and at most 30 characters, with a short
-// suffix when a tab in the workspace already has it. Sessions keep it: a tab with MOCHI_THREAD
-// set is not renamed.
-func tabLabel(name string, taken []string) string {
-	slug := strings.Trim(unslug.ReplaceAllString(strings.ToLower(name), "-"), "-")
-	if slug == "" {
-		slug = "discord"
-	}
-	used := map[string]bool{}
-	for _, t := range taken {
-		used[t] = true
-	}
-	for n := 1; ; n++ {
-		suffix := ""
-		if n > 1 {
-			suffix = fmt.Sprintf("-%d", n)
-		}
-		label := slug
-		if len(label) > 30-len(suffix) {
-			label = strings.TrimRight(label[:30-len(suffix)], "-")
-		}
-		if label += suffix; !used[label] {
-			return label
-		}
-	}
 }

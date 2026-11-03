@@ -17,7 +17,7 @@ func TestTheOrdersSayWhatTheFocusIs(t *testing.T) {
 
 	f.h.Handle(m)
 
-	prompt := onlyPrompt(t, f.herdr, "mochi-"+m.ID)
+	prompt := onlyPrompt(t, f.hc, "mochi-"+m.ID)
 	if !strings.Contains(shipped(t, "briefing.md"), "The FOCUS section at the top of that block is what Tim's instruction is about") {
 		t.Error("the briefing does not say what the focus is")
 	}
@@ -46,7 +46,7 @@ func TestTrimmingAPromptTakesTheSurroundingChannelNotTheFocus(t *testing.T) {
 
 	f.h.Handle(m)
 
-	context := between(t, onlyPrompt(t, f.herdr, "mochi-"+m.ID), "DISCORD CONTEXT")
+	context := between(t, onlyPrompt(t, f.hc, "mochi-"+m.ID), "DISCORD CONTEXT")
 	focusAt := strings.Index(context, gather.FocusHeading+"\n\n")
 	surroundAt := strings.Index(context, gather.SurroundingHeading)
 	if focusAt < 0 || surroundAt < 0 {
@@ -70,7 +70,7 @@ func TestASplitSessionsTaskLineComesBeforeTheFocus(t *testing.T) {
 
 	f.h.Handle(m)
 
-	context := between(t, onlyPrompt(t, f.herdr, "mochi-"+chanID(1)), "DISCORD CONTEXT")
+	context := between(t, onlyPrompt(t, f.hc, "mochi-"+chanID(1)), "DISCORD CONTEXT")
 	task := strings.Index(context, "TASK 2 of 3:")
 	focus := strings.Index(context, "\nFOCUS\n")
 	if task != 0 || focus < task || !strings.Contains(context[focus:], "QOL: a) b) c)") {
@@ -86,7 +86,7 @@ func TestARelayHasNoFocusSection(t *testing.T) {
 	f.api.Post(first.ID, 2, maker, "also b)")
 	f.h.Handle(f.mention(first.ID, 3, tim, "and b)", nil))
 
-	relay := f.herdr.prompts["mochi-"+first.ID][1]
+	relay := f.hc.prompts["mochi-"+first.ID][1]
 	if strings.Contains(relay, gather.FocusHeading) || strings.Contains(relay, "SURROUNDING") {
 		t.Errorf("relay:\n%s", relay)
 	}

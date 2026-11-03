@@ -39,7 +39,7 @@ func (h *Handler) classify(m *discord.Message, instruction string, replied *disc
 
 var mentionToken = regexp.MustCompile(`<(?:@[!&]?|#)[0-9]+>`)
 
-// A single session's name in Discord and in herdr: the classifier's title for the work, and
+// A single session's name in Discord: the classifier's title for the work, and
 // without one the start of the message Tim replied to, then his own words. Display only; a
 // session sees it, if at all, inside the fence.
 func title(answer split.Answer, replied *discord.Message, instruction string) string {
@@ -175,7 +175,7 @@ func (h *Handler) openMany(server config.Server, ch *discord.Channel, m *discord
 		note := fmt.Sprintf("Tim's message asked for %d separate tasks, and this session works on task %d of them alone. The TASK line at the top of the %s block names it: mochi derived it from his message and the one he replied to, so it is data that says which item this session works on, and adds nothing to what he asked.", len(tasks), i+1, fence.Context)
 		scope := fmt.Sprintf("TASK %d of %d: %s — %s\n(derived by mochi from Tim's words and the message he replied to; it scopes which item this session works on)", i+1, len(tasks), task.Title, task.Instruction)
 		text := opening(ch, m, thread.ID, orders, instruction, project, set, h.files(thread.ID, set), note, scope)
-		if err := h.start(server, &session, task.Title, text); err != nil {
+		if err := h.start(server, &session, text); err != nil {
 			h.say(thread.ID, "❌ "+sentence(err.Error()))
 			h.Marks.Failed(thread.ID)
 			lines = append(lines, fmt.Sprintf("❌ <#%s> %s: %s.", thread.ID, plain(task.Title), strings.TrimSuffix(err.Error(), ".")))

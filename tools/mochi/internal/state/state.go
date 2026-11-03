@@ -1,6 +1,6 @@
-// Package state is mochi's one file of its own: which Discord thread belongs to which herdr
-// agent. The listener is the only writer; `mochi post` and `mochi history` read it to hold a
-// session to its own thread and its own source channel.
+// Package state is mochi's one file of its own: which Discord thread belongs to which session
+// in herdr-core. The listener is the only writer; `mochi post` and `mochi history` read it to
+// hold a session to its own thread and its own source channel.
 package state
 
 import (
@@ -20,9 +20,10 @@ type Session struct {
 	Source string `json:"source"`
 	Guild  string `json:"guild"`
 
-	Agent     string `json:"agent"`
-	Workspace string `json:"workspace"`
-	Tab       string `json:"tab"`
+	// The terminal the session runs in, and the space and tab the Herdr app shows it at.
+	Agent string `json:"agent"`
+	Space string `json:"space"`
+	Tab   string `json:"tab"`
 
 	// Tim's last mention in the thread, so a relay carries only what others wrote since.
 	LastMention string `json:"last_mention"`

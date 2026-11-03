@@ -2,6 +2,7 @@ package listen
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/timche/mac-mini/mochi/internal/chat/chattest"
 	"github.com/timche/mac-mini/mochi/internal/config"
 	"github.com/timche/mac-mini/mochi/internal/event"
+	"github.com/timche/mac-mini/mochi/internal/hc"
 	"github.com/timche/mac-mini/mochi/internal/mark"
 	"github.com/timche/mac-mini/mochi/internal/state"
 )
@@ -37,36 +39,30 @@ var (
 	imp   = &discord.User{ID: "1400000000000000004", Username: "tim-impersonator"}
 )
 
-// herdr as its CLI answers: JSON on success, a JSON error with a code on refusal.
-type fakeHerdr struct {
-	calls      [][]string
-	workspaces map[string]string
-	agents     map[string]string
-	prompts    map[string][]string
+// hc as its CLI answers: the terminal's own JSON on success, an error with a kind on refusal.
+type fakeHC struct {
+	calls [][]string
 
-	// What was pasted, before the brief it names is read.
-	raw        map[string][]string
-	startFails bool
+	// Every terminal the core holds, by name; one it has never heard of is absent.
+	live map[string]*fakeTerm
 
-	// Every tab's label, as `tab list` answers.
-	tabs []string
+	// Each session's prompts, and what was pasted before the brief it names is read.
+	prompts map[string][]string
+	raw     map[string][]string
 
-	// Every prompt is refused, when set.
+	// Every start, or every prompt, is refused, when set.
+	startFails  bool
 	promptFails bool
 
-	// After an esc, how many more reads still say blocked, as the real herdr does for a
-	// moment; and whether the question stays up for good.
+	// After an esc, how many more reads still say blocked, as Claude Code does for a moment;
+	// and whether the question stays up for good.
 	escLag     int
 	escIgnored bool
 	escaped    map[string]int
 	naps       int
 
-	// Each agent's tab label, from the tab it was started in, and the tabs closed; the panes
-	// in a tab and whether it is focused, when a test sets them.
-	agentTabs map[string]string
-	closed    []string
-	panes     int
-	focused   bool
+	// The terminals killed and taken off the list.
+	closed []string
 
 	// The nth start and every one after it fail, when set.
 	starts, failFrom int
@@ -76,117 +72,155 @@ type fakeHerdr struct {
 	started, release chan struct{}
 }
 
-func newHerdr() *fakeHerdr {
-	return &fakeHerdr{
-		workspaces: map[string]string{"repeek": "w4"},
-		agents:     map[string]string{},
-		prompts:    map[string][]string{},
-		raw:        map[string][]string{},
-		escaped:    map[string]int{},
-		agentTabs:  map[string]string{},
+type fakeTerm struct {
+	// The program's own word for what it is doing, and empty for a program that reports
+	// nothing — the shell `--keep` leaves where a lost session was.
+	status   string
+	labels   map[string]string
+	finished bool
+}
+
+func newHC() *fakeHC {
+	return &fakeHC{
+		live:    map[string]*fakeTerm{},
+		prompts: map[string][]string{},
+		raw:     map[string][]string{},
+		escaped: map[string]int{},
 	}
 }
 
+// What a session reports of itself, and a session the core no longer has.
+func (f *fakeHC) say(name, status string) { f.live[name].status = status }
+func (f *fakeHC) gone(name string)        { delete(f.live, name) }
+
 func answer(v any) []byte { b, _ := json.Marshal(v); return b }
 
-func refusal(code string) []byte {
-	return answer(map[string]any{"error": map[string]string{"code": code, "message": code}})
+func refusal(kind string) []byte {
+	return answer(map[string]any{"error": map[string]string{"kind": kind, "message": kind}})
 }
 
-func (f *fakeHerdr) run(args ...string) ([]byte, error) {
+func (f *fakeHC) run(args ...string) ([]byte, error) {
 	f.calls = append(f.calls, args)
-	switch args[0] + " " + args[1] {
-	case "workspace list":
-		var ws []map[string]string
-		for label, id := range f.workspaces {
-			ws = append(ws, map[string]string{"label": label, "workspace_id": id})
-		}
-		return answer(map[string]any{"result": map[string]any{"workspaces": ws}}), nil
-	case "workspace create":
-		f.workspaces[args[3]] = "w9"
-		return answer(map[string]any{"result": map[string]any{"workspace": map[string]string{"workspace_id": "w9"}}}), nil
-	case "tab create":
-		f.tabs = append(f.tabs, args[5])
-		return answer(map[string]any{"result": map[string]any{"root_pane": map[string]string{"pane_id": "p1"}}}), nil
-	case "tab list":
-		var tabs []map[string]string
-		for _, label := range f.tabs {
-			tabs = append(tabs, map[string]string{"label": label})
-		}
-		return answer(map[string]any{"result": map[string]any{"tabs": tabs}}), nil
-	case "agent start":
+	switch args[0] {
+	case "run":
 		if f.started != nil {
 			f.started <- struct{}{}
 			<-f.release
 		}
 		f.starts++
 		if f.startFails || (f.failFrom > 0 && f.starts >= f.failFrom) {
-			return refusal("agent_start_timeout"), nil
+			return refusal("spawn_failed"), nil
 		}
-		f.agents[args[2]] = "idle"
-		if len(f.tabs) > 0 {
-			f.agentTabs[args[2]] = f.tabs[len(f.tabs)-1]
+		name, labels := started(args)
+		if t, ok := f.live[name]; ok && !t.finished {
+			return refusal("name_taken"), nil
 		}
-		return answer(map[string]any{"result": map[string]any{}}), nil
-	case "agent prompt":
+		f.live[name] = &fakeTerm{status: "idle", labels: labels}
+		f.pasted(name, args[len(args)-1])
+		return answer(map[string]any{"address": fmt.Sprintf("t%d", f.starts), "name": name, "state": "live"}), nil
+
+	case "get":
+		t, ok := f.live[args[1]]
+		if !ok {
+			return refusal("not_found"), nil
+		}
+		f.afterEsc(args[1])
+		out := map[string]any{"address": "t1", "name": args[1], "state": "live", "labels": t.labels}
+		if t.finished {
+			out["state"] = "finished"
+		} else if t.status != "" {
+			out["status"] = map[string]string{"state": t.status}
+		}
+		return answer(out), nil
+
+	case "send":
 		if f.promptFails {
-			return refusal("agent_prompt_failed"), nil
+			return refusal("send_failed"), nil
 		}
-		switch f.agents[args[2]] {
-		case "":
-			return refusal("agent_not_found"), nil
-		case "blocked":
-			return refusal("agent_blocked"), nil
+		t, ok := f.live[args[1]]
+		switch {
+		case !ok:
+			return refusal("not_found"), nil
+		case t.finished:
+			return refusal("finished"), nil
+		case t.status == hc.Blocked:
+			return refusal("blocked"), nil
 		}
-		f.raw[args[2]] = append(f.raw[args[2]], args[3])
-		f.prompts[args[2]] = append(f.prompts[args[2]], args[3])
-		return answer(map[string]any{"result": map[string]any{}}), nil
-	case "agent send-keys":
-		if _, ok := f.agents[args[2]]; !ok {
-			return refusal("agent_not_found"), nil
-		}
-		if f.agents[args[2]] == "blocked" && args[3] == "esc" {
-			f.escaped[args[2]] = f.escLag
-		}
-		return answer(map[string]any{"result": map[string]any{}}), nil
-	case "agent get":
-		if lag, ok := f.escaped[args[2]]; ok {
-			if lag > 0 {
-				f.escaped[args[2]] = lag - 1
-			} else {
-				delete(f.escaped, args[2])
-				if !f.escIgnored {
-					f.agents[args[2]] = "idle"
-				}
-			}
-		}
-		status, ok := f.agents[args[2]]
+		f.pasted(args[1], args[2])
+		// The status is the program's word alone here, where `get` answers with its whole record.
+		return answer(map[string]any{"started": true, "status": t.status, "turn": 0}), nil
+
+	case "interrupt":
+		t, ok := f.live[args[1]]
 		if !ok {
-			return refusal("agent_not_found"), nil
+			return refusal("not_found"), nil
 		}
-		return answer(map[string]any{"result": map[string]any{"agent": map[string]string{"agent_status": status, "tab_id": "tab:" + args[2]}}}), nil
-	case "tab get":
-		agent, _ := strings.CutPrefix(args[2], "tab:")
-		label, ok := f.agentTabs[agent]
+		if t.status == hc.Blocked {
+			f.escaped[args[1]] = f.escLag
+		}
+		return answer(map[string]any{"key": "esc", "outcome": "stopped"}), nil
+
+	case "kill":
+		t, ok := f.live[args[1]]
 		if !ok {
-			return refusal("tab_not_found"), nil
+			return refusal("not_found"), nil
 		}
-		panes := f.panes
-		if panes == 0 {
-			panes = 1
+		t.finished = true
+		return answer(map[string]any{"address": "t1", "name": args[1], "state": "finished"}), nil
+
+	case "rm":
+		t, ok := f.live[args[1]]
+		switch {
+		case !ok:
+			return refusal("not_found"), nil
+		case !t.finished:
+			return refusal("live"), nil
 		}
-		return answer(map[string]any{"result": map[string]any{"tab": map[string]any{"label": label, "tab_id": args[2], "pane_count": panes, "focused": f.focused}}}), nil
-	case "tab close":
-		agent, _ := strings.CutPrefix(args[2], "tab:")
-		f.closed = append(f.closed, args[2])
-		delete(f.agents, agent)
-		delete(f.agentTabs, agent)
-		return answer(map[string]any{"result": map[string]any{}}), nil
+		delete(f.live, args[1])
+		f.closed = append(f.closed, args[1])
+		return answer(map[string]any{"removed": args[1]}), nil
 	}
 	return refusal("unknown_command"), nil
 }
 
-func (f *fakeHerdr) called(prefix string) [][]string {
+func (f *fakeHC) pasted(name, text string) {
+	f.raw[name] = append(f.raw[name], text)
+	f.prompts[name] = append(f.prompts[name], text)
+}
+
+// The esc is read back rather than assumed, so the question stays up for the reads a test asks
+// for before it clears.
+func (f *fakeHC) afterEsc(name string) {
+	lag, ok := f.escaped[name]
+	if !ok {
+		return
+	}
+	if lag > 0 {
+		f.escaped[name] = lag - 1
+		return
+	}
+	delete(f.escaped, name)
+	if !f.escIgnored {
+		f.live[name].status = "idle"
+	}
+}
+
+// The name and the labels a `run` carries, read off its flags the way hc reads them.
+func started(args []string) (string, map[string]string) {
+	name, labels := "", map[string]string{}
+	for i := 0; i+1 < len(args); i++ {
+		switch args[i] {
+		case "--name":
+			name = args[i+1]
+		case "--label":
+			key, value, _ := strings.Cut(args[i+1], "=")
+			labels[key] = value
+		}
+	}
+	return name, labels
+}
+
+func (f *fakeHC) called(prefix string) [][]string {
 	var out [][]string
 	for _, c := range f.calls {
 		if strings.HasPrefix(strings.Join(c, " "), prefix) {
@@ -199,11 +233,11 @@ func (f *fakeHerdr) called(prefix string) [][]string {
 type fixture struct {
 	seq int
 
-	t     *testing.T
-	api   *chattest.Fake
-	herdr *fakeHerdr
-	h     *Handler
-	cfg   config.Config
+	t   *testing.T
+	api *chattest.Fake
+	hc  *fakeHC
+	h   *Handler
+	cfg config.Config
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -218,11 +252,11 @@ func newFixture(t *testing.T) *fixture {
 		StateDir: t.TempDir(),
 		Briefing: briefingPath(),
 	}
-	hd := newHerdr()
+	hd := newHC()
 	h := &Handler{
 		Cfg:     cfg,
 		API:     api,
-		Herdr:   hd.run,
+		HC:      hd.run,
 		Store:   state.Store{Path: cfg.StatePath()},
 		Pending: state.PendingStore{Path: cfg.PendingPath()},
 		Waits:   state.WaitStore{Path: cfg.WaitsPath()},
@@ -234,7 +268,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	h.Marks = mark.Marker{API: api, Path: cfg.MarksPath(), Now: func() time.Time { return h.Now() }, Log: h.Log}
 	h.SetBot(bot.ID)
-	return &fixture{t: t, api: api, herdr: hd, h: h, cfg: cfg}
+	return &fixture{t: t, api: api, hc: hd, h: h, cfg: cfg}
 }
 
 func (f *fixture) mention(ch string, n int, author *discord.User, text string, to *discord.Message) *discord.Message {
@@ -286,7 +320,7 @@ func head(post string) string {
 	return first
 }
 
-func onlyPrompt(t *testing.T, hd *fakeHerdr, agent string) string {
+func onlyPrompt(t *testing.T, hd *fakeHC, agent string) string {
 	t.Helper()
 	if len(hd.prompts[agent]) != 1 {
 		t.Fatalf("%s was prompted %d times", agent, len(hd.prompts[agent]))
@@ -317,16 +351,18 @@ func TestAReplyToAnOldMessageStartsALeadSessionWithTheDiscussion(t *testing.T) {
 	}
 
 	agent := "mochi-" + m.ID
-	if got := f.herdr.called("tab create"); len(got) != 1 || strings.Join(got[0], " ") !=
-		"tab create --workspace w4 --label qol-a-average-elo-per-team-b-m --cwd /repos/repeek --no-focus --env MOCHI_THREAD="+m.ID {
-		t.Errorf("tab create = %v", got)
-	}
-	if got := f.herdr.called("agent start"); len(got) != 1 || strings.Join(got[0], " ") !=
-		"agent start "+agent+" --kind claude --pane p1 --timeout 20000" {
-		t.Errorf("agent start = %v", got)
+	// Everything but the opening, which the prompt checks below: backgrounded so the start
+	// comes back at once, nobody's child, kept, and the opening handed to Claude Code as its
+	// own argument.
+	started := f.hc.called("run")
+	if len(started) != 1 || strings.Join(started[0][:len(started[0])-1], " ") !=
+		"run --bg --no-parent --keep --name "+agent+" --cwd /repos/repeek"+
+			" --label herdr.space=sp-repeek --label herdr.tab=tb-"+agent+" --label mochi.thread="+m.ID+
+			" --json -- env MOCHI_THREAD="+m.ID+" claude" {
+		t.Errorf("run = %v", started)
 	}
 
-	prompt := onlyPrompt(t, f.herdr, agent)
+	prompt := onlyPrompt(t, f.hc, agent)
 	if !strings.HasPrefix(prompt, skillFirst) {
 		t.Errorf("the prompt does not load the lead skill: %.60q", prompt)
 	}
@@ -349,7 +385,7 @@ func TestAReplyToAnOldMessageStartsALeadSessionWithTheDiscussion(t *testing.T) {
 		t.Errorf("thread posts = %q", thread)
 	}
 	rec := f.record(m.ID)
-	if rec.Source != channel || rec.Agent != agent || rec.LastMention != m.ID || rec.Tab != "qol-a-average-elo-per-team-b-m" {
+	if rec.Source != channel || rec.Agent != agent || rec.LastMention != m.ID {
 		t.Errorf("record = %+v", rec)
 	}
 	f.quiet()
@@ -371,7 +407,7 @@ func TestAMentionInAForumPostUsesThatPostAsTheThread(t *testing.T) {
 	if len(f.api.Threads) != 0 {
 		t.Errorf("a thread was opened inside a thread: %v", f.api.Threads)
 	}
-	context := between(t, onlyPrompt(t, f.herdr, "mochi-"+post), "DISCORD CONTEXT")
+	context := between(t, onlyPrompt(t, f.hc, "mochi-"+post), "DISCORD CONTEXT")
 	if !strings.Contains(context, "Bug: elo resets after a draw") || strings.Count(context, "me too") != 20 {
 		t.Errorf("the whole post is not in the context:\n%s", context)
 	}
@@ -395,7 +431,7 @@ func TestAMentionThatRepliesToNothingThreadsOnTimsOwnMessage(t *testing.T) {
 	if len(f.api.Threads) != 1 || !strings.HasPrefix(f.api.Threads[0], m.ID+" ") {
 		t.Errorf("threads = %v", f.api.Threads)
 	}
-	context := between(t, onlyPrompt(t, f.herdr, "mochi-"+m.ID), "DISCORD CONTEXT")
+	context := between(t, onlyPrompt(t, f.hc, "mochi-"+m.ID), "DISCORD CONTEXT")
 	if strings.Count(context, "chatter") != 50 || !strings.Contains(context, chattest.ID(70)) || strings.Contains(context, "chatter "+chattest.ID(20)) {
 		t.Errorf("the context is not the last fifty messages")
 	}
@@ -417,13 +453,13 @@ func TestAMentionInASessionThreadIsRelayedWithOthersMessages(t *testing.T) {
 
 	f.h.Handle(follow)
 
-	if got := f.herdr.called("tab create"); len(got) != 1 {
+	if got := f.hc.called("run"); len(got) != 1 {
 		t.Errorf("a second tab was opened: %v", got)
 	}
-	if len(f.herdr.prompts[agent]) != 2 {
-		t.Fatalf("prompts = %d", len(f.herdr.prompts[agent]))
+	if len(f.hc.prompts[agent]) != 2 {
+		t.Fatalf("prompts = %d", len(f.hc.prompts[agent]))
 	}
-	relay := f.herdr.prompts[agent][1]
+	relay := f.hc.prompts[agent][1]
 	if strings.HasPrefix(relay, skillFirst) {
 		t.Error("a follow-up reloads the lead skill")
 	}
@@ -449,7 +485,7 @@ func TestAMentionInASessionThreadIsRelayedWithOthersMessages(t *testing.T) {
 	f.api.Post(thread, 7, maker, "d) too")
 	again := f.mention(thread, 8, tim, "and d)", nil)
 	f.h.Handle(again)
-	third := between(t, f.herdr.prompts[agent][2], "DISCORD CONTEXT")
+	third := between(t, f.hc.prompts[agent][2], "DISCORD CONTEXT")
 	if strings.Contains(third, "please also b)") || !strings.Contains(third, "d) too") {
 		t.Errorf("the third prompt carries the wrong window:\n%s", third)
 	}
@@ -460,16 +496,16 @@ func TestARelayToASessionTimClosedStartsANewOneWithTheThread(t *testing.T) {
 	first := f.mention(channel, 1, tim, "research a)", nil)
 	f.h.Handle(first)
 	thread := first.ID
-	delete(f.herdr.agents, "mochi-"+thread)
+	f.hc.gone("mochi-" + thread)
 
 	f.api.Post(thread, 2, maker, "please also b)")
 	follow := f.mention(thread, 3, tim, "also check b)", nil)
 	f.h.Handle(follow)
 
-	if got := f.herdr.called("tab create"); len(got) != 2 {
+	if got := f.hc.called("run"); len(got) != 2 {
 		t.Fatalf("tabs = %v", got)
 	}
-	prompts := f.herdr.prompts["mochi-"+thread]
+	prompts := f.hc.prompts["mochi-"+thread]
 	if len(prompts) != 2 {
 		t.Fatalf("prompts = %d", len(prompts))
 	}
@@ -490,7 +526,7 @@ func TestARelayToASessionTimClosedStartsANewOneWithTheThread(t *testing.T) {
 }
 
 // Tim answers wherever he is: a follow-up to a session waiting on a question cancels it and
-// goes in as the answer, after herdr has stopped calling the agent blocked.
+// goes in as the answer, after the session has stopped reporting itself blocked.
 func TestAFollowUpAnswersTheQuestionASessionIsWaitingOn(t *testing.T) {
 	f := newFixture(t)
 	first := f.mention(channel, 1, tim, "research a)", nil)
@@ -498,30 +534,30 @@ func TestAFollowUpAnswersTheQuestionASessionIsWaitingOn(t *testing.T) {
 	agent := "mochi-" + first.ID
 	f.event(first.ID, event.Ask, 0)
 	f.consume()
-	f.herdr.agents[agent] = "blocked"
-	f.herdr.escLag = 2
+	f.hc.say(agent, "blocked")
+	f.hc.escLag = 2
 
 	follow := f.mention(first.ID, 2, tim, "go with b)", nil)
 	f.h.Handle(follow)
 
 	var order []string
-	for _, c := range f.herdr.calls {
-		if c[0] == "agent" && c[1] != "start" && len(c) > 2 && c[2] == agent {
-			order = append(order, c[1])
+	for _, c := range f.hc.calls {
+		if c[0] != "run" && len(c) > 1 && c[1] == agent {
+			order = append(order, c[0])
 		}
 	}
-	want := "get send-keys get get get prompt"
+	want := "get interrupt get get get send"
 	if got := strings.Join(order[len(order)-6:], " "); got != want {
-		t.Errorf("herdr calls = %q, want %q", got, want)
+		t.Errorf("hc calls = %q, want %q", got, want)
 	}
-	if f.herdr.naps != 2 {
-		t.Errorf("naps = %d", f.herdr.naps)
+	if f.hc.naps != 2 {
+		t.Errorf("naps = %d", f.hc.naps)
 	}
-	raw := f.herdr.raw[agent]
+	raw := f.hc.raw[agent]
 	if !strings.HasPrefix(raw[len(raw)-1], "Tim answered in Discord instead of the question") {
 		t.Errorf("prompt = %q", raw[len(raw)-1])
 	}
-	brief := f.herdr.prompts[agent][len(f.herdr.prompts[agent])-1]
+	brief := f.hc.prompts[agent][len(f.hc.prompts[agent])-1]
 	if !strings.HasPrefix(brief, "Tim answered in Discord instead of the question") || !strings.Contains(brief, skillAgain) || !strings.Contains(brief, "go with b)") {
 		t.Errorf("brief = %q", brief)
 	}
@@ -542,14 +578,14 @@ func TestAFollowUpToAWorkingSessionIsPromptedWithoutAnEsc(t *testing.T) {
 	f.h.Handle(first)
 	f.h.Handle(f.mention(first.ID, 2, tim, "also b)", nil))
 
-	if len(f.herdr.called("agent send-keys")) != 0 {
+	if len(f.hc.called("interrupt")) != 0 {
 		t.Error("an esc to a session with no question")
 	}
-	raw := f.herdr.raw["mochi-"+first.ID]
+	raw := f.hc.raw["mochi-"+first.ID]
 	if !strings.HasPrefix(raw[len(raw)-1], event.FollowedPrefix) {
 		t.Errorf("prompt = %q", raw[len(raw)-1])
 	}
-	brief := f.herdr.prompts["mochi-"+first.ID]
+	brief := f.hc.prompts["mochi-"+first.ID]
 	if strings.Contains(brief[len(brief)-1], "instead of the question") {
 		t.Error("a plain follow-up framed as an answer")
 	}
@@ -560,8 +596,8 @@ func TestAQuestionThatWillNotCancelFailsWithAReason(t *testing.T) {
 	f := newFixture(t)
 	first := f.mention(channel, 1, tim, "research a)", nil)
 	f.h.Handle(first)
-	f.herdr.agents["mochi-"+first.ID] = "blocked"
-	f.herdr.escIgnored = true
+	f.hc.say("mochi-"+first.ID, "blocked")
+	f.hc.escIgnored = true
 
 	follow := f.mention(first.ID, 2, tim, "also b)", nil)
 	f.h.Handle(follow)
@@ -589,14 +625,14 @@ func TestOnlyTimsMentionsInMappedServersDoAnything(t *testing.T) {
 		f.h.Handle(m)
 	}
 
-	if len(f.herdr.calls) != 0 || len(f.api.Reactions) != 0 || len(f.api.Sent) != 0 || len(f.api.Threads) != 0 {
-		t.Errorf("herdr %v, reactions %v, sent %d, threads %v", f.herdr.calls, f.api.Reactions, len(f.api.Sent), f.api.Threads)
+	if len(f.hc.calls) != 0 || len(f.api.Reactions) != 0 || len(f.api.Sent) != 0 || len(f.api.Threads) != 0 {
+		t.Errorf("hc %v, reactions %v, sent %d, threads %v", f.hc.calls, f.api.Reactions, len(f.api.Sent), f.api.Threads)
 	}
 }
 
-func TestAHerdrFailureIsACrossAndAReason(t *testing.T) {
+func TestAFailedStartIsACrossAndAReason(t *testing.T) {
 	f := newFixture(t)
-	f.herdr.startFails = true
+	f.hc.startFails = true
 	m := f.mention(channel, 1, tim, "research", nil)
 
 	f.h.Handle(m)
@@ -628,22 +664,10 @@ func TestAThreadThatCannotBeOpenedIsAReplyWithTheReason(t *testing.T) {
 	if ref := f.api.Sent[0].Msg.Reference; ref == nil || ref.MessageID != m.ID {
 		t.Error("the reason is not a reply to Tim's message")
 	}
-	if len(f.herdr.calls) != 0 {
+	if len(f.hc.calls) != 0 {
 		t.Error("a session started with nowhere to post")
 	}
 	f.quiet()
-}
-
-func TestAMissingWorkspaceIsMadeInTheRepository(t *testing.T) {
-	f := newFixture(t)
-	delete(f.herdr.workspaces, "repeek")
-
-	f.h.Handle(f.mention(channel, 1, tim, "research", nil))
-
-	if got := f.herdr.called("workspace create"); len(got) != 1 ||
-		strings.Join(got[0], " ") != "workspace create --label repeek --cwd /repos/repeek --no-focus" {
-		t.Errorf("workspace create = %v", got)
-	}
 }
 
 func TestAttachmentsInTheContextAreDownloadedIntoTheSessionFolder(t *testing.T) {
@@ -659,7 +683,7 @@ func TestAttachmentsInTheContextAreDownloadedIntoTheSessionFolder(t *testing.T) 
 	if body, err := os.ReadFile(path); err != nil || string(body) != "png" {
 		t.Fatalf("not downloaded: %v", err)
 	}
-	if !strings.Contains(onlyPrompt(t, f.herdr, "mochi-"+m.ID), "attachment: "+path+" (image/png, 3 bytes)") {
+	if !strings.Contains(onlyPrompt(t, f.hc, "mochi-"+m.ID), "attachment: "+path+" (image/png, 3 bytes)") {
 		t.Error("the prompt does not list the file beside its message")
 	}
 }
@@ -678,7 +702,7 @@ func TestFinishedSessionsAreForgottenWithTheirFiles(t *testing.T) {
 		t.Fatal("a live session was forgotten")
 	}
 
-	delete(f.herdr.agents, "mochi-"+m.ID)
+	f.hc.gone("mochi-" + m.ID)
 	f.h.Now = func() time.Time { return time.Date(2026, 10, 28, 0, 0, 0, 0, time.UTC) }
 	f.h.Prune(week)
 	if _, ok, _ := f.h.Store.Get(m.ID); ok {
@@ -732,10 +756,10 @@ func TestAThreadTitleNeverReachesTheOrders(t *testing.T) {
 	f.api.RenameErr[post] = chat.ErrForbidden
 
 	f.h.Handle(f.mention(post, 1, tim, "look into this", nil))
-	delete(f.herdr.agents, "mochi-"+post)
+	f.hc.gone("mochi-" + post)
 	f.h.Handle(f.mention(post, 2, tim, "again", nil))
 
-	prompts := f.herdr.prompts["mochi-"+post]
+	prompts := f.hc.prompts["mochi-"+post]
 	if len(prompts) != 2 {
 		t.Fatalf("prompts = %d", len(prompts))
 	}

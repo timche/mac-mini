@@ -1,5 +1,5 @@
 // Package config is what mochi knows before it talks to anybody: the one account it takes
-// instructions from, which Discord server maps to which herdr workspace and repository, and
+// instructions from, which Discord server maps to which Herdr space and repository, and
 // where its own files live.
 package config
 
@@ -19,9 +19,24 @@ import (
 )
 
 type Server struct {
-	Guild     string `json:"guild"`
+	Guild string `json:"guild"`
+
+	// Where the Herdr app files this server's sessions. The app's own space ids are the
+	// workspace name with sp- in front, so one entry names the project and space says
+	// otherwise when the app's id is not that.
 	Workspace string `json:"workspace"`
-	Repo      string `json:"repo"`
+	Space     string `json:"space"`
+
+	Repo string `json:"repo"`
+}
+
+// SpaceID is the label a session's terminal carries as herdr.space, which is the only thing
+// that puts it in front of Tim: the app shows no terminal without one.
+func (s Server) SpaceID() string {
+	if s.Space != "" {
+		return s.Space
+	}
+	return "sp-" + s.Workspace
 }
 
 var unset sync.Map
@@ -164,7 +179,7 @@ func FromEnv() (Config, error) {
 	return cfg, nil
 }
 
-// Strict, because every value ends up in a herdr call or a Discord request path: a key
+// Strict, because every value ends up in an hc call or a Discord request path: a key
 // mochi does not know is a typo, and a typo in the user is a bot that obeys nobody.
 func Load(path, home string) (Config, error) {
 	body, err := os.ReadFile(path)
@@ -191,8 +206,8 @@ func Load(path, home string) (Config, error) {
 			return Config{}, fmt.Errorf("%s: server %d has no Discord guild id", path, i+1)
 		case seen[s.Guild]:
 			return Config{}, fmt.Errorf("%s: guild %s is mapped twice", path, s.Guild)
-		case strings.TrimSpace(s.Workspace) == "":
-			return Config{}, fmt.Errorf("%s: guild %s names no herdr workspace", path, s.Guild)
+		case strings.TrimSpace(s.Workspace) == "" && strings.TrimSpace(s.Space) == "":
+			return Config{}, fmt.Errorf("%s: guild %s names no Herdr workspace or space", path, s.Guild)
 		case strings.TrimSpace(s.Repo) == "":
 			return Config{}, fmt.Errorf("%s: guild %s names no repository", path, s.Guild)
 		}

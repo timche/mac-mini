@@ -18,7 +18,7 @@ func TestASessionIsPastedItsWholeOpening(t *testing.T) {
 
 	f.h.Handle(m)
 
-	raw := f.herdr.raw["mochi-"+m.ID]
+	raw := f.hc.raw["mochi-"+m.ID]
 	if len(raw) != 1 {
 		t.Fatalf("pasted %d prompts", len(raw))
 	}
@@ -47,7 +47,7 @@ func TestEverySplitSessionHasAnOpeningOfItsOwn(t *testing.T) {
 	f.h.Handle(f.mention(channel, 1, tim, "research a, b and c separately", nil))
 
 	for i := range abc {
-		raw := f.herdr.raw["mochi-"+chanID(i)]
+		raw := f.hc.raw["mochi-"+chanID(i)]
 		if len(raw) != 1 || !strings.HasPrefix(raw[0], event.OpeningPrefix) {
 			t.Fatalf("session %d pasted %.100q", i+1, raw)
 		}
@@ -67,7 +67,7 @@ func TestAFollowUpIsPastedWhole(t *testing.T) {
 
 	f.h.Handle(follow)
 
-	raw := f.herdr.raw["mochi-"+first.ID]
+	raw := f.hc.raw["mochi-"+first.ID]
 	if len(raw) != 2 || !strings.HasPrefix(raw[1], event.FollowedPrefix+" (") || !event.FromMochi(raw[1]) {
 		t.Fatalf("pasted %.200q", raw)
 	}
@@ -80,10 +80,10 @@ func TestARestartedSessionGetsAFreshOpening(t *testing.T) {
 	f := newFixture(t)
 	first := f.mention(channel, 1, tim, "start", nil)
 	f.h.Handle(first)
-	delete(f.herdr.agents, "mochi-"+first.ID)
+	f.hc.gone("mochi-" + first.ID)
 	f.h.Handle(f.mention(first.ID, 2, tim, "again", nil))
 
-	raw := f.herdr.raw["mochi-"+first.ID]
+	raw := f.hc.raw["mochi-"+first.ID]
 	if len(raw) != 2 || !strings.HasPrefix(raw[1], event.OpeningPrefix) || !strings.Contains(raw[1], "has gone, so this is a new one") {
 		t.Fatalf("pasted %.200q", raw)
 	}
@@ -100,7 +100,7 @@ func TestAFollowUpWithNothingElseSaidIsHisWordsAlone(t *testing.T) {
 	renamed.Type = discord.MessageTypeChannelNameChange
 	f.h.Handle(f.mention(first.ID, 4, tim, "go with b)", nil))
 
-	relay := f.herdr.raw["mochi-"+first.ID][1]
+	relay := f.hc.raw["mochi-"+first.ID][1]
 	if strings.Contains(relay, "DISCORD CONTEXT") || strings.Contains(relay, "Everything posted in the thread") || strings.Contains(relay, "That was the data") {
 		t.Errorf("an empty context was framed:\n%s", relay)
 	}

@@ -70,8 +70,8 @@ func TestASplitIntoThreeOpensThreeThreadsAndTabsAndOneReply(t *testing.T) {
 	if len(f.api.Standalone) != 3 || f.api.Standalone[0] != channel+" ⏳ Average elo per team" {
 		t.Fatalf("threads = %v", f.api.Standalone)
 	}
-	if got := f.herdr.called("tab create"); len(got) != 3 || got[0][5] != "average-elo-per-team" {
-		t.Errorf("tabs = %v", got)
+	if got := f.hc.called("run"); len(got) != 3 {
+		t.Errorf("sessions started = %d", len(got))
 	}
 
 	var lines []string
@@ -80,7 +80,7 @@ func TestASplitIntoThreeOpensThreeThreadsAndTabsAndOneReply(t *testing.T) {
 		if thread == nil || thread.ParentID != channel {
 			t.Fatalf("thread %d is %+v", i+1, thread)
 		}
-		prompt := onlyPrompt(t, f.herdr, "mochi-"+thread.ID)
+		prompt := onlyPrompt(t, f.hc, "mochi-"+thread.ID)
 		if got := between(t, prompt, "INSTRUCTION FROM TIM"); strings.TrimSpace(got) != "research a, b and c separately" {
 			t.Errorf("task %d was handed %q as Tim's words", i+1, got)
 		}
@@ -115,7 +115,7 @@ func TestASplitIntoThreeOpensThreeThreadsAndTabsAndOneReply(t *testing.T) {
 	// Each is an ordinary session thread from here on.
 	thread := chanID(1)
 	f.h.Handle(f.mention(thread, 13, tim, "also check seasons", nil))
-	if len(f.herdr.prompts["mochi-"+thread]) != 2 {
+	if len(f.hc.prompts["mochi-"+thread]) != 2 {
 		t.Error("a follow-up in a split thread was not relayed")
 	}
 }
@@ -127,7 +127,7 @@ func chanID(i int) string {
 func TestAStartThatFailsIsNamedInTheReplyAndCrossed(t *testing.T) {
 	f := newFixture(t)
 	f.h.Split = splitsInto(abc, nil, nil)
-	f.herdr.failFrom = 2
+	f.hc.failFrom = 2
 	m := f.mention(channel, 1, tim, "research a, b and c separately", nil)
 
 	f.h.Handle(m)
@@ -156,18 +156,18 @@ func TestAClassifierThatFailsIsOneSessionAsBefore(t *testing.T) {
 		m := f.mention(channel, 1, tim, "research a, b and c separately", nil)
 		f.h.Handle(m)
 
-		if len(f.api.Threads) != 1 || len(f.api.Standalone) != 0 || len(f.herdr.called("tab create")) != 1 {
+		if len(f.api.Threads) != 1 || len(f.api.Standalone) != 0 || len(f.hc.called("run")) != 1 {
 			t.Errorf("%s: threads %v, standalone %v", name, f.api.Threads, f.api.Standalone)
 			continue
 		}
-		prompt := onlyPrompt(t, f.herdr, "mochi-"+m.ID)
+		prompt := onlyPrompt(t, f.hc, "mochi-"+m.ID)
 		if got := strings.TrimSpace(between(t, prompt, "INSTRUCTION FROM TIM")); got != "research a, b and c separately" {
 			t.Errorf("%s: instruction = %q", name, got)
 		}
 		if posts := f.sentTo(m.ID); len(posts) != 1 || head(posts[0]) != startedPost(m.ID) {
 			t.Errorf("%s: posts = %q", name, posts)
 		}
-		if len(f.sentTo(channel)) != 0 || len(f.herdr.called("agent start")) == 0 {
+		if len(f.sentTo(channel)) != 0 || len(f.hc.called("run")) == 0 {
 			t.Errorf("%s: something else was said", name)
 		}
 	}
@@ -182,7 +182,7 @@ func TestMoreThanFiveTasksIsRefused(t *testing.T) {
 
 	f.h.Handle(m)
 
-	if len(f.herdr.calls) != 0 || len(f.api.Threads) != 0 || len(f.api.Standalone) != 0 {
+	if len(f.hc.calls) != 0 || len(f.api.Threads) != 0 || len(f.api.Standalone) != 0 {
 		t.Error("something was started")
 	}
 	if reply := f.sentTo(channel); len(reply) != 1 || reply[0] != "❌ That is 6 tasks, and mochi starts at most 5 from one message." {
@@ -224,10 +224,10 @@ func TestASplitInAForumPostIsOneSessionThatSaysSo(t *testing.T) {
 
 	f.h.Handle(m)
 
-	if len(f.api.Standalone) != 0 || len(f.herdr.called("tab create")) != 1 {
+	if len(f.api.Standalone) != 0 || len(f.hc.called("run")) != 1 {
 		t.Errorf("standalone %v", f.api.Standalone)
 	}
-	if got := strings.TrimSpace(between(t, onlyPrompt(t, f.herdr, "mochi-"+post), "INSTRUCTION FROM TIM")); got != "research a, b and c separately" {
+	if got := strings.TrimSpace(between(t, onlyPrompt(t, f.hc, "mochi-"+post), "INSTRUCTION FROM TIM")); got != "research a, b and c separately" {
 		t.Errorf("instruction = %q", got)
 	}
 	posts := f.sentTo(post)
@@ -279,7 +279,7 @@ func TestAnInjectionInTheRepliedMessageStaysInsideTheFence(t *testing.T) {
 	f.h.Handle(m)
 
 	for i := 0; i < 2; i++ {
-		prompt := onlyPrompt(t, f.herdr, "mochi-"+chanID(i))
+		prompt := onlyPrompt(t, f.hc, "mochi-"+chanID(i))
 		if got := strings.TrimSpace(between(t, prompt, "INSTRUCTION FROM TIM")); got != "research a and b separately" {
 			t.Errorf("session %d's instruction is %q", i+1, got)
 		}
@@ -298,15 +298,14 @@ func TestASingleSessionIsNamedForItsTask(t *testing.T) {
 	for name, c := range map[string]struct {
 		split  func(string, *discord.Message) (split.Answer, error)
 		thread string
-		tab    string
 	}{
 		"the classifier's title": {
 			splitsInto([]split.Task{{Title: "FACEIT overlay blocks hover", Instruction: "have a look at this"}}, nil, nil),
-			"⏳ FACEIT overlay blocks hover", "faceit-overlay-blocks-hover",
+			"⏳ FACEIT overlay blocks hover",
 		},
 		"the replied-to message when the classifier failed": {
 			splitsInto(nil, errors.New("claude did not answer"), nil),
-			"⏳ The FACEIT overlay blocks hover on the scoreboard since…", "the-faceit-overlay-blocks-hove",
+			"⏳ The FACEIT overlay blocks hover on the scoreboard since…",
 		},
 	} {
 		f := newFixture(t)
@@ -319,10 +318,10 @@ func TestASingleSessionIsNamedForItsTask(t *testing.T) {
 		if len(f.api.Threads) != 1 || f.api.Threads[0] != m.ID+" "+c.thread {
 			t.Errorf("%s: thread %v", name, f.api.Threads)
 		}
-		if got := f.herdr.called("tab create"); len(got) != 1 || got[0][5] != c.tab {
-			t.Errorf("%s: tab %v", name, got)
+		if got := f.hc.called("run"); len(got) != 1 {
+			t.Errorf("%s: sessions started = %d", name, len(got))
 		}
-		if got := strings.TrimSpace(between(t, onlyPrompt(t, f.herdr, "mochi-"+m.ID), "INSTRUCTION FROM TIM")); got != "have a look at this" {
+		if got := strings.TrimSpace(between(t, onlyPrompt(t, f.hc, "mochi-"+m.ID), "INSTRUCTION FROM TIM")); got != "have a look at this" {
 			t.Errorf("%s: instruction %q", name, got)
 		}
 	}

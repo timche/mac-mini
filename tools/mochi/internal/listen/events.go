@@ -8,7 +8,7 @@ import (
 
 	"github.com/timche/mac-mini/mochi/internal/chat"
 	"github.com/timche/mac-mini/mochi/internal/event"
-	"github.com/timche/mac-mini/mochi/internal/herdr"
+	"github.com/timche/mac-mini/mochi/internal/hc"
 	"github.com/timche/mac-mini/mochi/internal/mark"
 	"github.com/timche/mac-mini/mochi/internal/state"
 )
@@ -136,7 +136,7 @@ func (h *Handler) answered(thread string, waits map[string]state.Wait, at int64,
 func (h *Handler) closing(ev event.Event, rec state.Session, waits map[string]state.Wait) {
 	w := waits[ev.Thread]
 	if !w.Discord || ev.Nanos <= w.Heard {
-		h.Log.Info("a session finished, and Tim last reached it in the session, so its tab stays open", "thread", ev.Thread, "workspace", rec.Workspace, "tab", rec.Tab)
+		h.Log.Info("a session finished, and Tim last reached it in the session, so its terminal stays open", "thread", ev.Thread, "space", rec.Space, "tab", rec.Tab)
 		return
 	}
 	w.CloseAt = ev.Nanos + int64(closeAfter)
@@ -154,11 +154,11 @@ func (h *Handler) closeDone(waits map[string]state.Wait) {
 		if !ok {
 			continue
 		}
-		if err := herdr.CloseTab(h.Herdr, rec.Agent, rec.Tab); err != nil {
-			h.Log.Warn("the tab of a finished session was not closed", "workspace", rec.Workspace, "tab", rec.Tab, "error", h.redact(err))
+		if err := hc.Close(h.HC, rec.Agent, thread); err != nil {
+			h.Log.Warn("the terminal of a finished session was not closed", "space", rec.Space, "tab", rec.Tab, "error", h.redact(err))
 			continue
 		}
-		h.Log.Info("closed the tab of a session that finished from Discord", "workspace", rec.Workspace, "tab", rec.Tab, "thread", thread)
+		h.Log.Info("closed the terminal of a session that finished from Discord", "space", rec.Space, "tab", rec.Tab, "thread", thread)
 	}
 }
 

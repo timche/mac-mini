@@ -83,7 +83,7 @@ func TestAMentionInAChannelOpensAForumPost(t *testing.T) {
 	if rec.Source != channel || rec.LastMention != m.ID || rec.Agent != "mochi-"+p {
 		t.Errorf("record = %+v", rec)
 	}
-	if !strings.Contains(onlyPrompt(t, f.herdr, "mochi-"+p), "have a look") {
+	if !strings.Contains(onlyPrompt(t, f.hc, "mochi-"+p), "have a look") {
 		t.Error("the session was not handed Tim's words")
 	}
 	f.receipt(m.ID)
@@ -189,7 +189,7 @@ func TestAFollowUpInAPostIsRelayed(t *testing.T) {
 	f.api.Post(p, 2, other, "it happens on 1080p too")
 	f.h.Handle(f.mention(p, 3, tim, "also check 4k", nil))
 
-	prompts := f.herdr.prompts["mochi-"+p]
+	prompts := f.hc.prompts["mochi-"+p]
 	if len(prompts) != 2 || !strings.Contains(prompts[1], "also check 4k") || !strings.Contains(prompts[1], "it happens on 1080p too") {
 		t.Errorf("prompts = %q", prompts)
 	}
@@ -277,8 +277,8 @@ func TestPostsAndThreadsMochiDidNotMakeForTheForumStayAsTheyAre(t *testing.T) {
 	g.api.AddChannel(&discord.Channel{ID: sessions, GuildID: guild, Type: discord.ChannelTypeGuildForum, AvailableTags: forumTags})
 	g.useForum(sessions)
 	g.h.Handle(g.mention(first.ID, 2, tim, "and this", nil))
-	if len(g.api.Posts) != 0 || len(g.herdr.prompts["mochi-"+first.ID]) != 2 {
-		t.Errorf("an old thread's follow-up: posts %v, prompts %d", g.api.Posts, len(g.herdr.prompts["mochi-"+first.ID]))
+	if len(g.api.Posts) != 0 || len(g.hc.prompts["mochi-"+first.ID]) != 2 {
+		t.Errorf("an old thread's follow-up: posts %v, prompts %d", g.api.Posts, len(g.hc.prompts["mochi-"+first.ID]))
 	}
 }
 
@@ -288,7 +288,7 @@ func TestAPostThatCannotBeOpenedFailsWithAReason(t *testing.T) {
 	f.api.ThreadErr = errors.New("missing access")
 	m := f.mention(channel, 1, tim, "look at this", nil)
 	f.h.Handle(m)
-	if !f.seenOnly(m.ID) || len(f.herdr.called("agent start")) != 0 {
+	if !f.seenOnly(m.ID) || len(f.hc.called("run")) != 0 {
 		t.Error("no ❌, or a session started anyway")
 	}
 	if replies := f.sentTo(channel); len(replies) != 1 || !strings.Contains(replies[0], "❌ A post could not be opened for this.") {

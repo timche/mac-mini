@@ -10,6 +10,7 @@ import (
 
 	"github.com/timche/mac-mini/mochi/internal/event"
 	"github.com/timche/mac-mini/mochi/internal/gather"
+	"github.com/timche/mac-mini/mochi/internal/hc"
 	"github.com/timche/mac-mini/mochi/internal/mark"
 )
 
@@ -47,34 +48,34 @@ func (f *fixture) later(d time.Duration) {
 	f.h.ConsumeEvents()
 }
 
-// A session Tim started from Discord, done and cleaned up: its tab closes a minute later, and
-// not before; the record stays, so a later follow-up starts a new session.
-func TestADoneSessionFromDiscordHasItsTabClosed(t *testing.T) {
+// A session Tim started from Discord, done and cleaned up: its terminal closes a minute later,
+// and not before; the record stays, so a later follow-up starts a new session.
+func TestADoneSessionFromDiscordHasItsTerminalClosed(t *testing.T) {
 	f, thread := startedSession(t)
 	agent := "mochi-" + thread
-	f.prompted(thread, f.herdr.raw[agent][0]) // the opening arriving is mochi's own prompt
+	f.prompted(thread, f.hc.raw[agent][0]) // the opening arriving is mochi's own prompt
 	f.h.Marks.Settled(thread, mark.Finished)
 	f.closeRequested(thread)
 	f.h.ConsumeEvents()
 
 	f.later(closeAfter - time.Second)
-	if len(f.herdr.closed) != 0 {
+	if len(f.hc.closed) != 0 {
 		t.Fatal("closed inside the minute")
 	}
 	f.later(2 * time.Second)
-	if len(f.herdr.closed) != 1 || f.herdr.closed[0] != "tab:"+agent {
-		t.Fatalf("closed = %v", f.herdr.closed)
+	if len(f.hc.closed) != 1 || f.hc.closed[0] != agent {
+		t.Fatalf("closed = %v", f.hc.closed)
 	}
 	f.later(time.Minute)
-	if len(f.herdr.closed) != 1 {
+	if len(f.hc.closed) != 1 {
 		t.Error("closed twice")
 	}
 	if f.record(thread).Agent != agent {
-		t.Error("the record went with the tab")
+		t.Error("the record went with the terminal")
 	}
 
 	f.h.Handle(f.mention(thread, 9, tim, "one more thing", nil))
-	if len(f.herdr.called("agent start")) != 2 {
+	if len(f.hc.called("run")) != 2 {
 		t.Error("a follow-up after the close did not start a new session")
 	}
 }
@@ -88,8 +89,8 @@ func TestASessionTimLastTypedInStaysOpen(t *testing.T) {
 	f.closeRequested(thread)
 	f.h.ConsumeEvents()
 	f.later(2 * closeAfter)
-	if len(f.herdr.closed) != 0 {
-		t.Errorf("closed = %v", f.herdr.closed)
+	if len(f.hc.closed) != 0 {
+		t.Errorf("closed = %v", f.hc.closed)
 	}
 
 	// A follow-up from Discord after that makes Discord the last word again.
@@ -97,13 +98,13 @@ func TestASessionTimLastTypedInStaysOpen(t *testing.T) {
 	g.prompted(other, "check this")
 	g.h.ConsumeEvents()
 	g.h.Handle(g.mention(other, 5, tim, "and merge", nil))
-	g.prompted(other, g.herdr.raw["mochi-"+other][len(g.herdr.raw["mochi-"+other])-1])
+	g.prompted(other, g.hc.raw["mochi-"+other][len(g.hc.raw["mochi-"+other])-1])
 	g.h.Marks.Settled(other, mark.Finished)
 	g.closeRequested(other)
 	g.h.ConsumeEvents()
 	g.later(closeAfter + time.Second)
-	if len(g.herdr.closed) != 1 {
-		t.Errorf("a session last reached from Discord stayed open: %v", g.herdr.closed)
+	if len(g.hc.closed) != 1 {
+		t.Errorf("a session last reached from Discord stayed open: %v", g.hc.closed)
 	}
 }
 
@@ -117,41 +118,38 @@ func TestAWordInsideTheMinuteCancelsTheClose(t *testing.T) {
 	f.prompted(thread, "wait, one more thing")
 	f.h.ConsumeEvents()
 	f.later(2 * closeAfter)
-	if len(f.herdr.closed) != 0 {
-		t.Errorf("closed = %v", f.herdr.closed)
+	if len(f.hc.closed) != 0 {
+		t.Errorf("closed = %v", f.hc.closed)
 	}
 }
 
-// Without --close nothing closes; and a tab no longer labelled as mochi made it is left.
-func TestNoCloseWithoutItAndNotATabMochiDidNotLabel(t *testing.T) {
+// Without --close nothing closes; and a terminal no longer carrying mochi's own label is left.
+func TestNoCloseWithoutItAndNotATerminalMochiDidNotLabel(t *testing.T) {
 	f, thread := startedSession(t)
 	f.h.Marks.Settled(thread, mark.Finished)
 	f.event(thread, event.Stop, 0)
 	f.later(2 * closeAfter)
-	if len(f.herdr.closed) != 0 {
-		t.Errorf("closed without --close: %v", f.herdr.closed)
+	if len(f.hc.closed) != 0 {
+		t.Errorf("closed without --close: %v", f.hc.closed)
 	}
 
 	g, other := startedSession(t)
-	g.herdr.agentTabs["mochi-"+other] = "renamed-by-tim"
+	g.hc.live["mochi-"+other].labels[hc.ThreadLabel] = "another-thread"
 	g.h.Marks.Settled(other, mark.Finished)
 	g.closeRequested(other)
 	g.h.ConsumeEvents()
 	g.later(closeAfter + time.Second)
-	if len(g.herdr.closed) != 0 {
-		t.Errorf("closed a tab mochi did not label: %v", g.herdr.closed)
+	if len(g.hc.closed) != 0 {
+		t.Errorf("closed a terminal mochi did not open: %v", g.hc.closed)
 	}
 }
 
-// A tab somebody may be using is left open: a session still working or on a question, a tab
-// with another pane in it, or the one in front. The request is dropped, not tried again once
-// the tab would pass.
-func TestATabInUseIsNotClosedAndNotTriedAgain(t *testing.T) {
+// A session somebody may be in the middle of is left open: one still working, or one on a
+// question. The request is dropped, not tried again once it would pass.
+func TestASessionInUseIsNotClosedAndNotTriedAgain(t *testing.T) {
 	for name, inUse := range map[string]func(f *fixture, agent string){
-		"working":   func(f *fixture, agent string) { f.herdr.agents[agent] = "working" },
-		"blocked":   func(f *fixture, agent string) { f.herdr.agents[agent] = "blocked" },
-		"two panes": func(f *fixture, agent string) { f.herdr.panes = 2 },
-		"in front":  func(f *fixture, agent string) { f.herdr.focused = true },
+		"working": func(f *fixture, agent string) { f.hc.say(agent, "working") },
+		"blocked": func(f *fixture, agent string) { f.hc.say(agent, "blocked") },
 	} {
 		f, thread := startedSession(t)
 		agent := "mochi-" + thread
@@ -160,13 +158,13 @@ func TestATabInUseIsNotClosedAndNotTriedAgain(t *testing.T) {
 		f.h.ConsumeEvents()
 		inUse(f, agent)
 		f.later(closeAfter + time.Second)
-		if len(f.herdr.closed) != 0 {
-			t.Errorf("%s: closed = %v", name, f.herdr.closed)
+		if len(f.hc.closed) != 0 {
+			t.Errorf("%s: closed = %v", name, f.hc.closed)
 		}
 
-		f.herdr.agents[agent], f.herdr.panes, f.herdr.focused = "done", 1, false
+		f.hc.say(agent, "done")
 		f.later(closeAfter)
-		if len(f.herdr.closed) != 0 {
+		if len(f.hc.closed) != 0 {
 			t.Errorf("%s: the close was tried again", name)
 		}
 		if w := f.waits()[thread]; w.CloseAt != 0 {

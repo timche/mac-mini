@@ -28,8 +28,8 @@
   <key>RunAtLoad</key>
   <true/>
   <!-- The timer is the whole of the trigger, since no removal hands anything a hook.
-       A WatchPaths on ~/.herdr/worktrees would catch almost nothing: it is not
-       recursive, and a worktree lives two levels down at <repo>/<branch>. Ten minutes
+       A WatchPaths on a repository would catch almost nothing: it is not recursive,
+       and a worktree lives two levels down at .claude/worktrees/<name>. Ten minutes
        is long enough to be free and short enough that a compose project holding a
        port is gone before the next session wants it. -->
   <key>StartInterval</key>

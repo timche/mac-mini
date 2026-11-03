@@ -303,7 +303,7 @@ A `SessionStart` hook, [`claude-hooks project-docs`](tools/claude-hooks/README.m
 
 ## Worktree isolation
 
-Several sessions run at once, a worktree each — herdr puts its own at `~/.herdr/worktrees/<repo>/<branch>` and Claude Code puts its own at `<repo>/.claude/worktrees/<name>` — and every name two of them agree on is shared state: one compose project is one database, one host port belongs to whichever session bound it first, one Electron profile is one lock file.
+Several sessions run at once, a worktree each, Claude Code putting its own at `<repo>/.claude/worktrees/<name>` — and every name two of them agree on is shared state: one compose project is one database, one host port belongs to whichever session bound it first, one Electron profile is one lock file.
 
 portless is the machine's rather than a project's, because all three of the things it owns exist once: the proxy holding port 443, the certificate authority signing for every `.localhost` name, and the routes registered in `~/.portless`. `install.sh` trusts the CA once, looking up `~/.portless/ca.pem` in the account's and admin trust settings rather than asking `portless doctor`, which reports trust in prose with no machine-readable form; doing it there is what keeps portless from asking for a sudo password in whichever session starts a dev server first, and it is never fatal, an untrusted CA costing a browser warning rather than a shell. Over SSH it is not attempted at all, since adding a certificate to the system trust store puts a confirmation dialog on the Mac's own screen as well as a sudo prompt — so `install.sh` prints the one line to run in Terminal over Screen Sharing, `portless trust`.
 

@@ -242,7 +242,7 @@ else
   if [ -z "$auto_login_user" ]; then
     echo "warning: auto-login is off. After a restart this Mac sits at the login" >&2
     echo "window, where there is no gui/$(id -u) domain — so neither hachiko nor" >&2
-    echo "the herdr server is running, and nothing says so beyond a Mac nobody" >&2
+    echo "the herdr-core server is running, and nothing says so beyond a Mac nobody" >&2
     echo "can attach a session on." >&2
   else
     echo "warning: auto-login logs in $auto_login_user rather than $user, whose" >&2

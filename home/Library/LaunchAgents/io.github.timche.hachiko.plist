@@ -14,8 +14,8 @@
   <key>Label</key>
   <string>io.github.timche.hachiko</string>
   <!-- ~/.local/bin first, for the hachiko wrapper itself, for the op there that
-       signs 1Password in with the service-account token, for the herdr the server
-       runs from, and for the mise that rebuilds the binary when the sources have
+       signs 1Password in with the service-account token, for the hc the on-call
+       session runs in, and for the mise that rebuilds the binary when the sources have
        changed; Homebrew's prefix for the op CLI behind that wrapper; the system
        directories for ps and lsof. -->
   <key>ProgramArguments</key>

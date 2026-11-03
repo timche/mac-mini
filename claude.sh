@@ -138,8 +138,8 @@ portless_ca="$HOME/.portless/ca.pem"
 if [ -f "$portless_ca" ]; then
   portless_fingerprint="$(openssl x509 -in "$portless_ca" -noout -fingerprint -sha256 | sed 's/.*=//')"
   if ! "$repo/account/portless-ca-trusted.sh"; then
-    echo "  - portless trust — in Terminal over Screen Sharing; over SSH or in a herdr"
-    echo "    pane it fails with \"Permission denied\" even after sudo."
+    echo "  - portless trust — in Terminal over Screen Sharing; over SSH or in an hc"
+    echo "    terminal it fails with \"Permission denied\" even after sudo."
   fi
   echo "  - On the MacBook and iPhone, unless they already trust portless's CA"
   echo "    $portless_fingerprint:"

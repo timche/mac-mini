@@ -18,7 +18,7 @@
   <key>Label</key>
   <string>io.github.timche.hachiko-listen</string>
   <!-- The same PATH the check has, and for the same reasons: the wrapper, the op
-       that signs 1Password in with the service-account token, the herdr a reply is
+       that signs 1Password in with the service-account token, the hc a reply is
        handed to the on-call session through, and the mise that rebuilds the binary. -->
   <key>ProgramArguments</key>
   <array>

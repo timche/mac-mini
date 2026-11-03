@@ -77,14 +77,11 @@ type fixture struct {
 
 	// The merged sweep's two outside answers. git itself is the real one, so a rule about a
 	// dirty tree, a commit's ancestry or a worktree being removed is tested by git: what is
-	// faked is what GitHub says about a branch and what herdr says it has open.
-	ghUp       bool
-	merged     map[string]*PullRequest
-	mergedErr  map[string]string
-	asked      []string
-	herdrHolds map[string]bool
-	herdrErr   string
-	listed     []string
+	// faked is only what GitHub says about a branch.
+	ghUp      bool
+	merged    map[string]*PullRequest
+	mergedErr map[string]string
+	asked     []string
 
 	sent    []discord.Outgoing
 	sendErr string
@@ -112,9 +109,8 @@ func newFixture(t *testing.T) *fixture {
 		immortal:   map[int]bool{},
 		pruneOut:   map[string]string{},
 		pruneErr:   map[string]string{},
-		merged:     map[string]*PullRequest{},
-		mergedErr:  map[string]string{},
-		herdrHolds: map[string]bool{},
+		merged:    map[string]*PullRequest{},
+		mergedErr: map[string]string{},
 
 		// Nothing old enough to prune, which is what the daily prune finds on all but the
 		// first run of a day — and what keeps a sweep with nothing else to do a quiet one.
@@ -132,7 +128,6 @@ func newFixture(t *testing.T) *fixture {
 			GCMergedEvery:  time.Hour,
 			Home:           home,
 			MachineDir:     filepath.Join(home, ".mac-mini"),
-			HerdrRoot:      filepath.Join(home, ".herdr", "worktrees"),
 			ScratchRoot:    filepath.Join(home, ".cache", "claude-tmp"),
 			GCProjectsRoot: filepath.Join(home, "projects"),
 			GCStateDir:     filepath.Join(home, "state"),
@@ -208,14 +203,6 @@ func (f *fixture) deps() Deps {
 			}
 			return f.merged[branch], nil
 		},
-		HerdrWorktrees: func(repo string) (map[string]bool, error) {
-			f.listed = append(f.listed, repo)
-			if f.herdrErr != "" {
-				return nil, fmt.Errorf("%s", f.herdrErr)
-			}
-			return f.herdrHolds, nil
-		},
-
 		Send: f.send,
 	}
 }
@@ -310,12 +297,12 @@ func (f *fixture) state() *State {
 	return state
 }
 
-// A worktree of herdr's, made and then removed, which is the shape every sweep here is
-// about. The path comes back either way.
-func (f *fixture) herdrWorktree(repo, branch string, keep bool) string {
+// A worktree Claude Code made, which is inside the repository it branched from, made here
+// and then removed, which is the shape every sweep is about. The path comes back either way.
+func (f *fixture) worktree(repo, branch string, keep bool) string {
 	f.t.Helper()
 
-	path := filepath.Join(f.cfg.HerdrRoot, repo, branch)
+	path := filepath.Join(f.cfg.GCProjectsRoot, "acme", repo, ".claude", "worktrees", branch)
 	if keep {
 		f.mkdir(path)
 	}

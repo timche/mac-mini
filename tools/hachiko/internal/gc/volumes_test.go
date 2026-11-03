@@ -30,7 +30,7 @@ func TestAMainCheckoutsIdleDatabaseIsNeverRemoved(t *testing.T) {
 // has gone.
 func TestAVolumeOfARemovedWorktreesProjectGoes(t *testing.T) {
 	f := newFixture(t)
-	worktree := f.herdrWorktree("repeek", "fix-ui", true)
+	worktree := f.worktree("repeek", "fix-ui", true)
 
 	f.containers = []Container{{Project: "repeek-fix-ui", WorkingDir: worktree}}
 	f.volumes = []Volume{{Name: "repeek-fix-ui_postgres-data", Project: "repeek-fix-ui", InUse: true}}
@@ -58,7 +58,7 @@ func TestAVolumeOfARemovedWorktreesProjectGoes(t *testing.T) {
 // same project and the same volumes, and the database is that checkout's now.
 func TestABranchCheckedOutInTheMainCheckoutKeepsItsVolumes(t *testing.T) {
 	f := newFixture(t)
-	worktree := f.herdrWorktree("repeek", "fix-ui", true)
+	worktree := f.worktree("repeek", "fix-ui", true)
 
 	f.containers = []Container{{Project: "repeek-fix-ui", WorkingDir: worktree}}
 	f.volumes = []Volume{{Name: "repeek-fix-ui_postgres-data", Project: "repeek-fix-ui", InUse: true}}
@@ -93,7 +93,7 @@ func TestAVolumeInUseAndAnAnonymousOneAreNeverRemoved(t *testing.T) {
 
 func TestAVolumeOfAWorktreeThatIsStillThereIsNeverRemoved(t *testing.T) {
 	f := newFixture(t)
-	worktree := f.herdrWorktree("app", "live", true)
+	worktree := f.worktree("app", "live", true)
 
 	f.containers = []Container{{Project: "app-live", WorkingDir: worktree}}
 	f.volumes = []Volume{{Name: "app-live_data", Project: "app-live"}}
@@ -130,7 +130,7 @@ func recordedThenRemoved(t *testing.T) *fixture {
 	t.Helper()
 
 	f := newFixture(t)
-	worktree := f.herdrWorktree("app", "gone", true)
+	worktree := f.worktree("app", "gone", true)
 	f.containers = []Container{{Project: "app-gone", WorkingDir: worktree}}
 	f.volumes = []Volume{{Name: "app-gone_data", Project: "app-gone", InUse: true}}
 

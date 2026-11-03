@@ -71,16 +71,9 @@ func cpuHot(prev statedir.CPUSample, procs []process.Process, now time.Time, sha
 const docsCheckout = "docs"
 
 // The repository a directory belongs to, which is what says whether a process left
-// running is somebody's work or nobody's. The two worktree roots this machine makes
-// are named differently, and a plain checkout sits at ~/projects/<owner>/<repo>.
+// running is somebody's work or nobody's. A worktree is inside the repository it branched
+// from, and a plain checkout sits at ~/projects/<owner>/<repo>.
 func repoOf(cfg config.Config, dir string) string {
-	if rest, ok := under(cfg.HerdrRoot, dir); ok {
-		parts := strings.Split(rest, "/")
-		if len(parts) >= 2 {
-			return fmt.Sprintf("the %s worktree %s", parts[0], parts[1])
-		}
-	}
-
 	if before, after, found := strings.Cut(dir, "/.claude/worktrees/"); found {
 		name, _, _ := strings.Cut(after, "/")
 		if name != "" {

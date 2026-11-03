@@ -32,7 +32,7 @@ func TestASweepThatRanWritesTheLastRunStamp(t *testing.T) {
 // A dry run changes nothing at all, the state directory and the lock included.
 func TestADryRunLeavesNoStateNoStampAndNoLock(t *testing.T) {
 	f := newFixture(t)
-	removed := f.herdrWorktree("app", "gone", false)
+	removed := f.worktree("app", "gone", false)
 	f.containers = []Container{{Project: "gc-gone", WorkingDir: removed}}
 	f.volumes = []Volume{{Name: "gc-gone_data", Project: "gc-gone"}}
 
@@ -48,7 +48,7 @@ func TestADryRunLeavesNoStateNoStampAndNoLock(t *testing.T) {
 // A sweep already running is one this one has nothing to say about.
 func TestALockSomebodyElseHoldsStopsTheSweep(t *testing.T) {
 	f := newFixture(t)
-	removed := f.herdrWorktree("app", "gone", false)
+	removed := f.worktree("app", "gone", false)
 	f.containers = []Container{{Project: "gc-gone", WorkingDir: removed}}
 
 	if err := os.Mkdir(f.cfg.GCLock, 0o755); err != nil {

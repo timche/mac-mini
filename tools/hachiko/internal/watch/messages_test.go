@@ -195,7 +195,7 @@ var messageKinds = []messageKind{{
 		"⚠️ 2 processes left behind by sessions that have ended, holding 2 GB",
 		"**Left behind:**",
 		"- node (pid 7018) — left behind for 1 hour, 1 GB memory, started yesterday at ",
-		"(the meru worktree fix-ui)",
+		"(a worktree of meru, fix-ui)",
 		"An agent is looking into it — attach: `hc attach oncall-stray`, or the `.mac-mini` space in Herdr. Details to follow.",
 	},
 	render: func(t *testing.T) string {

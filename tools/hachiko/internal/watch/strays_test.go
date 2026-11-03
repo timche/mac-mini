@@ -18,7 +18,6 @@ import (
 func TestWhatCountsAsLeftBehindBySession(t *testing.T) {
 	cfg := config.Config{
 		Home:         "/Users/x",
-		HerdrRoot:    "/Users/x/.herdr/worktrees",
 		ProjectsRoot: "/Users/x/projects",
 		ScratchRoot:  "/Users/x/.cache/claude-tmp",
 	}
@@ -27,7 +26,7 @@ func TestWhatCountsAsLeftBehindBySession(t *testing.T) {
 		uid     = 501
 		ownPID  = 999
 		node    = "/usr/local/bin/node mcp-server.js"
-		intree  = "/Users/x/.herdr/worktrees/meru/fix-ui/packages/app"
+		intree  = "/Users/x/projects/zoidsh/meru/.claude/worktrees/fix-ui/packages/app"
 		scratch = "/Users/x/.cache/claude-tmp/claude-501/-Users-x-projects-meru/0192e4c1-1111-4222-8333-444455556666"
 	)
 
@@ -41,10 +40,10 @@ func TestWhatCountsAsLeftBehindBySession(t *testing.T) {
 		// What the directory says started it, and "" for a process this reports nothing about.
 		want string
 	}{{
-		name: "a worker left in a herdr worktree",
+		name: "a worker left in a worktree",
 		proc: process.Process{PID: 7018, PPID: 1, UID: uid, Command: node},
 		dir:  intree,
-		want: "the meru worktree fix-ui",
+		want: "a worktree of meru, fix-ui",
 	}, {
 		name: "a worker left in one of Claude Code's own worktrees",
 		proc: process.Process{PID: 7018, PPID: 1, UID: uid, Command: node},
@@ -208,7 +207,9 @@ func strayProc(f *fixture, pid int, command, dir string) process.Process {
 	}
 }
 
-func (f *fixture) worktree() string { return filepath.Join(f.cfg.HerdrRoot, "meru", "fix-ui") }
+func (f *fixture) worktree() string {
+	return filepath.Join(f.cfg.ProjectsRoot, "zoidsh", "meru", ".claude", "worktrees", "fix-ui")
+}
 
 const mcpServer = "/usr/local/bin/node /Users/timche/mcp/server.js --stdio"
 
@@ -227,7 +228,7 @@ func TestAProcessLeftBehindForAnHourIsOneIncident(t *testing.T) {
 	harness.Wants(t, message, "⚠️ node was left behind by a session that has ended")
 	harness.Wants(t, message, "**Left behind:**")
 	harness.Wants(t, message, "- node (pid 7018) — left behind for 1 hour, 1 GB memory, started ")
-	harness.Wants(t, message, "(the meru worktree fix-ui)")
+	harness.Wants(t, message, "(a worktree of meru, fix-ui)")
 	harness.Wants(t, message, "\n  `"+mcpServer+"`")
 
 	// Free space belongs in a message the disk is part of: a worker nobody is waiting on says
@@ -250,7 +251,7 @@ func TestTheBriefNamesEverythingTheSessionNeeds(t *testing.T) {
 	f.at(3600).sweep()
 
 	for _, want := range []string{
-		"pid 7018", mcpServer, f.worktree(), "the meru worktree fix-ui",
+		"pid 7018", mcpServer, f.worktree(), "a worktree of meru, fix-ui",
 		"1 GB memory", "left behind for 1 hour",
 	} {
 		harness.Wants(t, f.oncallBrief, want)

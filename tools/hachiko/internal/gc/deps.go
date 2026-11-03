@@ -92,12 +92,6 @@ type Deps struct {
 	// test can see the merge.
 	MergedPR func(dir, branch string) (*PullRequest, error)
 
-	// Which of a repository's worktrees herdr has a workspace open on, which is what Tim has
-	// in his sidebar. Nil and no error where there is no herdr at all; an error where there
-	// is one that will not answer, since a sweep that cannot tell what is open removes
-	// nothing of that repository's.
-	HerdrWorktrees func(repo string) (map[string]bool, error)
-
 	// Reaches the channel Tim watches, and answers with the thread it opened. The only
 	// thing that ever sees the bot token, and it is the watch's own sender: a failure here
 	// goes out the same way an alert does.
@@ -238,8 +232,7 @@ func realDeps(cfg config.Config) Deps {
 			_, err := exec.LookPath("gh")
 			return err == nil
 		},
-		MergedPR:       mergedPR,
-		HerdrWorktrees: herdrWorktrees,
+		MergedPR: mergedPR,
 
 		Send: func(out discord.Outgoing) (string, error) { return discord.SendThroughOP(cfg, out) },
 	}
@@ -289,51 +282,6 @@ func mergedPR(dir, branch string) (*PullRequest, error) {
 		return nil, nil
 	}
 	return &rows[0], nil
-}
-
-// The repository's worktrees that herdr has a workspace open on. A workspace is the sidebar
-// entry Tim sees, so one on a worktree is a session he has open whatever is running in it —
-// and herdr's own `worktree remove` takes a workspace id, so the only worktree herdr could
-// remove for us is exactly the one this sweep has to leave alone. Hence `git worktree
-// remove` for the rest, whose sidebar entry herdr closed when the last tab left it.
-//
-// `worktree list` rather than `workspace list`: a workspace's own record carries the
-// checkout it belongs to only sometimes, where every worktree in this listing carries the
-// workspace it is open in or nothing. It is a listing and makes no workspace — the field is
-// empty for a checkout herdr has not opened.
-//
-// No herdr on PATH is no workspace open, and so no reason not to sweep. A herdr that is
-// there and will not answer is a question this cannot get an answer to, and the repository's
-// worktrees are left alone rather than guessed at.
-func herdrWorktrees(repo string) (map[string]bool, error) {
-	if _, err := exec.LookPath("herdr"); err != nil {
-		return nil, nil
-	}
-
-	out, err := run(listTimeout, "herdr", "worktree", "list", "--cwd", repo)
-	if err != nil {
-		return nil, fmt.Errorf("%s", lastLine(out, err))
-	}
-
-	var answer struct {
-		Result struct {
-			Worktrees []struct {
-				Path      string `json:"path"`
-				Workspace string `json:"open_workspace_id"`
-			} `json:"worktrees"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(out, &answer); err != nil {
-		return nil, err
-	}
-
-	held := map[string]bool{}
-	for _, worktree := range answer.Result.Worktrees {
-		if worktree.Path != "" && worktree.Workspace != "" {
-			held[worktree.Path] = true
-		}
-	}
-	return held, nil
 }
 
 func containers() ([]Container, error) {

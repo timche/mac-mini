@@ -18,7 +18,7 @@ func remove(t *testing.T, path string) {
 
 func TestAProcessLeftInARemovedWorktreeIsStopped(t *testing.T) {
 	f := newFixture(t)
-	gone := f.herdrWorktree("app", "gone", false)
+	gone := f.worktree("app", "gone", false)
 
 	f.sitting(4242, accountUID, gone, "/opt/homebrew/bin/node server.js")
 
@@ -32,8 +32,8 @@ func TestAProcessLeftInARemovedWorktreeIsStopped(t *testing.T) {
 func TestAProcessIsLeftAloneWhileEitherFolderIsThere(t *testing.T) {
 	f := newFixture(t)
 
-	live := f.herdrWorktree("app", "live", true)
-	kept := f.herdrWorktree("app", "kept", true)
+	live := f.worktree("app", "live", true)
+	kept := f.worktree("app", "kept", true)
 
 	f.sitting(100, accountUID, live, "node")
 	f.sitting(101, accountUID, filepath.Join(kept, "build", "gone"), "node")
@@ -45,7 +45,7 @@ func TestAProcessIsLeftAloneWhileEitherFolderIsThere(t *testing.T) {
 // A sweep may not kill the shell, the agent or the launchd that started it.
 func TestASweepNeverSignalsItsOwnTreeOrPidOne(t *testing.T) {
 	f := newFixture(t)
-	gone := f.herdrWorktree("app", "gone", false)
+	gone := f.worktree("app", "gone", false)
 
 	f.pid = 9000
 	f.sitting(9000, accountUID, gone, "hachiko")
@@ -62,7 +62,7 @@ func TestASweepNeverSignalsItsOwnTreeOrPidOne(t *testing.T) {
 // folder is nobody's to kill from here.
 func TestAProcessOfAnotherAccountIsNamedAndLeftAlone(t *testing.T) {
 	f := newFixture(t)
-	gone := f.herdrWorktree("app", "gone", false)
+	gone := f.worktree("app", "gone", false)
 
 	f.sitting(300, systemUID, gone, "/usr/libexec/somedaemon")
 
@@ -93,7 +93,7 @@ func TestAWorktreeOutsideBothRootsIsSaidAndNotTouched(t *testing.T) {
 // there after it was not going to leave.
 func TestAProcessThatIgnoresSIGTERMIsKilled(t *testing.T) {
 	f := newFixture(t)
-	gone := f.herdrWorktree("app", "gone", false)
+	gone := f.worktree("app", "gone", false)
 
 	f.sitting(4242, accountUID, gone, "node")
 	f.stubborn[4242] = true
@@ -106,7 +106,7 @@ func TestAProcessThatIgnoresSIGTERMIsKilled(t *testing.T) {
 
 func TestAProcessThatSurvivesSIGKILLIsOneMessage(t *testing.T) {
 	f := newFixture(t)
-	gone := f.herdrWorktree("app", "gone", false)
+	gone := f.worktree("app", "gone", false)
 
 	f.sitting(4242, accountUID, gone, "/opt/homebrew/bin/node server.js")
 	f.stubborn[4242] = true
@@ -122,7 +122,7 @@ func TestAProcessThatSurvivesSIGKILLIsOneMessage(t *testing.T) {
 
 func TestADryRunSignalsNothing(t *testing.T) {
 	f := newFixture(t)
-	gone := f.herdrWorktree("app", "gone", false)
+	gone := f.worktree("app", "gone", false)
 
 	f.sitting(4242, accountUID, gone, "node")
 
@@ -135,7 +135,7 @@ func TestADryRunSignalsNothing(t *testing.T) {
 // nothing is signalled on a guess about who owns it.
 func TestAPidTheProcessSampleNeverSawIsLeftAlone(t *testing.T) {
 	f := newFixture(t)
-	gone := f.herdrWorktree("app", "gone", false)
+	gone := f.worktree("app", "gone", false)
 
 	f.cwds = append(f.cwds, CWD{PID: 7777, Dir: gone})
 
@@ -147,7 +147,7 @@ func TestAPidTheProcessSampleNeverSawIsLeftAlone(t *testing.T) {
 // seen none worth stopping.
 func TestNoProcessSampleStopsNothing(t *testing.T) {
 	f := newFixture(t)
-	gone := f.herdrWorktree("app", "gone", false)
+	gone := f.worktree("app", "gone", false)
 
 	f.sitting(4242, accountUID, gone, "node")
 	f.procsErr = errOf("ps: signal: killed")

@@ -12,7 +12,6 @@ import (
 
 func TestRepoOfNamesTheCheckoutOrWorktreeADirectoryBelongsTo(t *testing.T) {
 	cfg := config.Config{
-		HerdrRoot:    "/Users/x/.herdr/worktrees",
 		ProjectsRoot: "/Users/x/projects",
 	}
 
@@ -20,8 +19,6 @@ func TestRepoOfNamesTheCheckoutOrWorktreeADirectoryBelongsTo(t *testing.T) {
 		dir  string
 		want string
 	}{
-		{"/Users/x/.herdr/worktrees/meru/fix-ui", "the meru worktree fix-ui"},
-		{"/Users/x/.herdr/worktrees/meru/fix-ui/packages/app", "the meru worktree fix-ui"},
 		{"/Users/x/projects/repeekgg/repeek/.claude/worktrees/agent-7", "a worktree of repeek, agent-7"},
 		{"/Users/x/projects/repeekgg/repeek", "the repeekgg/repeek checkout"},
 		{"/Users/x/projects/repeekgg/repeek/apps/web", "the repeekgg/repeek checkout"},

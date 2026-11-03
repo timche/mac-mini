@@ -8,7 +8,7 @@
 // was left behind. It runs from the io.github.timche.hachiko-gc LaunchAgent.
 //
 // A garbage collector rather than a hook on the removal, because no removal reliably hands
-// us one. herdr removes a worktree, so does Claude Code, so does `git worktree remove` by
+// us one. Claude Code removes a worktree, so does `git worktree remove` by
 // hand, and git has no post-remove hook at all; Claude Code's WorktreeRemove does not fire
 // for a git worktree (anthropics/claude-code#94212), and both it and WorktreeCreate replace
 // Claude Code's own git behaviour rather than adding to it, so registering one to clean up

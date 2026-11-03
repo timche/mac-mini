@@ -13,8 +13,8 @@ import (
 )
 
 // A repository with a worktree on a branch, both real git: the checkout under the projects
-// root and the worktree under the herdr root, which is where herdr puts one. What the merged
-// sweep asks about a worktree is what git answers, so there is nothing here to fake.
+// root and the worktree inside it, which is where Claude Code puts one. What the merged sweep
+// asks about a worktree is what git answers, so there is nothing here to fake.
 func (f *fixture) repoWithWorktree(name, branch string) (checkout, dir string) {
 	f.t.Helper()
 
@@ -24,7 +24,7 @@ func (f *fixture) repoWithWorktree(name, branch string) (checkout, dir string) {
 	f.git(checkout, "add", "-A")
 	f.git(checkout, "commit", "-m", "first")
 
-	dir = filepath.Join(f.cfg.HerdrRoot, name, strings.ReplaceAll(branch, "/", "-"))
+	dir = filepath.Join(checkout, ".claude", "worktrees", strings.ReplaceAll(branch, "/", "-"))
 	f.mkdir(filepath.Dir(dir))
 	f.git(checkout, "worktree", "add", "-b", branch, dir)
 
@@ -127,34 +127,6 @@ func TestAGitHubThatWillNotAnswerLeavesTheWorktreeAndSaysNothing(t *testing.T) {
 
 	harness.Equal(t, f.sweep(), "", "the log of a sweep GitHub refused")
 	there(t, dir)
-}
-
-// A workspace is the entry in Tim's sidebar, so a worktree with one is a session he still
-// has open whatever is running inside it.
-func TestAWorktreeHerdrHasOpenStays(t *testing.T) {
-	f, _, dir, _ := mergedFixture(t)
-	f.herdrHolds[dir] = true
-
-	harness.Wants(t, f.dryRun(), "would stay: herdr has a workspace open on it")
-
-	f.sweep()
-	there(t, dir)
-}
-
-// Asked once per repository and no more, however many of its worktrees turn up.
-func TestAHerdrThatWillNotAnswerRemovesNoneOfTheRepositorysWorktrees(t *testing.T) {
-	f, checkout, dir, _ := mergedFixture(t)
-	f.git(checkout, "worktree", "add", "-b", "other",
-		filepath.Join(f.cfg.HerdrRoot, "app", "other"))
-	f.herdrErr = "no server is running"
-
-	out := f.sweep()
-	harness.Wants(t, out, "worktrees it has open, so none of them went: no server is running")
-	there(t, dir)
-
-	harness.Equal(t, len(f.asked), 0, "pull requests read")
-	harness.Equal(t, len(f.listed), 1, "times herdr was asked")
-	harness.Equal(t, len(lines(out)), 1, "lines in the log")
 }
 
 // Uncommitted and untracked both, which is work the pull request does not carry and the
@@ -299,12 +271,18 @@ func TestAWorktreeInClaudeCodesOwnRootGoes(t *testing.T) {
 	}
 }
 
-// A repository is not a worktree of anything, so nothing in these roots that turns out to be
+// A repository is not a worktree of anything, so nothing in the root that turns out to be
 // one is asked about or removed: a checkout is nobody's to take away.
 func TestACheckoutInAWorktreeRootIsNeverRemoved(t *testing.T) {
 	f := newFixture(t)
 
-	own := f.mkdir(filepath.Join(f.cfg.HerdrRoot, "app", "main"))
+	checkout := f.mkdir(filepath.Join(f.cfg.GCProjectsRoot, "acme", "app"))
+	f.git(checkout, "init", "-b", "main")
+	f.write(filepath.Join(checkout, "README.md"), "# app\n")
+	f.git(checkout, "add", "-A")
+	f.git(checkout, "commit", "-m", "first")
+
+	own := f.mkdir(filepath.Join(checkout, ".claude", "worktrees", "main"))
 	f.git(own, "init", "-b", "main")
 	f.write(filepath.Join(own, "README.md"), "# app\n")
 	f.git(own, "add", "-A")

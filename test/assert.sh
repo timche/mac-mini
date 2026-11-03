@@ -834,9 +834,9 @@ check "focus-lock names the holder only while its command runs" \
 # and saying so is better than a check that passes because nothing happened.
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   check "hachiko gc --dry-run sweeps a removed worktree's compose project and nothing else" \
-    'h="$(mktemp -d)" && gone="$h/.herdr/worktrees/app/gone" &&
+    'h="$(mktemp -d)" && gone="$h/projects/acme/app/.claude/worktrees/gone" &&
      gc_compose_fixture "$gone" gc-gone &&
-     gc_compose_fixture "$h/.herdr/worktrees/app/kept" gc-kept &&
+     gc_compose_fixture "$h/projects/acme/app/.claude/worktrees/kept" gc-kept &&
      gc_compose_fixture "$h/elsewhere" gc-elsewhere &&
      rm -rf "$gone" "$h/elsewhere" &&
      sock="$(docker context inspect -f "{{.Endpoints.docker.Host}}")" &&

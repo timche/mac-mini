@@ -48,7 +48,6 @@ type Config struct {
 	MachineDir   string
 	ScratchRoot  string
 	LogsRoot     string
-	HerdrRoot    string
 	ProjectsRoot string
 
 	CPUAllowPath string
@@ -301,7 +300,6 @@ func FromEnv() Config {
 		MachineDir:   machineDir,
 		ScratchRoot:  envString("CLAUDE_CODE_TMPDIR", filepath.Join(home, ".cache", "claude-tmp")),
 		LogsRoot:     filepath.Join(home, "Library", "Logs"),
-		HerdrRoot:    filepath.Join(home, ".herdr", "worktrees"),
 		ProjectsRoot: projects,
 
 		HerdrSpace:   envString("HACHIKO_HERDR_SPACE", "sp-mac-mini"),

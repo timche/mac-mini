@@ -171,7 +171,6 @@ func newFixture(t *testing.T) *fixture {
 		MachineDir:   filepath.Join(home, ".mac-mini"),
 		ScratchRoot:  filepath.Join(home, "scratch"),
 		LogsRoot:     filepath.Join(home, "Library", "Logs"),
-		HerdrRoot:    filepath.Join(home, ".herdr", "worktrees"),
 		ProjectsRoot: filepath.Join(home, "projects"),
 
 		UsageWarnPercent: 80,

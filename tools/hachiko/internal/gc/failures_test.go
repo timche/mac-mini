@@ -11,7 +11,7 @@ func failingFixture(t *testing.T) *fixture {
 	t.Helper()
 
 	f := newFixture(t)
-	gone := f.herdrWorktree("app", "gone", false)
+	gone := f.worktree("app", "gone", false)
 	f.containers = []Container{{Project: "gc-gone", WorkingDir: gone}}
 	f.downErr["gc-gone"] = "Error response from daemon: conflict"
 
@@ -91,7 +91,7 @@ func TestAFailureNobodyHeardAboutClearsInSilence(t *testing.T) {
 func TestTwoFailuresAreTwoMessages(t *testing.T) {
 	f := failingFixture(t)
 	f.containers = append(f.containers, Container{
-		Project: "gc-also", WorkingDir: f.herdrWorktree("app", "also", false),
+		Project: "gc-also", WorkingDir: f.worktree("app", "also", false),
 	})
 	f.downErr["gc-also"] = "Error response from daemon: conflict"
 
@@ -105,7 +105,7 @@ func TestTwoFailuresAreTwoMessages(t *testing.T) {
 // do what it set out to.
 func TestASweepThatWorkedSendsNothing(t *testing.T) {
 	f := newFixture(t)
-	removed := f.herdrWorktree("app", "gone", false)
+	removed := f.worktree("app", "gone", false)
 	f.containers = []Container{{Project: "gc-gone", WorkingDir: removed}}
 	f.sitting(4242, accountUID, removed, "node")
 

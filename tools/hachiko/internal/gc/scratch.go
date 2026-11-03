@@ -10,7 +10,7 @@ import (
 )
 
 // A week of grace on top of the session being over, because `claude --resume` reuses the
-// folder, and herdr resumes every session it had after a restart.
+// folder, and a session is resumed by hand days later.
 const scratchGrace = 7 * 24 * time.Hour
 
 // Session scratch folders, one per session under a folder per project. Only a directory

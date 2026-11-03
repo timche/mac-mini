@@ -11,7 +11,7 @@ import (
 )
 
 // State is the two things a sweep has to remember between runs. Its own file rather than
-// the watch's, for the reason the lock is its own: the watch holds that one across a herdr
+// the watch's, for the reason the lock is its own: the watch holds that one across an hc
 // call and an `op run`, and a sweep with ten minutes of containers to stop may not wait for
 // it.
 type State struct {

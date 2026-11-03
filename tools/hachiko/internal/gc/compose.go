@@ -43,7 +43,7 @@ func (s *sweeper) compose(state *State) {
 	// goes, and nothing of it is taken down.
 	outside := map[string]bool{}
 	for _, c := range found {
-		if _, inRoot := worktreeOf(s.cfg.HerdrRoot, c.WorkingDir); c.Project != "" && c.WorkingDir != "" && !inRoot {
+		if _, inRoot := worktreeOf(c.WorkingDir); c.Project != "" && c.WorkingDir != "" && !inRoot {
 			outside[c.Project] = true
 		}
 	}
@@ -54,7 +54,7 @@ func (s *sweeper) compose(state *State) {
 			continue
 		}
 
-		worktree, inRoot := worktreeOf(s.cfg.HerdrRoot, p.WorkingDir)
+		worktree, inRoot := worktreeOf(p.WorkingDir)
 		if !inRoot {
 			continue
 		}

@@ -14,8 +14,8 @@ import (
 func composeFixture(t *testing.T) *fixture {
 	f := newFixture(t)
 
-	gone := f.herdrWorktree("app", "gone", false)
-	kept := f.herdrWorktree("app", "kept", true)
+	gone := f.worktree("app", "gone", false)
+	kept := f.worktree("app", "kept", true)
 
 	f.containers = []Container{
 		{Project: "gc-gone", WorkingDir: gone, ConfigFiles: []string{filepath.Join(gone, "compose.yaml")}},
@@ -90,7 +90,7 @@ func TestComposeDownThatFailsIsOneMessage(t *testing.T) {
 // `down`.
 func TestComposeDecidesOncePerProject(t *testing.T) {
 	f := newFixture(t)
-	gone := f.herdrWorktree("app", "gone", false)
+	gone := f.worktree("app", "gone", false)
 
 	f.containers = []Container{
 		{Project: "gc-gone", WorkingDir: gone},

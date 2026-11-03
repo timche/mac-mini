@@ -62,10 +62,7 @@ func (s *sweeper) mergedWorktrees(state *State, now time.Time) {
 		}
 	}
 
-	pass := &mergedPass{
-		held:   map[string]map[string]bool{},
-		failed: map[string]bool{},
-	}
+	pass := &mergedPass{}
 	pass.open, _ = s.openDirs()
 	pass.claimed, _ = s.sessions()
 
@@ -74,40 +71,11 @@ func (s *sweeper) mergedWorktrees(state *State, now time.Time) {
 	}
 }
 
-// What one run of the pass knows about the machine. Each of the three is read once: an lsof
-// over every process, the session records, and herdr asked about each repository as a
-// worktree of it turns up.
+// What one run of the pass knows about the machine, each of the two read once: an lsof over
+// every process, and the session records.
 type mergedPass struct {
 	open    []CWD
 	claimed []string
-
-	held   map[string]map[string]bool
-	failed map[string]bool
-}
-
-// Which of the repository's worktrees herdr has open, asked once per repository and false
-// where it would not say. A sweep that cannot tell what Tim has in his sidebar has no way to
-// tell a forgotten worktree from one somebody is sitting in, so none of that repository's go
-// — and the refusal is remembered, so a herdr that is down is one line rather than one per
-// worktree.
-func (s *sweeper) herdrHolds(repo string, pass *mergedPass) (map[string]bool, bool) {
-	if pass.failed[repo] {
-		return nil, false
-	}
-	if held, asked := pass.held[repo]; asked {
-		return held, true
-	}
-
-	held, err := s.deps.HerdrWorktrees(repo)
-	if err != nil {
-		s.say("herdr would not say which of %s's worktrees it has open, so none of them went: %v",
-			safe(repo), err)
-		pass.failed[repo] = true
-		return nil, false
-	}
-
-	pass.held[repo] = held
-	return held, true
 }
 
 func (s *sweeper) keepOpenWorktrees(state *State) {
@@ -124,11 +92,6 @@ func (s *sweeper) mergedWorktree(dir string, pass *mergedPass) {
 	}
 
 	repo, branch, ok := s.worktreeBranch(dir)
-	if !ok {
-		return
-	}
-
-	held, ok := s.herdrHolds(repo, pass)
 	if !ok {
 		return
 	}
@@ -153,7 +116,7 @@ func (s *sweeper) mergedWorktree(dir string, pass *mergedPass) {
 	// thing this pass has an opinion about and `--dry-run` is where that opinion is read;
 	// not on a live sweep, where it is the ordinary state of a worktree in use and would be
 	// a line an hour for as long as it lasts.
-	if reason := s.keeping(dir, pr, held, pass); reason != "" {
+	if reason := s.keeping(dir, pr, pass); reason != "" {
 		if s.dry {
 			s.say("%s has merged as %s but %s would stay: %s",
 				safe(branch), safe(pr.URL), safe(dir), reason)
@@ -194,10 +157,7 @@ func (s *sweeper) mergedWorktree(dir string, pass *mergedPass) {
 
 // Why a worktree whose pull request has merged is being kept, and the empty string for one
 // that is nobody's any more.
-func (s *sweeper) keeping(dir string, pr *PullRequest, held map[string]bool, pass *mergedPass) string {
-	if held[dir] {
-		return "herdr has a workspace open on it"
-	}
+func (s *sweeper) keeping(dir string, pr *PullRequest, pass *mergedPass) string {
 	for _, cwd := range pass.claimed {
 		if inside(dir, cwd) {
 			return "a Claude Code session is running in it"
@@ -255,22 +215,14 @@ func (s *sweeper) worktreeBranch(dir string) (repo, branch string, ok bool) {
 	return filepath.Dir(lines[1]), branch, true
 }
 
-// Every folder in the two roots this machine makes worktrees in, whether or not it is one:
-// what a folder really is is git's to say, and this only has to find the candidates.
+// Every folder in the root this machine makes worktrees in, whether or not it is one: what a
+// folder really is is git's to say, and this only has to find the candidates.
 //
-// herdr's root is a folder per repository, named for the repository alone, with a folder per
-// branch inside it. Claude Code's are inside the repository they branched from, so the
-// repositories have to be walked to find them — this very repository among them, which is
-// in HOME rather than under the projects root and is where the agent worktrees pile up.
+// Claude Code's worktrees are inside the repository they branched from, so the repositories
+// have to be walked to find them — this very repository among them, which is in HOME rather
+// than under the projects root and is where the agent worktrees pile up.
 func (s *sweeper) worktreeFolders() []string {
 	var found []string
-
-	for _, repo := range s.names(s.cfg.HerdrRoot) {
-		dir := filepath.Join(s.cfg.HerdrRoot, repo)
-		for _, branch := range s.names(dir) {
-			found = append(found, filepath.Join(dir, branch))
-		}
-	}
 
 	repos := s.repositories()
 	if s.cfg.MachineDir != "" && s.deps.IsDir(filepath.Join(s.cfg.MachineDir, ".git")) {

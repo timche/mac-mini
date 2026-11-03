@@ -70,7 +70,7 @@ func (s *sweeper) processes() {
 		}
 		seen[c.PID] = true
 
-		worktree, inRoot := worktreeOf(s.cfg.HerdrRoot, c.Dir)
+		worktree, inRoot := worktreeOf(c.Dir)
 		if !inRoot {
 			// Outside both roots, so not this sweep's to kill. Said out loud anyway: a removed
 			// worktree somewhere else is exactly the thing a sweep is for.

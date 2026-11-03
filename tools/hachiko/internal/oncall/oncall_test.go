@@ -301,7 +301,7 @@ func TestTheOpeningPromptCarriesTheAutonomyLimits(t *testing.T) {
 		"never one you spelled yourself",
 		"other than through that one root-helper command",
 		"you may only recommend stopping, handover or not",
-		"restarting herdr, the Mac or a launchd job",
+		"restarting herdr-core, the Mac or a launchd job",
 		"unless that process is itself the one causing the incident",
 		// Killing by name takes every other session of his with it, which is the shape of the
 		// mistake the hook refuses rather than the one the orders describe.

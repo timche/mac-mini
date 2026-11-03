@@ -694,10 +694,17 @@ fi
 core_label=io.github.timche.herdr-core
 core_plist="$HOME/Library/LaunchAgents/$core_label.plist"
 core_loaded="$state/$core_label.plist.loaded"
+# The window between the stop and the launcher's core holding the lock is a race.
+# Any hc command with no core running starts one, and so does every machine that
+# has added this one: a Mac's own core keeps dialing it after the app quits. Over
+# SSH either start skips launchd, takes the lock first and answers for the SSH
+# server, and the launcher's cores then exit at once. So nothing may connect, and
+# nothing may run hc, until the agent's core is up.
+core_quiet="with no other machine connected (\`hc machine rm\` this one on each, re-add it afterwards) and no hc command run until the core is up"
 core_switch="hc server stop; launchctl bootstrap gui/$uid $core_plist && mkdir -p $state && cp $core_plist $core_loaded"
-# bootout ahead of stop, as the herdr switch does: the launcher restarts a core
-# stopped under it at once, so stop alone never leaves the core down.
-core_reload="launchctl bootout gui/$uid/$core_label; $core_switch"
+# No stop here: the bootout ends the launcher, which takes its core down with it,
+# and an hc command with the core down would be the race above.
+core_reload="launchctl bootout gui/$uid/$core_label; launchctl bootstrap gui/$uid $core_plist && mkdir -p $state && cp $core_plist $core_loaded"
 
 # `hc server status` is not the question to ask: with no core running it starts one,
 # which is the very thing this is here not to do behind anybody's back. A core holds
@@ -717,11 +724,11 @@ elif launchctl print "gui/$uid/$core_label" >/dev/null 2>&1; then
   if [ ! -f "$core_loaded" ]; then
     echo "no record of which $core_label plist launchd loaded — restart the core" \
          "when convenient, from a shell outside hc (a plain ssh timche@mac-mini)," \
-         "with: $core_reload" >&2
+         "$core_quiet, with: $core_reload" >&2
   elif ! cmp -s "$core_plist" "$core_loaded"; then
     echo "$core_label changed since launchd loaded it, and reloading ends every hc" \
          "terminal; when none is needed, from a shell outside hc (a plain ssh" \
-         "timche@mac-mini), run: $core_reload" >&2
+         "timche@mac-mini), $core_quiet, run: $core_reload" >&2
   else
     echo "$core_label is already loaded"
   fi
@@ -733,8 +740,8 @@ elif [ "$core_running" = true ]; then
   # agent exists to fix.
   echo "a herdr-core core is running outside launchd, so macOS holds whatever" \
        "started it responsible for every terminal on it; when no session needs the" \
-       "core, from a shell outside hc (a plain ssh timche@mac-mini), run:" \
-       "$core_switch" >&2
+       "core, from a shell outside hc (a plain ssh timche@mac-mini), $core_quiet," \
+       "run: $core_switch" >&2
 elif [ ! -x "$core_launcher" ]; then
   # A job bootstrapped onto a launcher that is not there is one launchd retries every
   # ten seconds for the life of the Mac. Left unloaded and said out loud, so the step

@@ -149,7 +149,7 @@ check "the Brewfile's dependencies are satisfied" \
 
 # Provenance rather than a version, because a mise-installed copy of the same
 # name runs just as well and the point is which one the Mac has.
-for formula in cliclick fd ffmpeg glow pscale ripgrep shellcheck starship tuicr uv \
+for formula in cliclick fd ffmpeg glow pscale ripgrep shellcheck starship uv \
   zoxide betterleaks; do
   check "$formula is Homebrew's" \
     "brew list --formula --full-name | grep -qxE '(.*/)?$formula'"

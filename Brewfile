@@ -61,7 +61,6 @@ brew "glow"
 brew "ripgrep"
 brew "shellcheck"
 brew "starship"
-brew "tuicr"
 brew "zoxide"
 
 # The click and the keystroke sent to whatever app is in front, which is the one thing

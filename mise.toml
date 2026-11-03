@@ -117,7 +117,6 @@ go = "1.27"
 "~/.claude/CLAUDE.md" = { source = "home/.claude/CLAUDE.md", mode = "symlink" }
 "~/.claude/settings.json" = { source = "home/.claude/settings.json", mode = "symlink" }
 "~/.claude/agents" = { source = "home/.claude/agents", mode = "symlink" }
-"~/.claude/hooks" = { source = "home/.claude/hooks", mode = "symlink" }
 "~/.claude/skills" = { source = "home/.claude/skills", mode = "symlink" }
 
 # Tim's preferences, the half of them that is a plain user default.

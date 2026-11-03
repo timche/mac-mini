@@ -54,7 +54,7 @@ for path in .zshrc .zshenv .zprofile .gitconfig \
   check "$path is a live symlink" "[ -L \"\$HOME/$path\" ] && [ -e \"\$HOME/$path\" ]"
 done
 
-for path in CLAUDE.md settings.json skills agents hooks; do
+for path in CLAUDE.md settings.json skills agents; do
   check ".claude/$path is a live symlink" \
     "[ -L \"\$HOME/.claude/$path\" ] && [ -e \"\$HOME/.claude/$path\" ]"
 done
@@ -451,9 +451,6 @@ check "no absolute home paths under home/ or in mise.toml" \
    ! grep -rhoE "(^|[^A-Za-z0-9_}])/(home|Users)/[A-Za-z0-9_.-]+" \
        "$repo/home" "$repo/mise.toml" | grep -q .'
 
-check "the scripts the hooks call are executable" \
-  '[ -x "$HOME/.claude/hooks/herdr-agent-state.sh" ]'
-
 # mochi's sessions tell it when they stop on Tim, with a Stop hook and a PreToolUse hook on
 # AskUserQuestion, and when Tim answers in the session, with a PostToolUse hook on
 # AskUserQuestion and a UserPromptSubmit hook; all run the cached binary's session-event.
@@ -660,42 +657,6 @@ check "strip-attribution takes the attribution out of a body file a gh command n
    printf "Body\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n" >"$d/body.md" &&
    out=$(striphook "gh pr edit 1 --body-file $d/body.md") && [ -z "$out" ] &&
    grep -q Body "$d/body.md" && ! grep -q Co-Authored-By "$d/body.md"'
-
-# What herdr-worktree does to a workspace is tools/claude-hooks/internal/herdrworktree's tests,
-# against a herdr that writes down what it was asked; here it is the wiring, since a hook
-# that follows a worktree must see the two tools that enter and leave one, the Bash calls
-# that can move the branch under it, and the end of a session still in one. Silent in a
-# terminal herdr did not start, which is every session that is not in a pane.
-check "herdr-worktree sees the worktree tools, Bash and the end of a session, and is silent outside herdr" \
-  'matcher="$(jq -r ".hooks.PostToolUse[] |
-       select(.hooks[].command | endswith(\"herdr-worktree\")) | .matcher" \
-       "$HOME/.claude/settings.json")" && [ -n "$matcher" ] &&
-   for tool in EnterWorktree ExitWorktree Bash; do
-     printf "%s" "$tool" | grep -qE "$matcher" || exit 1
-   done &&
-   jq -e "[.hooks.SessionEnd[].hooks[].command |
-          select(endswith(\"herdr-worktree\"))] | length == 1" "$HOME/.claude/settings.json" &&
-   out=$(printf "%s" "{\"session_id\":\"t\",\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"EnterWorktree\"}" |
-     env -u HERDR_ENV -u HERDR_PANE_ID "$repo/home/.local/bin/claude-hooks" herdr-worktree) &&
-   [ -z "$out" ]'
-
-# What herdr-tab makes of a title is tools/claude-hooks/internal/herdrtab's tests; here it is
-# the wiring, since a tab whose name follows the session's title has to see every event the
-# title can have moved by — a prompt, a tool call, a stop — and the SessionStart of a clear,
-# which is where it gives the name up. Silent in a terminal herdr did not start, which is
-# every session that is not in a tab.
-check "herdr-tab sees every event a title moves on and the clear, and is silent outside herdr" \
-  'for event in UserPromptSubmit Stop; do
-     jq -e "[.hooks.$event[].hooks[].command | select(endswith(\"herdr-tab\"))] | length == 1" \
-       "$HOME/.claude/settings.json" || exit 1
-   done &&
-   jq -e "[.hooks.PostToolUse[] | select(.hooks[].command | endswith(\"herdr-tab\")) |
-          .matcher] == [\"*\"]" "$HOME/.claude/settings.json" &&
-   jq -e "[.hooks.SessionStart[] | select(.hooks[].command | endswith(\"herdr-tab\")) |
-          .matcher] == [\"clear\"]" "$HOME/.claude/settings.json" &&
-   out=$(printf "%s" "{\"hook_event_name\":\"Stop\"}" |
-     env -u HERDR_ENV -u HERDR_TAB_ID "$repo/home/.local/bin/claude-hooks" herdr-tab) &&
-   [ -z "$out" ]'
 
 # A guard on every session's shell that refused what it could not read would cost them
 # all their shell, so an event it cannot read goes through.

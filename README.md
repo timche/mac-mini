@@ -27,7 +27,7 @@ It asks, in order, for the sudo password, a tailnet login URL, the Apple ID and 
 ### Afterwards, over Screen Sharing
 
 1. System Settings > Privacy & Security: give `~/.local/libexec/herdr-launcher` (add it with **+**, then ⇧⌘G to type the path) **Screen & System Audio Recording**, **Device Control and Data Access** and **Full Disk Access**.
-2. System Settings > Privacy & Security: give `~/.local/libexec/herdr-core-launcher` the same way **Screen & System Audio Recording**, **Device Control and Data Access**, **Automation**, **Full Disk Access** and **Local Network**.
+2. System Settings > Privacy & Security: give `~/.local/libexec/herdr-core-launcher` the same way **Screen & System Audio Recording**, **Device Control and Data Access** and **Full Disk Access**. **Local Network** and **Automation** have no **+**: allow each when its prompt names `herdr-core-laun` (macOS cuts the name at 15 characters).
 3. System Settings > Lock Screen: "Require password after screen saver begins or display is turned off" to **Never**.
 4. Open OrbStack once, accept its terms and choose Docker.
 

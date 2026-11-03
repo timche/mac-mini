@@ -48,7 +48,7 @@ for path in .zshrc .zshenv .zprofile .gitconfig \
             .config/git/strip-claude-attribution \
             .config/git/refuse-claude-attribution \
             .config/git/ignore \
-            .config/herdr/config.toml .config/starship.toml \
+            .config/starship.toml \
             .terminfo/x/xterm-ghostty .terminfo/78/xterm-ghostty \
             .hachiko/sync; do
   check "$path is a live symlink" "[ -L \"\$HOME/$path\" ] && [ -e \"\$HOME/$path\" ]"
@@ -871,139 +871,13 @@ else
   echo "  skip  hachiko gc's compose sweep (no docker daemon on this machine)"
 fi
 
-# The herdr server has to come from launchd in the GUI session, or every pane is an
-# SSH session and Claude Code withholds computer use from it.
-export herdr_plist="$HOME/Library/LaunchAgents/io.github.timche.herdr.plist"
-check "the herdr agent is a live symlink and a valid plist" \
-  '[ -L "$herdr_plist" ] && [ -e "$herdr_plist" ] && plutil -lint "$herdr_plist" &&
-   [ "$(plutil -extract Label raw "$herdr_plist")" = io.github.timche.herdr ]'
-check "the herdr agent runs the launcher and is always kept alive" \
-  'plutil -extract ProgramArguments.2 raw "$herdr_plist" |
-     grep -qF "exec \"\$HOME/.local/libexec/herdr-launcher\" server" &&
-   [ "$(plutil -extract KeepAlive raw "$herdr_plist")" = true ]'
-# The launcher is what macOS holds responsible for the grants herdr needs — Screen
-# Recording, Full Disk Access and Device Control and Data Access — and a grant is
-# pinned to the exact contents of an ad-hoc signed binary. So its bytes may move
-# only when its source does: a real file at a fixed path, built from a hash of that
-# source, and never from the build-in-place wrapper the Go tools use, whose rebuild
-# depends on whatever go mise resolved that day.
-export launcher="$HOME/.local/libexec/herdr-launcher"
-export launcher_src="$repo/machine/launchd/herdr-launcher.c"
-
-check "the launcher is a real executable at the path the plist names" \
-  '[ -x "$launcher" ] && [ ! -L "$launcher" ] && [ -f "$launcher" ]'
-check "the launcher was built from the source in this checkout" \
-  'stamp="${XDG_STATE_HOME:-$HOME/.local/state}/mac-mini/herdr-launcher.sha256" &&
-   [ "$(cat "$stamp")" = "$(shasum -a 256 "$launcher_src" | cut -d" " -f1)" ]'
-# Nothing may rebuild it on a schedule or behind a wrapper: that is the one way the
-# grants go away again without anybody deciding to. mise declares no link to it and
-# there is no wrapper in ~/.local/bin, so install.sh is the only thing that compiles it.
-check "no tool list or wrapper builds the launcher" \
-  '! grep -q "herdr-launcher" "$repo/mise.toml" &&
-   [ ! -e "$repo/home/.local/bin/herdr-launcher" ]'
-
-# What the launcher has to be, built from the source rather than taken from the
-# installed copy, so the check is of this checkout: the parent of herdr and not a
-# process that execs it, a forwarder of the signals launchd and a restart by hand
-# send, and transparent in what it exits with. HOME points at a fixture tree,
-# because the launcher finds herdr under HOME and nothing else.
-herdr_launcher_fixture() {
-  local d="$1"
-
-  mkdir -p "$d/home/.local/bin" || return 1
-  clang -O2 -o "$d/launcher" "$launcher_src" || return 1
-  clang -O2 -o "$d/responsible" "$repo/test/responsible.c" || return 1
-}
-export -f herdr_launcher_fixture
-
-# A signal the launcher does not pass on is a server that outlives `launchctl
-# bootout` and a KeepAlive that restarts it beside the old one. The fixture exits
-# 42 of its own accord, so an exit status that is not forwarded shows up too.
-herdr_launcher_signal() {
-  local d="$1" sig="$2" pid status waited=0
-
-  cat >"$d/home/.local/bin/herdr" <<EOF
-#!/bin/sh
-trap 'exit 42' $sig
-echo running >"$d/running"
-while :; do sleep 0.2; done
-EOF
-  chmod +x "$d/home/.local/bin/herdr"
-  rm -f "$d/running"
-
-  HOME="$d/home" "$d/launcher" server >/dev/null 2>&1 &
-  pid=$!
-
-  while [ ! -f "$d/running" ]; do
-    [ "$waited" -lt 100 ] || { kill "$pid" 2>/dev/null; return 1; }
-    sleep 0.1
-    waited=$((waited + 1))
-  done
-
-  kill "-$sig" "$pid"
-  wait "$pid"
-  status=$?
-
-  [ "$status" = 42 ]
-}
-export -f herdr_launcher_signal
-
-check "the launcher forwards the signals launchd sends and exits as herdr exited" \
-  'd="$(mktemp -d)" && herdr_launcher_fixture "$d" &&
-   herdr_launcher_signal "$d" TERM &&
-   herdr_launcher_signal "$d" INT &&
-   herdr_launcher_signal "$d" HUP'
-
-# The one check that is the arrangement rather than a description of it. Under
-# launchd a job's own process is its own TCC-responsible process, and a child
-# inherits that unless it disclaims — so the fixture herdr, which is the launcher's
-# child, has to report the launcher. `launchctl submit` is the smallest way to get
-# that shape, under a label of its own and removed afterwards whatever happens.
-#
-# $PPID in the fixture and the responsible pid the binary reads are the two halves:
-# equal to each other and to the launcher means the launcher both stayed the parent
-# and is what macOS will ask about Screen Recording. The fixture tree is resolved
-# with pwd -P, because the kernel answers with the real path and a temporary
-# directory on a Mac is under a symlink.
-herdr_launcher_responsible() {
-  local d="$1" label="$2" waited=0
-
-  cat >"$d/home/.local/bin/herdr" <<EOF
-#!/bin/sh
-"$d/responsible"
-echo "args=\$* ppid=\$PPID"
-EOF
-  chmod +x "$d/home/.local/bin/herdr"
-
-  launchctl submit -l "$label" -o "$d/out" -e "$d/err" -- \
-    /usr/bin/env "HOME=$d/home" "$d/launcher" server || return 1
-
-  while [ "$waited" -lt 40 ]; do
-    grep -q "ppid=" "$d/out" 2>/dev/null && break
-    sleep 0.5
-    waited=$((waited + 1))
-  done
-
-  launchctl remove "$label" 2>/dev/null
-  grep -q "ppid=" "$d/out" 2>/dev/null
-}
-export -f herdr_launcher_responsible
-
-check "macOS holds the launcher responsible for the herdr it starts under launchd" \
-  'd="$(cd "$(mktemp -d)" && pwd -P)" && herdr_launcher_fixture "$d" &&
-   label="io.github.timche.herdr-launcher.assert.$$" &&
-   herdr_launcher_responsible "$d" "$label" &&
-   grep -q "args=server " "$d/out" &&
-   responsible="$(sed -n "s/.*responsible_pid=\([0-9]*\) .*/\1/p" "$d/out")" &&
-   [ -n "$responsible" ] &&
-   [ "$responsible" = "$(sed -n "s/.*ppid=\([0-9]*\).*/\1/p" "$d/out")" ] &&
-   grep -q "responsible_path=$d/launcher$" "$d/out"'
-
-# The herdr-core core has to come from launchd in the GUI session for the reason the
-# herdr server does, and under a launcher for the same reason again — with one more
-# on top of it: TCC fixes a process's responsibility when it is spawned, so a core
-# that was itself the responsible process takes the grants with it the moment
-# `hc server restart` replaces it. The launcher is what never exits.
+# The herdr-core core has to come from launchd in the GUI session, or every terminal
+# is an SSH session and Claude Code withholds computer use from it. Under a launcher,
+# because macOS asks the responsible process — which for a launchd job is the job's own
+# process and for its children is it again — and because TCC fixes that responsibility
+# when a process is spawned, so a core that was itself the responsible process takes
+# the grants with it the moment `hc server restart` replaces it. The launcher is what
+# never exits.
 export core_plist="$HOME/Library/LaunchAgents/io.github.timche.herdr-core.plist"
 check "the herdr-core agent is a live symlink and a valid plist" \
   '[ -L "$core_plist" ] && [ -e "$core_plist" ] && plutil -lint "$core_plist" &&
@@ -1018,6 +892,12 @@ check "the herdr-core agent's PATH reaches the shims, ~/.local/bin and Homebrew"
   'plutil -extract ProgramArguments.2 raw "$core_plist" |
      grep -qF "export PATH=\"\$HOME/.local/share/mise/shims:\$HOME/.local/bin:/opt/homebrew/bin"'
 
+# The launcher is what macOS holds responsible for the grants a session depends on —
+# Screen Recording, Full Disk Access, Device Control and Data Access, Automation and
+# Local Network — and a grant is pinned to the exact contents of an ad-hoc signed
+# binary. So its bytes may move only when its source does: a real file at a fixed
+# path, built from a hash of that source, and never from the build-in-place wrapper
+# the Go tools use, whose rebuild depends on whatever go mise resolved that day.
 export core_launcher="$HOME/.local/libexec/herdr-core-launcher"
 export core_launcher_src="$repo/machine/launchd/herdr-core-launcher.c"
 
@@ -1026,6 +906,9 @@ check "the herdr-core launcher is a real executable at the path the plist names"
 check "the herdr-core launcher was built from the source in this checkout" \
   'stamp="${XDG_STATE_HOME:-$HOME/.local/state}/mac-mini/herdr-core-launcher.sha256" &&
    [ "$(cat "$stamp")" = "$(shasum -a 256 "$core_launcher_src" | cut -d" " -f1)" ]'
+# Nothing may rebuild it on a schedule or behind a wrapper: that is the one way the
+# grants go away again without anybody deciding to. mise declares no link to it and
+# there is no wrapper in ~/.local/bin, so install.sh is the only thing that compiles it.
 check "no tool list or wrapper builds the herdr-core launcher" \
   '! grep -q "herdr-core-launcher" "$repo/mise.toml" &&
    [ ! -e "$repo/home/.local/bin/herdr-core-launcher" ]'
@@ -1124,10 +1007,9 @@ check "the launcher forwards the signals launchd sends and exits as the core exi
    core_launcher_signal "$d" INT &&
    core_launcher_signal "$d" HUP'
 
-# The check that is the arrangement rather than a description of it, and the half the
-# herdr launcher's own cannot show: responsibility is fixed when a process is spawned,
-# so what matters is that the core after a restart answers for the launcher as the
-# first one did. `launchctl submit` is the smallest way to get a job's shape, under a
+# The check that is the arrangement rather than a description of it: responsibility is
+# fixed when a process is spawned, so what matters is that the core after a restart
+# answers for the launcher as the first one did. `launchctl submit` is the smallest way to get a job's shape, under a
 # label of its own and removed afterwards whatever happens. The fixture tree is
 # resolved with pwd -P, because the kernel answers with the real path and a temporary
 # directory on a Mac is under a symlink.

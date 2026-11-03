@@ -34,7 +34,6 @@ go = "1.27"
 "~/.zshrc" = { source = "home/.zshrc", mode = "symlink" }
 
 "~/.config/ccstatusline/settings.json" = { source = "home/.config/ccstatusline/settings.json", mode = "symlink" }
-"~/.config/herdr/config.toml" = { source = "home/.config/herdr/config.toml", mode = "symlink" }
 "~/.config/git/worktree-install" = { source = "home/.config/git/worktree-install", mode = "symlink" }
 "~/.config/git/strip-claude-attribution" = { source = "home/.config/git/strip-claude-attribution", mode = "symlink" }
 "~/.config/git/refuse-claude-attribution" = { source = "home/.config/git/refuse-claude-attribution", mode = "symlink" }
@@ -51,7 +50,6 @@ go = "1.27"
 
 # Linked like everything above it: launchd resolves the link at bootstrap, and the
 # plist leaves every path it needs to a shell that expands $HOME for itself.
-"~/Library/LaunchAgents/io.github.timche.herdr.plist" = { source = "home/Library/LaunchAgents/io.github.timche.herdr.plist", mode = "symlink" }
 "~/Library/LaunchAgents/io.github.timche.herdr-core.plist" = { source = "home/Library/LaunchAgents/io.github.timche.herdr-core.plist", mode = "symlink" }
 
 # The sweep that follows a removed worktree, linked like the agents above it: it runs

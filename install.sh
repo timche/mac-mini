@@ -430,7 +430,7 @@ uid="$(id -u)"
 # not there fails before the job starts.
 mkdir -p "$HOME/Library/Logs"
 
-# Every agent below but herdr's is loaded through this, and the comparison is the
+# Every agent below but the core's is loaded through this, and the comparison is the
 # whole of why: launchd reads a plist at bootstrap and not again, so one a pull
 # changed reaches a job that is already loaded only through a bootout and a fresh
 # bootstrap. The plist is a link into this checkout, so comparing the link's target
@@ -469,7 +469,7 @@ load_agent() {  # label plist
 }
 
 # The sweep that follows a removed worktree, on a timer because no removal hands
-# anything a hook: herdr, Claude Code and `git worktree remove` all leave, and
+# anything a hook: herdr-core, Claude Code and `git worktree remove` all leave, and
 # Claude Code's WorktreeRemove does not fire for a git worktree. Nothing gates it
 # the way `hachiko sync` is gated on the docs clone — it has nothing to wait for,
 # and a machine with no worktrees gives it nothing to do.
@@ -487,7 +487,7 @@ fi
 # The watch over free space and the CPU, every five minutes.
 #
 # Nothing gates it, and nothing here builds it. A bot token it cannot resolve and a
-# herdr it cannot reach are lines in its log rather than reasons not to watch, and
+# core it cannot reach are lines in its log rather than reasons not to watch, and
 # the binary is the wrapper's to build on the first run after a change.
 hachiko_label=io.github.timche.hachiko
 hachiko_plist="$HOME/Library/LaunchAgents/$hachiko_label.plist"
@@ -513,7 +513,7 @@ if [ ! -f "$listen_plist" ]; then
 elif ! load_agent "$listen_label" "$listen_plist"; then
   echo "could not load $listen_label — the gui/$uid domain needs a GUI session" \
        "logged in on the Mac; until it is loaded a reply in Discord reaches" \
-       "nobody and the on-call session is answered in herdr alone" >&2
+       "nobody and the on-call session is answered in the Herdr app alone" >&2
 fi
 
 # mochi, the Discord listener that starts a Claude Code session when Tim mentions it.
@@ -555,109 +555,30 @@ elif ! load_agent "$sync_label" "$sync_plist"; then
        "writes in $docs upstream, and \`hachiko sync --once\` runs by hand" >&2
 fi
 
-# The launcher the herdr agent starts, and the process macOS holds responsible for
-# the privacy grants every session depends on: launchd makes a job's own process
-# responsible for itself, and a child inherits that unless it disclaims, so grants
-# given to the launcher cover the herdr it runs as its child.
-#
-# Built here and only when machine/launchd/herdr-launcher.c has changed, rather
-# than by a build-in-place wrapper like hachiko's. A grant is pinned to the exact
-# contents of an ad-hoc signed binary, and the whole point of the launcher is that
-# those contents do not move: a rebuild because mise or Xcode shipped a new
-# compiler would drop the grants it exists to keep, and only Tim can give them
-# back, on the Mac's own screen.
-launcher_src="$repo/machine/launchd/herdr-launcher.c"
-launcher="$HOME/.local/libexec/herdr-launcher"
-launcher_stamp="$state/herdr-launcher.sha256"
-launcher_hash="$(shasum -a 256 "$launcher_src" | cut -d' ' -f1)"
-
-if [ -x "$launcher" ] && [ "$(cat "$launcher_stamp" 2>/dev/null)" = "$launcher_hash" ]; then
-  echo "herdr-launcher is already built from the current source"
-elif ! command -v clang >/dev/null 2>&1; then
-  echo "clang is missing, so herdr-launcher cannot be built and the herdr agent" \
-       "cannot start; the Xcode command line tools are what bring it" >&2
-else
-  mkdir -p "$HOME/.local/libexec" "$state"
-  # Built under its final name in a directory of its own, then moved into place in
-  # one step. Two reasons, and they pull in opposite directions: the ad-hoc
-  # signature the linker writes takes its identifier from the output's basename, so
-  # a build as herdr-launcher.new is what tccd would then name in its log and in
-  # these bytes; and the file being replaced is one launchd may be running, where a
-  # rename swaps the directory entry and leaves the running process on the inode it
-  # started from, while writing over it fails outright.
-  launcher_build="$HOME/.local/libexec/.herdr-launcher.build"
-  rm -rf "$launcher_build"
-  mkdir -p "$launcher_build"
-
-  if clang -O2 -o "$launcher_build/herdr-launcher" "$launcher_src"; then
-    mv -f "$launcher_build/herdr-launcher" "$launcher"
-    rm -rf "$launcher_build"
-    printf '%s\n' "$launcher_hash" >"$launcher_stamp"
-    echo "built herdr-launcher — these are new bytes, so Tim has to grant Screen" \
-         "Recording, Full Disk Access and Device Control and Data Access to" \
-         "$launcher in System Settings > Privacy & Security once the agent below" \
-         "is running from it"
-  else
-    rm -rf "$launcher_build"
-    echo "herdr-launcher did not compile from $launcher_src" >&2
-  fi
-fi
-
-# The herdr server, from launchd in the GUI session so its panes are local
-# sessions rather than SSH ones. Never booted out or restarted from here: this
-# script usually runs in one of that server's panes, and restarting the server
-# ends every session on it, this one included. So a server already running
-# outside launchd, or a plist changed since launchd loaded it, is reported with
-# the commands to run once no session needs the server, and left alone.
-herdr_label=io.github.timche.herdr
-herdr_plist="$HOME/Library/LaunchAgents/$herdr_label.plist"
-herdr_loaded="$state/$herdr_label.plist.loaded"
-# bootout ahead of stop: KeepAlive restarts a server stopped under launchd at
-# once, so stop alone times out on a new server. stop is for one outside it. The
-# record of what launchd read is written by that command rather than here,
-# because this script never reloads the job: a restart by hand is the only thing
-# that knows which plist the running server came from.
-herdr_switch="launchctl bootout gui/$uid/$herdr_label; herdr server stop; launchctl bootstrap gui/$uid $herdr_plist && mkdir -p $state && cp $herdr_plist $herdr_loaded"
-
-if [ ! -f "$herdr_plist" ]; then
-  echo "$herdr_plist is missing — mise links it from mise.toml" >&2
-elif launchctl print "gui/$uid/$herdr_label" >/dev/null 2>&1; then
-  # The agents above reload on a missing record, treating it as changed. Here a
-  # reload ends every session, so a missing record is said out loud and nothing else.
-  if [ ! -f "$herdr_loaded" ]; then
-    echo "no record of which $herdr_label plist launchd loaded — restart herdr" \
-         "when convenient, from a shell outside herdr (a plain ssh" \
-         "timche@mac-mini), with: $herdr_switch" >&2
-  elif ! cmp -s "$herdr_plist" "$herdr_loaded"; then
-    echo "$herdr_label changed since launchd loaded it, and reloading ends every" \
-         "herdr session; when none is needed, from a shell outside herdr" \
-         "(a plain ssh timche@mac-mini), run: $herdr_switch" >&2
-  else
-    echo "$herdr_label is already loaded"
-  fi
-elif herdr status server 2>/dev/null | grep -q '^status: running'; then
-  echo "a herdr server is running outside launchd, so its panes are SSH sessions;" \
-       "when no session is needed, run: $herdr_switch" >&2
-elif [ ! -x "$launcher" ]; then
-  # Not loaded at all, so nothing is running to disturb — and a job bootstrapped
-  # onto a launcher that is not there is one launchd retries every ten seconds for
-  # the life of the Mac, while a remote client quietly starts an SSH server of its
-  # own instead. Left unloaded and said out loud, so the step above is what gets
-  # fixed.
-  echo "$launcher is not built, so $herdr_label was not loaded — it is the" \
-       "launcher, not herdr, that the agent starts" >&2
-elif launchctl bootstrap "gui/$uid" "$herdr_plist"; then
-  mkdir -p "$state" && cp "$herdr_plist" "$herdr_loaded"
-  echo "loaded $herdr_label"
-else
-  echo "could not load $herdr_label — the gui/$uid domain needs a GUI session" \
-       "logged in on the Mac" >&2
+# launchd keeps a job it has loaded until something boots it out, so this Mac can be
+# running a herdr server nothing here installs: a launcher whose grants nothing
+# re-gives, and panes competing with the core's terminals for the one screen. Reported
+# rather than done, for the reason the agents below are never restarted from here: a
+# bootout ends every pane, and this script usually runs in a session that would go
+# with them.
+old_herdr_label=io.github.timche.herdr
+if launchctl print "gui/$uid/$old_herdr_label" >/dev/null 2>&1; then
+  echo "$old_herdr_label is loaded and nothing here installs it any more; when no" \
+       "session needs that server, from a shell outside herdr, run:" \
+       "launchctl bootout gui/$uid/$old_herdr_label; rm -f" \
+       "$HOME/Library/LaunchAgents/$old_herdr_label.plist" \
+       "$state/$old_herdr_label.plist.loaded" \
+       "$HOME/.local/libexec/herdr-launcher $state/herdr-launcher.sha256" \
+       "$HOME/.local/bin/herdr; rm -rf $HOME/.config/herdr" >&2
 fi
 
 # The launcher the herdr-core agent starts, and the process macOS holds responsible
-# for the core, its holder and every terminal under them. Built the same way and for
-# the same reasons as the one above — the hash of the source, a directory of its own
-# and a rename into place — and the comment there has why each of those matters.
+# for the core, its holder and every terminal under them. Built here and only when
+# machine/launchd/herdr-core-launcher.c has changed, rather than by a build-in-place
+# wrapper like hachiko's. A grant is pinned to the exact contents of an ad-hoc signed
+# binary, and the whole point of the launcher is that those contents do not move: a
+# rebuild because mise or Xcode shipped a new compiler would drop the grants it exists
+# to keep, and only Tim can give them back, on the Mac's own screen.
 core_launcher_src="$repo/machine/launchd/herdr-core-launcher.c"
 core_launcher="$HOME/.local/libexec/herdr-core-launcher"
 core_launcher_stamp="$state/herdr-core-launcher.sha256"
@@ -671,6 +592,13 @@ elif ! command -v clang >/dev/null 2>&1; then
        "bring it" >&2
 else
   mkdir -p "$HOME/.local/libexec" "$state"
+  # Built under its final name in a directory of its own, then moved into place in
+  # one step. Two reasons, and they pull in opposite directions: the ad-hoc
+  # signature the linker writes takes its identifier from the output's basename, so
+  # a build as herdr-core-launcher.new is what tccd would then name in its log and
+  # in these bytes; and the file being replaced is one launchd may be running, where
+  # a rename swaps the directory entry and leaves the running process on the inode
+  # it started from, while writing over it fails outright.
   core_launcher_build="$HOME/.local/libexec/.herdr-core-launcher.build"
   rm -rf "$core_launcher_build"
   mkdir -p "$core_launcher_build"
@@ -691,7 +619,7 @@ fi
 
 # The herdr-core core, under the launcher above so that the grants belong to the
 # launcher and outlive both `hc update` and `hc server restart`. Never booted out or
-# restarted from here, for the reason the herdr agent is not: this script usually
+# restarted from here: this script usually
 # runs in one of that core's terminals, and ending the core ends every one of them.
 core_label=io.github.timche.herdr-core
 core_plist="$HOME/Library/LaunchAgents/$core_label.plist"

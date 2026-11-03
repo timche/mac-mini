@@ -109,6 +109,20 @@ func TestTheSweepsOwnLogIsCappedInPlace(t *testing.T) {
 	harness.Equal(t, sizeOf(t, path), int64(0), "the size of the log after the cap")
 }
 
+// The herdr-core launcher's log, which is the one its plist's shell holds open for the life
+// of the Mac: a line per core it starts and per core that exits, and a core that will not
+// stay up writes those as fast as the backoff lets it.
+func TestTheCoreLaunchersLogIsCapped(t *testing.T) {
+	f := newFixture(t)
+	path := logFile(t, f, "herdr-core.log", 2*logCapKB)
+	appendingTo(t, path)
+
+	harness.Wants(t, f.sweep(), "capped "+path)
+
+	harness.Equal(t, sizeOf(t, path+".0"), int64(2*logCapKB*1024), "bytes in the generation kept")
+	harness.Equal(t, sizeOf(t, path), int64(0), "the size of the log after the cap")
+}
+
 // One generation and no more, so a log on this list is bounded at twice the threshold rather
 // than growing a file per cap for the life of the Mac.
 func TestASecondCapReplacesTheOlderGeneration(t *testing.T) {

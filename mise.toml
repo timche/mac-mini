@@ -52,6 +52,7 @@ go = "1.27"
 # Linked like everything above it: launchd resolves the link at bootstrap, and the
 # plist leaves every path it needs to a shell that expands $HOME for itself.
 "~/Library/LaunchAgents/io.github.timche.herdr.plist" = { source = "home/Library/LaunchAgents/io.github.timche.herdr.plist", mode = "symlink" }
+"~/Library/LaunchAgents/io.github.timche.herdr-core.plist" = { source = "home/Library/LaunchAgents/io.github.timche.herdr-core.plist", mode = "symlink" }
 
 # The sweep that follows a removed worktree, linked like the agents above it: it runs
 # on a timer alone, so there is no WatchPaths and so no path launchd would have to be

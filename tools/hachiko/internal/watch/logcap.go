@@ -18,7 +18,7 @@ import (
 // and the free-space thresholds are what catch one of those.
 //
 // Every one of them is held open by the shell in its plist, which opened it with `>>` and
-// keeps it for the length of a run: the herdr server and the two hachiko agents that never
+// keeps it for the length of a run: the two servers and the two hachiko agents that never
 // finish one, and the two sweeps for as long as each takes. So each is copied and then
 // emptied in place rather than renamed out from under its writer, which is what newsyslog
 // does and which against a held descriptor is worse than doing nothing — the writer goes on
@@ -29,6 +29,7 @@ func cappedLogs(cfg config.Config) []string {
 
 	return []string{
 		under("herdr.log"),
+		under("herdr-core.log"),
 		under("hachiko-sync.log"),
 		under("hachiko-listen.log"),
 		under("hachiko.log"),

@@ -27,8 +27,9 @@ It asks, in order, for the sudo password, a tailnet login URL, the Apple ID and 
 ### Afterwards, over Screen Sharing
 
 1. System Settings > Privacy & Security: give `~/.local/libexec/herdr-launcher` (add it with **+**, then ⇧⌘G to type the path) **Screen & System Audio Recording**, **Device Control and Data Access** and **Full Disk Access**.
-2. System Settings > Lock Screen: "Require password after screen saver begins or display is turned off" to **Never**.
-3. Open OrbStack once, accept its terms and choose Docker.
+2. System Settings > Privacy & Security: give `~/.local/libexec/herdr-core-launcher` the same way **Screen & System Audio Recording**, **Device Control and Data Access**, **Automation**, **Full Disk Access** and **Local Network**.
+3. System Settings > Lock Screen: "Require password after screen saver begins or display is turned off" to **Never**.
+4. Open OrbStack once, accept its terms and choose Docker.
 
 `machine.sh` lists whichever of these is still missing every time it runs.
 
@@ -51,7 +52,7 @@ Re-running changes nothing that is already right and moves no version; hachiko's
 
 - **A prompt on the Mac's screen:** answer it over Screen Sharing. A session that causes one says what it is for.
 - **The root helper:** when a session says it changed, run `~/.mac-mini/machine/root-helper.sh`. It asks for your password and shows a diff first.
-- **The permissions above, again,** when a session says `herdr-launcher` was rebuilt.
+- **The permissions above, again,** when a session says `herdr-launcher` or `herdr-core-launcher` was rebuilt.
 - **A sudo command a session prints for you:** read it, then run it.
 
 ## How it is put together
@@ -62,7 +63,7 @@ A fresh Mac has no git and no package manager, so there is nothing to clone this
 
 Every script opens with a comment saying why it exists and what would break if it ran elsewhere in the order. That comment is where what a script does is written down; this file is the shape of the whole and the reasoning that spans more than one script, and `CLAUDE.md` is how to work in the repository.
 
-Why each of the steps under [Installing](#installing) is needed: auto-login, because the herdr server, the LaunchAgents and every privacy grant live in the login session; Screen Sharing, because it is the one sharing setting no script can turn on, that pane also registering the rights the sharing agent needs; the three privacy grants, for the reasons [Privacy permissions](#privacy-permissions) gives; the Lock Screen setting, so the display can sleep without a password standing between Screen Sharing and the desktop; OrbStack, whose terms and Docker choice are on a welcome screen no script can click; and the key expiry, since a node whose key expires drops off the tailnet until somebody logs in at it again.
+Why each of the steps under [Installing](#installing) is needed: auto-login, because the herdr server, the LaunchAgents and every privacy grant live in the login session; Screen Sharing, because it is the one sharing setting no script can turn on, that pane also registering the rights the sharing agent needs; the privacy grants, for the reasons [Privacy permissions](#privacy-permissions) gives, each given to a launcher rather than to a server that replaces its own binary; the Lock Screen setting, so the display can sleep without a password standing between Screen Sharing and the desktop; OrbStack, whose terms and Docker choice are on a welcome screen no script can click; and the key expiry, since a node whose key expires drops off the tailnet until somebody logs in at it again.
 
 ## The principles
 
@@ -104,13 +105,14 @@ Adding a daemon to the allowlist is an edit to `machine/system/libexec/claude-ro
 
 ## Privacy permissions
 
-Four grants that no script can make, given once each over Screen Sharing and then good until somebody revokes them. TCC only ever asks the screen: the consent dialog cannot appear in a session with no window server of its own, and writing the grant into `TCC.db` by hand needs SIP off.
+The grants no script can make, given once each over Screen Sharing and then good until somebody revokes them. TCC only ever asks the screen: the consent dialog cannot appear in a session with no window server of its own, and writing the grant into `TCC.db` by hand needs SIP off.
 
-Which process is asked depends on how the session arrived. Every Claude Code session is a pane of the herdr server launchd runs in the GUI session, and that job starts `~/.local/libexec/herdr-launcher`, so the launcher is the path every grant below is given to; [The herdr server](#the-herdr-server) has why. Over the tailnet without herdr the process TCC asks about is `tailscaled`; on the LAN it is sshd, where the entries are `/usr/libexec/sshd-keygen-wrapper` and `com.apple.sshd-session`, either of which can be the one that gets asked. The panes take no drag from a remote session, so use the **+** button and ⇧⌘G to type a path.
+Which process is asked depends on how the session arrived. Every Claude Code session is a pane of the herdr server launchd runs in the GUI session, and that job starts `~/.local/libexec/herdr-launcher`, so the launcher is the path every grant below is given to; [The herdr server](#the-herdr-server) has why. A session in a herdr-core terminal answers for `~/.local/libexec/herdr-core-launcher` instead, for the reason [The herdr-core server](#the-herdr-core-server) gives, so both launchers hold the same grants and that one holds **Local Network** as well. Over the tailnet without either server the process TCC asks about is `tailscaled`; on the LAN it is sshd, where the entries are `/usr/libexec/sshd-keygen-wrapper` and `com.apple.sshd-session`, either of which can be the one that gets asked. The panes take no drag from a remote session, so use the **+** button and ⇧⌘G to type a path.
 
 - **Screen Recording** — System Settings > Privacy & Security > Screen & System Audio Recording. For `screencapture` and every recording taken over SSH, which is how a session shows a change working rather than asserting it, and for herdr, which reads the panes it drives. Without it `screencapture` still exits 0 and still writes a PNG; the PNG is black.
 - **Accessibility** — System Settings > Privacy & Security > Device Control and Data Access, the pane macOS 27 folds Accessibility into. The same entries. This is what lets a session reach into another app's windows — focus, keystrokes, clicks — which is how herdr drives anything with a GUI.
 - **Full Disk Access** — for the launcher, so that a session can write Claude Code's native messaging host into `~/Library/Application Support/Google/Chrome` and read the profile back. Without it both are "Operation not permitted".
+- **Local Network** — for the herdr-core launcher, so that a core can reach a machine it has been given. The bare `herdr-core` binary cannot be given this one at all ([herdrdev/herdr-core#83](https://github.com/herdrdev/herdr-core/issues/83)), which is the other half of why that agent starts a launcher.
 - **Notifications** — System Settings > Notifications, per app rather than per binary, for the Electron app under development. Its entry only exists once the app is signed and has asked for permission at least once, so the order is run it, let it ask, then allow it.
 
 To check them afterwards, over SSH:
@@ -225,7 +227,7 @@ The GitHub token goes in a file rather than the login keychain (`gh auth login -
 | `account/claude-plugins/` | A local plugin marketplace: the `mochi` plugin, on only in the repositories mochi serves |
 | `machine/` | The machine half's scripts, which `machine.sh` runs in the order its comments give |
 | `machine/system/` | What lands outside `$HOME` as a root-owned copy: the claude-root helper, the sudoers rule naming it, the sshd drop-in |
-| `machine/launchd/` | The herdr launcher's source, which is what that agent starts |
+| `machine/launchd/` | The two launchers' sources, which is what the herdr and herdr-core agents start |
 | `tools/hachiko/` | The watch over this Mac, its worktree sweep, its auto-sync and the nightly update — [tools/hachiko/README.md](tools/hachiko/README.md) |
 | `tools/mochi/` | Tim's Claude Tag for Discord — [tools/mochi/README.md](tools/mochi/README.md) |
 | `tools/claude-hooks/` | Every Claude Code hook as a subcommand of one binary, three of them on every session's Bash calls: the guard, no kill by name and no foreground without the lock; the attribution stripped out of what `gh` sends GitHub; the worktree a session moved to, named in herdr's sidebar; and the project's docs printed into a session as it starts. The status line's tap is there too, the one command that is no hook: it keeps what is left of the account's usage limits where hachiko reads it — [tools/claude-hooks/README.md](tools/claude-hooks/README.md) |
@@ -237,7 +239,7 @@ The GitHub token goes in a file rather than the login keychain (`gh auth login -
 
 Everything else here is a shell script, and the tools under `tools/` are the exception. A compiled tool is Go on the standard library alone, or Swift on Apple's SDK alone where it lives on macOS frameworks Go cannot reach, run from this Mac; a Worker is TypeScript with a deploy script of its own, and the only one there is runs nowhere near this Mac on purpose. There is no release pipeline and nothing to publish, because there is nowhere to publish to: the entry in `home/.local/bin/<tool>` builds the tool from this checkout's working tree and runs its tests as the gate, so an edit is a running binary minutes later and a tree that does not compile or does not pass leaves the last one that did. All of that is one script, `home/.local/libexec/build-tool`, which each entry sources after setting what is its tool's own; `CLAUDE.md` has the rules a change to one of the tools obeys, that script's comment has how the building works, and each entry's own what that tool adds to it.
 
-`machine/launchd/herdr-launcher.c` is the one compiled thing that is neither a tool nor a folder under `tools/`, and the one that is C. It is built once by `install.sh` rather than by a wrapper, for the reason [The herdr server](#the-herdr-server) gives: its bytes are an identity macOS pins privacy grants to, and a rebuild costs them.
+The two launchers under `machine/launchd/` are the compiled things that are neither a tool nor a folder under `tools/`, and the ones that are C. Each is built once by `install.sh` rather than by a wrapper, for the reason [The herdr server](#the-herdr-server) gives: its bytes are an identity macOS pins privacy grants to, and a rebuild costs them.
 
 The links themselves are declared in `mise.toml` under `[dotfiles]` and applied by `mise bootstrap dotfiles apply`, which recognises links that already point at the right source and replaces anything else at a target — with the `--force-dotfiles` `install.sh` passes, a real file left at a link's target is overwritten and no backup is kept. A tool that edits a linked file by writing a new one and renaming it over the path replaces the link with a regular file, and from then on its edits stay off GitHub; re-running the bootstrap discards them, so fold them in first:
 
@@ -323,6 +325,16 @@ Which is why the launcher is the parent and never execs herdr — an exec would 
 `KeepAlive` is unconditional, unlike the sync agent's, because a missing server — even one stopped on purpose — would otherwise be replaced by the next remote client starting its own over SSH. `install.sh` loads the agent but never boots it out or restarts it: it usually runs inside one of that server's panes, and restarting the server ends every session on it, the one running the script included. A server already running outside launchd, or a plist changed since launchd read it, is reported with the commands to run from a plain `ssh timche@mac-mini` once no session needs the server. A Mac with no launcher built is left with the agent unloaded and reported instead, since a job pointed at a binary that is not there is one launchd retries every ten seconds for the life of the Mac. The log is `~/Library/Logs/herdr.log`.
 
 What stays unsolved either way is approval: computer use asks for each app once per session, in the session's own terminal, and nothing pre-approves apps for a session nobody is watching ([anthropics/claude-code#47796](https://github.com/anthropics/claude-code/issues/47796), closed without it).
+
+## The herdr-core server
+
+herdr-core's core comes from launchd in the GUI session too, `io.github.timche.herdr-core`, and for the same reason: a terminal started anywhere else carries `SSH_*` and Claude Code withholds computer use from it, and macOS would ask `tailscaled` for the grants rather than this job. What the job starts is `~/.local/libexec/herdr-core-launcher`, which runs `herdr-core serve` — the foreground core, an internal subcommand with no stability promised — as its child.
+
+Two things make that launcher more than a copy of herdr's. The first is `HC_LAUNCHD_DIRECT`: outside an SSH session `herdr-core serve` re-launches itself through a launchd job of its own, which puts the bare `herdr-core` binary in front of TCC, where it cannot be given Local Network at all ([herdrdev/herdr-core#83](https://github.com/herdrdev/herdr-core/issues/83)). Set to the pid the core is to stay under, it skips that and stays a child.
+
+The second is that it supervises rather than starting one core and waiting on it. TCC fixes a process's responsibility when the process is spawned, so the holder and the terminals under it answer for whoever started them for as long as they live — and a core that was itself the responsible process takes that with it the moment `hc server restart` replaces it, leaving every terminal started afterwards answering for itself with none of the grants. So the launcher never exits and is the parent of every core: when one exits for any reason but a stop asked of the launcher, it starts another. Immediately, when the core that exited had come up at all — `hc server restart` starts a core of its own as soon as the old one is down, and whichever takes the lock file is the one every terminal from then on answers for, so a wait of even a second there is that race lost. A core that dies within two seconds is a different thing, either another core holding the lock or the `serve` subcommand having moved, and that one is retried on a backoff from one second to thirty, reset once a core has stayed up a minute, with the two possibilities named in the log.
+
+Everything else is herdr's launcher: the grants are pinned to the launcher's bytes, it never execs the core, it forwards `SIGTERM`, `SIGINT` and `SIGHUP` and exits as the core exited, and `install.sh` compiles it only when the SHA-256 of `machine/launchd/herdr-core-launcher.c` no longer matches `~/.local/state/mac-mini/herdr-core-launcher.sha256`. `install.sh` loads the agent but never boots it out or restarts it, since ending the core ends every session on it; a core already running outside launchd is reported with the command to run rather than bootstrapped over, because the running core holds the lock the launcher's would need and holds TCC's answer with it. The log is `~/Library/Logs/herdr-core.log`, a line per core started and per core that exits.
 
 ## Projects and 1Password
 

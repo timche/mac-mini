@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The herdr-core core, started by launchd inside the logged-in GUI session
+     rather than by the first `hc` a remote client runs over SSH. Every Claude Code
+     session is a terminal of this core, and Claude Code offers computer use only
+     to a session that is not an SSH one; started here, a terminal is genuinely
+     local, with no SSH_* in its environment and this job, not tailscaled, as the
+     app macOS asks its privacy grants of. Linked like the agents beside it, and
+     for the same reason it names no path launchd would have to expand.
+
+     What it starts is the launcher, not herdr-core: macOS asks its questions of
+     the responsible process, which for a launchd job is the job's own process and
+     for that process's children is it again, and the bare herdr-core binary cannot
+     be given Local Network at all. So the grants belong to the launcher,
+     which install.sh compiles from machine/launchd/herdr-core-launcher.c and
+     rebuilds only when that file changes, and which stays the parent of every core
+     it starts, so neither `hc update` nor `hc server restart` drops them. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.github.timche.herdr-core</string>
+  <!-- `hc run` starts a program directly rather than through a login shell, so
+       what it inherits from the core is the whole of its PATH — the shims and
+       ~/.local/bin ahead of Homebrew, as .zshenv orders them. A UTF-8 locale
+       launchd does not hand a job, and exec so this job's own process is the
+       launcher and nothing stands between launchd and it. The launcher takes no
+       arguments and finds herdr-core under the same HOME launchd hands this
+       shell. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"; export LANG=en_US.UTF-8; exec "$HOME/.local/libexec/herdr-core-launcher" >>"$HOME/Library/Logs/herdr-core.log" 2>&amp;1</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <!-- The launcher restarts the core itself and exits only when it is asked to
+       stop, so this covers the launcher dying rather than the core doing: a
+       launcher that is gone is every grant gone with it. -->
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <!-- Terminals run builds, dev servers and agents; launchd would otherwise
+       throttle them as background work. -->
+  <key>ProcessType</key>
+  <string>Interactive</string>
+</dict>
+</plist>

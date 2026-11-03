@@ -990,6 +990,174 @@ check "macOS holds the launcher responsible for the herdr it starts under launch
    [ "$responsible" = "$(sed -n "s/.*ppid=\([0-9]*\).*/\1/p" "$d/out")" ] &&
    grep -q "responsible_path=$d/launcher$" "$d/out"'
 
+# The herdr-core core has to come from launchd in the GUI session for the reason the
+# herdr server does, and under a launcher for the same reason again — with one more
+# on top of it: TCC fixes a process's responsibility when it is spawned, so a core
+# that was itself the responsible process takes the grants with it the moment
+# `hc server restart` replaces it. The launcher is what never exits.
+export core_plist="$HOME/Library/LaunchAgents/io.github.timche.herdr-core.plist"
+check "the herdr-core agent is a live symlink and a valid plist" \
+  '[ -L "$core_plist" ] && [ -e "$core_plist" ] && plutil -lint "$core_plist" &&
+   [ "$(plutil -extract Label raw "$core_plist")" = io.github.timche.herdr-core ]'
+check "the herdr-core agent runs the launcher and is always kept alive" \
+  'plutil -extract ProgramArguments.2 raw "$core_plist" |
+     grep -qF "exec \"\$HOME/.local/libexec/herdr-core-launcher\"" &&
+   [ "$(plutil -extract KeepAlive raw "$core_plist")" = true ]'
+# `hc run` starts a program directly rather than through a login shell, so what it
+# inherits from the core is the whole of its PATH.
+check "the herdr-core agent's PATH reaches the shims, ~/.local/bin and Homebrew" \
+  'plutil -extract ProgramArguments.2 raw "$core_plist" |
+     grep -qF "export PATH=\"\$HOME/.local/share/mise/shims:\$HOME/.local/bin:/opt/homebrew/bin"'
+
+export core_launcher="$HOME/.local/libexec/herdr-core-launcher"
+export core_launcher_src="$repo/machine/launchd/herdr-core-launcher.c"
+
+check "the herdr-core launcher is a real executable at the path the plist names" \
+  '[ -x "$core_launcher" ] && [ ! -L "$core_launcher" ] && [ -f "$core_launcher" ]'
+check "the herdr-core launcher was built from the source in this checkout" \
+  'stamp="${XDG_STATE_HOME:-$HOME/.local/state}/mac-mini/herdr-core-launcher.sha256" &&
+   [ "$(cat "$stamp")" = "$(shasum -a 256 "$core_launcher_src" | cut -d" " -f1)" ]'
+check "no tool list or wrapper builds the herdr-core launcher" \
+  '! grep -q "herdr-core-launcher" "$repo/mise.toml" &&
+   [ ! -e "$repo/home/.local/bin/herdr-core-launcher" ]'
+# `serve` is hidden from `hc --help` and is the one thing the launcher runs, so an
+# upstream rename is a core that never comes up. The launcher says as much in its log
+# when that happens; this is what catches it before anybody reads one.
+check "the installed herdr-core still answers to serve" \
+  '"$HOME/.local/bin/herdr-core" serve --help | grep -q "herdr-core serve"'
+
+# What the launcher has to be, built from the source rather than taken from the
+# installed copy, so the check is of this checkout. HOME points at a fixture tree,
+# because the launcher finds herdr-core under HOME and nothing else.
+core_launcher_fixture() {
+  local d="$1"
+
+  mkdir -p "$d/home/.local/bin" || return 1
+  clang -O2 -o "$d/launcher" "$core_launcher_src" || return 1
+  clang -O2 -o "$d/responsible" "$repo/test/responsible.c" || return 1
+}
+export -f core_launcher_fixture
+
+# The core is `serve` and nothing else, it is a direct child — HC_LAUNCHD_DIRECT
+# naming the launcher is what stops herdr-core re-launching itself through a launchd
+# job of its own, where TCC would answer for the bare binary — and a core that exits
+# of its own accord is replaced, which is what `hc server restart` leaves behind. The
+# fixture exits at once, so the line the launcher says at the second stillborn core is
+# what says the second start has happened.
+core_launcher_restarts() {
+  local d="$1" pid waited=0
+
+  cat >"$d/home/.local/bin/herdr-core" <<EOF
+#!/bin/sh
+echo "args=\$* direct=\$HC_LAUNCHD_DIRECT ppid=\$PPID" >>"$d/starts"
+exit 3
+EOF
+  chmod +x "$d/home/.local/bin/herdr-core"
+  : >"$d/starts"
+
+  HOME="$d/home" "$d/launcher" >"$d/log" 2>&1 &
+  pid=$!
+
+  while ! grep -q "has changed under us" "$d/log" 2>/dev/null; do
+    [ "$waited" -lt 100 ] || { kill "$pid" 2>/dev/null; return 1; }
+    sleep 0.2
+    waited=$((waited + 1))
+  done
+
+  kill "$pid" 2>/dev/null
+  wait "$pid" 2>/dev/null
+
+  [ "$(grep -c "^args=serve direct=$pid ppid=$pid\$" "$d/starts")" -ge 2 ] &&
+    grep -q "started .*/herdr-core serve as pid" "$d/log" &&
+    grep -q "the core exited 3 after" "$d/log"
+}
+export -f core_launcher_restarts
+
+check "the launcher runs the core as a direct child and starts another when one exits" \
+  'd="$(mktemp -d)" && core_launcher_fixture "$d" && core_launcher_restarts "$d"'
+
+# A signal the launcher does not pass on is a core that outlives `launchctl bootout`
+# and a KeepAlive that starts a second launcher beside it. The fixture exits 42 of its
+# own accord, so an exit status that is not forwarded shows up too, and a launcher that
+# treated the stop as a core to replace would never exit at all.
+core_launcher_signal() {
+  local d="$1" sig="$2" pid status waited=0
+
+  cat >"$d/home/.local/bin/herdr-core" <<EOF
+#!/bin/sh
+trap 'exit 42' $sig
+echo running >"$d/running"
+while :; do sleep 0.2; done
+EOF
+  chmod +x "$d/home/.local/bin/herdr-core"
+  rm -f "$d/running"
+
+  HOME="$d/home" "$d/launcher" >/dev/null 2>&1 &
+  pid=$!
+
+  while [ ! -f "$d/running" ]; do
+    [ "$waited" -lt 100 ] || { kill "$pid" 2>/dev/null; return 1; }
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+
+  kill "-$sig" "$pid"
+  wait "$pid"
+  status=$?
+
+  [ "$status" = 42 ]
+}
+export -f core_launcher_signal
+
+check "the launcher forwards the signals launchd sends and exits as the core exited" \
+  'd="$(mktemp -d)" && core_launcher_fixture "$d" &&
+   core_launcher_signal "$d" TERM &&
+   core_launcher_signal "$d" INT &&
+   core_launcher_signal "$d" HUP'
+
+# The check that is the arrangement rather than a description of it, and the half the
+# herdr launcher's own cannot show: responsibility is fixed when a process is spawned,
+# so what matters is that the core after a restart answers for the launcher as the
+# first one did. `launchctl submit` is the smallest way to get a job's shape, under a
+# label of its own and removed afterwards whatever happens. The fixture tree is
+# resolved with pwd -P, because the kernel answers with the real path and a temporary
+# directory on a Mac is under a symlink.
+core_launcher_responsible() {
+  local d="$1" label="$2" waited=0
+
+  cat >"$d/home/.local/bin/herdr-core" <<EOF
+#!/bin/sh
+"$d/responsible" >>"$d/out"
+echo "ppid=\$PPID" >>"$d/out"
+EOF
+  chmod +x "$d/home/.local/bin/herdr-core"
+  : >"$d/out"
+
+  launchctl submit -l "$label" -o "$d/submitted" -e "$d/submitted" -- \
+    /usr/bin/env "HOME=$d/home" "$d/launcher" || return 1
+
+  while [ "$waited" -lt 60 ]; do
+    [ "$(grep -c "^ppid=" "$d/out")" -ge 2 ] && break
+    sleep 0.5
+    waited=$((waited + 1))
+  done
+
+  launchctl remove "$label" 2>/dev/null
+  [ "$(grep -c "^ppid=" "$d/out")" -ge 2 ]
+}
+export -f core_launcher_responsible
+
+# One responsible pid across both cores, equal to the pid each reported as its
+# parent: the launcher both stayed the parent and is what macOS will ask about
+# Screen Recording, for the core after the restart as much as the one before it.
+check "macOS holds the launcher responsible for every core it starts under launchd" \
+  'd="$(cd "$(mktemp -d)" && pwd -P)" && core_launcher_fixture "$d" &&
+   label="io.github.timche.herdr-core-launcher.assert.$$" &&
+   core_launcher_responsible "$d" "$label" &&
+   [ "$(grep -c "responsible_path=$d/launcher\$" "$d/out")" -ge 2 ] &&
+   [ "$(sed -n "s/.*responsible_pid=\([0-9]*\) .*/\1/p" "$d/out" | sort -u)" = \
+     "$(sed -n "s/^ppid=\([0-9]*\)/\1/p" "$d/out" | sort -u)" ]'
+
 # The sweep is on a timer rather than on a session, so the agent is the whole of
 # its wiring: an invalid plist is a job launchd rejects at load with nothing in
 # it to say why. Not reachable on a runner with no GUI session, so this reads the

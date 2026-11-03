@@ -651,3 +651,103 @@ else
   echo "could not load $herdr_label — the gui/$uid domain needs a GUI session" \
        "logged in on the Mac" >&2
 fi
+
+# The launcher the herdr-core agent starts, and the process macOS holds responsible
+# for the core, its holder and every terminal under them. Built the same way and for
+# the same reasons as the one above — the hash of the source, a directory of its own
+# and a rename into place — and the comment there has why each of those matters.
+core_launcher_src="$repo/machine/launchd/herdr-core-launcher.c"
+core_launcher="$HOME/.local/libexec/herdr-core-launcher"
+core_launcher_stamp="$state/herdr-core-launcher.sha256"
+core_launcher_hash="$(shasum -a 256 "$core_launcher_src" | cut -d' ' -f1)"
+
+if [ -x "$core_launcher" ] && [ "$(cat "$core_launcher_stamp" 2>/dev/null)" = "$core_launcher_hash" ]; then
+  echo "herdr-core-launcher is already built from the current source"
+elif ! command -v clang >/dev/null 2>&1; then
+  echo "clang is missing, so herdr-core-launcher cannot be built and the" \
+       "herdr-core agent cannot start; the Xcode command line tools are what" \
+       "bring it" >&2
+else
+  mkdir -p "$HOME/.local/libexec" "$state"
+  core_launcher_build="$HOME/.local/libexec/.herdr-core-launcher.build"
+  rm -rf "$core_launcher_build"
+  mkdir -p "$core_launcher_build"
+
+  if clang -O2 -o "$core_launcher_build/herdr-core-launcher" "$core_launcher_src"; then
+    mv -f "$core_launcher_build/herdr-core-launcher" "$core_launcher"
+    rm -rf "$core_launcher_build"
+    printf '%s\n' "$core_launcher_hash" >"$core_launcher_stamp"
+    echo "built herdr-core-launcher — these are new bytes, so Tim has to grant" \
+         "Screen & System Audio Recording, Accessibility, Automation, Full Disk" \
+         "Access and Local Network to $core_launcher in System Settings >" \
+         "Privacy & Security once the agent below is running from it"
+  else
+    rm -rf "$core_launcher_build"
+    echo "herdr-core-launcher did not compile from $core_launcher_src" >&2
+  fi
+fi
+
+# The herdr-core core, under the launcher above so that the grants belong to the
+# launcher and outlive both `hc update` and `hc server restart`. Never booted out or
+# restarted from here, for the reason the herdr agent is not: this script usually
+# runs in one of that core's terminals, and ending the core ends every one of them.
+core_label=io.github.timche.herdr-core
+core_plist="$HOME/Library/LaunchAgents/$core_label.plist"
+core_loaded="$state/$core_label.plist.loaded"
+core_switch="hc server stop; launchctl bootstrap gui/$uid $core_plist && mkdir -p $state && cp $core_plist $core_loaded"
+# bootout ahead of stop, as the herdr switch does: the launcher restarts a core
+# stopped under it at once, so stop alone never leaves the core down.
+core_reload="launchctl bootout gui/$uid/$core_label; $core_switch"
+
+# `hc server status` is not the question to ask: with no core running it starts one,
+# which is the very thing this is here not to do behind anybody's back. A core holds
+# its lock file open for as long as it runs, so whoever holds that file is the core
+# and nothing has to be started to find out.
+core_lock="${XDG_STATE_HOME:-$HOME/.local/state}/herdr-core/${HC_SESSION:-default}/core.lock"
+core_running=false
+if [ -f "$core_lock" ] && [ -n "$(/usr/sbin/lsof -t "$core_lock" 2>/dev/null)" ]; then
+  core_running=true
+fi
+
+if [ ! -f "$core_plist" ]; then
+  echo "$core_plist is missing — mise links it from mise.toml" >&2
+elif launchctl print "gui/$uid/$core_label" >/dev/null 2>&1; then
+  # The agents further up reload on a missing record, treating it as changed. Here a
+  # reload ends every session, so a missing record is said out loud and nothing else.
+  if [ ! -f "$core_loaded" ]; then
+    echo "no record of which $core_label plist launchd loaded — restart the core" \
+         "when convenient, from a shell outside hc (a plain ssh timche@mac-mini)," \
+         "with: $core_reload" >&2
+  elif ! cmp -s "$core_plist" "$core_loaded"; then
+    echo "$core_label changed since launchd loaded it, and reloading ends every hc" \
+         "terminal; when none is needed, from a shell outside hc (a plain ssh" \
+         "timche@mac-mini), run: $core_reload" >&2
+  else
+    echo "$core_label is already loaded"
+  fi
+elif [ "$core_running" = true ]; then
+  # Not bootstrapped on top of it: the core already running holds the lock, so the
+  # one the launcher started would exit at once and the launcher would sit there
+  # restarting it on a backoff for the life of the Mac. The running core also keeps
+  # whatever started it as the process TCC answers for, which is the whole thing this
+  # agent exists to fix.
+  echo "a herdr-core core is running outside launchd, so macOS holds whatever" \
+       "started it responsible for every terminal on it; when no session needs the" \
+       "core, from a shell outside hc (a plain ssh timche@mac-mini), run:" \
+       "$core_switch" >&2
+elif [ ! -x "$core_launcher" ]; then
+  # A job bootstrapped onto a launcher that is not there is one launchd retries every
+  # ten seconds for the life of the Mac. Left unloaded and said out loud, so the step
+  # above is what gets fixed.
+  echo "$core_launcher is not built, so $core_label was not loaded — it is the" \
+       "launcher, not herdr-core, that the agent starts" >&2
+elif [ ! -x "$HOME/.local/bin/herdr-core" ]; then
+  echo "$HOME/.local/bin/herdr-core is missing, so $core_label was not loaded —" \
+       "the launcher would have nothing to run and would restart it for ever" >&2
+elif launchctl bootstrap "gui/$uid" "$core_plist"; then
+  mkdir -p "$state" && cp "$core_plist" "$core_loaded"
+  echo "loaded $core_label"
+else
+  echo "could not load $core_label — the gui/$uid domain needs a GUI session" \
+       "logged in on the Mac" >&2
+fi

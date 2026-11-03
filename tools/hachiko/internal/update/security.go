@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -62,7 +61,7 @@ const (
 
 	// And the two that are one thing each, so there is no name after them.
 	MiseSelfTarget = "mise-self"
-	HerdrTarget    = "herdr"
+	CoreTarget     = "herdr-core"
 )
 
 // Whether a target is one of the five shapes, with a name this would pass to a tool. Checked
@@ -70,7 +69,7 @@ const (
 // can type: `hachiko update --security` takes these and nothing else.
 func ValidTarget(target string) bool {
 	switch {
-	case target == MiseSelfTarget || target == HerdrTarget:
+	case target == MiseSelfTarget || target == CoreTarget:
 		return true
 	case strings.HasPrefix(target, targetMise):
 		return targetName.MatchString(strings.TrimPrefix(target, targetMise))
@@ -173,8 +172,8 @@ func (u *updater) securitySteps() []string {
 		switch {
 		case target == MiseSelfTarget:
 			u.securityMiseSelf()
-		case target == HerdrTarget:
-			u.herdrServer(u.securityHerdr())
+		case target == CoreTarget:
+			u.securityCore()
 		case strings.HasPrefix(target, targetMise):
 			tool := strings.TrimPrefix(target, targetMise)
 			if u.securityMiseTool(tool) {
@@ -421,28 +420,24 @@ func (u *updater) pythonAt(version string) string {
 	return ""
 }
 
-// herdr, which has no hold to bypass: it is its own installer and takes whatever its latest
-// release is. The server is left alone, as it is on a night's run — restarting it would end
-// every session on this Mac — so it picks the new binary up at its next start, and what comes
-// back is the version it would pick up.
-func (u *updater) securityHerdr() string {
-	before := u.herdrVersion()
+// herdr-core, which has no hold to bypass: it is its own installer and takes whatever its
+// latest release is. It restarts the core itself and leaves the terminals running, and the
+// check that follows is the night's own — the `serve` the launcher starts the core with.
+func (u *updater) securityCore() {
+	before := u.coreVersion()
 
 	if u.dry {
-		u.say("herdr is %s; would run herdr update", before)
-		return before
+		u.say("herdr-core is %s; would run hc update", before)
+		return
 	}
 
-	if out := u.deps.Run(Command{
-		Name: "herdr", Args: []string{"update"}, Timeout: selfUpdate, Env: outsideHerdr(os.Environ()),
-	}); !out.OK {
+	if out := u.deps.Run(Command{Name: "hc", Args: []string{"update"}, Timeout: selfUpdate}); !out.OK {
 		u.failed(Failure{Step: stepSecurity, Detail: out.Text})
-		return before
+		return
 	}
 
-	after := u.herdrVersion()
-	u.move("herdr", before, after)
-	return after
+	u.move("herdr-core", before, u.coreVersion())
+	u.coreServes()
 }
 
 // Which steps this run is answerable for. A night's run attempts every one of them, so a step

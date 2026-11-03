@@ -92,16 +92,9 @@ func (b *box) moveBrew(name, from, to string) {
 	b.says("brew list --cask --versions", "")
 }
 
-// What `herdr status server` says the running server started from, in the shape herdr prints
-// it: a line per reading, and the version among them.
-func (b *box) herdrServerOn(version string) {
-	b.says("herdr status server", "status: running\nversion: "+version+
-		"\nsocket: "+home+"/.config/herdr/herdr.sock\n")
-}
-
-func (b *box) moveHerdr(from, to string) {
-	b.says("herdr --version", "herdr "+from)
-	b.saysNext("herdr --version", "herdr "+to)
+func (b *box) moveCore(from, to string) {
+	b.says("hc -V", "hc "+from)
+	b.saysNext("hc -V", "hc "+to)
 }
 
 // What `pip show` says a package in one of mise's pythons is at, before an upgrade and after.
@@ -225,7 +218,7 @@ func (b *box) incidents() []discord.Outgoing {
 // permanently mid-merge.
 func (b *box) current() {
 	b.says("mise --version", "2026.10.11 macos-arm64 (2026-10-15)")
-	b.says("herdr --version", "herdr 0.9.5")
+	b.says("hc -V", "hc 0.1.17")
 	b.says("softwareupdate --list", "No new software available.")
 	b.says(appleInstallCall, nothingToInstall)
 

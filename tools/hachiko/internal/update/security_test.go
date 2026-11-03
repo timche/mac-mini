@@ -73,7 +73,7 @@ func TestOnlyTheFiveShapesOfTargetAreTaken(t *testing.T) {
 		"brew:aria2",
 		"pip:3.15.0:certifi",
 		MiseSelfTarget,
-		HerdrTarget,
+		CoreTarget,
 	} {
 		harness.Equal(t, ValidTarget(target), true, "whether "+target+" is a target")
 	}
@@ -213,35 +213,25 @@ func TestAFailedSecurityStepWithNothingToSuggestSaysNothingAsksAgain(t *testing.
 	harness.Wants(t, failing[0].Action, "`hachiko update --security`")
 }
 
-// herdr refuses to update from inside one of its own panes, and the server is left alone
-// either way: restarting it would end every session on this Mac.
-func TestHerdrIsUpdatedAsThoughFromOutsideIt(t *testing.T) {
-	t.Setenv("HERDR_ENV", "1")
-	t.Setenv("HERDR_PANE_ID", "w1:p1")
-	t.Setenv("HACHIKO_KEPT", "yes")
-
+// The one target that is its own installer, and the same check after it as the night's run
+// makes: an advisory about herdr-core is answered by `hc update` and nothing else.
+func TestTheCoreTargetUpdatesTheCoreAndChecksItStillServes(t *testing.T) {
 	b := newBox(t)
-	b.moveHerdr("0.9.5", "0.9.6")
-	b.herdrServerOn("0.9.5")
+	b.moveCore("0.1.17", "0.1.18")
 
-	b.security(false, HerdrTarget)
+	b.security(false, CoreTarget)
 
 	var found bool
 	for _, cmd := range b.run {
-		if cmd.line() != "herdr update" {
-			continue
+		if cmd.line() == "hc update" {
+			found = true
 		}
-		found = true
-		env := strings.Join(cmd.Env, "\n")
-		if strings.Contains(env, "HERDR_") {
-			t.Errorf("herdr update was handed herdr's own environment: %q", env)
-		}
-		harness.Wants(t, env, "HACHIKO_KEPT=yes")
 	}
 	if !found {
-		t.Fatal("herdr update was never run")
+		t.Fatal("hc update was never run")
 	}
-	harness.Wants(t, b.summary(), "the herdr server is running `0.9.5` and the binary is `0.9.6`")
+	harness.Wants(t, b.summary(), "`herdr-core` 0.1.17 → 0.1.18")
+	harness.Equal(t, b.ran("herdr-core serve --help"), true, "whether serve was checked after the update")
 }
 
 // There is a python per version here and `pip install` upgrades whichever interpreter ran it,
@@ -410,15 +400,15 @@ func TestADrySecurityUpgradeChangesNothing(t *testing.T) {
 	b := newBox(t)
 	b.miseHas("node", "24.21.0")
 	b.says("mise --version", "2026.10.11 macos-arm64 (2026-10-15)")
-	b.says("herdr --version", "herdr 0.9.5")
+	b.says("hc -V", "hc 0.1.17")
 	b.says("brew list --versions", "aria2 1.37.0\n")
 	b.lockfilesMoved()
 
-	b.security(true, "mise:node", "brew:aria2", MiseSelfTarget, HerdrTarget)
+	b.security(true, "mise:node", "brew:aria2", MiseSelfTarget, CoreTarget)
 
 	for _, call := range b.calls {
 		for _, forbidden := range []string{"up -C", "self-update", "brew upgrade", "brew cleanup",
-			"herdr update", "pip install", "commit", "push"} {
+			"hc update", "pip install", "commit", "push"} {
 			if strings.Contains(call, forbidden) {
 				t.Errorf("a dry run ran %q", call)
 			}

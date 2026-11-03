@@ -348,7 +348,7 @@ func TestTheUpdatePromptOffersOneAttemptAndNoHandover(t *testing.T) {
 		"A fix in this checkout is made in a worktree",
 		"as one commit pushed to main",
 		"`hachiko update --dry-run`",
-		"both work from this pane",
+		"both work from this terminal",
 		"One attempt per incident and no second one",
 		"`hachiko notify --attempt <incident> <file>`",
 		"spawn the oncall-partner agent",

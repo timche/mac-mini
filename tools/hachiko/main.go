@@ -15,7 +15,7 @@
 //
 // `hachiko update` is the fourth, and the one thing on this Mac that moves a version: once a
 // night the five-minute check starts it, and it brings mise, the tools mise manages,
-// Homebrew's packages and herdr forward and deals with what each of those leaves behind.
+// Homebrew's packages and herdr-core forward and deals with what each of those leaves behind.
 //
 // `hachiko status` is the one command here nothing on a timer runs: it is for a person or a
 // session in a terminal, and it says in one screen what the others are doing. It reads and
@@ -74,7 +74,7 @@ const usage = `usage: hachiko [--dry-run | --test-alert]
                      them with the push delay ignored, and --dry-run says what the
                      daemon would commit and push and changes nothing
   update             move this Mac's own tooling forward: mise and the tools it
-                     manages, Homebrew's packages, herdr, and what each of
+                     manages, Homebrew's packages, herdr-core, and what each of
                      those left to do afterwards; --dry-run says what would
                      move and changes nothing. The five-minute check
                      starts one a night, so this is the explicit "update now".

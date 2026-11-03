@@ -102,12 +102,12 @@ var messageKinds = []struct {
 	{
 		name:   "a night with something waiting on Tim",
 		marker: wording.MarkerDegraded,
-		wants:  []string{"**Needs you:**", "the herdr server is running `0.9.5`", "needs you"},
+		wants:  []string{"**Needs you:**", "herdr-core no longer answers to `serve --help`", "needs you"},
 		render: func(t *testing.T) string {
 			b := newBox(t)
 			b.current()
-			b.moveHerdr("0.9.5", "0.9.6")
-			b.herdrServerOn("0.9.5")
+			b.moveCore("0.1.17", "0.1.18")
+			b.fails("herdr-core serve --help", "error: unrecognized subcommand 'serve'")
 			b.update(false)
 			return b.summary()
 		},
@@ -115,20 +115,20 @@ var messageKinds = []struct {
 	{
 		name:   "a step that works again",
 		marker: wording.MarkerRecovered,
-		wants:  []string{"can update herdr again", "**Step:**", "**Failing since:**", "Incident update-1"},
+		wants:  []string{"can update herdr-core again", "**Step:**", "**Failing since:**", "Incident update-1"},
 		render: func(t *testing.T) string {
 			b := newBox(t)
 			b.current()
-			b.fails("herdr update", "herdr: the release could not be downloaded")
+			b.fails("hc update", "hc: the release could not be downloaded")
 			b.update(false)
 
 			// What the five-minute check wrote back after raising it, which is the whole of how
 			// the update knows where to say the step works again.
-			b.raised(stepHerdr, "update-1", "thread-1")
+			b.raised(stepCore, "update-1", "thread-1")
 
 			b.sent = nil
 			b.now = b.now.Add(26 * time.Hour)
-			delete(b.answers, "herdr update")
+			delete(b.answers, "hc update")
 			b.update(false)
 
 			cleared := b.incidents()

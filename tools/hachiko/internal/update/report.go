@@ -79,8 +79,8 @@ func phraseFor(step string) string {
 		return "clear what Homebrew replaced"
 	case stepTailscale:
 		return "restart tailscaled after its upgrade"
-	case stepHerdr:
-		return "update herdr"
+	case stepCore:
+		return "update herdr-core"
 	case stepAppleInstall:
 		return "install the Apple updates that need no restart"
 	case stepSecurity:

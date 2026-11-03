@@ -3,7 +3,6 @@ package update
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -43,7 +42,7 @@ const (
 	stepBrewUp       = "brew upgrade"
 	stepBrewClean    = "brew cleanup"
 	stepTailscale    = "tailscale restart"
-	stepHerdr        = "herdr update"
+	stepCore         = "hc update"
 	stepAppleInstall = "softwareupdate install"
 	stepApple        = "softwareupdate list"
 )
@@ -377,80 +376,48 @@ func (u *updater) tailscaleBackend() string {
 	return state
 }
 
-// herdr from its own installer, for the reason mise is: `herdr update` replaces the binary
-// it is running from, so nothing else can move it. The server is deliberately left alone —
-// restarting it ends every session on this Mac — and it picks the new binary up whenever it
-// next starts.
-//
-// What comes back is the version the binary is at now, which is what the running server's own
-// is read against: a failed update leaves it where it was, and a dry run leaves it there too.
-func (u *updater) herdr() string {
-	before := u.herdrVersion()
+// herdr-core from its own installer, for the reason mise is: `hc update` replaces the binary
+// it is running from, so nothing else can move it. It restarts the core itself and the
+// terminals keep running, and the LaunchAgent's launcher starts another core the moment that
+// one exits — so there is nothing here for Tim to do afterwards and nothing left running
+// against the old binary.
+// It needs nothing dropped from the environment it is handed either, so it runs the same
+// from launchd and from inside one of hc's own terminals, which is where an update somebody
+// starts by hand runs.
+func (u *updater) core() {
+	before := u.coreVersion()
 
 	if u.dry {
-		u.say("herdr is %s; would run herdr update", before)
-		return before
-	}
-
-	if out := u.deps.Run(Command{
-		Name: "herdr", Args: []string{"update"}, Timeout: selfUpdate, Env: outsideHerdr(os.Environ()),
-	}); !out.OK {
-		u.failed(Failure{Step: stepHerdr, Detail: out.Text})
-		return before
-	}
-
-	after := u.herdrVersion()
-	u.move("herdr", before, after)
-	return after
-}
-
-// The server that is running against the binary it would start from, which is a reading of
-// this Mac rather than of tonight: the update leaves the server alone on purpose, so the two
-// stay apart until something restarts it — and only Tim can choose when that is, every
-// session on this Mac ending with it.
-func (u *updater) herdrServer(binary string) {
-	server := u.herdrServerVersion()
-	if binary == "" || server == "" || server == binary {
+		u.say("herdr-core is %s; would run hc update", before)
 		return
 	}
 
-	short := func(s string) string { return wording.CodeSpan(wording.Safe(s, wording.NameLimit)) }
-	u.waits("the herdr server is running " + short(server) + " and the binary is " + short(binary) +
-		": the server takes the new one at its next restart, which ends every session on this Mac")
-}
-
-// `herdr status server` answers for the server rather than for the binary that asked, one
-// reading per line, and the version is the line that says which binary the running one
-// started from.
-func (u *updater) herdrServerVersion() string {
-	out := u.deps.Run(Command{Name: "herdr", Args: []string{"status", "server"}, Timeout: quick})
-	if !out.OK {
-		return ""
+	if out := u.deps.Run(Command{Name: "hc", Args: []string{"update"}, Timeout: selfUpdate}); !out.OK {
+		u.failed(Failure{Step: stepCore, Detail: out.Text})
+		return
 	}
 
-	for _, line := range strings.Split(out.Stdout, "\n") {
-		if label, version, found := strings.Cut(line, ":"); found && strings.TrimSpace(label) == "version" {
-			return strings.TrimSpace(version)
-		}
-	}
-	return ""
+	u.move("herdr-core", before, u.coreVersion())
+	u.coreServes()
 }
 
-// herdr refuses to update from inside one of its own panes, which is where an update somebody
-// starts by hand runs. It is no safer from launchd, where the nightly one runs: the server is
-// left alone either way.
-func outsideHerdr(env []string) []string {
-	var kept []string
-	for _, kv := range env {
-		if !strings.HasPrefix(kv, "HERDR_") {
-			kept = append(kept, kv)
-		}
+// `serve` is herdr-core's own internal subcommand, used by its launchd escape and by the
+// launcher this Mac runs the core under, and nothing documents it. So the one thing checked
+// after an update is that it is still there: without it the LaunchAgent has nothing to start,
+// every session on this Mac ends with the core that is running, and only Tim can decide what
+// to do about it.
+func (u *updater) coreServes() {
+	if out := u.deps.Run(Command{
+		Name: "herdr-core", Args: []string{"serve", "--help"}, Timeout: quick,
+	}); !out.OK {
+		u.waits("herdr-core no longer answers to " + wording.CodeSpan("serve --help") +
+			", which is what the LaunchAgent's launcher starts the core with: the next core to " +
+			"exit is the last one, and every hc terminal goes with it")
 	}
-	return kept
 }
 
-func (u *updater) herdrVersion() string {
-	out := u.deps.Run(Command{Name: "herdr", Args: []string{"--version"}, Timeout: quick})
+func (u *updater) coreVersion() string {
+	out := u.deps.Run(Command{Name: "hc", Args: []string{"-V"}, Timeout: quick})
 	if !out.OK {
 		return ""
 	}

@@ -122,7 +122,7 @@ func TestEveryStepRunsInOrder(t *testing.T) {
 		"brew update",
 		"brew upgrade",
 		"brew cleanup",
-		"herdr update",
+		"hc update",
 		appleInstallCall,
 		"softwareupdate --list",
 	}
@@ -148,7 +148,7 @@ func TestADryRunChangesNothing(t *testing.T) {
 
 	for _, call := range b.calls {
 		for _, forbidden := range []string{"up -C", "self-update", "brew upgrade", "brew cleanup",
-			"herdr update", "pull", "commit", "push", "claude-root"} {
+			"hc update", "pull", "commit", "push", "claude-root"} {
 			if strings.Contains(call, forbidden) {
 				t.Errorf("a dry run ran %q", call)
 			}
@@ -444,48 +444,38 @@ func TestACleanupThatFailsNamesTheKeg(t *testing.T) {
 	harness.Wants(t, b.summary(), "- `brew cleanup`: could not clear what Homebrew replaced\n```\nPermission denied @ apply2files")
 }
 
-func TestHerdrIsUpdatedWithoutRestartingTheServer(t *testing.T) {
+// `hc update` restarts the core itself and the terminals keep running, and the LaunchAgent's
+// launcher starts another core the moment that one exits — so nothing here restarts anything
+// and nothing is left waiting on Tim.
+func TestTheCoreIsUpdatedAndNothingIsRestartedByHand(t *testing.T) {
 	b := newBox(t)
 	b.current()
-	b.moveHerdr("0.9.5", "0.9.6")
-	b.herdrServerOn("0.9.5")
+	b.moveCore("0.1.17", "0.1.18")
 
 	b.update(false)
 
-	harness.Wants(t, b.summary(), "`herdr` 0.9.5 → 0.9.6")
-	harness.Wants(t, b.summary(), "the herdr server is running `0.9.5` and the binary is `0.9.6`")
+	harness.Wants(t, b.summary(), "`herdr-core` 0.1.17 → 0.1.18")
+	harness.Lacks(t, b.summary(), "**Needs you:**")
 
 	for _, call := range b.calls {
-		if strings.Contains(call, "herdr server") || strings.Contains(call, "kickstart") {
-			t.Errorf("the herdr server was touched: %q", call)
+		if strings.Contains(call, "hc server") || strings.Contains(call, "kickstart") {
+			t.Errorf("the core was restarted by hand: %q", call)
 		}
 	}
 }
 
-func TestHerdrIsUpdatedAsThoughFromOutsideHerdr(t *testing.T) {
-	t.Setenv("HERDR_ENV", "1")
-	t.Setenv("HERDR_PANE_ID", "w1:p1")
-	t.Setenv("HACHIKO_KEPT", "yes")
-
+// `serve` is herdr-core's own internal subcommand and nothing documents it, so the one thing
+// checked after the update is that the LaunchAgent's launcher still has something to start.
+func TestACoreThatNoLongerAnswersToServeIsSaidToTim(t *testing.T) {
 	b := newBox(t)
 	b.current()
+	b.moveCore("0.1.17", "0.1.18")
+	b.fails("herdr-core serve --help", "error: unrecognized subcommand 'serve'")
+
 	b.update(false)
 
-	var found bool
-	for _, cmd := range b.run {
-		if cmd.line() != "herdr update" {
-			continue
-		}
-		found = true
-		env := strings.Join(cmd.Env, "\n")
-		if strings.Contains(env, "HERDR_") {
-			t.Errorf("herdr update was handed herdr's own environment: %q", env)
-		}
-		harness.Wants(t, env, "HACHIKO_KEPT=yes")
-	}
-	if !found {
-		t.Fatal("herdr update was never run")
-	}
+	harness.Wants(t, b.summary(), "**Needs you:**\n- herdr-core no longer answers to `serve --help`")
+	harness.Wants(t, b.summary(), "every hc terminal goes with it")
 }
 
 // The updates Apple has waiting that restart nothing are the Mac's own to install, and each
@@ -612,26 +602,11 @@ Software Update found the following new or updated software:
 	}
 }
 
-// The server stays on the binary it started from until something restarts it, and only Tim
-// chooses when that is — so the line about it is in every summary until he has, and not in the
-// one on the night the binary moved.
-func TestTheHerdrServerIsSaidOnEveryNightUntilItIsRestarted(t *testing.T) {
+// A night where the core was already current and `serve` still answers is a quiet night: the
+// check after the update is the only thing it could have left for Tim.
+func TestACoreAlreadyCurrentIsNothingWaiting(t *testing.T) {
 	b := newBox(t)
 	b.current()
-	b.says("herdr --version", "herdr 0.9.6")
-	b.herdrServerOn("0.9.5")
-
-	b.update(false)
-
-	harness.Wants(t, b.summary(), "⚠️ Nightly update: nothing moved, 1 needs you")
-	harness.Wants(t, b.summary(), "**Needs you:**\n- the herdr server is running `0.9.5` and the binary "+
-		"is `0.9.6`: the server takes the new one at its next restart, which ends every session on this Mac")
-}
-
-func TestAServerOnTheVersionTheBinaryIsOnIsNothingWaiting(t *testing.T) {
-	b := newBox(t)
-	b.current()
-	b.herdrServerOn("0.9.5")
 
 	b.update(false)
 
@@ -645,8 +620,7 @@ func TestTheLeadCountsWhatIsWaitingOnHim(t *testing.T) {
 	b := newBox(t)
 	b.current()
 	b.moveTool(outdatedLine("bun", "latest", "1.4.2", "1.4.3"))
-	b.says("herdr --version", "herdr 0.9.6")
-	b.herdrServerOn("0.9.5")
+	b.fails("herdr-core serve --help", "error: unrecognized subcommand 'serve'")
 	b.says("softwareupdate --list",
 		"	Title: macOS 27.2, Version: 27.2, Size: 7101234KiB, Recommended: YES, Action: restart,\n")
 
@@ -700,14 +674,14 @@ func TestAHandoffCarriesTheLineForTimEvenWithNothingToSuggest(t *testing.T) {
 func TestAFailingStepIsHandedOnOnceAndThenCleared(t *testing.T) {
 	b := newBox(t)
 	b.current()
-	b.fails("herdr update", "herdr: the release could not be downloaded")
+	b.fails("hc update", "hc: the release could not be downloaded")
 
 	b.update(false)
-	harness.Wants(t, b.log.String(), "left 1 step for the five-minute check to raise as an incident: "+stepHerdr)
+	harness.Wants(t, b.log.String(), "left 1 step for the five-minute check to raise as an incident: "+stepCore)
 	harness.Equal(t, len(b.incidents()), 0, "messages from the update itself")
 
 	since := b.failing()[0].Since
-	b.raised(stepHerdr, "update-1", "thread-1")
+	b.raised(stepCore, "update-1", "thread-1")
 
 	// Still failing a night later, and still one entry with the clock running from the first
 	// night rather than this one — so the check has nothing new to raise.
@@ -718,12 +692,12 @@ func TestAFailingStepIsHandedOnOnceAndThenCleared(t *testing.T) {
 	harness.Equal(t, len(b.incidents()), 0, "messages from the update itself")
 
 	b.now = b.now.Add(24 * time.Hour)
-	delete(b.answers, "herdr update")
+	delete(b.answers, "hc update")
 	b.update(false)
 
 	cleared := b.incidents()
 	harness.Equal(t, len(cleared), 1, "messages on the night it worked")
-	harness.Wants(t, cleared[0].Text, "🟢 The nightly update can update herdr again")
+	harness.Wants(t, cleared[0].Text, "🟢 The nightly update can update herdr-core again")
 	harness.Equal(t, cleared[0].Thread, "thread-1", "the thread it cleared into")
 	// Which is what closes the post and gets it deleted three days later, rather than leaving
 	// a step that came back open in the forum for ever.
@@ -739,15 +713,15 @@ func TestAFailingStepIsHandedOnOnceAndThenCleared(t *testing.T) {
 func TestOnlyTheLastStepUnderAnIncidentClosesItsPost(t *testing.T) {
 	b := newBox(t)
 	b.current()
-	b.fails("herdr update", "herdr: the release could not be downloaded")
+	b.fails("hc update", "hc: the release could not be downloaded")
 	b.fails("mise self-update --yes", "mise: the release could not be downloaded")
 
 	b.update(false)
-	b.raised(stepHerdr, "update-1", "thread-1")
+	b.raised(stepCore, "update-1", "thread-1")
 	b.raised(stepMiseSelf, "update-1", "thread-1")
 
 	b.now = b.now.Add(24 * time.Hour)
-	delete(b.answers, "herdr update")
+	delete(b.answers, "hc update")
 	b.update(false)
 
 	first := b.incidents()
@@ -769,13 +743,13 @@ func TestOnlyTheLastStepUnderAnIncidentClosesItsPost(t *testing.T) {
 func TestAClearThatCouldNotBeSentIsSaidAgain(t *testing.T) {
 	b := newBox(t)
 	b.current()
-	b.fails("herdr update", "herdr: the release could not be downloaded")
+	b.fails("hc update", "hc: the release could not be downloaded")
 
 	b.update(false)
-	b.raised(stepHerdr, "update-1", "thread-1")
+	b.raised(stepCore, "update-1", "thread-1")
 
 	b.now = b.now.Add(24 * time.Hour)
-	delete(b.answers, "herdr update")
+	delete(b.answers, "hc update")
 	b.sendErr = errors.New("Discord answered 500")
 	b.update(false)
 
@@ -795,11 +769,11 @@ func TestAClearThatCouldNotBeSentIsSaidAgain(t *testing.T) {
 func TestAStepNobodyHeardAboutClearsInSilence(t *testing.T) {
 	b := newBox(t)
 	b.current()
-	b.fails("herdr update", "herdr: the release could not be downloaded")
+	b.fails("hc update", "hc: the release could not be downloaded")
 	b.update(false)
 
 	b.now = b.now.Add(24 * time.Hour)
-	delete(b.answers, "herdr update")
+	delete(b.answers, "hc update")
 	b.update(false)
 
 	harness.Equal(t, len(b.incidents()), 0, "messages sent")
@@ -811,7 +785,7 @@ func TestAStepNobodyHeardAboutClearsInSilence(t *testing.T) {
 func TestAHandoffThatCouldNotBeWrittenIsWrittenAgain(t *testing.T) {
 	b := newBox(t)
 	b.current()
-	b.fails("herdr update", "herdr: the release could not be downloaded")
+	b.fails("hc update", "hc: the release could not be downloaded")
 
 	// A file where the directory has to go, which is what a write that cannot happen looks
 	// like from here.

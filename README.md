@@ -24,6 +24,11 @@ curl -fsSL https://raw.githubusercontent.com/timche/mac-mini/main/bootstrap.sh |
 
 It asks, in order, for the sudo password, a tailnet login URL, the Apple ID and a 2FA code for Xcode, a GitHub device code, a Claude Code login and the 1Password service-account token.
 
+### mochi's own repository
+
+1. Clone it: `gh repo clone repeekgg/mochi ~/projects/repeekgg/mochi`
+2. Install its agent as `~/projects/repeekgg/mochi/README.md` says under "Running it".
+
 ### Afterwards, over Screen Sharing
 
 1. System Settings > Privacy & Security: give `~/.local/libexec/herdr-core-launcher` (add it with **+**, then ⇧⌘G to type the path) **Screen & System Audio Recording**, **Device Control and Data Access** and **Full Disk Access**. **Local Network** and **Automation** have no **+**: allow each when its prompt names `herdr-core-laun` (macOS cuts the name at 15 characters).
@@ -218,7 +223,6 @@ The GitHub token goes in a file rather than the login keychain (`gh auth login -
 | `home/.terminfo/x/xterm-ghostty` | Ghostty terminfo |
 | `home/.config/mise/config.toml` | Every runtime mise installs globally |
 | `home/.hachiko/` | Linked into hachiko's own folder in `HOME`: where it alerts, whose replies it takes, where it checks in, the repositories sync publishes, and its secrets' `op://` references |
-| `home/.mochi/` | Linked into mochi's own folder in `HOME`: who mochi takes instructions from, which Discord server maps to which Herdr space and repository, and its bot token's `op://` reference |
 | `home/Library/LaunchAgents/` | The agents launchd runs |
 | `home/.local/bin/` | The machine's own scripts: an entry per compiled tool — hachiko's, claude-hooks', window's and mochi's, whose sources are `repeekgg/mochi` — the `op` wrapper, the foreground lock |
 | `home/.local/libexec/build-tool` | The build-in-place arrangement those four entries share, sourced out of the checkout and linked nowhere |

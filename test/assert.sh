@@ -1081,10 +1081,11 @@ check "the gc agent's PATH reaches docker" \
   'plutil -extract ProgramArguments.2 raw -o - "$gc_plist" |
      grep -qF "export PATH=\"\$HOME/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:"'
 
-# install.sh's load_agent against a launchctl that behaves as the real one did when it left
-# mochi unloaded: a bootout returns while the job is still being torn down, and a bootstrap
-# before it is gone, or one that fails for no reason it gives, says "Bootstrap failed: 5:
-# Input/output error". Time is the fake sleep's, so the teardown ends after three of them.
+# install.sh's load_agent against a launchctl that behaves as the real one does when it
+# leaves an agent unloaded: a bootout returns while the job is still being torn down, and a
+# bootstrap before it is gone, or one that fails for no reason it gives, says "Bootstrap
+# failed: 5: Input/output error". Time is the fake sleep's, so the teardown ends after
+# three of them.
 load_agent_fixture() {  # dir loaded(yes|no) failures
   local d="$1"
 
@@ -1468,42 +1469,6 @@ check "mochi is a live symlink into this checkout" \
 check "the mochi wrapper builds mochi's own checkout and runs what it built" \
   'src="${MOCHI_SRC:-$HOME/projects/repeekgg/mochi}" && [ ! -d "$src" ] ||
    { mochi --help | grep -q "listen" && mochi --help | grep -q "jobs"; }'
-
-# Both linked into mochi's own folder, which is where the binary looks: the wrapper hands
-# `op run --env-file` the reference there, so a missing link is an alert that was not sent
-# rather than one sent somewhere else.
-check "mochi's token is an op:// reference in its folder, and nothing resolved" \
-  '[ -L "$HOME/.mochi/mochi.env.op" ] && [ -e "$HOME/.mochi/mochi.env.op" ] &&
-   grep -qx "MOCHI_DISCORD_BOT_TOKEN=op://dev/mochi-discord/bot token" \
-     "$HOME/.mochi/mochi.env.op" &&
-   ! grep -qE "^[A-Z_]+=[^o]" "$HOME/.mochi/mochi.env.op" &&
-   [ ! -L "$HOME/.local/bin/mochi.env.op" ]'
-
-check "mochi's server mapping is linked and takes instructions from Tim alone" \
-  '[ -L "$HOME/.mochi/config.json" ] && [ -e "$HOME/.mochi/config.json" ] &&
-   [ "$(plutil -extract user raw -o - "$HOME/.mochi/config.json")" = 94004892942741504 ] &&
-   [ ! -L "$HOME/.config/mochi/config.json" ]'
-
-export mochi_plist="$HOME/Library/LaunchAgents/io.github.timche.mochi.plist"
-
-check "the mochi agent is a link into the checkout and a valid plist" \
-  '[ -L "$mochi_plist" ] && [ -e "$mochi_plist" ] && plutil -lint "$mochi_plist" &&
-   [ "$mochi_plist" -ef "$repo/home/Library/LaunchAgents/io.github.timche.mochi.plist" ] &&
-   [ "$(plutil -extract Label raw "$mochi_plist")" = io.github.timche.mochi ]'
-check "the mochi agent runs mochi listen through a shell, with no key launchd leaves unexpanded" \
-  'c="$(plutil -extract ProgramArguments.2 raw -o - "$mochi_plist")" &&
-   [ "$(plutil -extract ProgramArguments.0 raw -o - "$mochi_plist")" = "/bin/sh" ] &&
-   printf "%s\n" "$c" | grep -qF "export PATH=\"\$HOME/.local/bin:/opt/homebrew/bin" &&
-   printf "%s\n" "$c" | grep -qF "exec \"\$HOME/.local/bin/mochi\" listen >>\"\$HOME/Library/Logs/mochi.log\" 2>&1" &&
-   ! plutil -extract StandardOutPath raw -o - "$mochi_plist" &&
-   ! plutil -extract EnvironmentVariables xml1 -o - "$mochi_plist" &&
-   ! plutil -extract WatchPaths xml1 -o - "$mochi_plist"'
-check "the mochi agent is kept alive and throttled to five minutes" \
-  'plutil -extract RunAtLoad xml1 -o - "$mochi_plist" | grep -q "<true/>" &&
-   plutil -extract KeepAlive xml1 -o - "$mochi_plist" | grep -q "<true/>" &&
-   [ "$(plutil -extract ThrottleInterval raw -o - "$mochi_plist")" = 300 ]'
-check "the mochi agent is loaded" \
-  'launchctl print "gui/$(id -u)/io.github.timche.mochi" >/dev/null'
 
 # The one check that is the agent rather than a description of it. Everything else here
 # runs hachiko as this session, which holds the privacy grants the core's launcher was given — and that

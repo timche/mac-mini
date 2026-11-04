@@ -146,7 +146,7 @@ type Config struct {
 
 	// mochi, the Discord tool beside hachiko: its plist, the heartbeat it writes while its
 	// gateway connection is up, and how old that may get. The one thing hachiko knows about
-	// mochi, which is a module of its own.
+	// mochi, which is a repository of its own, repeekgg/mochi.
 	MochiPlist      string
 	MochiStamp      string
 	MochiStaleAfter time.Duration
@@ -345,7 +345,7 @@ func FromEnv() Config {
 		ListenStaleAfter: time.Duration(envInt64("HACHIKO_LISTEN_STALE", 600)) * time.Second,
 
 		MochiPlist: envString("HACHIKO_MOCHI_PLIST",
-			filepath.Join(home, "Library", "LaunchAgents", "io.github.timche.mochi.plist")),
+			filepath.Join(home, "Library", "LaunchAgents", "gg.repeek.mochi.plist")),
 		MochiStamp: envString("HACHIKO_MOCHI_STAMP", filepath.Join(home, ".mochi", "heartbeat")),
 		// The listener's ten minutes, for the listener's reason: mochi's agent throttles a
 		// start to one every five.

@@ -92,8 +92,9 @@ func TestTheMergedWorktreeInterval(t *testing.T) {
 	harness.Equal(t, FromEnv().GCMergedEvery, time.Minute, "the interval a knob set")
 }
 
-// mochi's heartbeat is where mochi's own default cache puts it, a module this one does not
-// import, so the two paths are pinned here.
+// mochi's heartbeat is where mochi's own default puts it, and its label is the one its own
+// repository's plist carries; neither is anything this module can import, so both are
+// pinned here.
 func TestTheMochiDefaults(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -105,7 +106,7 @@ func TestTheMochiDefaults(t *testing.T) {
 
 	harness.Equal(t, cfg.MochiStaleAfter, 10*time.Minute, "how old mochi's heartbeat may get")
 	harness.Equal(t, cfg.MochiStamp, filepath.Join(home, ".mochi", "heartbeat"), "mochi's heartbeat")
-	harness.Equal(t, cfg.MochiLabel(), "io.github.timche.mochi", "mochi's label")
+	harness.Equal(t, cfg.MochiLabel(), "gg.repeek.mochi", "mochi's label")
 }
 
 func TestAKnobOverridesItsDefault(t *testing.T) {

@@ -263,8 +263,8 @@ func listenLastBeat(cfg config.Config) (time.Time, bool) {
 }
 
 // Sync's rule rather than the listener's: mochi ships configured, so from the moment its
-// plist is linked it is meant to be connected, and a token that never resolved is a mochi
-// that has stopped rather than a feature that is off.
+// own repository's plist is in ~/Library/LaunchAgents it is meant to be connected, and a
+// token that never resolved is a mochi that has stopped rather than a feature that is off.
 func mochiLastBeat(cfg config.Config) (time.Time, bool) {
 	plist, err := os.Stat(cfg.MochiPlist)
 	if err != nil {

@@ -74,7 +74,7 @@ func newFixture(t *testing.T) *fixture {
 			GCPlist:     filepath.Join(agents, "io.github.timche.hachiko-gc.plist"),
 			SyncPlist:   filepath.Join(agents, "io.github.timche.hachiko-sync.plist"),
 			ListenPlist: filepath.Join(agents, "io.github.timche.hachiko-listen.plist"),
-			MochiPlist:  filepath.Join(agents, "io.github.timche.mochi.plist"),
+			MochiPlist:  filepath.Join(agents, "gg.repeek.mochi.plist"),
 
 			UsageWarnPercent: 80,
 
@@ -92,7 +92,7 @@ func newFixture(t *testing.T) *fixture {
 			"io.github.timche.hachiko-gc":     {Loaded: true},
 			"io.github.timche.hachiko-sync":   {Loaded: true, PID: 2345},
 			"io.github.timche.hachiko-listen": {Loaded: true, PID: 3456},
-			"io.github.timche.mochi":          {Loaded: true, PID: 4567},
+			"gg.repeek.mochi":                 {Loaded: true, PID: 4567},
 		},
 		stamps: map[string]time.Time{
 			"watch":              base.Add(-2 * time.Minute),

@@ -516,21 +516,6 @@ elif ! load_agent "$listen_label" "$listen_plist"; then
        "nobody and the on-call session is answered in the Herdr app alone" >&2
 fi
 
-# mochi, the Discord listener that starts a Claude Code session when Tim mentions it.
-# Loaded unconditionally, like the listener above: a token that does not resolve yet is a
-# line in its log and a wait before the next `op run`, and hachiko's watch reports the
-# heartbeat it is not writing.
-mochi_label=io.github.timche.mochi
-mochi_plist="$HOME/Library/LaunchAgents/$mochi_label.plist"
-
-if [ ! -f "$mochi_plist" ]; then
-  echo "$mochi_plist is missing — mise links it from mise.toml" >&2
-elif ! load_agent "$mochi_label" "$mochi_plist"; then
-  echo "could not load $mochi_label — the gui/$uid domain needs a GUI session" \
-       "logged in on the Mac; until it is loaded a mention of mochi in Discord" \
-       "starts nothing" >&2
-fi
-
 # The daemon that carries edits upstream: `hachiko sync`, which commits and pushes
 # the repositories ~/.hachiko/sync lists. It has to survive a machine with no
 # session attached — which is what the GUI login unattended.sh arranges is for. A

@@ -550,7 +550,7 @@ func Send(api chat.API, store state.Store, marks *mark.Marker, repos Repos, thre
 	return nil
 }
 
-// Announce posts to a server's announce channel for a session mochi may not have started, so
+// Announce posts to one of a server's announce channels for a session mochi may not have started, so
 // it moves no state and has no thread: everything else is a post's, guards included. It
 // answers the announcement's first message.
 func Announce(api chat.API, guild, channel string, repos Repos, p Post) (*discord.Message, error) {

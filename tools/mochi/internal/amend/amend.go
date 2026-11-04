@@ -34,7 +34,7 @@ func Parse(link string) (Target, error) {
 	return Target{Guild: m[1], Channel: m[2], Message: m[3]}, nil
 }
 
-// Scope is where a session may change mochi's messages: its server's announce channel, which
+// Scope is where a session may change mochi's messages: its server's announce channels, which
 // any session posts to, and a session of mochi's own thread or post, which only it posts to.
 type Scope struct {
 	Servers []config.Server
@@ -168,12 +168,12 @@ func (s Scope) find(api chat.API, link string) (Target, config.Server, *discord.
 		return t, server, nil, fmt.Errorf("mochi's own user could not be read: %v", err)
 	}
 	settings, unread := server.Project(nil)
-	if t.Channel != settings.Announce {
+	if !settings.Announce.Has(t.Channel) {
 		if s.Thread == "" || t.Channel != s.Thread {
 			if unread != nil {
-				return t, server, nil, fmt.Errorf("the message is not in this session's own thread, and the server's announce channel is not known, since %v, so it is not changed", unread)
+				return t, server, nil, fmt.Errorf("the message is not in this session's own thread, and the server's announce channels are not known, since %v, so it is not changed", unread)
 			}
-			return t, server, nil, errors.New("the message is neither in the server's announce channel nor in this session's own thread, so it is not changed")
+			return t, server, nil, errors.New("the message is neither in one of the server's announce channels nor in this session's own thread, so it is not changed")
 		}
 		// MOCHI_THREAD alone would let a session name any thread.
 		if _, ok, err := s.Store.Get(t.Channel); err != nil || !ok {

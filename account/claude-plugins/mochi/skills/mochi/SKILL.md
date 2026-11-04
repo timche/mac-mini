@@ -53,4 +53,6 @@ mochi announce --file after.png <<'EOF'
 EOF
 ```
 
+A project with more than one announce channel has them by name, and `--channel <name>` before the text picks one, as in `mochi announce --channel <name> --file after.png`. Without it mochi refuses and lists the names, and an unknown name gets the same list. Use the channel the user or the project's instructions name; when neither does, the one whose name fits what you are announcing; when none clearly does, ask the user rather than guess, since the team reads a post as soon as it lands. An announcement goes to one channel, so run the command once for each when asked for several.
+
 `--pr <url>` adds a pull request of this repository as its own line, when the user wants it shared. It prints the posted message's link. Then tell the user what was posted and give its link.

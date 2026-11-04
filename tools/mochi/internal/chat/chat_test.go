@@ -4,8 +4,42 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
+
+	"github.com/timche/mac-mini/discord"
+	"github.com/timche/mac-mini/discord/rest"
 )
+
+type channelAPI struct {
+	API
+	channel *discord.Channel
+	err     error
+}
+
+func (a channelAPI) Channel(string) (*discord.Channel, error) { return a.channel, a.err }
+
+// A refusal says which of these it is, since each has a different fix.
+func TestInGuildSaysWhyAChannelIsRefused(t *testing.T) {
+	const guild, channel = "1220378778665095291", "1378670204795617340"
+	for name, c := range map[string]struct {
+		api  channelAPI
+		want string
+	}{
+		"deleted":       {channelAPI{err: &rest.Error{Status: http.StatusNotFound, Code: rest.CodeUnknownChannel, Message: "Unknown Channel"}}, "does not exist"},
+		"out of reach":  {channelAPI{err: &rest.Error{Status: http.StatusForbidden, Code: rest.CodeMissingAccess, Message: "Missing Access"}}, "cannot see"},
+		"a failure":     {channelAPI{err: &rest.Error{Status: http.StatusBadGateway}}, "could not be read"},
+		"another guild": {channelAPI{channel: &discord.Channel{ID: channel, GuildID: "1220378778665095299"}}, "not in this server"},
+	} {
+		err := InGuild(c.api, channel, guild)
+		if err == nil || !strings.Contains(err.Error(), c.want) || !strings.Contains(err.Error(), channel) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if err := InGuild(channelAPI{channel: &discord.Channel{ID: channel, GuildID: guild}}, channel, guild); err != nil {
+		t.Errorf("in the server: %v", err)
+	}
+}
 
 type refuse struct{ t *testing.T }
 

@@ -1264,14 +1264,9 @@ gate_fixture() {
   local dir="$1"
 
   cp "$repo/mise.toml" "$repo/mise.lock" "$dir/"
-  mkdir -p "$dir/tools/lib"
+  mkdir -p "$dir/tools"
   cp -R "$repo/tools/hachiko" "$dir/tools/hachiko"
-  cp -R "$repo/tools/mochi" "$dir/tools/mochi"
-  cp -R "$repo/tools/lib/discord" "$dir/tools/lib/discord"
   cp -R "$repo/home" "$dir/home"
-  # mochi's tests read the skill and the briefing its plugin ships.
-  mkdir -p "$dir/account"
-  cp -R "$repo/account/claude-plugins" "$dir/account/claude-plugins"
 }
 export -f gate_fixture
 
@@ -1460,13 +1455,19 @@ check "the listener is kept alive and throttled to five minutes" \
 check "the listener agent is loaded" \
   'launchctl print "gui/$(id -u)/io.github.timche.hachiko-listen" >/dev/null'
 
-# mochi, the second compiled tool. Its behaviour is `go test ./...` in tools/mochi/ against a fake
-# Discord and a fake hc; what is left here is the wiring a Go test cannot see.
-check "mochi is a live symlink and runs through its wrapper" \
+# mochi, whose sources are repeekgg/mochi: its own repository's tests are its behaviour and
+# its own checks are the agent, the configuration and the plugin that go with it. The
+# wrapper here is the whole of what this repository keeps, so the link is what is left to
+# check — and, where that checkout is on this Mac, that the wrapper builds and runs it.
+# Nothing here may need the checkout: it is a clone of a private repository, which a runner
+# has no login for.
+check "mochi is a live symlink into this checkout" \
   '[ -L "$HOME/.local/bin/mochi" ] && [ -x "$HOME/.local/bin/mochi" ] &&
-   [ "$HOME/.local/bin/mochi" -ef "$repo/home/.local/bin/mochi" ] &&
-   mochi --help | grep -q "post" &&
-   mochi --help | grep -q "history"'
+   [ "$HOME/.local/bin/mochi" -ef "$repo/home/.local/bin/mochi" ]'
+
+check "the mochi wrapper builds mochi's own checkout and runs what it built" \
+  'src="${MOCHI_SRC:-$HOME/projects/repeekgg/mochi}" && [ ! -d "$src" ] ||
+   { mochi --help | grep -q "listen" && mochi --help | grep -q "jobs"; }'
 
 # Both linked into mochi's own folder, which is where the binary looks: the wrapper hands
 # `op run --env-file` the reference there, so a missing link is an alert that was not sent
@@ -1503,48 +1504,6 @@ check "the mochi agent is kept alive and throttled to five minutes" \
    [ "$(plutil -extract ThrottleInterval raw -o - "$mochi_plist")" = 300 ]'
 check "the mochi agent is loaded" \
   'launchctl print "gui/$(id -u)/io.github.timche.mochi" >/dev/null'
-
-# What launchd hands the agent: a HOME, the plist's PATH, / as the working directory and
-# nothing else of a session's. The build has to come out of the checkout alone, with the
-# network refused for modules and no toolchain download either.
-#
-# MOCHI_STATE_DIR here and in the gate checks below, because the binary a fixture builds is
-# the one being tested and HOME has to be this Mac's for mise to find its go: without it, a
-# test run would take the live listener's state over as its own first act.
-check "the mochi wrapper builds under launchd's environment from the checkout alone" \
-  'd="$(mktemp -d)" && gate_fixture "$d" &&
-   (cd / && env -i HOME="$HOME" PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
-      MISE_TRUSTED_CONFIG_PATHS="$d" MOCHI_CACHE_DIR="$d/cache" MOCHI_STATE_DIR="$d/state" GOPROXY=off \
-      /bin/sh "$d/home/.local/bin/mochi" --help) | grep -q "history" &&
-   [ -x "$d/cache/mochi" ]'
-
-# What mochi's wrapper adds to the shared script, whose build and gate are checked through
-# hachiko: the Discord client beside it is built into the same binary, so an edit to it is a
-# rebuild and its tests are the same gate.
-check "mochi hashes the Discord client beside it and holds it to the same gate" \
-  'd="$(mktemp -d)" && gate_fixture "$d" &&
-   export MISE_TRUSTED_CONFIG_PATHS="$d" MOCHI_CACHE_DIR="$d/cache" MOCHI_STATE_DIR="$d/state" &&
-   "$d/home/.local/bin/mochi" --help >/dev/null &&
-   built="$(cat "$d/cache/attempted")" &&
-   printf "\n// an edit to the client and not to mochi\n" >> "$d/tools/lib/discord/rest/rest.go" &&
-   "$d/home/.local/bin/mochi" --help >/dev/null 2>"$d/err" &&
-   [ ! -s "$d/err" ] &&
-   [ "$(cat "$d/cache/attempted")" != "$built" ] &&
-   was="$(shasum -a 256 "$d/cache/mochi" | cut -d" " -f1)" &&
-   printf "package rest\n\nimport \"testing\"\n\nfunc TestTheGateMustCatchThis(t *testing.T) { t.Fatal(\"on purpose\") }\n" \
-     > "$d/tools/lib/discord/rest/zz_gate_test.go" &&
-   out="$("$d/home/.local/bin/mochi" --help 2>&1 >/dev/null)" &&
-   printf "%s" "$out" | grep -q "do not pass" &&
-   [ "$was" = "$(shasum -a 256 "$d/cache/mochi" | cut -d" " -f1)" ]'
-
-# Every module mochi builds with is a folder of this checkout: nothing to fetch, nothing in a
-# go.sum to pin.
-check "mochi requires no module from outside this checkout" \
-  '[ ! -e "$repo/tools/mochi/go.sum" ] &&
-   [ "$(grep -c "^require" "$repo/tools/mochi/go.mod")" = 1 ] && ! grep -q "^require (" "$repo/tools/mochi/go.mod" &&
-   grep -qx "require github.com/timche/mac-mini/discord v0.0.0" "$repo/tools/mochi/go.mod" &&
-   grep -qx "replace github.com/timche/mac-mini/discord => ../lib/discord" "$repo/tools/mochi/go.mod" &&
-   [ ! -e "$repo/tools/lib/discord/go.sum" ] && ! grep -q "^require" "$repo/tools/lib/discord/go.mod"'
 
 # The one check that is the agent rather than a description of it. Everything else here
 # runs hachiko as this session, which holds the privacy grants the core's launcher was given — and that

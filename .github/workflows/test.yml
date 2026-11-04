@@ -116,26 +116,14 @@ jobs:
       # decides which tools are active from the directory it is asked about and a go that
       # is not active reads as a go that is not installed.
       # One pass per module, like the govulncheck below it: what a tool decides is its own
-      # tests, and lib/discord is a module of its own with tests of its own. Two modules want
-      # more than `./...`, each for the reason its wrapper in home/.local/bin/ wants it — the
-      # client is where the goroutines are, and mochi is built against it through a replace,
-      # so mochi's gate runs those packages as mochi resolves them.
+      # tests.
       - name: go vet and go test in every Go module under tools/
         run: |
           mise="$HOME/.local/bin/mise"
           repo="$GITHUB_WORKSPACE"
-          gotest() {
-            m="$1"
-            shift
-            "$mise" exec -C "$repo" -- go test -C "$repo/tools/$m" "$@"
-          }
-          for module in hachiko lib/discord mochi claude-hooks; do
+          for module in hachiko claude-hooks; do
             "$mise" exec -C "$repo" -- go vet -C "$repo/tools/$module" ./...
-            case "$module" in
-              lib/discord) gotest "$module" -race ./... ;;
-              mochi) gotest "$module" ./... github.com/timche/mac-mini/discord/... ;;
-              *) gotest "$module" ./... ;;
-            esac
+            "$mise" exec -C "$repo" -- go test -C "$repo/tools/$module" ./...
             test -z "$("$mise" exec -C "$repo" -- gofmt -l "$repo/tools/$module")"
           done
 
@@ -151,7 +139,7 @@ jobs:
         run: |
           mise="$HOME/.local/bin/mise"
           repo="$GITHUB_WORKSPACE"
-          for module in hachiko lib/discord mochi claude-hooks; do
+          for module in hachiko claude-hooks; do
             "$mise" exec -C "$repo" -- go run -C "$repo/tools/$module" golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
           done
 

@@ -3,12 +3,11 @@
 # since the binary in the cache was made. Why the Go tools here are built on the way past
 # at all is in the shared script this ends by sourcing.
 #
-# What is mochi's own: the Discord client in tools/lib/discord/, a module of this checkout
-# that mochi's go.mod replaces with that folder. Its sources are hashed with mochi's, so an
-# edit to either is a rebuild, and its tests are part of the gate — named by module, which
-# is how a go command in mochi reaches the folder its go.mod replaces the module with.
-# Beside that, the token's reference and the standing orders every session it starts opens
-# on, both of which come from the checkout this wrapper runs from.
+# What is mochi's own: the sources, which are not in this repository. mochi is
+# repeekgg/mochi, and this wrapper is all of it the Mac keeps — so that the arrangement
+# every compiled tool here runs under covers mochi too, and a pull in mochi's checkout is
+# the whole of its deploy. The binary works out its configuration, its token's reference
+# and its briefing from that checkout for itself, so nothing is handed to it here.
 
 set -u
 
@@ -30,17 +29,9 @@ done
 self=$(cd "$(dirname "$self")" && pwd)/$(basename "$self")
 repo=$(cd "$(dirname "$self")/../../.." && pwd)
 
-hashed="$repo/tools/mochi $repo/tools/lib/discord"
-test_packages="./... github.com/timche/mac-mini/discord/..."
-
-# In mochi's own folder, which is where mise links it, so the token has a reference to
-# resolve without the binary in the cache knowing where the checkout is.
-MOCHI_ENV_FILE="${MOCHI_ENV_FILE:-$HOME/.mochi/mochi.env.op}"
-export MOCHI_ENV_FILE
-
-# The standing orders every session mochi starts opens on, from the plugin in the checkout
-# this wrapper runs from rather than wherever the binary in the cache was built.
-MOCHI_BRIEFING="${MOCHI_BRIEFING:-$repo/account/claude-plugins/mochi/briefing.md}"
-export MOCHI_BRIEFING
+# mochi's checkout, which is where the sources are and where the build and its gate run.
+# A clone that is not there is the shared script's case for a tool whose sources have
+# moved: it says so and keeps running the binary the cache already has.
+src="${MOCHI_SRC:-$HOME/projects/repeekgg/mochi}"
 
 . "$repo/home/.local/libexec/build-tool"

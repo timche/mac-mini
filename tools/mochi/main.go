@@ -43,7 +43,7 @@ import (
 const usage = `usage: mochi [listen]
        mochi post [--review | --done [--close]] [--pr <url>] [--type <kind>] [--file <path>]... [<text>]
        mochi history [--post] [--before <id> | --after <id> | --around <id>] [--limit <n>]
-       mochi announce [--pr <url>] [--file <path>]... [<text>]
+       mochi announce [--channel <name>] [--pr <url>] [--file <path>]... [<text>]
        mochi edit [--drop-files] [--pr <url>] <message link> [<text>]
        mochi delete <message link>
 
@@ -64,14 +64,15 @@ const usage = `usage: mochi [listen]
             first and fenced as data, with attachments downloaded; --post reads the
             session's own thread or post instead; one of --before, --after or
             --around a message id, and --limit up to 100 (default 50)
-  announce  post to the announce channel of the server whose repository this checkout
-            is of, with no pings, held to everything post is held to; prints the
+  announce  post to an announce channel of the server whose repository this checkout
+            is of, with no pings, held to everything post is held to; --channel names
+            which, and is required when the project has more than one; prints the
             message's link
   edit      replace the text of a message mochi posted, held to what post is held
             to and pinging nobody; --drop-files removes its attachments too
   delete    take down a message mochi posted
             edit and delete act only on mochi's own messages in a mapped server's
-            announce channel, or in a mochi session's own thread or post; a
+            announce channels, or in a mochi session's own thread or post; a
             thread's or post's first message is edited, never deleted
 
 post and history run only inside a session mochi started; the rest in any session.
@@ -238,12 +239,12 @@ func run(args []string) error {
 
 	case "announce":
 		if !withToken {
-			if args, err = textStdin(args, os.Stdin, func(a []string) error { _, err := announceArgs(a, nil); return err }); err != nil {
+			if args, err = textStdin(args, os.Stdin, func(a []string) error { _, _, err := announceArgs(a, nil); return err }); err != nil {
 				return err
 			}
 		}
 		links, unread := cfg.Links()
-		p, err := announceArgs(args, links)
+		p, name, err := announceArgs(args, links)
 		if err != nil {
 			return usageError{post.NoLinksBecause(err, unread)}
 		}
@@ -255,11 +256,15 @@ func run(args []string) error {
 		if err := p.Check(settings.Links); err != nil {
 			return post.NoLinksBecause(err, unread)
 		}
-		if settings.Announce == "" {
+		if len(settings.Announce) == 0 {
 			if unread != nil {
 				return fmt.Errorf("this project's announce channel is not known, since %v", unread)
 			}
 			return errors.New("this project has no announce channel in " + project.ConfigFile)
+		}
+		channel, err := settings.Announce.Pick(name)
+		if err != nil {
+			return err
 		}
 		if !withToken {
 			if p.PR != "" {
@@ -281,11 +286,11 @@ func run(args []string) error {
 		p.Roots = func(string) ([]string, error) { return roots, nil }
 		p.Links = func(string) ([]string, error) { return settings.Links, nil }
 		p.Leaks = leaks.CLI
-		msg, err := post.Announce(api, server.Guild, settings.Announce, repoOf(server), p)
+		msg, err := post.Announce(api, server.Guild, channel, repoOf(server), p)
 		if err != nil {
 			return err
 		}
-		fmt.Println(chat.Link(server.Guild, settings.Announce, msg.ID))
+		fmt.Println(chat.Link(server.Guild, channel, msg.ID))
 		return nil
 
 	case "edit", "delete":
@@ -442,19 +447,33 @@ func postArgs(args []string, links []string) (post.Post, error) {
 	return p, p.Check(links)
 }
 
-func announceArgs(args []string, links []string) (post.Post, error) {
+// announceArgs is the post and the channel's name, empty when --channel is not given. An empty
+// or repeated --channel is refused because the first would fall through to a project's only
+// channel and the second would drop a channel the session meant to post to.
+func announceArgs(args []string, links []string) (post.Post, string, error) {
 	var p post.Post
+	var channel string
 	fs := flag.NewFlagSet("announce", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.Func("file", "", func(path string) error { p.Files = append(p.Files, path); return nil })
+	fs.Func("channel", "", func(name string) error {
+		switch {
+		case name == "":
+			return errors.New("it takes a channel's name")
+		case channel != "":
+			return errors.New("an announcement goes to one channel, so run mochi announce once for each")
+		}
+		channel = name
+		return nil
+	})
 	fs.StringVar(&p.PR, "pr", "", "")
 	if err := fs.Parse(args); err != nil {
-		return p, err
+		return p, "", err
 	}
 	if p.Text = strings.TrimSpace(strings.Join(fs.Args(), " ")); p.Text == "" {
-		return p, errNoText
+		return p, "", errNoText
 	}
-	return p, p.Check(links)
+	return p, channel, p.Check(links)
 }
 
 func repoOf(server config.Server) post.Repos {

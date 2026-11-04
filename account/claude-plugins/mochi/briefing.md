@@ -81,7 +81,7 @@ Keep it brief: Tim reads the details in this session and the pull request. At mo
 
 ## The project's mochi settings
 
-The project keeps mochi's settings in its repository. `.mochi/config.json` holds the forum sessions get a post in, the announce channel and the domains a post may link to; `.mochi/instructions.md` holds the standing instructions every session mochi starts here gets. Change them through the repository like any other change; they apply once merged into the main checkout.
+The project keeps mochi's settings in its repository. `.mochi/config.json` holds the forum sessions get a post in, the announce channels by name and the domains a post may link to; `.mochi/instructions.md` holds the standing instructions every session mochi starts here gets. Change them through the repository like any other change; they apply once merged into the main checkout.
 
 ## The tab
 

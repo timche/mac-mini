@@ -269,6 +269,40 @@ func TestAStarterMessageIsEditedButNotDeleted(t *testing.T) {
 	}
 }
 
+// Every channel the project names can be fixed in, by a session of any kind; the link's channel
+// still has to be in the server the link names.
+func TestEveryAnnounceChannelCanBeChanged(t *testing.T) {
+	f := setup(t)
+	f.scope.Thread = ""
+	repo := t.TempDir()
+	os.Mkdir(filepath.Join(repo, project.Dir), 0o755)
+	f.scope.Servers[0].Repo = repo
+	body := `{"announce": {"hq": "` + announce + `", "extension-releases": "` + general + `", "elsewhere": "` + away + `"}}`
+	os.WriteFile(filepath.Join(repo, project.ConfigFile), []byte(body), 0o644)
+
+	for _, ch := range []string{announce, general} {
+		if err := Edit(f.api, f.scope, f.mine[ch], Change{Text: "x"}); err != nil {
+			t.Errorf("edit in %s: %v", ch, err)
+		}
+		if err := Delete(f.api, f.scope, f.mine[ch]); err != nil {
+			t.Errorf("delete in %s: %v", ch, err)
+		}
+	}
+	for name, l := range map[string]string{
+		"a channel the project does not name": f.mine[session],
+		"a configured channel elsewhere":      f.mine[away],
+		"the same, under the mapped server":   strings.Replace(f.mine[away], foreign, guild, 1),
+		"someone else's message":              f.other[general],
+	} {
+		if err := Edit(f.api, f.scope, l, Change{Text: "x"}); err == nil {
+			t.Errorf("edit, %s", name)
+		}
+		if err := Delete(f.api, f.scope, l); err == nil {
+			t.Errorf("delete, %s", name)
+		}
+	}
+}
+
 // The announce channel and the domains come from the repository's .mochi/config.json as it
 // stands; when it cannot be read there is neither, and the refusal says why.
 func TestTheRepositorysSettingsDecide(t *testing.T) {

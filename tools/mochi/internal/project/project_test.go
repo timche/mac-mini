@@ -31,12 +31,70 @@ func TestTheSettingsAreReadFromTheRepository(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Forum != "1562152175927558292" || s.Announce != "1378670204795617340" || strings.Join(s.Links, " ") != "repeek.gg addons.mozilla.org chrome://extensions" {
+	if s.Forum != "1562152175927558292" || s.Announce[""] != "1378670204795617340" || strings.Join(s.Links, " ") != "repeek.gg addons.mozilla.org chrome://extensions" {
 		t.Errorf("settings = %+v", s)
 	}
 
-	if s, err := Load(repoWith(t, map[string]string{ConfigFile: `{}`})); err != nil || s.Forum != "" || s.Announce != "" || s.Links != nil {
+	if s, err := Load(repoWith(t, map[string]string{ConfigFile: `{}`})); err != nil || s.Forum != "" || s.Announce != nil || s.Links != nil {
 		t.Errorf("an empty object = %+v, %v", s, err)
+	}
+}
+
+func TestTheAnnounceChannelsAreNamedOrOne(t *testing.T) {
+	s, err := Load(repoWith(t, map[string]string{ConfigFile: `{"announce": {"hq": "1378670204795617340", "extension-releases": "1565055070222028911"}}`}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(s.Announce.Names(), " "); got != "extension-releases hq" {
+		t.Errorf("names = %s", got)
+	}
+	if !s.Announce.Has("1565055070222028911") || !s.Announce.Has("1378670204795617340") || s.Announce.Has("1378670204795617399") {
+		t.Errorf("has: %v", s.Announce)
+	}
+	if id, err := s.Announce.Pick("extension-releases"); err != nil || id != "1565055070222028911" {
+		t.Errorf("by name: %s, %v", id, err)
+	}
+	if id, err := s.Announce.Pick(""); err == nil || id != "" || !strings.Contains(err.Error(), "--channel") || !strings.Contains(err.Error(), "extension-releases, hq") {
+		t.Errorf("several and no name: %q, %v", id, err)
+	}
+	if id, err := s.Announce.Pick("news"); err == nil || id != "" || !strings.Contains(err.Error(), `"news"`) || !strings.Contains(err.Error(), "extension-releases, hq") {
+		t.Errorf("an unknown name: %q, %v", id, err)
+	}
+
+	one := Channels{"hq": "1378670204795617340"}
+	if id, err := one.Pick(""); err != nil || id != one["hq"] {
+		t.Errorf("one named and no name: %q, %v", id, err)
+	}
+	if id, err := one.Pick("news"); err == nil || id != "" || !strings.Contains(err.Error(), "hq") {
+		t.Errorf("one named and another name: %q, %v", id, err)
+	}
+
+	plain, err := Load(repoWith(t, map[string]string{ConfigFile: `{"announce": "1378670204795617340"}`}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plain.Announce.Names()) != 0 || !plain.Announce.Has("1378670204795617340") {
+		t.Errorf("the plain id: %v", plain.Announce)
+	}
+	if id, err := plain.Announce.Pick(""); err != nil || id != "1378670204795617340" {
+		t.Errorf("the plain id and no name: %q, %v", id, err)
+	}
+	if id, err := plain.Announce.Pick("hq"); err == nil || id != "" {
+		t.Errorf("the plain id and a name: %q, %v", id, err)
+	}
+
+	for name, body := range map[string]string{
+		"an empty id":     `{"announce": ""}`,
+		"null":            `{"announce": null}`,
+		"an empty object": `{"announce": {}}`,
+	} {
+		s, err := Load(repoWith(t, map[string]string{ConfigFile: body}))
+		if err != nil || len(s.Announce) != 0 {
+			t.Errorf("%s: %v, %v", name, s.Announce, err)
+		}
+		if _, err := s.Announce.Pick(""); err == nil {
+			t.Errorf("%s: a channel was picked", name)
+		}
 	}
 }
 
@@ -109,6 +167,18 @@ func TestABrokenFileIsAnError(t *testing.T) {
 		"a key twice in another case":       `{"forum": "1562152175927558292", "Forum": "1562152175927558299"}`,
 		"a forum that is no id":             `{"forum": "#mochi"}`,
 		"an announce channel that is no id": `{"announce": "#hq"}`,
+		"a number for announce":             `{"announce": 1378670204795617340}`,
+		"a list for announce":               `{"announce": ["1378670204795617340"]}`,
+		"a named channel that is no id":     `{"announce": {"hq": "#hq"}}`,
+		"a named channel that is empty":     `{"announce": {"hq": ""}}`,
+		"a named channel that is a number":  `{"announce": {"hq": 1378670204795617340}}`,
+		"a named channel that is null":      `{"announce": {"hq": null}}`,
+		"one bad channel among good ones":   `{"announce": {"hq": "1378670204795617340", "news": "#news"}}`,
+		"a channel name twice":              `{"announce": {"hq": "1378670204795617340", "hq": "1378670204795617399"}}`,
+		"an empty channel name":             `{"announce": {"": "1378670204795617340"}}`,
+		"a channel name in upper case":      `{"announce": {"HQ": "1378670204795617340"}}`,
+		"a channel name with a #":           `{"announce": {"#hq": "1378670204795617340"}}`,
+		"a channel name like a flag":        `{"announce": {"-hq": "1378670204795617340"}}`,
 		"a link with no dot":                `{"links": ["localhost"]}`,
 		"a link with a path":                `{"links": ["repeek.gg/faq"]}`,
 		"an address with no scheme":         `{"links": ["://extensions"]}`,

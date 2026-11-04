@@ -10,9 +10,11 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -38,8 +40,8 @@ type Settings struct {
 	// message.
 	Forum string `json:"forum"`
 
-	// The channel `mochi announce` posts to, for any session in a checkout of the repository.
-	Announce string `json:"announce"`
+	// The channels `mochi announce` posts to, for any session in a checkout of the repository.
+	Announce Channels `json:"announce"`
 
 	// What a post may link to: a domain, which allows an https link to it or any subdomain of
 	// it, and where the team finds the product, such as its store listings; or an entry with a
@@ -48,7 +50,89 @@ type Settings struct {
 	Links []string `json:"links"`
 }
 
+// Channels is a project's announce channels by name. A plain id in the config is one channel
+// under the name "", which the object form cannot give.
+type Channels map[string]string
+
+// UnmarshalJSON takes an id or an object of names and ids. It walks the object itself because
+// encoding/json lets the last of a name given twice win, and oneObject sees only the top level.
+func (c *Channels) UnmarshalJSON(body []byte) error {
+	var id string
+	if json.Unmarshal(body, &id) == nil {
+		*c = nil
+		if id != "" {
+			*c = Channels{"": id}
+		}
+		return nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(body))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return errors.New("announce is neither a channel id nor an object of names and channel ids")
+	}
+	channels := Channels{}
+	for dec.More() {
+		t, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		name := t.(string)
+		if !channelName.MatchString(name) {
+			return fmt.Errorf("announce has the name %q: a name is lower-case letters, digits, - and _", name)
+		}
+		if _, twice := channels[name]; twice {
+			return fmt.Errorf("announce has %q twice", name)
+		}
+		var id string
+		if err := dec.Decode(&id); err != nil {
+			return fmt.Errorf("announce has %q, which is not a Discord id", name)
+		}
+		channels[name] = id
+	}
+	*c = channels
+	return nil
+}
+
+// Names is every channel's name in order, for an error to list.
+func (c Channels) Names() []string {
+	names := slices.Sorted(maps.Keys(c))
+	return slices.DeleteFunc(names, func(name string) bool { return name == "" })
+}
+
+func (c Channels) Has(id string) bool {
+	for _, channel := range c {
+		if channel == id {
+			return true
+		}
+	}
+	return false
+}
+
+// Pick is the id of the channel called name, or of the only channel when name is empty. Several
+// channels with no name given is refused rather than defaulted, since the team has read a post
+// in the wrong channel by the time anyone notices.
+func (c Channels) Pick(name string) (string, error) {
+	names := strings.Join(c.Names(), ", ")
+	if name == "" {
+		if len(c) > 1 {
+			return "", fmt.Errorf("this project has several announce channels, so --channel has to name one of: %s", names)
+		}
+		for _, id := range c {
+			return id, nil
+		}
+		return "", errors.New("this project has no announce channel")
+	}
+	if id, ok := c[name]; ok {
+		return id, nil
+	}
+	if names == "" {
+		return "", fmt.Errorf("this project's announce channel has no name in %s, so there is no channel called %q", ConfigFile, name)
+	}
+	return "", fmt.Errorf("this project has no announce channel called %q, only: %s", name, names)
+}
+
 var (
+	channelName = regexp.MustCompile(`\A[a-z0-9][a-z0-9_-]{0,99}\z`)
+
 	snowflake = regexp.MustCompile(`\A[0-9]{17,20}\z`)
 	host      = regexp.MustCompile(`\A(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*[a-z0-9]\z`)
 
@@ -64,8 +148,13 @@ func (s *Settings) Check() error {
 	if s.Forum != "" && !snowflake.MatchString(s.Forum) {
 		return errors.New("forum is not a Discord id")
 	}
-	if s.Announce != "" && !snowflake.MatchString(s.Announce) {
+	if id, ok := s.Announce[""]; ok && !snowflake.MatchString(id) {
 		return errors.New("announce is not a Discord id")
+	}
+	for _, name := range s.Announce.Names() {
+		if !snowflake.MatchString(s.Announce[name]) {
+			return fmt.Errorf("announce has %q, which is not a Discord id", name)
+		}
 	}
 	for i, link := range s.Links {
 		lower := strings.ToLower(link)

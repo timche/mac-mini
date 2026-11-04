@@ -152,7 +152,13 @@ func GuildOf(api API, rec state.Session) string {
 // alone, and one copied from another server would take its posts there.
 func InGuild(api API, channel, guild string) error {
 	ch, err := api.Channel(channel)
-	if err != nil {
+	var refused *rest.Error
+	switch {
+	case Gone(err):
+		return fmt.Errorf("channel %s does not exist on Discord: it was deleted, or its id in the project's settings is wrong: %w", channel, err)
+	case errors.As(err, &refused) && (refused.Status == http.StatusForbidden || refused.Code == rest.CodeMissingAccess):
+		return fmt.Errorf("mochi cannot see channel %s: it is in a server mochi is not in, or mochi lacks View Channels there: %w", channel, err)
+	case err != nil:
 		return fmt.Errorf("channel %s could not be read: %w", channel, err)
 	}
 	if ch.GuildID != guild {

@@ -193,6 +193,34 @@ func TestAnnounceReadsTheRepositorysSettings(t *testing.T) {
 		t.Errorf("no announce key: %v", err)
 	}
 
+	const noOp = "no op on PATH, so the bot token cannot be resolved"
+	for _, c := range []struct {
+		name, announce string
+		args           []string
+		want           []string
+	}{
+		{"one id, no flag", `"1378670204795617340"`, nil, []string{noOp}},
+		{"one id, a name", `"1378670204795617340"`, []string{"--channel", "hq"}, []string{"no name", `"hq"`}},
+		{"one named, no flag", `{"hq": "1378670204795617340"}`, nil, []string{noOp}},
+		{"one named, its name", `{"hq": "1378670204795617340"}`, []string{"--channel", "hq"}, []string{noOp}},
+		{"one named, another name", `{"hq": "1378670204795617340"}`, []string{"--channel", "news"}, []string{`"news"`, "hq"}},
+		{"two, no flag", `{"hq": "1378670204795617340", "extension-releases": "1565055070222028911"}`, nil, []string{"--channel", "extension-releases, hq"}},
+		{"two, a name", `{"hq": "1378670204795617340", "extension-releases": "1565055070222028911"}`, []string{"--channel", "extension-releases"}, []string{noOp}},
+		{"two, another name", `{"hq": "1378670204795617340", "extension-releases": "1565055070222028911"}`, []string{"--channel", "news"}, []string{`"news"`, "extension-releases, hq"}},
+	} {
+		os.WriteFile(settings, []byte(`{"announce": `+c.announce+`}`), 0o644)
+		err := run(append(append([]string{"announce"}, c.args...), "Ready."))
+		if err == nil {
+			t.Errorf("%s: no refusal", c.name)
+			continue
+		}
+		for _, want := range c.want {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("%s: %v, without %s", c.name, err, want)
+			}
+		}
+	}
+
 	os.WriteFile(settings, []byte(`{"announce": "1378670204795617340", "links": ["repeek.gg"], "chanel": "1"}`), 0o644)
 	if err := run([]string{"announce", "hi"}); err == nil || !strings.Contains(err.Error(), "announce channel is not known") || !strings.Contains(err.Error(), "chanel") {
 		t.Errorf("broken: %v", err)
@@ -205,21 +233,21 @@ func TestAnnounceReadsTheRepositorysSettings(t *testing.T) {
 func TestAnnounceTakesTextFilesAndAPROnly(t *testing.T) {
 	shot := filepath.Join(t.TempDir(), "shot.png")
 	os.WriteFile(shot, []byte("png"), 0o644)
-	p, err := announceArgs([]string{"--pr", "https://github.com/timche/repeek/pull/42", "--file", shot, "new", "elo"}, nil)
-	if err != nil || len(p.Files) != 1 || p.Text != "new elo" || p.PR != "https://github.com/timche/repeek/pull/42" {
-		t.Errorf("%+v %v", p, err)
+	p, channel, err := announceArgs([]string{"--channel", "hq", "--pr", "https://github.com/timche/repeek/pull/42", "--file", shot, "new", "elo"}, nil)
+	if err != nil || channel != "hq" || len(p.Files) != 1 || p.Text != "new elo" || p.PR != "https://github.com/timche/repeek/pull/42" {
+		t.Errorf("%+v %q %v", p, channel, err)
 	}
-	for _, args := range [][]string{{}, {"--file", shot}, {"--done", "x"}, {"--review", "x"}, {"--type", "bug", "x"}, {"--close", "x"}} {
-		if _, err := announceArgs(args, nil); err == nil {
+	for _, args := range [][]string{{}, {"--file", shot}, {"--done", "x"}, {"--review", "x"}, {"--type", "bug", "x"}, {"--close", "x"}, {"--channel", "", "x"}, {"--channel", "hq", "--channel", "news", "x"}} {
+		if _, _, err := announceArgs(args, nil); err == nil {
 			t.Errorf("%v parsed", args)
 		}
 	}
-	args, err := textStdin([]string{"--file", shot}, strings.NewReader("**New**\n- elo\n"), func(a []string) error { _, err := announceArgs(a, nil); return err })
+	args, err := textStdin([]string{"--channel", "hq", "--file", shot}, strings.NewReader("**New**\n- elo\n"), func(a []string) error { _, _, err := announceArgs(a, nil); return err })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p, err := announceArgs(args, nil); err != nil || p.Text != "**New**\n- elo" {
-		t.Errorf("%+v %v", p, err)
+	if p, channel, err := announceArgs(args, nil); err != nil || channel != "hq" || p.Text != "**New**\n- elo" {
+		t.Errorf("%+v %q %v", p, channel, err)
 	}
 }
 

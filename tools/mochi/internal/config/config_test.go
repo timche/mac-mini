@@ -128,10 +128,10 @@ func repoWith(t *testing.T, config string) string {
 // A server's settings are its repository's .mochi/config.json: none when it has none, and an
 // error when it is broken.
 func TestTheProjectsSettingsComeFromItsRepository(t *testing.T) {
-	if p, err := (Server{Repo: repoWith(t, `{"announce": "1378670204795617399"}`)}).Project(nil); err != nil || p.Announce != "1378670204795617399" {
+	if p, err := (Server{Repo: repoWith(t, `{"announce": "1378670204795617399"}`)}).Project(nil); err != nil || p.Announce[""] != "1378670204795617399" {
 		t.Errorf("from the repository: %+v, %v", p, err)
 	}
-	if p, err := (Server{Repo: repoWith(t, "")}).Project(nil); err != nil || p.Forum != "" || p.Announce != "" || p.Links != nil {
+	if p, err := (Server{Repo: repoWith(t, "")}).Project(nil); err != nil || p.Forum != "" || p.Announce != nil || p.Links != nil {
 		t.Errorf("none: %+v, %v", p, err)
 	}
 	if p, err := (Server{Repo: repoWith(t, `{"forum": "#mochi"}`)}).Project(nil); err == nil || p.Forum != "" {

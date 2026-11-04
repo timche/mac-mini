@@ -227,7 +227,6 @@ The GitHub token goes in a file rather than the login keychain (`gh auth login -
 | `home/.local/bin/` | The machine's own scripts: an entry per compiled tool — hachiko's, claude-hooks', window's and mochi's, whose sources are `repeekgg/mochi` — the `op` wrapper, the foreground lock |
 | `home/.local/libexec/build-tool` | The build-in-place arrangement those four entries share, sourced out of the checkout and linked nowhere |
 | `account/` | The account half's scripts: what `claude.sh` runs in the order its comments give, and the two `install.sh` reaches for |
-| `account/claude-plugins/` | A local plugin marketplace: the `mochi` plugin, on only in the repositories mochi serves |
 | `machine/` | The machine half's scripts, which `machine.sh` runs in the order its comments give |
 | `machine/system/` | What lands outside `$HOME` as a root-owned copy: the claude-root helper, the sudoers rule naming it, the sshd drop-in |
 | `machine/launchd/` | The launcher's source, which is what the herdr-core agent starts |

@@ -60,14 +60,14 @@
     "claude-md-management@claude-plugins-official": true,
     "frontend-design@claude-plugins-official": true,
     "skill-creator@claude-plugins-official": false,
-    "mochi@mac-mini": false,
+    "mochi@repeek": false,
     "clangd-lsp@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
-    "mac-mini": {
+    "repeek": {
       "source": {
         "source": "directory",
-        "path": "~/.mac-mini/account/claude-plugins"
+        "path": "~/projects/repeekgg/mochi/plugin"
       }
     }
   },

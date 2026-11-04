@@ -460,62 +460,26 @@ check "no absolute home paths under home/ or in mise.toml" \
    ! grep -rhoE "(^|[^A-Za-z0-9_}])/(home|Users)/[A-Za-z0-9_.-]+" \
        "$repo/home" "$repo/mise.toml" | grep -q .'
 
-# mochi's sessions tell it when they stop on Tim, with a Stop hook and a PreToolUse hook on
-# AskUserQuestion, and when Tim answers in the session, with a PostToolUse hook on
-# AskUserQuestion and a UserPromptSubmit hook; all run the cached binary's session-event.
-# They are the mochi plugin's, so only a project mochi serves has them, and none is left
-# in settings.json, where every session would.
-check "mochi's session hooks are wired to Stop, AskUserQuestion and UserPromptSubmit" \
-  'hooks="$repo/account/claude-plugins/mochi/hooks/hooks.json" &&
-   jq -e "[.hooks.Stop[].hooks[].command | select(contains(\"session-event stop\"))] | length == 1" "$hooks" &&
-   jq -e "[.hooks.PreToolUse[] | select(.matcher == \"^AskUserQuestion$\") | .hooks[].command | select(contains(\"session-event ask\"))] | length == 1" "$hooks" &&
-   jq -e "[.hooks.PostToolUse[] | select(.matcher == \"^AskUserQuestion$\") | .hooks[].command | select(contains(\"session-event heard\"))] | length == 1" "$hooks" &&
-   jq -e "[.hooks.UserPromptSubmit[].hooks[].command | select(contains(\"session-event heard\"))] | length == 1" "$hooks" &&
-   ! grep -q "session-event" "$HOME/.claude/settings.json"'
-
-# The commands as the plugin spells them, run the way Claude Code runs a hook: silent and
-# exit 0 outside a mochi session, with no binary built, and in one; and handing the binary
-# the right kind when there is one.
-check "mochi's session hooks never fail or speak, and hand the binary its event" \
-  'd="$(mktemp -d)" && mkdir -p "$d/Library/Caches/mochi" &&
-   jq -r ".hooks[][].hooks[].command | select(contains(\"session-event \"))" "$repo/account/claude-plugins/mochi/hooks/hooks.json" > "$d/wired" &&
-   [ "$(wc -l < "$d/wired")" -eq 4 ] &&
-   while IFS= read -r wired; do
-     kind=$(printf "%s\n" "$wired" | sed -n "s/.*session-event \([a-z]*\).*/\1/p") &&
-     out=$(echo "{}" | env -u MOCHI_THREAD HOME="$d" /bin/sh -c "$wired" 2>&1) && [ -z "$out" ] &&
-     out=$(echo "{}" | MOCHI_THREAD=t1 HOME="$d" /bin/sh -c "$wired" 2>&1) && [ -z "$out" ] &&
-     printf "#!/bin/sh\necho \"\$@\" >> \"$d/args\"\necho noise\nexit 1\n" > "$d/Library/Caches/mochi/mochi" &&
-     chmod +x "$d/Library/Caches/mochi/mochi" &&
-     out=$(echo "{}" | MOCHI_THREAD=t1 HOME="$d" /bin/sh -c "$wired" 2>&1) && [ -z "$out" ] &&
-     grep -qx "session-event $kind" "$d/args" &&
-     rm "$d/Library/Caches/mochi/mochi" "$d/args" || exit 1
-   done < "$d/wired"'
-
-# The plugin those hooks and mochi's skill come from, in a marketplace of this checkout's
-# that Claude Code checks as it would on an install.
-check "the mochi plugin and its marketplace pass Claude Code's validation" \
-  'claude plugin validate "$repo/account/claude-plugins" &&
-   claude plugin validate "$repo/account/claude-plugins/mochi" &&
-   [ -f "$repo/account/claude-plugins/mochi/skills/mochi/SKILL.md" ] &&
-   [ -f "$repo/account/claude-plugins/mochi/briefing.md" ] &&
-   [ ! -e "$HOME/.claude/skills/mochi" ] && [ ! -e "$HOME/.claude/skills/announce" ]'
-
-# Known to every session, by a path through ~ so that settings.json names no account, and on
-# in none of them: a repository mochi serves turns it on for itself.
+# mochi's skill, its briefing and its session hooks are a plugin in its own repository's
+# marketplace, which that repository's checks are for. What is this repository's is the
+# declaration every session reads: the marketplace by a path through ~ so that settings.json
+# names no account, and the plugin off, since a repository mochi serves turns it on for
+# itself. Nothing checked here may need that clone, which a runner has no login for.
 check "the mochi plugin is declared at user level and left off there" \
-  'jq -e ".extraKnownMarketplaces[\"mac-mini\"].source == {source: \"directory\", path: \"~/.mac-mini/account/claude-plugins\"}" "$HOME/.claude/settings.json" &&
-   jq -e ".name == \"mac-mini\"" "$HOME/.mac-mini/account/claude-plugins/.claude-plugin/marketplace.json" &&
-   jq -e ".enabledPlugins[\"mochi@mac-mini\"] == false" "$HOME/.claude/settings.json" &&
-   jq -e ".defaultEnabled == false" "$repo/account/claude-plugins/mochi/.claude-plugin/plugin.json"'
+  'jq -e ".extraKnownMarketplaces[\"repeek\"].source == {source: \"directory\", path: \"~/projects/repeekgg/mochi/plugin\"}" "$HOME/.claude/settings.json" &&
+   jq -e ".enabledPlugins[\"mochi@repeek\"] == false" "$HOME/.claude/settings.json" &&
+   ! grep -q "session-event" "$HOME/.claude/settings.json" &&
+   [ ! -e "$HOME/.claude/skills/mochi" ] && [ ! -e "$HOME/.claude/skills/announce" ]'
 
 # Every repository mochi serves that is checked out here has it on; one not checked out yet,
 # and one whose ignore rules miss the file, are install.sh's to report.
 check "the mochi plugin is on in each repository mochi serves" \
-  'config="$HOME/.mochi/config.json" && [ -f "$config" ] &&
+  'config="$HOME/projects/repeekgg/mochi/config.json" && [ ! -f "$config" ] ||
    jq -r ".server[]?.repo" "$config" | while IFS= read -r r; do
      case $r in "~/"*) r="$HOME/${r#"~/"}" ;; esac
      git -C "$r" rev-parse --is-inside-work-tree >/dev/null 2>&1 || continue
-     jq -e ".enabledPlugins[\"mochi@mac-mini\"] == true" "$r/.claude/settings.local.json" || exit 1
+     jq -e ".enabledPlugins[\"mochi@repeek\"] == true" "$r/.claude/settings.local.json" || exit 1
+     jq -e ".enabledPlugins | has(\"mochi@mac-mini\") | not" "$r/.claude/settings.local.json" || exit 1
    done'
 
 # The file that turns it on is never committed, in a repository whose own ignore rules say
@@ -529,27 +493,32 @@ check "git ignores .claude/settings.local.json in any repository" \
 
 # What install.sh runs to get there, against repositories of its own under a global ignore like
 # this Mac's: a file that does not exist is made, one that does keeps every other key and its
-# mode, one jq cannot read is left as it is, a symlink is not replaced or written through, a
+# mode, one carrying the key from when the plugin came from this repository's own marketplace
+# loses it, one jq cannot read is left as it is, a symlink is not replaced or written through, a
 # repository that does not ignore the file gets none, and a second run changes nothing.
 check "turning the mochi plugin on merges into a repository settings file and repeats safely" \
   'd="$(mktemp -d)" && mkdir -p "$d/p" "$d/.config/git" &&
    echo ".claude/settings.local.json" > "$d/.config/git/ignore" &&
-   for r in fresh kept broken linked open; do git init -q "$d/p/$r" || exit 1; done &&
-   mkdir -p "$d/p/kept/.claude" "$d/p/broken/.claude" "$d/p/linked/.claude" &&
+   for r in fresh kept former broken linked open; do git init -q "$d/p/$r" || exit 1; done &&
+   mkdir -p "$d/p/kept/.claude" "$d/p/former/.claude" "$d/p/broken/.claude" "$d/p/linked/.claude" &&
    echo "{\"permissions\":{\"allow\":[\"Bash(ls)\"]}}" > "$d/p/kept/.claude/settings.local.json" &&
    chmod 600 "$d/p/kept/.claude/settings.local.json" &&
+   echo "{\"enabledPlugins\":{\"mochi@mac-mini\":true}}" > "$d/p/former/.claude/settings.local.json" &&
    echo "{not json" > "$d/p/broken/.claude/settings.local.json" &&
    echo "{}" > "$d/target.json" && ln -s "$d/target.json" "$d/p/linked/.claude/settings.local.json" &&
    echo "!.claude/settings.local.json" > "$d/p/open/.gitignore" &&
-   echo "{\"server\":[{\"repo\":\"~/p/fresh\"},{\"repo\":\"~/p/kept\"},{\"repo\":\"~/p/broken\"},{\"repo\":\"~/p/linked\"},{\"repo\":\"~/p/open\"},{\"repo\":\"~/p/absent\"}]}" > "$d/config.json" &&
+   echo "{\"server\":[{\"repo\":\"~/p/fresh\"},{\"repo\":\"~/p/kept\"},{\"repo\":\"~/p/former\"},{\"repo\":\"~/p/broken\"},{\"repo\":\"~/p/linked\"},{\"repo\":\"~/p/open\"},{\"repo\":\"~/p/absent\"}]}" > "$d/config.json" &&
    HOME="$d" MOCHI_CONFIG="$d/config.json" "$repo/account/mochi-plugin.sh" 2>"$d/err" &&
    cp "$d/p/kept/.claude/settings.local.json" "$d/first" &&
+   cp "$d/p/former/.claude/settings.local.json" "$d/first-former" &&
    HOME="$d" MOCHI_CONFIG="$d/config.json" "$repo/account/mochi-plugin.sh" &&
-   jq -e ". == {enabledPlugins: {\"mochi@mac-mini\": true}}" "$d/p/fresh/.claude/settings.local.json" &&
+   jq -e ". == {enabledPlugins: {\"mochi@repeek\": true}}" "$d/p/fresh/.claude/settings.local.json" &&
    [ "$(stat -f %Lp "$d/p/fresh/.claude/settings.local.json")" = 644 ] &&
-   jq -e ". == {permissions: {allow: [\"Bash(ls)\"]}, enabledPlugins: {\"mochi@mac-mini\": true}}" "$d/p/kept/.claude/settings.local.json" &&
+   jq -e ". == {permissions: {allow: [\"Bash(ls)\"]}, enabledPlugins: {\"mochi@repeek\": true}}" "$d/p/kept/.claude/settings.local.json" &&
    [ "$(stat -f %Lp "$d/p/kept/.claude/settings.local.json")" = 600 ] &&
    cmp -s "$d/first" "$d/p/kept/.claude/settings.local.json" &&
+   jq -e ". == {enabledPlugins: {\"mochi@repeek\": true}}" "$d/p/former/.claude/settings.local.json" &&
+   cmp -s "$d/first-former" "$d/p/former/.claude/settings.local.json" &&
    [ "$(cat "$d/p/broken/.claude/settings.local.json")" = "{not json" ] &&
    [ -L "$d/p/linked/.claude/settings.local.json" ] && [ "$(cat "$d/target.json")" = "{}" ] &&
    grep -q "linked/.claude/settings.local.json is a symlink" "$d/err" &&

@@ -1,8 +1,0 @@
-{
-  "name": "mochi",
-  "description": "mochi's skill and session hooks, for the repositories mochi serves",
-  "author": {
-    "name": "Tim Cheung"
-  },
-  "defaultEnabled": false
-}

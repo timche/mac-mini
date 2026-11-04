@@ -8,9 +8,9 @@
 # and per person, and gitignored where Claude Code made it, so the plugin reaches
 # nobody else who clones the repository.
 #
-# The repositories are the ones ~/.mochi/config.json maps a server to,
-# which is what mochi itself starts sessions in. Run by install.sh, after the link
-# to that file is in place.
+# The repositories are the ones mochi's own config.json maps a server to, which is
+# what mochi itself starts sessions in. mochi is repeekgg/mochi, so both that file
+# and the plugin are read out of its checkout. Run by install.sh.
 #
 # Merged into the file with jq rather than written whole, since Claude Code keeps
 # its own keys there, such as the permissions a session was granted, and with the
@@ -21,12 +21,18 @@
 # gets none, since what is written there could be committed for everyone who
 # clones it.
 #
-# Safe to re-run: a repository that already has it on is left alone.
+# The key the plugin had while it came from this repository's own marketplace is
+# taken out in the same merge: Claude Code reports an enabled plugin it cannot
+# find, and nobody edits that file by hand.
+#
+# Safe to re-run: a repository that already has it on and the old key gone is left
+# alone.
 
 set -euo pipefail
 
-plugin="mochi@mac-mini"
-config="${MOCHI_CONFIG:-$HOME/.mochi/config.json}"
+plugin="mochi@repeek"
+former="mochi@mac-mini"
+config="${MOCHI_CONFIG:-$HOME/projects/repeekgg/mochi/config.json}"
 
 if [ ! -f "$config" ]; then
   echo "there is no $config, so the mochi plugin is on in no repository" >&2
@@ -63,7 +69,9 @@ while IFS= read -r repo; do
   fi
 
   if [ -f "$settings" ] &&
-     jq -e --arg id "$plugin" '.enabledPlugins[$id] == true' "$settings" >/dev/null 2>&1; then
+     jq -e --arg id "$plugin" --arg was "$former" \
+        '.enabledPlugins[$id] == true and (.enabledPlugins | has($was) | not)' \
+        "$settings" >/dev/null 2>&1; then
     echo "the mochi plugin is already on in $repo"
     continue
   fi
@@ -81,7 +89,9 @@ while IFS= read -r repo; do
   fi
   tmp="$(mktemp "$settings.XXXXXX")"
   if { if [ -e "$settings" ]; then cat "$settings"; else echo '{}'; fi; } |
-     jq -e --arg id "$plugin" 'if type == "object" then .enabledPlugins[$id] = true else error end' >"$tmp" 2>/dev/null; then
+     jq -e --arg id "$plugin" --arg was "$former" \
+        'if type == "object" then .enabledPlugins[$id] = true | del(.enabledPlugins[$was]) else error end' \
+        >"$tmp" 2>/dev/null; then
     chmod "$mode" "$tmp"
     mv "$tmp" "$settings"
     echo "turned the mochi plugin on in $repo"

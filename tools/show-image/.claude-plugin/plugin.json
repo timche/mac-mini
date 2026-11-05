@@ -1,1 +1,0 @@
-{ "name": "show-image", "version": "0.1.0", "description": "Gives Claude a show_image tool that draws an image under its reply, as bytes, so it reaches a Herdr app on another machine", "types": "./types/index.d.ts" }

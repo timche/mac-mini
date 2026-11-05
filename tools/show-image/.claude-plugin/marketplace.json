@@ -1,5 +1,0 @@
-{
-  "name": "mac-mini",
-  "owner": { "name": "Tim Cheung" },
-  "plugins": [{ "name": "show-image", "source": "./", "description": "A show_image tool that draws an image under Claude's reply, as bytes" }]
-}

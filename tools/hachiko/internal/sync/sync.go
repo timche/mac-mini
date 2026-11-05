@@ -47,6 +47,10 @@ import (
 // commit, and this is only how often the question is asked.
 const poll = time.Second
 
+// A tree that cannot be committed stays dirty, so the debounce alone would run the commit and
+// its pre-commit scan again on every tick. failures.go tells Tim this figure.
+const commitRetry = time.Minute
+
 // How often the heartbeat the five-minute check reads is written, and how often this process
 // looks at the binary behind it. Both are well inside the ten minutes the check gives the
 // heartbeat, so a sync that is alive is never read as one that has stopped.
@@ -345,6 +349,8 @@ type loop struct {
 	// still working.
 	lockedSince time.Time
 
+	commitRetryAt time.Time
+
 	lastSync time.Time
 	fetchDue time.Time
 	pushDue  time.Time
@@ -395,6 +401,9 @@ func (l *loop) tick(now time.Time) {
 	if l.d.dry && settled && status == l.saidFor {
 		settled = false
 	}
+	if now.Before(l.commitRetryAt) {
+		settled = false
+	}
 
 	fetchTick := l.repo.Pull && l.repo.FetchInterval > 0 &&
 		!l.fetchDue.IsZero() && !now.Before(l.fetchDue)
@@ -433,6 +442,11 @@ func (l *loop) pass(now time.Time) {
 
 		result := l.p.run(pushWhenDue)
 		l.outstanding = result.Outcome.isFailure()
+
+		l.commitRetryAt = time.Time{}
+		if result.Failure != nil && result.Failure.Kind == failedCommit {
+			l.commitRetryAt = now.Add(commitRetry)
+		}
 
 		switch {
 		case !result.Locked:

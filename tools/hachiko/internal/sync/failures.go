@@ -189,9 +189,10 @@ func (f Failure) action() string {
 			"enough, and so is restarting the agent."
 	case failedCommit:
 		return "**Needs you:** nothing in that repository is being committed, so nothing " +
-			"written there is safe. " + wording.CodeSpan("git status") + " in it says why; a " +
-			"lock file left by a killed git and a signing key git cannot read are the two " +
-			"usual answers. Sync tries again every minute."
+			"written there is safe. The error above says why, and " + wording.CodeSpan("git status") +
+			" in it shows what is waiting. The usual answers are a secret scan refusing a " +
+			"staged file, a lock file left by a killed git and a signing key git cannot read. " +
+			"Never skip the scan: change the file or stop tracking it. Sync tries again every minute."
 	default:
 		return "**Needs you:** nothing written there is reaching the origin. " +
 			wording.CodeSpan("git push") + " in the repository above says what the remote " +

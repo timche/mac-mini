@@ -301,3 +301,47 @@ func TestTheFirstPassHappensBeforeAnyTick(t *testing.T) {
 		t.Errorf("nothing was caught up on startup: %v", f.calls)
 	}
 }
+
+func commitsTried(f *fixture) int {
+	tried := 0
+	for _, call := range f.calls {
+		if strings.HasPrefix(call, "commit ") {
+			tried++
+		}
+	}
+	return tried
+}
+
+// Every failure runs the whole commit again, secret scan included, and a tree that cannot be
+// committed stays dirty, so without a wait the debounce passes it on every tick for ever.
+func TestACommitThatFailedIsTriedOnceAMinute(t *testing.T) {
+	f := newFixture(t)
+	f.tree.commitFails = 1000
+	_, l := f.loop()
+
+	write(f, l, " M a.md\x00", "a.md")
+	if got := commitsTried(f); got != 1 {
+		t.Fatalf("%d commits tried by the first pass: %v", got, f.calls)
+	}
+
+	for elapsed := time.Second; elapsed < commitRetry; elapsed += time.Second {
+		tick(f, l, time.Second)
+	}
+	if got := commitsTried(f); got != 1 {
+		t.Fatalf("%d commits tried inside the minute", got)
+	}
+
+	tick(f, l, time.Second)
+	if got := commitsTried(f); got != 2 {
+		t.Fatalf("%d commits tried once the minute was up", got)
+	}
+
+	f.tree.commitFails = 0
+	tick(f, l, commitRetry)
+	if got := commitsTried(f); got != 3 {
+		t.Fatalf("%d commits tried after the cause was fixed", got)
+	}
+	if !l.commitRetryAt.IsZero() {
+		t.Errorf("a commit that worked left a wait behind: %v", l.commitRetryAt)
+	}
+}

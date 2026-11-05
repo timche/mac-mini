@@ -471,6 +471,14 @@ check "the mochi plugin is declared at user level and left off there" \
    ! grep -q "session-event" "$HOME/.claude/settings.json" &&
    [ ! -e "$HOME/.claude/skills/mochi" ] && [ ! -e "$HOME/.claude/skills/announce" ]'
 
+# Without the variable Claude Code decides an hc terminal draws no images, so the mod would show
+# only its alt text; what the mod itself does is its tests'.
+check "the show-image mod is declared, on and passing its tests" \
+  'jq -e ".extraKnownMarketplaces[\"mac-mini\"].source == {source: \"directory\", path: \"~/.mac-mini/tools/show-image\"}" "$HOME/.claude/settings.json" &&
+   jq -e ".enabledPlugins[\"show-image@mac-mini\"] == true" "$HOME/.claude/settings.json" &&
+   jq -e ".env.CLAUDE_CODE_FORCE_TERMINAL_IMAGES == \"1\"" "$HOME/.claude/settings.json" &&
+   claude plugin test "$repo/tools/show-image"'
+
 # Every repository mochi serves that is checked out here has it on; one not checked out yet,
 # and one whose ignore rules miss the file, are install.sh's to report.
 check "the mochi plugin is on in each repository mochi serves" \

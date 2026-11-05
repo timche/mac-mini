@@ -233,6 +233,7 @@ The GitHub token goes in a file rather than the login keychain (`gh auth login -
 | `tools/hachiko/` | The watch over this Mac, its worktree sweep, its auto-sync and the nightly update — [tools/hachiko/README.md](tools/hachiko/README.md) |
 | `tools/claude-hooks/` | Every Claude Code hook as a subcommand of one binary, two of them on every session's Bash calls: the guard, no kill by name and no foreground without the lock; the attribution stripped out of what `gh` sends GitHub; and the project's docs printed into a session as it starts. The status line's tap is there too, the one command that is no hook: it keeps what is left of the account's usage limits where hachiko reads it — [tools/claude-hooks/README.md](tools/claude-hooks/README.md) |
 | `tools/window/` | One app window listed, captured or recorded without the foreground, in Swift for ScreenCaptureKit — [tools/window/README.md](tools/window/README.md) |
+| `tools/show-image/` | The Claude Code mod that draws an image under a reply, so a session can show Tim a screenshot in the Herdr app — [tools/show-image/README.md](tools/show-image/README.md) |
 | `tools/shibuya/` | The one tool that does not run on this Mac: hachiko's dead man's switch, a Cloudflare Worker — [tools/shibuya/README.md](tools/shibuya/README.md) |
 
 `.claude` sits under `home/` rather than at the repo root because a `.claude` directory at a repo root is *project* configuration to Claude Code — this repo would load its own global settings and skills a second time whenever it was the working directory.

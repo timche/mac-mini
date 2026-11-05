@@ -2,7 +2,6 @@
   "env": {
     "CLAUDE_CODE_ARTIFACT_AUTO_OPEN": "0",
     "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY": "1",
-    "CLAUDE_CODE_FORCE_TERMINAL_IMAGES": "1",
     "CLAUDE_CODE_SHELL": "/opt/homebrew/bin/bash",
     "CLAUDE_CODE_SUBAGENT_MODEL": "claude-opus-5"
   },
@@ -62,16 +61,9 @@
     "frontend-design@claude-plugins-official": true,
     "skill-creator@claude-plugins-official": false,
     "mochi@repeek": false,
-    "clangd-lsp@claude-plugins-official": true,
-    "show-image@mac-mini": true
+    "clangd-lsp@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
-    "mac-mini": {
-      "source": {
-        "source": "directory",
-        "path": "~/.mac-mini/tools/show-image"
-      }
-    },
     "repeek": {
       "source": {
         "source": "directory",

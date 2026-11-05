@@ -443,8 +443,10 @@ func (l *loop) pass(now time.Time) {
 		result := l.p.run(pushWhenDue)
 		l.outstanding = result.Outcome.isFailure()
 
+		// A locked index fails before any scan runs and costs almost nothing to ask again, and
+		// work should land the moment somebody removes the lock.
 		l.commitRetryAt = time.Time{}
-		if result.Failure != nil && result.Failure.Kind == failedCommit {
+		if result.Failure != nil && result.Failure.Kind == failedCommit && !l.p.lockedLong {
 			l.commitRetryAt = now.Add(commitRetry)
 		}
 

@@ -109,7 +109,9 @@ fi
 
 # The sources' contents and their names, so a rename or a deletion counts as a change too.
 # A few milliseconds, which is what keeps a run that has nothing to build from reaching for
-# mise at all.
+# mise at all. In one locale, because launchd hands an agent no LANG and a session's shell has
+# one: the two would order the same files differently, and each would rebuild what the other
+# just built.
 if [ "$lang" = swift ]; then
   # .build is pruned because a `swift build` run by hand in the source folder puts sources
   # of its own there.
@@ -117,7 +119,7 @@ if [ "$lang" = swift ]; then
 else
   sources=$(find $hashed -type f \( -name '*.go' -o -name go.mod -o -name go.sum \) 2>/dev/null)
 fi
-hash=$(printf '%s\n' "$sources" | sort | xargs shasum -a 256 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
+hash=$(printf '%s\n' "$sources" | LC_ALL=C sort | xargs shasum -a 256 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
 
 # One step of the rebuild, with a deadline and its output in a file. The sleeper is the
 # watchdog; killing it once the step has finished is what keeps this from waiting for it.

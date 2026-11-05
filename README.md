@@ -27,7 +27,7 @@ It asks, in order, for the sudo password, a tailnet login URL, the Apple ID and 
 ### mochi's own repository
 
 1. Clone it: `gh repo clone repeekgg/mochi ~/projects/repeekgg/mochi`
-2. Install its agent as `~/projects/repeekgg/mochi/README.md` says under "Running it".
+2. Install it: `~/projects/repeekgg/mochi/install.sh`
 
 ### Afterwards, over Screen Sharing
 
@@ -224,8 +224,8 @@ The GitHub token goes in a file rather than the login keychain (`gh auth login -
 | `home/.config/mise/config.toml` | Every runtime mise installs globally |
 | `home/.hachiko/` | Linked into hachiko's own folder in `HOME`: where it alerts, whose replies it takes, where it checks in, the repositories sync publishes, and its secrets' `op://` references |
 | `home/Library/LaunchAgents/` | The agents launchd runs |
-| `home/.local/bin/` | The machine's own scripts: an entry per compiled tool — hachiko's, claude-hooks', window's and mochi's, whose sources are `repeekgg/mochi` — the `op` wrapper, the foreground lock |
-| `home/.local/libexec/build-tool` | The build-in-place arrangement those four entries share, sourced out of the checkout and linked nowhere |
+| `home/.local/bin/` | The machine's own scripts: an entry per compiled tool — hachiko's, claude-hooks' and window's — the `op` wrapper, the foreground lock |
+| `home/.local/libexec/build-tool` | The build-in-place arrangement those three entries share, sourced out of the checkout and linked nowhere |
 | `account/` | The account half's scripts: what `claude.sh` runs in the order its comments give, and the two `install.sh` reaches for |
 | `machine/` | The machine half's scripts, which `machine.sh` runs in the order its comments give |
 | `machine/system/` | What lands outside `$HOME` as a root-owned copy: the claude-root helper, the sudoers rule naming it, the sshd drop-in |
@@ -237,7 +237,7 @@ The GitHub token goes in a file rather than the login keychain (`gh auth login -
 
 `.claude` sits under `home/` rather than at the repo root because a `.claude` directory at a repo root is *project* configuration to Claude Code — this repo would load its own global settings and skills a second time whenever it was the working directory.
 
-Everything else here is a shell script, and the tools under `tools/` are the exception. A compiled tool is Go on the standard library alone, or Swift on Apple's SDK alone where it lives on macOS frameworks Go cannot reach, run from this Mac; a Worker is TypeScript with a deploy script of its own, and the only one there is runs nowhere near this Mac on purpose. There is no release pipeline and nothing to publish, because there is nowhere to publish to: the entry in `home/.local/bin/<tool>` builds the tool from its source tree and runs its tests as the gate, so an edit is a running binary minutes later and a tree that does not compile or does not pass leaves the last one that did. That tree is this checkout's for every tool but mochi, whose sources are `repeekgg/mochi` and whose entry here is the whole of what this repository keeps of it. All of that is one script, `home/.local/libexec/build-tool`, which each entry sources after setting what is its tool's own; `CLAUDE.md` has the rules a change to one of the tools obeys, that script's comment has how the building works, and each entry's own what that tool adds to it.
+Everything else here is a shell script, and the tools under `tools/` are the exception. A compiled tool is Go on the standard library alone, or Swift on Apple's SDK alone where it lives on macOS frameworks Go cannot reach, run from this Mac; a Worker is TypeScript with a deploy script of its own, and the only one there is runs nowhere near this Mac on purpose. There is no release pipeline and nothing to publish, because there is nowhere to publish to: the entry in `home/.local/bin/<tool>` builds the tool from its source tree and runs its tests as the gate, so an edit is a running binary minutes later and a tree that does not compile or does not pass leaves the last one that did. mochi is `repeekgg/mochi` and none of this: its own `install.sh` builds and deploys it. All of that is one script, `home/.local/libexec/build-tool`, which each entry sources after setting what is its tool's own; `CLAUDE.md` has the rules a change to one of the tools obeys, that script's comment has how the building works, and each entry's own what that tool adds to it.
 
 The launcher under `machine/launchd/` is the compiled thing that is neither a tool nor a folder under `tools/`, and the one that is C. It is built once by `install.sh` rather than by a wrapper, for the reason [The herdr-core server](#the-herdr-core-server) gives: its bytes are an identity macOS pins privacy grants to, and a rebuild costs them.
 
@@ -375,6 +375,6 @@ What CI cannot reach, where the asserts report where things stand rather than as
 
 ## Environment knobs
 
-`MAC_MINI_REPO`, `MAC_MINI_DIR` (the clone, `~/.mac-mini` by default), `PROJECT_DOCS_DIR`, `SIGNING_KEY_OP_ITEM`, `OP_SERVICE_ACCOUNT_TOKEN_FILE`, `FORCE_HARDEN`, `CLAUDE_ROOT_DRY_RUN`, `MAC_MINI_TEST_ANYWAY`. Each tool's own are in its README: [hachiko](tools/hachiko/README.md#environment-knobs), [shibuya](tools/shibuya/README.md#environment-knobs). `MOCHI_SRC` is the mochi wrapper's, and the only one here for a tool whose sources are elsewhere: the checkout it builds, `~/projects/repeekgg/mochi` by default.
+`MAC_MINI_REPO`, `MAC_MINI_DIR` (the clone, `~/.mac-mini` by default), `PROJECT_DOCS_DIR`, `SIGNING_KEY_OP_ITEM`, `OP_SERVICE_ACCOUNT_TOKEN_FILE`, `FORCE_HARDEN`, `CLAUDE_ROOT_DRY_RUN`, `MAC_MINI_TEST_ANYWAY`. Each tool's own are in its README: [hachiko](tools/hachiko/README.md#environment-knobs), [shibuya](tools/shibuya/README.md#environment-knobs).
 
 `CLAUDE.md` has the rest: the order the scripts run in, the constraints that are not obvious from reading them, and how to work in this repo.

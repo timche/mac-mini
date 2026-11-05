@@ -1425,19 +1425,16 @@ check "the listener is kept alive and throttled to five minutes" \
 check "the listener agent is loaded" \
   'launchctl print "gui/$(id -u)/io.github.timche.hachiko-listen" >/dev/null'
 
-# mochi, whose sources are repeekgg/mochi: its own repository's tests are its behaviour and
-# its own checks are the agent, the configuration and the plugin that go with it. The
-# wrapper here is the whole of what this repository keeps, so the link is what is left to
-# check — and, where that checkout is on this Mac, that the wrapper builds and runs it.
-# Nothing here may need the checkout: it is a clone of a private repository, which a runner
-# has no login for.
-check "mochi is a live symlink into this checkout" \
-  '[ -L "$HOME/.local/bin/mochi" ] && [ -x "$HOME/.local/bin/mochi" ] &&
-   [ "$HOME/.local/bin/mochi" -ef "$repo/home/.local/bin/mochi" ]'
+# mochi is repeekgg/mochi, whose install.sh puts a binary at this path. A link here would be the
+# dotfiles step overwriting it. Nothing here may need that checkout: it is a clone of a private
+# repository, which a runner has no login for.
+check "nothing here links over mochi's binary" \
+  '[ ! -L "$HOME/.local/bin/mochi" ] && ! grep -q "local/bin/mochi" "$repo/mise.toml"'
 
-check "the mochi wrapper builds mochi's own checkout and runs what it built" \
-  'src="${MOCHI_SRC:-$HOME/projects/repeekgg/mochi}" && [ ! -d "$src" ] ||
-   { mochi --help | grep -q "listen" && mochi --help | grep -q "jobs"; }'
+# launchd hands an agent no LANG and a session's shell has one, so a fingerprint that depends on
+# the locale has each rebuild what the other just built.
+check "the shared script fingerprints sources in one locale" \
+  'grep -qF "| LC_ALL=C sort |" "$repo/home/.local/libexec/build-tool"'
 
 # The one check that is the agent rather than a description of it. Everything else here
 # runs hachiko as this session, which holds the privacy grants the core's launcher was given — and that
@@ -1629,7 +1626,7 @@ check "a wrapper run from a linked worktree builds into a cache of its own and f
 compiled_tools_share_one_script() {
   local tool missing=0
 
-  for tool in hachiko mochi claude-hooks window; do
+  for tool in hachiko claude-hooks window; do
     grep -qF '. "$repo/home/.local/libexec/build-tool"' "$repo/home/.local/bin/$tool" ||
       { printf '%s does not source the shared script\n' "$tool"; missing=1; }
     [ "$(wc -l <"$repo/home/.local/bin/$tool")" -le 60 ] ||

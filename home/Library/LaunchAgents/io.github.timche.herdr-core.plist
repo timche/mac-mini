@@ -4,17 +4,14 @@
      rather than by the first `hc` a remote client runs over SSH. Every Claude Code
      session is a terminal of this core, and Claude Code offers computer use only
      to a session that is not an SSH one; started here, a terminal is genuinely
-     local, with no SSH_* in its environment and this job, not tailscaled, as the
-     app macOS asks its privacy grants of. Linked like the agents beside it, and
+     local, with no SSH_* in its environment. Linked like the agents beside it, and
      for the same reason it names no path launchd would have to expand.
 
-     What it starts is the launcher, not herdr-core: macOS asks its questions of
-     the responsible process, which for a launchd job is the job's own process and
-     for that process's children is it again, and the bare herdr-core binary cannot
-     be given Local Network at all. So the grants belong to the launcher,
-     which install.sh compiles from machine/launchd/herdr-core-launcher.c and
-     rebuilds only when that file changes, and which stays the parent of every core
-     it starts, so neither `hc update` nor `hc server restart` drops them. -->
+     What it starts is the launcher, which install.sh compiles from
+     machine/launchd/herdr-core-launcher.c and which stays the parent of every core
+     it starts, so a restart keeps this job's environment. Terminals answer to their
+     holder, so their grants belong to Herdr Core.app and the launcher's cover only
+     the core. -->
 <plist version="1.0">
 <dict>
   <key>Label</key>

@@ -28,7 +28,7 @@ What macOS does around a recording, and what the tool cannot change:
 - A minimised window delivers no frames and fails the recording on its first.
 - The video is what the app draws, and some apps stop drawing a window none of which is visible: UTM's VM windows stop entirely under a full cover and draw on with a few pixels showing. The measurements are in `$PROJECT_DOCS_DIR/shared/macos-gui-automation.md`, under "Recording one window", with the `ffmpeg-full` recipe that labels a clip.
 
-Only the Screen Recording grant is needed, and it is herdr-core-launcher's: macOS holds the responsible process accountable for its children, so a rebuilt binary costs no grant.
+Only the Screen Recording grant is needed, and it is Herdr Core.app's: macOS holds the responsible process accountable for its children, so a rebuilt binary costs no grant.
 
 ## Building and testing
 

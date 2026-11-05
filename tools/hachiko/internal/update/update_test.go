@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -445,8 +446,7 @@ func TestACleanupThatFailsNamesTheKeg(t *testing.T) {
 }
 
 // `hc update` restarts the core itself and the terminals keep running, and the LaunchAgent's
-// launcher starts another core the moment that one exits — so nothing here restarts anything
-// and nothing is left waiting on Tim.
+// launcher starts another core the moment that one exits — so nothing here restarts anything.
 func TestTheCoreIsUpdatedAndNothingIsRestartedByHand(t *testing.T) {
 	b := newBox(t)
 	b.current()
@@ -455,7 +455,6 @@ func TestTheCoreIsUpdatedAndNothingIsRestartedByHand(t *testing.T) {
 	b.update(false)
 
 	harness.Wants(t, b.summary(), "`herdr-core` 0.1.17 → 0.1.18")
-	harness.Lacks(t, b.summary(), "**Needs you:**")
 
 	for _, call := range b.calls {
 		if strings.Contains(call, "hc server") || strings.Contains(call, "kickstart") {
@@ -476,6 +475,46 @@ func TestACoreThatNoLongerAnswersToServeIsSaidToTim(t *testing.T) {
 
 	harness.Wants(t, b.summary(), "**Needs you:**\n- herdr-core no longer answers to `serve --help`")
 	harness.Wants(t, b.summary(), "every hc terminal goes with it")
+}
+
+// A prompt on the Mac's screen is invisible from here, so a core that moved is always Tim's to look at.
+func TestACoreThatMovedIsSaidToTim(t *testing.T) {
+	b := newBox(t)
+	b.current()
+	b.moveCore("0.1.17", "0.1.18")
+
+	b.update(false)
+
+	harness.Wants(t, b.summary(), "herdr-core moved to 0.1.18: allow Local Network")
+	if strings.Contains(b.summary(), "has lost Full Disk Access") {
+		t.Fatalf("a terminal that could read the folder was reported as having lost access:\n%s", b.summary())
+	}
+}
+
+func TestACoreThatStayedPutAsksNothing(t *testing.T) {
+	b := newBox(t)
+	b.current()
+
+	b.update(false)
+
+	if strings.Contains(b.summary(), "herdr-core moved to") {
+		t.Fatalf("a core that did not move was reported:\n%s", b.summary())
+	}
+	if len(b.matching("hc run")) != 0 {
+		t.Fatalf("a core that did not move was probed: %v", b.matching("hc run"))
+	}
+}
+
+func TestANewTerminalWithoutFullDiskAccessIsSaidToTim(t *testing.T) {
+	b := newBox(t)
+	b.current()
+	b.moveCore("0.1.17", "0.1.18")
+	b.fails("hc run --no-parent --no-notify --rm /bin/ls "+filepath.Join(b.cfg.Home, "Library", "Safari"),
+		"ls: Operation not permitted")
+
+	b.update(false)
+
+	harness.Wants(t, b.summary(), "Herdr Core.app has lost Full Disk Access")
 }
 
 // The updates Apple has waiting that restart nothing are the Mac's own to install, and each

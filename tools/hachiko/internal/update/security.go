@@ -422,7 +422,7 @@ func (u *updater) pythonAt(version string) string {
 
 // herdr-core, which has no hold to bypass: it is its own installer and takes whatever its
 // latest release is. It restarts the core itself and leaves the terminals running, and the
-// check that follows is the night's own — the `serve` the launcher starts the core with.
+// checks that follow are the night's own.
 func (u *updater) securityCore() {
 	before := u.coreVersion()
 
@@ -436,8 +436,7 @@ func (u *updater) securityCore() {
 		return
 	}
 
-	u.move("herdr-core", before, u.coreVersion())
-	u.coreServes()
+	u.coreUpdated(before)
 }
 
 // Which steps this run is answerable for. A night's run attempts every one of them, so a step

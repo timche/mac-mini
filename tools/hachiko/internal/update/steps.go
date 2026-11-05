@@ -3,6 +3,7 @@ package update
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -379,9 +380,7 @@ func (u *updater) tailscaleBackend() string {
 // herdr-core from its own installer, for the reason mise is: `hc update` replaces the binary
 // it is running from, so nothing else can move it. It restarts the core itself and the
 // terminals keep running, and the LaunchAgent's launcher starts another core the moment that
-// one exits — so there is nothing here for Tim to do afterwards and nothing left running
-// against the old binary.
-// It needs nothing dropped from the environment it is handed either, so it runs the same
+// one exits. It needs nothing dropped from the environment it is handed either, so it runs the same
 // from launchd and from inside one of hc's own terminals, which is where an update somebody
 // starts by hand runs.
 func (u *updater) core() {
@@ -397,8 +396,36 @@ func (u *updater) core() {
 		return
 	}
 
-	u.move("herdr-core", before, u.coreVersion())
+	u.coreUpdated(before)
+}
+
+// What an `hc update` that succeeded leaves to check. A terminal answers to the holder that
+// started it, so a core that moved can leave older terminals without their grants, and
+// herdr-core's own notes say macOS may ask about Local Network again. That prompt waits on the
+// Mac's screen and nothing here can answer or see it, so every move goes to Tim. Full Disk Access
+// is the one grant a plain `ls` can read, and only a new terminal shows what the current holder has:
+// `hc exec` runs under the core, which answers to the launcher.
+func (u *updater) coreUpdated(before string) {
+	after := u.coreVersion()
+	u.move("herdr-core", before, after)
 	u.coreServes()
+
+	if before == "" || after == "" || before == after {
+		return
+	}
+
+	if out := u.deps.Run(Command{
+		Name: "hc", Args: []string{"run", "--no-parent", "--no-notify", "--rm", "/bin/ls",
+			filepath.Join(u.cfg.Home, "Library", "Safari")},
+		Timeout: quick,
+	}); !out.OK {
+		u.waits("a new hc terminal cannot read " + wording.CodeSpan("~/Library/Safari") +
+			" after herdr-core moved to " + after + ", so Herdr Core.app has lost Full Disk Access: " +
+			"check its grants in System Settings > Privacy & Security")
+	}
+
+	u.waits("herdr-core moved to " + after + ": allow Local Network if the Mac's screen is asking, " +
+		"and reopen terminals started before the update if one has lost access")
 }
 
 // `serve` is herdr-core's own internal subcommand, used by its launchd escape and by the

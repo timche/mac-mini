@@ -102,7 +102,7 @@ var messageKinds = []struct {
 	{
 		name:   "a night with something waiting on Tim",
 		marker: wording.MarkerDegraded,
-		wants:  []string{"**Needs you:**", "herdr-core no longer answers to `serve --help`", "needs you"},
+		wants:  []string{"**Needs you:**", "herdr-core no longer answers to `serve --help`", "need you"},
 		render: func(t *testing.T) string {
 			b := newBox(t)
 			b.current()

@@ -45,3 +45,28 @@ alias gst="git status"
 # .zshenv puts ~/.local/bin ahead of Homebrew's prefix, so a formula of the same
 # name cannot answer first.
 eval "$(mise activate zsh)"
+
+# The Claude session this terminal was on, back. A herdr-core core that stopped
+# gives each kept terminal a fresh login shell in its last folder and never
+# re-runs what was in it, so this is where the session that was typed here is
+# typed again: claude-hooks labelled the terminal with it, and resume-session
+# answers with the session and the folder, or with nothing at all. A stopgap
+# until the core carries a resume reference of its own
+# (herdrdev/herdr-core#15).
+#
+# Nothing is asked of a core outside a terminal of one, and resume-session
+# answers nothing for a shell that is not the one the core put there, so a
+# nested zsh and a shell of Claude's own fall through. _CLAUDE_RESUMED is for
+# the one case the pid cannot tell apart: an `exec zsh` keeps the pid, and a
+# session already resumed once is not this shell's to take again. The built
+# binary with the wrapper behind it, as settings.json runs it.
+if [[ -n $HC_TERMINAL_ID && -z $_CLAUDE_RESUMED ]]; then
+  _claude_hooks="$HOME/Library/Caches/claude-hooks/claude-hooks"
+  [[ -x $_claude_hooks ]] || _claude_hooks="$HOME/.local/bin/claude-hooks"
+  _claude_resume=("${(@f)$("$_claude_hooks" resume-session $$ 2>/dev/null)}")
+  if [[ -n $_claude_resume[1] && -n $_claude_resume[2] ]]; then
+    export _CLAUDE_RESUMED=1
+    cd -- "$_claude_resume[2]" && claude --resume "$_claude_resume[1]"
+  fi
+  unset _claude_hooks _claude_resume
+fi

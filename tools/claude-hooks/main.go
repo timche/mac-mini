@@ -13,6 +13,10 @@
 // project-docs prints the shared docs folder and the project's own at session start, so
 // finding them is a mechanism rather than a rule a session has to remember.
 //
+// track-session labels the herdr-core terminal a session was typed into with that
+// session's id, and resume-session tells the shell a parked terminal comes back as which
+// session to come back on. A stopgap until the core carries a resume reference of its own.
+//
 // statusline is the one command here that is not a hook: it sits in front of the program
 // that draws the status line, keeps what Claude Code says is left of the account's usage
 // limits where hachiko's check reads it, and hands the event on untouched.
@@ -29,6 +33,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -38,6 +43,7 @@ import (
 	"github.com/timche/mac-mini/claude-hooks/internal/hook"
 	"github.com/timche/mac-mini/claude-hooks/internal/killbypid"
 	"github.com/timche/mac-mini/claude-hooks/internal/projectdocs"
+	"github.com/timche/mac-mini/claude-hooks/internal/resume"
 	"github.com/timche/mac-mini/claude-hooks/internal/statusline"
 )
 
@@ -51,6 +57,7 @@ var (
 
 const usage = `usage: claude-hooks <hook>
        claude-hooks statusline <command> [argument…]
+       claude-hooks resume-session <shell pid>
 
   guard               read a PreToolUse hook event on stdin and print a deny decision when
                       the command it carries kills by name, pattern or port, or takes the
@@ -59,6 +66,11 @@ const usage = `usage: claude-hooks <hook>
   project-docs        print the shared docs folder and the one this project's docs are in,
                       each as a path and the shape of what is in it, for a SessionStart
                       hook to inject into the session
+
+  resume-session      print the session this herdr-core terminal was left on and the
+                      folder it was working in, one per line, for the login shell a parked
+                      terminal comes back as to resume; print nothing when there is none.
+                      Takes the pid that shell gives for itself. Not a hook
 
   statusline          read the status line event on stdin, keep what it says is left of
                       the account's Claude usage limits where hachiko's check reads it,
@@ -69,6 +81,11 @@ const usage = `usage: claude-hooks <hook>
                       carries with Claude's attribution gone from it, having taken the
                       same out of the body files its gh commands name; print a deny
                       decision when it skips git's hooks, and nothing otherwise
+
+  track-session       read a SessionStart or SessionEnd hook event on stdin and label the
+                      herdr-core terminal this session was typed into with its id, so that
+                      the shell a parked terminal comes back as resumes it; an exit Tim
+                      asked for takes the label off again. Prints nothing
 `
 
 // 1 and never 2: 2 is how a PreToolUse hook blocks the command, so a hook that was called
@@ -99,6 +116,23 @@ func main() {
 		}))
 	}
 
+	// The other command that takes an argument, and the other that is no hook: it is a
+	// line of the interactive zsh startup, and the pid it is given is that shell's own.
+	if args[0] == "resume-session" {
+		if len(args) != 2 {
+			fmt.Fprint(os.Stderr, usage)
+			os.Exit(1)
+		}
+		handoff()
+		shell, err := strconv.Atoi(args[1])
+		if err != nil {
+			fmt.Fprint(os.Stderr, usage)
+			os.Exit(1)
+		}
+		resume.Recall(os.Stdout, resume.Open(), shell, resume.SessionsDir())
+		return
+	}
+
 	if len(args) != 1 {
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(1)
@@ -112,6 +146,8 @@ func main() {
 		run = projectDocsHook
 	case "strip-attribution":
 		run = stripAttribution
+	case "track-session":
+		run = trackSession
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(1)
@@ -142,6 +178,15 @@ func projectDocsHook() error {
 
 func stripAttribution() error {
 	return hook.PreToolUseRewrite(os.Stdin, os.Stdout, attribution.Decide)
+}
+
+// Registered for SessionStart and for SessionEnd both, since what it decides depends on
+// which of them arrived and the event says so itself. Like project-docs it never fails:
+// everything it cannot read leaves the terminal's label as it was.
+func trackSession() error {
+	claude, _ := strconv.Atoi(os.Getenv("CLAUDE_PID"))
+	resume.Track(os.Stdin, resume.Open(), claude)
+	return nil
 }
 
 // Keeping an edit live, from the side of the arrangement that cannot build: settings.json

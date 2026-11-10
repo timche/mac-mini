@@ -48,6 +48,7 @@ for path in .zshrc .zshenv .zprofile .gitconfig \
             .config/git/strip-claude-attribution \
             .config/git/refuse-claude-attribution \
             .config/git/ignore \
+            .config/herdr-core/config.toml \
             .config/starship.toml \
             .terminfo/x/xterm-ghostty .terminfo/78/xterm-ghostty \
             .hachiko/sync; do
@@ -530,8 +531,10 @@ check "turning the mochi plugin on merges into a repository settings file and re
 # pattern or port, since every session runs its own copy of the same dev servers, and
 # anything that takes the Mac's one foreground outside focus-lock; strip-attribution, which
 # takes Claude's attribution out of a gh command and the body files it names, and refuses a
-# commit or a push that skips the git hooks doing the same; and project-docs, which prints
-# the docs folders a session starts with. What each of them decides is the specification in
+# commit or a push that skips the git hooks doing the same; project-docs, which prints
+# the docs folders a session starts with; and track-session, which labels the herdr-core
+# terminal a session was typed into so that the shell a parked terminal comes back as
+# resumes it. What each of them decides is the specification in
 # tools/claude-hooks/internal/*/*_test.go; here they are wired up, linked, answering, and reached
 # by an edit to their sources.
 guardevent() {
@@ -547,11 +550,13 @@ striphook() { guardevent "$1" | "$repo/home/.local/bin/claude-hooks" strip-attri
 export -f striphook
 
 # Every hook the binary has, read off its own usage, so one added and never registered
-# fails below rather than being a hook that is silently off. `statusline` is left out
-# because it is no hook: it is registered as the statusLine command, with the program it
-# draws through as an argument, and it is checked on its own further down.
+# fails below rather than being a hook that is silently off. Two names are left out
+# because neither is a hook: `statusline`, which is registered as the statusLine command
+# with the program it draws through as an argument, and `resume-session`, which is a line
+# of the interactive zsh startup. Each is checked on its own further down.
 claudehooks() {
-  "$repo/home/.local/bin/claude-hooks" 2>&1 | awk '/^  [a-z]/ { print $1 }' | grep -vx statusline
+  "$repo/home/.local/bin/claude-hooks" 2>&1 | awk '/^  [a-z]/ { print $1 }' |
+    grep -vxE 'statusline|resume-session'
 }
 export -f claudehooks
 
@@ -636,6 +641,35 @@ check "strip-attribution takes the attribution out of a body file a gh command n
    printf "Body\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n" >"$d/body.md" &&
    out=$(striphook "gh pr edit 1 --body-file $d/body.md") && [ -z "$out" ] &&
    grep -q Body "$d/body.md" && ! grep -q Co-Authored-By "$d/body.md"'
+
+# The one hook registered for two events, because what it does depends on which of them
+# arrived and the event says so itself: a session starting points the terminal at the
+# session it is now on, and an exit Tim asked for takes the label off again.
+check "track-session is registered for a session start and for a session end" \
+  'jq -e "[.hooks.SessionStart[].hooks[].command] | any(contains(\"track-session\"))" \
+     "$HOME/.claude/settings.json" >/dev/null &&
+   jq -e "[.hooks.SessionEnd[].hooks[].command] | any(contains(\"track-session\"))" \
+     "$HOME/.claude/settings.json" >/dev/null'
+
+# Stdout from a SessionStart hook is injected into the session, so this one has none —
+# whatever it cannot read or cannot reach leaves the terminal's label where it was.
+check "track-session says nothing, with a terminal to label or without one" \
+  'out=$(printf "%s" "{\"hook_event_name\":\"SessionStart\",\"session_id\":\"s\",\"cwd\":\"/\",\"source\":\"startup\"}" |
+     env -u HC_TERMINAL_ID "$repo/home/.local/bin/claude-hooks" track-session) && [ -z "$out" ] &&
+   out=$(printf "not json" |
+     HC_TERMINAL_ID=t0 "$repo/home/.local/bin/claude-hooks" track-session) && [ -z "$out" ]'
+
+# The other half of it, the one command here that a shell runs rather than a hook: a shell
+# outside a herdr-core terminal is told nothing, and so is one in a terminal that has no
+# session on it, which is every terminal Tim opens.
+check "resume-session answers nothing outside a terminal, and leaves a shell a shell" \
+  'out=$(env -u HC_TERMINAL_ID "$repo/home/.local/bin/claude-hooks" resume-session $$) &&
+   [ -z "$out" ] &&
+   [ "$(HC_TERMINAL_ID=t0 PATH=$stock_path zsh -ic "echo ok")" = ok ]'
+
+check "the interactive zsh comes back on the session its terminal was left on" \
+  'grep -qF "resume-session \$\$" "$HOME/.zshrc" &&
+   grep -qF "claude --resume" "$HOME/.zshrc"'
 
 # A guard on every session's shell that refused what it could not read would cost them
 # all their shell, so an event it cannot read goes through.
@@ -862,6 +896,14 @@ check "the herdr-core agent starts a core at login and is not kept alive" \
 check "the herdr-core agent's PATH reaches the shims, ~/.local/bin and Homebrew" \
   'plutil -extract ProgramArguments.2 raw "$core_plist" |
      grep -qF "export PATH=\"\$HOME/.local/share/mise/shims:\$HOME/.local/bin:/opt/homebrew/bin"'
+# The shell a parked terminal comes back as, which is where the session that was in it is
+# resumed from. Named rather than inherited: herdr-core otherwise takes it from the core's
+# own SHELL, which is this account's login shell under the job above but whichever shell
+# started a core that replaced a crashed one — and a terminal recovered into Claude Code's
+# bash would read no .zshrc and resume nothing.
+check "a parked terminal comes back as a login zsh" \
+  'grep -qE "^shell *= *\[\"/bin/zsh\", *\"-l\"\]" "$HOME/.config/herdr-core/config.toml"'
+
 # A herdr-core launcher at this path is a binary nothing starts and TCC still keeps
 # entries for, so install.sh removes it.
 check "no herdr-core launcher is left behind" \

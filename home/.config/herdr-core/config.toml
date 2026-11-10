@@ -1,0 +1,9 @@
+# herdr-core's own settings. Only one is this Mac's to set.
+#
+# A parked terminal comes back as this shell, and the shell is where the session that was
+# in that terminal is resumed from (.zshrc, and tools/claude-hooks/README.md has the whole
+# of it). Left unset, herdr-core takes it from the core's own SHELL — the account's login
+# shell when launchd started the core, but whichever shell started the one that replaced a
+# crashed core, and Claude Code's Bash tool is bash. A recovery into bash would read no
+# .zshrc and resume nothing, so the shell is named here rather than inherited.
+shell = ["/bin/zsh", "-l"]

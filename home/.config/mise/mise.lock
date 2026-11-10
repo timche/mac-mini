@@ -52,13 +52,13 @@ checksum = "sha256:0f20ce6674d4f2dbcc8c5d59fdf99f7ba45f8c3b367e0f5781cbfa30a1c78
 url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-windows-x64-baseline.zip"
 
 [[tools."http:chrome-for-testing"]]
-version = "157.0.8103.38"
+version = "157.0.8103.50"
 backend = "http:chrome-for-testing"
 specifiers = ["latest"]
 
 [tools."http:chrome-for-testing"."platforms.macos-arm64"]
-checksum = "blake3:94235a0cbc9dba1d022592ed7ef778fac80dfda726f40f28a40043c8b7d76ef3"
-url = "https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/mac-arm64/chrome-mac-arm64.zip"
+checksum = "blake3:8acca12a8992c7cda6b7c349b13aba24e8849976cbb1c4476b1f956f1ae2cf20"
+url = "https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.50/mac-arm64/chrome-mac-arm64.zip"
 
 [[tools.node]]
 version = "26.13.0"
@@ -122,8 +122,8 @@ backend = "npm:chrome-devtools-mcp"
 specifiers = ["latest"]
 
 [[tools."npm:portless"]]
-version = "0.16.0"
-aube = { path = "locks/npm-portless/0.16.0", digest = "sha256:0efc452665bce25ad9ced38fa9a91770f0b7ca9b4853506b80c99e886fa78cdc" }
+version = "0.17.0"
+aube = { path = "locks/npm-portless/0.17.0", digest = "sha256:056fce5ac2c1e80331deabb71cfba3df5a02ba2e6ee0be2537e7f7a8a86837a2" }
 backend = "npm:portless"
 specifiers = ["latest"]
 

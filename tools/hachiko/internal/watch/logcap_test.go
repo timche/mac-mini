@@ -109,10 +109,10 @@ func TestTheSweepsOwnLogIsCappedInPlace(t *testing.T) {
 	harness.Equal(t, sizeOf(t, path), int64(0), "the size of the log after the cap")
 }
 
-// The herdr-core launcher's log, which is the one its plist's shell holds open for the life
-// of the Mac: a line per core it starts and per core that exits, and a core that will not
-// stay up writes those as fast as the backoff lets it.
-func TestTheCoreLaunchersLogIsCapped(t *testing.T) {
+// The herdr-core log, which the login job's `hc server start` and every core after it append
+// to: a core that will not stay up writes a start and an exit as fast as whatever is calling
+// hc retries.
+func TestTheCoreLogIsCapped(t *testing.T) {
 	f := newFixture(t)
 	path := logFile(t, f, "herdr-core.log", 2*logCapKB)
 	appendingTo(t, path)

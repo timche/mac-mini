@@ -378,11 +378,10 @@ func (u *updater) tailscaleBackend() string {
 }
 
 // herdr-core from its own installer, for the reason mise is: `hc update` replaces the binary
-// it is running from, so nothing else can move it. It restarts the core itself and the
-// terminals keep running, and the LaunchAgent's launcher starts another core the moment that
-// one exits. It needs nothing dropped from the environment it is handed either, so it runs the same
-// from launchd and from inside one of hc's own terminals, which is where an update somebody
-// starts by hand runs.
+// it is running from, so nothing else can move it. It restarts the core itself, keeping the
+// core's starting environment, and the terminals keep running. It needs nothing dropped from
+// the environment it is handed either, so it runs the same from launchd and from inside one of
+// hc's own terminals, which is where an update somebody starts by hand runs.
 func (u *updater) core() {
 	before := u.coreVersion()
 
@@ -404,11 +403,10 @@ func (u *updater) core() {
 // herdr-core's own notes say macOS may ask about Local Network again. That prompt waits on the
 // Mac's screen and nothing here can answer or see it, so every move goes to Tim. Full Disk Access
 // is the one grant a plain `ls` can read, and only a new terminal shows what the current holder has:
-// `hc exec` runs under the core, which answers to the launcher.
+// `hc exec` runs under the core, which answers for itself rather than for a holder.
 func (u *updater) coreUpdated(before string) {
 	after := u.coreVersion()
 	u.move("herdr-core", before, after)
-	u.coreServes()
 
 	if before == "" || after == "" || before == after {
 		return
@@ -426,21 +424,6 @@ func (u *updater) coreUpdated(before string) {
 
 	u.waits("herdr-core moved to " + after + ": allow Local Network if the Mac's screen is asking, " +
 		"and reopen terminals started before the update if one has lost access")
-}
-
-// `serve` is herdr-core's own internal subcommand, used by its launchd escape and by the
-// launcher this Mac runs the core under, and nothing documents it. So the one thing checked
-// after an update is that it is still there: without it the LaunchAgent has nothing to start,
-// every session on this Mac ends with the core that is running, and only Tim can decide what
-// to do about it.
-func (u *updater) coreServes() {
-	if out := u.deps.Run(Command{
-		Name: "herdr-core", Args: []string{"serve", "--help"}, Timeout: quick,
-	}); !out.OK {
-		u.waits("herdr-core no longer answers to " + wording.CodeSpan("serve --help") +
-			", which is what the LaunchAgent's launcher starts the core with: the next core to " +
-			"exit is the last one, and every hc terminal goes with it")
-	}
 }
 
 func (u *updater) coreVersion() string {

@@ -445,8 +445,8 @@ func TestACleanupThatFailsNamesTheKeg(t *testing.T) {
 	harness.Wants(t, b.summary(), "- `brew cleanup`: could not clear what Homebrew replaced\n```\nPermission denied @ apply2files")
 }
 
-// `hc update` restarts the core itself and the terminals keep running, and the LaunchAgent's
-// launcher starts another core the moment that one exits — so nothing here restarts anything.
+// `hc update` restarts the core itself, keeping its starting environment, and the terminals keep
+// running — so nothing here restarts anything.
 func TestTheCoreIsUpdatedAndNothingIsRestartedByHand(t *testing.T) {
 	b := newBox(t)
 	b.current()
@@ -461,20 +461,6 @@ func TestTheCoreIsUpdatedAndNothingIsRestartedByHand(t *testing.T) {
 			t.Errorf("the core was restarted by hand: %q", call)
 		}
 	}
-}
-
-// `serve` is herdr-core's own internal subcommand and nothing documents it, so the one thing
-// checked after the update is that the LaunchAgent's launcher still has something to start.
-func TestACoreThatNoLongerAnswersToServeIsSaidToTim(t *testing.T) {
-	b := newBox(t)
-	b.current()
-	b.moveCore("0.1.17", "0.1.18")
-	b.fails("herdr-core serve --help", "error: unrecognized subcommand 'serve'")
-
-	b.update(false)
-
-	harness.Wants(t, b.summary(), "**Needs you:**\n- herdr-core no longer answers to `serve --help`")
-	harness.Wants(t, b.summary(), "every hc terminal goes with it")
 }
 
 // A prompt on the Mac's screen is invisible from here, so a core that moved is always Tim's to look at.
@@ -658,8 +644,7 @@ func TestACoreAlreadyCurrentIsNothingWaiting(t *testing.T) {
 func TestTheLeadCountsWhatIsWaitingOnHim(t *testing.T) {
 	b := newBox(t)
 	b.current()
-	b.moveTool(outdatedLine("bun", "latest", "1.4.2", "1.4.3"))
-	b.fails("herdr-core serve --help", "error: unrecognized subcommand 'serve'")
+	b.moveCore("0.1.17", "0.1.18")
 	b.says("softwareupdate --list",
 		"	Title: macOS 27.2, Version: 27.2, Size: 7101234KiB, Recommended: YES, Action: restart,\n")
 

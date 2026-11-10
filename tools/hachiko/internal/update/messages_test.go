@@ -102,12 +102,11 @@ var messageKinds = []struct {
 	{
 		name:   "a night with something waiting on Tim",
 		marker: wording.MarkerDegraded,
-		wants:  []string{"**Needs you:**", "herdr-core no longer answers to `serve --help`", "need you"},
+		wants:  []string{"**Needs you:**", "herdr-core moved to 0.1.18: allow Local Network", "needs you"},
 		render: func(t *testing.T) string {
 			b := newBox(t)
 			b.current()
 			b.moveCore("0.1.17", "0.1.18")
-			b.fails("herdr-core serve --help", "error: unrecognized subcommand 'serve'")
 			b.update(false)
 			return b.summary()
 		},

@@ -213,9 +213,9 @@ func TestAFailedSecurityStepWithNothingToSuggestSaysNothingAsksAgain(t *testing.
 	harness.Wants(t, failing[0].Action, "`hachiko update --security`")
 }
 
-// The one target that is its own installer, and the same check after it as the night's run
-// makes: an advisory about herdr-core is answered by `hc update` and nothing else.
-func TestTheCoreTargetUpdatesTheCoreAndChecksItStillServes(t *testing.T) {
+// The one target that is its own installer: an advisory about herdr-core is answered by
+// `hc update` and nothing else.
+func TestTheCoreTargetUpdatesTheCore(t *testing.T) {
 	b := newBox(t)
 	b.moveCore("0.1.17", "0.1.18")
 
@@ -231,7 +231,6 @@ func TestTheCoreTargetUpdatesTheCoreAndChecksItStillServes(t *testing.T) {
 		t.Fatal("hc update was never run")
 	}
 	harness.Wants(t, b.summary(), "`herdr-core` 0.1.17 → 0.1.18")
-	harness.Equal(t, b.ran("herdr-core serve --help"), true, "whether serve was checked after the update")
 }
 
 // There is a python per version here and `pip install` upgrades whichever interpreter ran it,

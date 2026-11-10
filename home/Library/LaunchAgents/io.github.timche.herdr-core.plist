@@ -1,17 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- The herdr-core core, started by launchd inside the logged-in GUI session
-     rather than by the first `hc` a remote client runs over SSH. Every Claude Code
-     session is a terminal of this core, and Claude Code offers computer use only
-     to a session that is not an SSH one; started here, a terminal is genuinely
-     local, with no SSH_* in its environment. Linked like the agents beside it, and
-     for the same reason it names no path launchd would have to expand.
+<!-- A herdr-core core up at login, started from inside the logged-in GUI session.
+     Every Claude Code session is a terminal of one core, and where that core was
+     started decides what its terminals are: started here, a terminal is a local
+     Aqua one, where a core a remote client started over SSH first leaves every
+     terminal in macOS's Background security session (herdrdev/herdr-core#104).
+     Terminals' privacy grants are Herdr Core.app's — each holder makes itself the
+     responsible process — so this job answers for nothing and needs no identity of
+     its own. Linked like the agents beside it, and for the same reason it names no
+     path launchd would have to expand.
 
-     What it starts is the launcher, which install.sh compiles from
-     machine/launchd/herdr-core-launcher.c and which stays the parent of every core
-     it starts, so a restart keeps this job's environment. Terminals answer to their
-     holder, so their grants belong to Herdr Core.app and the launcher's cover only
-     the core. -->
+     Run at load and nothing more, because herdr-core starts a core on demand and a
+     start against a running one changes nothing. Two gaps are herdr-core's to close
+     rather than this job's: a core that crashes is replaced by whichever `hc` caller
+     comes next, carrying that caller's environment into new terminals
+     (herdr-core#86), and a core a client started before login keeps the Background
+     session until something restarts it. -->
 <plist version="1.0">
 <dict>
   <key>Label</key>
@@ -19,25 +23,18 @@
   <!-- `hc run` starts a program directly rather than through a login shell, so
        what it inherits from the core is the whole of its PATH — the shims and
        ~/.local/bin ahead of Homebrew, as .zshenv orders them. A UTF-8 locale
-       launchd does not hand a job, and exec so this job's own process is the
-       launcher and nothing stands between launchd and it. The launcher takes no
-       arguments and finds herdr-core under the same HOME launchd hands this
-       shell. -->
+       launchd does not hand a job, and exec because nothing has to outlive the
+       start. -->
   <key>ProgramArguments</key>
   <array>
     <string>/bin/sh</string>
     <string>-c</string>
-    <string>export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"; export LANG=en_US.UTF-8; exec "$HOME/.local/libexec/herdr-core-launcher" >>"$HOME/Library/Logs/herdr-core.log" 2>&amp;1</string>
+    <string>export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"; export LANG=en_US.UTF-8; exec "$HOME/.local/bin/hc" server start >>"$HOME/Library/Logs/herdr-core.log" 2>&amp;1</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
-  <!-- The launcher restarts the core itself and exits only when it is asked to
-       stop, so this covers the launcher dying rather than the core doing: a
-       launcher that is gone is every grant gone with it. -->
-  <key>KeepAlive</key>
-  <true/>
-  <key>ThrottleInterval</key>
-  <integer>10</integer>
+  <!-- No KeepAlive: `hc server start` returns as soon as a core is up, which launchd
+       would read as a job to start again. -->
   <!-- Terminals run builds, dev servers and agents; launchd would otherwise
        throttle them as background work. -->
   <key>ProcessType</key>

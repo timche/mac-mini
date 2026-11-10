@@ -1558,9 +1558,16 @@ check "a command under op run that calls op by name is signed in again" \
    env -u OP_SERVICE_ACCOUNT_TOKEN HOME="$h" PATH="$h/wrap:$h/real:$PATH" op run -- op whoami |
      grep -c "^token=stub-service-account$" | grep -qx 2'
 
-check "DO_NOT_TRACK is set in every shell" \
-  '[ "$(zsh -c "print -r -- \$DO_NOT_TRACK")" = 1 ] &&
-   [ "$(bash -ic "printf %s \"\$DO_NOT_TRACK\"" 2>/dev/null)" = 1 ]'
+# .zshenv is what sets it, so every kind of zsh has it and a bash reads it from the zsh
+# that started it — which is how Claude Code's Bash tool gets it, bash loading no file
+# here. `env -u` because this script was itself started from a login zsh and carries the
+# variable: a check that read it from its own environment would pass on a Mac where
+# nothing set it at all.
+check "DO_NOT_TRACK is set in every zsh, and the bash a session runs inherits it" \
+  '[ "$(env -u DO_NOT_TRACK zsh -c "print -r -- \$DO_NOT_TRACK")" = 1 ] &&
+   env -u DO_NOT_TRACK zsh -ic "print -r -- do-not-track:\$DO_NOT_TRACK" 2>/dev/null |
+     grep -qx "do-not-track:1" &&
+   [ "$(env -u DO_NOT_TRACK zsh -c "bash -c \"printf %s \\\$DO_NOT_TRACK\"")" = 1 ]'
 
 # The markdown rules are assert-markdown.sh's, which CI runs by itself on a Linux
 # runner: test.yml's paths filter keeps a markdown-only push off the macOS runner,

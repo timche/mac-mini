@@ -27,12 +27,12 @@
           {
             "type": "command",
             "command": "b=\"$HOME/Library/Caches/claude-hooks/claude-hooks\"; [ -x \"$b\" ] || b=\"$HOME/.local/bin/claude-hooks\"; exec \"$b\" strip-attribution",
-            "timeout": 30
+            "timeout": 130
           },
           {
             "type": "command",
             "command": "b=\"$HOME/Library/Caches/claude-hooks/claude-hooks\"; [ -x \"$b\" ] || b=\"$HOME/.local/bin/claude-hooks\"; exec \"$b\" guard",
-            "timeout": 30
+            "timeout": 130
           }
         ]
       }

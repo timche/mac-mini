@@ -11,21 +11,21 @@
 # still unread when they have moved, so an edit is live on the very next command.
 # CLAUDE_HOOKS_FRESH says that handoff has happened, and stops a second one.
 #
-# Twenty seconds a step, sized on the run that reaches this script rather than the rebuild
+# Sixty seconds a step, sized on the run that reaches this script rather than the rebuild
 # an edit costs: a Mac that has never built the tool compiles the module and a test binary
-# per package from an empty Go cache, several seconds and over ten respectively on a machine
-# a few times slower than this one, such as the three-core runner CI builds it on. Anything
-# shorter kills the one build that had to work and leaves the session with no hook. What
-# these catch is a step that hangs; the thirty seconds settings.json allows the Bash hook
-# bounds them from outside and covers a cold run.
+# per package from an empty Go cache, which on the three-core runner CI builds it on
+# outran twenty seconds, against two here. Anything shorter kills the one build that had
+# to work and leaves the session with no hook. What these catch is a step that hangs, and
+# a cold build is once per machine, so the generous bound costs only the hang; the timeout
+# settings.json gives the Bash hooks is set above the two steps together.
 
 set -u
 
 tool=claude-hooks
 cache=${CLAUDE_HOOKS_CACHE_DIR:-}
 no_binary="there is no claude-hooks binary and none could be built, so nothing is checking this command"
-build_timeout=20
-test_timeout=20
+build_timeout=60
+test_timeout=60
 drain_stdin=1
 wrapped_var=CLAUDE_HOOKS_FRESH
 

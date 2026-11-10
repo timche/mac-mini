@@ -79,7 +79,7 @@ check "bun runs"            'bun --version'
 check "mise runs"           'mise --version'
 # Pinned to the current LTS major because the tool list asks for node@lts.
 # Bump it when the LTS line moves; a failure here is usually that, not a bug.
-check "node is the lts"     'node --version | grep -q "^v24\."'
+check "node is the lts"     'node --version | grep -q "^v26\."'
 check "npm runs"            'npm --version'
 check "claude runs"         'claude --version'
 # Anthropic's installer owns that path and the background updater keeps it

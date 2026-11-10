@@ -302,7 +302,7 @@ func FromEnv() Config {
 		LogsRoot:     filepath.Join(home, "Library", "Logs"),
 		ProjectsRoot: projects,
 
-		HerdrSpace:   envString("HACHIKO_HERDR_SPACE", "sp-mac-mini"),
+		HerdrSpace: envString("HACHIKO_HERDR_SPACE", "sp-mac-mini"),
 
 		CPUAllowPath: envString("HACHIKO_CPU_ALLOW", filepath.Join(Dir(home), "cpu-allow")),
 		EnvFile:      envFile,

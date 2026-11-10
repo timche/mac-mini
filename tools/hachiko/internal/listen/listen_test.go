@@ -29,11 +29,11 @@ var base = time.Unix(1700000000, 0)
 // The listener against the shapes Discord and hc both answer in: a thread with messages
 // in it, and an on-call agent on its question. Nothing here reaches either.
 type listenFixture struct {
-	t     *testing.T
-	l     *listener
-	hc    *harness.HC
-	log   *bytes.Buffer
-	now   time.Time
+	t   *testing.T
+	l   *listener
+	hc  *harness.HC
+	log *bytes.Buffer
+	now time.Time
 
 	// What the bot was asked to do, and what it answers: the messages in the thread, and
 	// everything posted or reacted to on the way back.
@@ -71,10 +71,10 @@ func newListener(t *testing.T) *listenFixture {
 	}
 
 	f := &listenFixture{
-		t:     t,
-		hc:    &harness.HC{HasSession: true, BlockedSend: true},
-		log:   &bytes.Buffer{},
-		now:   time.Unix(1111111111, 0),
+		t:   t,
+		hc:  &harness.HC{HasSession: true, BlockedSend: true},
+		log: &bytes.Buffer{},
+		now: time.Unix(1111111111, 0),
 	}
 
 	bot := botAgainst(t, func(w http.ResponseWriter, r *http.Request) {

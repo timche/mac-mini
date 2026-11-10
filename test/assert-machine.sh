@@ -106,7 +106,19 @@ prefs() {
 }
 export -f prefs
 
-check "tailscale serves ssh"          '[ "$(prefs | jq -r .RunSSH)" = true ]'
+# A node that has never logged in has no profile to keep prefs in, so what
+# `tailscale set` wrote lasts only until tailscaled restarts; on a CI runner, which
+# never logs in, something later in the job restarts it and RunSSH is gone. So a
+# logged-out node with RunSSH unset is said rather than failed. A logged-in one is
+# always checked, and so is a logged-out one whose prefs still hold it.
+if [ "$(prefs | jq -r .RunSSH)" != true ] &&
+   tailscale status --json 2>/dev/null | jq -r '.BackendState // empty' |
+     grep -qxE 'NeedsLogin|NoState'; then
+  echo "  --    tailscale has never logged in and RunSSH did not outlive a tailscaled" \
+       "restart, so whether it serves ssh was not checked"
+else
+  check "tailscale serves ssh"        '[ "$(prefs | jq -r .RunSSH)" = true ]'
+fi
 # An exit node is the two default routes, so an empty list rules out both it and a
 # subnet.
 check "tailscale advertises no routes" \

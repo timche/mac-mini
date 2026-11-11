@@ -225,6 +225,9 @@ func TestTheCoreTargetUpdatesTheCore(t *testing.T) {
 	for _, cmd := range b.run {
 		if cmd.line() == "hc update" {
 			found = true
+			if !cmd.InTerminal {
+				t.Error("hc update ran as hachiko's child, which App Management refuses")
+			}
 		}
 	}
 	if !found {

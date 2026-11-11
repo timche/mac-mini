@@ -431,7 +431,7 @@ func (u *updater) securityCore() {
 		return
 	}
 
-	if out := u.deps.Run(Command{Name: "hc", Args: []string{"update"}, Timeout: selfUpdate}); !out.OK {
+	if out := u.deps.Run(coreUpdate); !out.OK {
 		u.failed(Failure{Step: stepSecurity, Detail: out.Text})
 		return
 	}

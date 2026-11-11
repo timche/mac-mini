@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -27,6 +28,14 @@ type Command struct {
 
 	// The whole environment the command gets, when it is not to inherit this process's.
 	Env []string
+
+	// Run it in a new hc terminal rather than as a child of this process. macOS's App
+	// Management refuses a change to an app bundle unless the responsible process holds that
+	// grant, and for anything launchd starts here that is hachiko, which is ad-hoc signed: a
+	// grant to it is pinned to one build's cdhash and lapses at the next rebuild. A terminal
+	// answers to its holder, Herdr Core.app, whose Developer ID keeps its grants across
+	// releases. The terminal takes the core's environment, so Env does not reach it.
+	InTerminal bool
 }
 
 func (c Command) line() string { return strings.TrimSpace(c.Name + " " + strings.Join(c.Args, " ")) }
@@ -72,6 +81,10 @@ func realDeps(cfg config.Config) Deps {
 }
 
 func run(cmd Command) Output {
+	if cmd.InTerminal {
+		return runInTerminal(cmd)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), cmd.Timeout)
 	defer cancel()
 
@@ -90,6 +103,63 @@ func run(cmd Command) Output {
 		text = err.Error()
 	}
 	return Output{OK: err == nil, Stdout: stdout.String(), Text: text}
+}
+
+var terminalPoll = 2 * time.Second
+
+// `hc run --bg` with the result left in files, rather than `hc run` waiting, because the command
+// this is for, `hc update`, restarts the core: the terminal survives that, and a client waiting
+// on it need not. The shell writes the exit code last and by a rename, so a code file that
+// exists means the output beside it is whole.
+func runInTerminal(cmd Command) Output {
+	hc, err := exec.LookPath("hc")
+	if err != nil {
+		return Output{Text: err.Error()}
+	}
+	// Resolved here, since the terminal's PATH is the core's and launchd started the core.
+	name, err := exec.LookPath(cmd.Name)
+	if err != nil {
+		return Output{Text: err.Error()}
+	}
+
+	dir, err := os.MkdirTemp("", "hachiko-terminal-")
+	if err != nil {
+		return Output{Text: err.Error()}
+	}
+	defer os.RemoveAll(dir)
+	outFile, codeFile := filepath.Join(dir, "out"), filepath.Join(dir, "code")
+
+	args := []string{"run", "--bg", "--no-parent", "--no-notify", "--rm"}
+	if cmd.Dir != "" {
+		args = append(args, "--cwd", cmd.Dir)
+	}
+	args = append(args, "--", "/bin/sh", "-c",
+		`out=$1 code=$2; shift 2; "$@" >"$out" 2>&1; echo $? >"$code.tmp" && mv "$code.tmp" "$code"`,
+		"sh", outFile, codeFile, name)
+	args = append(args, cmd.Args...)
+
+	if started := run(Command{Name: hc, Args: args, Timeout: time.Minute}); !started.OK {
+		return started
+	}
+
+	deadline := time.Now().Add(cmd.Timeout)
+	for {
+		if code, err := os.ReadFile(codeFile); err == nil {
+			out, _ := os.ReadFile(outFile)
+			text := strings.TrimSpace(string(out))
+			status := strings.TrimSpace(string(code))
+			if text == "" && status != "0" {
+				text = "exit " + status
+			}
+			return Output{OK: status == "0", Stdout: string(out), Text: text}
+		}
+		if time.Now().After(deadline) {
+			out, _ := os.ReadFile(outFile)
+			return Output{Text: strings.TrimSpace(cmd.line() + " had not finished in its hc terminal after " +
+				cmd.Timeout.String() + "\n" + string(out))}
+		}
+		time.Sleep(terminalPoll)
+	}
 }
 
 // exec copies stdout and stderr on a goroutine each, and both reach this one: a plain

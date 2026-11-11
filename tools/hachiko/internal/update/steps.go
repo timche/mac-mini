@@ -379,9 +379,8 @@ func (u *updater) tailscaleBackend() string {
 
 // herdr-core from its own installer, for the reason mise is: `hc update` replaces the binary
 // it is running from, so nothing else can move it. It restarts the core itself, keeping the
-// core's starting environment, and the terminals keep running. It needs nothing dropped from
-// the environment it is handed either, so it runs the same from launchd and from inside one of
-// hc's own terminals, which is where an update somebody starts by hand runs.
+// core's starting environment, and the terminals keep running. It runs in a terminal of its
+// own, for the App Management grant InTerminal explains.
 func (u *updater) core() {
 	before := u.coreVersion()
 
@@ -390,13 +389,15 @@ func (u *updater) core() {
 		return
 	}
 
-	if out := u.deps.Run(Command{Name: "hc", Args: []string{"update"}, Timeout: selfUpdate}); !out.OK {
+	if out := u.deps.Run(coreUpdate); !out.OK {
 		u.failed(Failure{Step: stepCore, Detail: out.Text})
 		return
 	}
 
 	u.coreUpdated(before)
 }
+
+var coreUpdate = Command{Name: "hc", Args: []string{"update"}, Timeout: selfUpdate, InTerminal: true}
 
 // What an `hc update` that succeeded leaves to check. A terminal answers to the holder that
 // started it, so a core that moved can leave older terminals without their grants, and

@@ -93,7 +93,7 @@
   "effortLevel": "high",
   "modelSettings": {
     "claude-fable-5-1": {
-      "effortLevel": "low",
+      "effortLevel": "medium",
       "autoCompactWindow": 400000
     },
     "claude-opus-5": {

@@ -116,8 +116,8 @@ backend = "npm:ccstatusline"
 specifiers = ["latest"]
 
 [[tools."npm:chrome-devtools-mcp"]]
-version = "1.12.0"
-aube = { path = "locks/npm-chrome-devtools-mcp/1.12.0", digest = "sha256:0a625298cb87475a660765dfaa086356bd2d1b6dd887feb0a195d77805ee6844" }
+version = "1.13.0"
+aube = { path = "locks/npm-chrome-devtools-mcp/1.13.0", digest = "sha256:defcb2e5c4e53aba11dccb04dda16b6a237879f9875f3cdda7ac25b0a2060613" }
 backend = "npm:chrome-devtools-mcp"
 specifiers = ["latest"]
 

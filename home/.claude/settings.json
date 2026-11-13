@@ -16,7 +16,7 @@
       "Read(~/.claude/.credentials.json)",
       "Edit(~/.claude/.credentials.json)"
     ],
-    "defaultMode": "bypassPermissions"
+    "defaultMode": "dontAsk"
   },
   "model": "opus",
   "hooks": {

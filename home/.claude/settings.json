@@ -18,7 +18,7 @@
     ],
     "defaultMode": "bypassPermissions"
   },
-  "model": "haiku",
+  "model": "opus",
   "hooks": {
     "PreToolUse": [
       {

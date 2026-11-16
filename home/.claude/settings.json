@@ -108,6 +108,9 @@
     },
     "claude-haiku-5-5": {
       "autoCompactWindow": 400000
+    },
+    "claude-fable-5-2": {
+      "autoCompactWindow": 400000
     }
   },
   "tui": "fullscreen",

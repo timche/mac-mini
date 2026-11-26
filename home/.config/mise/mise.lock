@@ -128,8 +128,8 @@ backend = "npm:ccstatusline"
 specifiers = ["latest"]
 
 [[tools."npm:chrome-devtools-mcp"]]
-version = "1.13.0"
-aube = { path = "locks/npm-chrome-devtools-mcp/1.13.0", digest = "sha256:defcb2e5c4e53aba11dccb04dda16b6a237879f9875f3cdda7ac25b0a2060613" }
+version = "1.14.0"
+aube = { path = "locks/npm-chrome-devtools-mcp/1.14.0", digest = "sha256:fb573dbdd2e6f2d5c3c7b05b796317f48ef8375a9ba2f7c7bc1b1bd5a2c8e54d" }
 backend = "npm:chrome-devtools-mcp"
 specifiers = ["latest"]
 

@@ -46,3 +46,8 @@ SoftwareUpdateNotificationManager
 # Sharing is connected.
 WindowServer
 kernel_task
+
+# macOS's daily signpost telemetry rollup, which dasd runs while the Mac is idle:
+# a full core for about an hour and a half every morning, then a clean exit. A
+# kill only puts it off to dasd's next window, so an alert has nothing to offer.
+signpost_reporter

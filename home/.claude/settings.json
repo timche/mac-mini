@@ -118,6 +118,7 @@
   "skipDangerousModePermissionPrompt": true,
   "theme": "dark",
   "preferredNotifChannel": "ghostty",
+  "idleCompaction": true,
   "remoteControlAtStartup": false,
   "agentPushNotifEnabled": true
 }
